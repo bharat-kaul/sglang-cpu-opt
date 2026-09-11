@@ -1,0 +1,81 @@
+{
+  "model": "/scratch/bkaul/models/OLMo-2-1124-7B",
+  "prompts": 12,
+  "top1_agreement": 1.0,
+  "agree_min": 0.9,
+  "rows": [
+    {
+      "prompt": "The capital of France is",
+      "hf": "Paris",
+      "sglang": "Paris",
+      "agree": true
+    },
+    {
+      "prompt": "The chemical symbol for gold is",
+      "hf": "Au",
+      "sglang": "Au",
+      "agree": true
+    },
+    {
+      "prompt": "The first president of the United St",
+      "hf": "George",
+      "sglang": "George",
+      "agree": true
+    },
+    {
+      "prompt": "Water is made of hydrogen and",
+      "hf": "oxygen",
+      "sglang": "oxygen",
+      "agree": true
+    },
+    {
+      "prompt": "The opposite of hot is",
+      "hf": "cold",
+      "sglang": "cold",
+      "agree": true
+    },
+    {
+      "prompt": "def add(a, b):\n    return",
+      "hf": "a",
+      "sglang": "a",
+      "agree": true
+    },
+    {
+      "prompt": "The largest planet in the solar syst",
+      "hf": "Jupiter",
+      "sglang": "Jupiter",
+      "agree": true
+    },
+    {
+      "prompt": "Roses are red, violets are",
+      "hf": "blue",
+      "sglang": "blue",
+      "agree": true
+    },
+    {
+      "prompt": "The speed of light is approximately ",
+      "hf": "8",
+      "sglang": "8",
+      "agree": true
+    },
+    {
+      "prompt": "To be or not to be, that is the",
+      "hf": "question",
+      "sglang": "question",
+      "agree": true
+    },
+    {
+      "prompt": "The square root of 64 is",
+      "hf": "",
+      "sglang": "",
+      "agree": true
+    },
+    {
+      "prompt": "Machine learning is a subfield of",
+      "hf": "computer",
+      "sglang": "computer",
+      "agree": true
+    }
+  ],
+  "overall_verdict": "PASS"
+}

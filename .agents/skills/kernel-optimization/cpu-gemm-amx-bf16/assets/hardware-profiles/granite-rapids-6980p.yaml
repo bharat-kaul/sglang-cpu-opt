@@ -1,0 +1,70 @@
+# Hardware profile — Intel Xeon 6980P (Granite Rapids-AP)
+# EDIT THIS FILE (or copy it) to retarget the GEMM skill to a new Xeon part.
+# Every number here is consumed by tools/roofline.py; the skill playbook is invariant.
+part: "Intel Xeon 6980P"
+codename: "Granite Rapids-AP"
+
+# --- Topology ---
+sockets: 2
+cores_per_socket: 128
+cores_total: 256          # physical cores (AMX uses 1 TMUL per physical core; ignore SMT)
+threads_per_core: 2
+numa_nodes: 6             # SNC-3 per socket (socket0 = nodes 0-2, socket1 = nodes 3-5)
+
+# --- ISA capabilities (must match `lscpu` flags on the target) ---
+capabilities:
+  - avx512f
+  - avx512_bf16
+  - amx_tile
+  - amx_bf16
+  - amx_int8
+
+# --- AMX compute peak ---
+# TDPBF16PS computes a 16x16 FP32 tile from A[16x32] * B[32x16] BF16
+#   = 16*16*32 = 8192 MAC = 16384 FLOP per instruction.
+# One TMUL unit per core, reciprocal throughput ~16 cycles => 16384/16 = 1024 FLOP/cycle/core.
+amx_bf16_flops_per_cycle_per_core: 1024
+amx_int8_ops_per_cycle_per_core: 2048
+# AMX all-core sustained frequency (LOWER than max turbo). MEASURE and update.
+# 2.68 GHz derived from the AMX peak microkernel (per-core 2.741 TF / 1024 FLOP/cyc)
+# under a 128-core load on pcl-gnrap01 (single-core turbo reaches ~3.58 GHz).
+amx_all_core_freq_ghz: 2.68
+max_turbo_ghz: 3.9
+
+# --- AMX tile shape (BF16) ---
+tile_m: 16
+tile_n: 16
+tile_k: 32
+weight_pack_constraints:   # mirrors SGLang dim_is_supported()
+  oc_multiple_of: 16
+  ic_multiple_of: 32
+
+# --- Caches ---
+l2_bytes_per_core: 2097152        # 2 MiB private L2 per core
+l3_bytes_total: 503316480         # ~480 MiB shared L3 (approx)
+
+# --- Memory (sets the memory-bandwidth roofline) ---
+mem_type: "MRDIMM/DDR5"
+mem_speed_mts: 8800
+mem_channels_per_socket: 12
+mem_bytes_per_transfer: 8
+# derived peak BW = sockets * channels * MT/s * 8 B = 2*12*8800e6*8 = 1689.6 GB/s
+
+# --- ACHIEVABLE ceilings (measured on pcl-gnrap01, 2026-09-09) ---
+# TWO distinct compute ceilings (see establish-achievable-performance skill):
+#   compute_peak   = resident-tile microkernel, zero mem traffic -> UPPER BOUND.
+#   streamed_gemm  = realistic ceiling for a streamed GEMM (pre-packed BRGEMM);
+#                    THIS is what the optimization loop gates against.
+achievable:
+  measured_by: "tools/microbench (amx_peak.c, stream_triad.c)"
+  single_core_bf16_tflops: 3.67          # ~1024 FLOP/cyc @ ~3.58 GHz single-core turbo
+  compute_peak_tflops_per_socket: 350.8  # resident microkernel = ~100% of AMX peak (UPPER BOUND)
+  compute_peak_tflops_full_node: 694.3
+  # streamed_gemm = pre-packed BRGEMM ceiling; measured best library path so far.
+  # MKL pre-packed 54.8 TF, torch 60.6 TF (per-call). Best-observed streamed floor
+  # = 60.6; a true cache-blocked LIBXSMM/TPP BRGEMM ceiling is still TBD (see skill).
+  streamed_gemm_tflops_per_socket: 60.6   # provisional floor; not yet a tuned ceiling
+  streamed_gemm_estimated: true
+  # kept for backward-compat with roofline.py --use-profile-achievable:
+  bf16_compute_tflops_per_socket: 350.8
+  mem_bw_gbs_per_socket: 630.7           # STREAM triad = 74.6% of 844.8 peak

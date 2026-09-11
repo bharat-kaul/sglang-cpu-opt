@@ -1,0 +1,13 @@
+{
+  "model": "/scratch/bkaul/models/OLMo-2-1124-7B-w8a8int8",
+  "tp": 1,
+  "batch": 8,
+  "input_len": 512,
+  "output_len": 64,
+  "linear_gflops_per_token": 13.77,
+  "prefill_tok_s": 2012.8,
+  "decode_tok_s": 134.7,
+  "prefill_achieved_tflops": 27.7,
+  "streamed_ceiling_tflops": 60.6,
+  "prefill_eff_abs": 0.458
+}

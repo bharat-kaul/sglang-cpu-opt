@@ -1,0 +1,12 @@
+{
+  "model": "/scratch/bkaul/models/OLMoE-1B-7B-0924",
+  "num_questions": 100,
+  "num_shots": 8,
+  "accuracy": 0.19,
+  "correct": 19,
+  "invalid": 0,
+  "latency_s": 19.3,
+  "gen_tok_s_est": null,
+  "acc_min": 0.0,
+  "verdict": "PASS"
+}

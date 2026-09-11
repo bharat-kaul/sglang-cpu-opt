@@ -1,0 +1,68 @@
+# =============================================================================
+# HARDWARE PROFILE TEMPLATE  —  the single parameterized source of truth.
+# =============================================================================
+# This is the ONE file you touch to retarget the whole GEMM skill + roofline to
+# a new platform (Day-0 objective). Two ways to fill it:
+#
+#   (A) AUTO (recommended, hardware in hand):
+#       srun --partition=<newpart> ... python tools/calibrate.py --out \
+#            .agents/skills/kernel-optimization/cpu-gemm-amx-bf16/assets/hardware-profiles/<part>.yaml
+#       calibrate.py fills every [AUTO] field by probing lscpu/numactl and running
+#       the microbenchmarks (achievable ceilings). You only supply [SPEC] fields.
+#
+#   (B) MANUAL (hardware not yet available, e.g. next-gen bring-up):
+#       Copy this file, fill [SPEC] fields from the datasheet, and set the
+#       `achievable` block to your best projection. Mark it estimated:true so the
+#       verdict flags that ceilings are projected, not measured.
+#
+# Field tags:  [AUTO]  filled by calibrate.py    [SPEC]  from datasheet (manual)
+# =============================================================================
+part: "<CPU model, e.g. Intel Xeon 6980P>"           # [AUTO] lscpu 'Model name'
+codename: "<uarch, e.g. Granite Rapids-AP>"          # [SPEC]
+
+# --- Topology ---
+sockets: 0                 # [AUTO]
+cores_per_socket: 0        # [AUTO]
+cores_total: 0             # [AUTO]
+threads_per_core: 0        # [AUTO]
+numa_nodes: 0              # [AUTO]  (SNC: nodes_per_socket = numa_nodes / sockets)
+
+# --- ISA capabilities (drives the capability contract; must match lscpu flags) ---
+capabilities: []           # [AUTO]  subset of {avx512f,avx512_bf16,amx_tile,amx_bf16,amx_int8,amx_fp16,...}
+
+# --- AMX compute constants (ISA-level; change ONLY if the TMUL changes) ---
+# TDPBF16PS = 16x16x32 MAC = 16384 FLOP/instr; 1 TMUL/core, ~16-cyc recip tput
+# => 1024 FLOP/cyc/core. calibrate.py verifies this against the microkernel.
+amx_bf16_flops_per_cycle_per_core: 1024   # [SPEC] verified by [AUTO] microkernel
+amx_int8_ops_per_cycle_per_core: 2048     # [SPEC]
+amx_all_core_freq_ghz: 0.0                # [AUTO] derived from microkernel (NOT turbo)
+max_turbo_ghz: 0.0                        # [AUTO] lscpu 'CPU max MHz'
+
+# --- AMX tile shape (BF16) ---
+tile_m: 16                 # [SPEC]
+tile_n: 16                 # [SPEC]
+tile_k: 32                 # [SPEC]
+weight_pack_constraints:   # [SPEC] mirrors SGLang dim_is_supported()
+  oc_multiple_of: 16
+  ic_multiple_of: 32
+
+# --- Caches ---
+l2_bytes_per_core: 0       # [AUTO] lscpu L2
+l3_bytes_total: 0          # [AUTO] lscpu L3
+
+# --- Memory (theoretical peak BW = sockets*channels*MT/s*8B) ---
+mem_type: "<e.g. MRDIMM/DDR5>"     # [SPEC]
+mem_speed_mts: 0                   # [SPEC] datasheet (dmidecode needs root)
+mem_channels_per_socket: 0         # [SPEC]
+mem_bytes_per_transfer: 8          # [SPEC]
+
+# --- ACHIEVABLE ceilings (what the optimization loop actually gates against) ---
+# Filled by calibrate.py from tools/microbench. If projected (mode B), set
+# estimated:true so the roofline verdict labels the ceiling as unvalidated.
+achievable:
+  estimated: false                       # [AUTO=false, MANUAL-projection=true]
+  measured_by: ""                        # [AUTO]
+  single_core_bf16_tflops: 0.0           # [AUTO] amx_peak.c, 1 thread
+  bf16_compute_tflops_per_socket: 0.0    # [AUTO] amx_peak.c, 1 socket  <-- PRIMARY GEMM target
+  bf16_compute_tflops_full_node: 0.0     # [AUTO] amx_peak.c, all cores
+  mem_bw_gbs_per_socket: 0.0             # [AUTO] stream_triad.c, 1 socket

@@ -1,0 +1,7 @@
+{
+  "_comment": "OLMo 2 13B per-op RAW AMX-kernel TFLOP/s measured on pcl-gnrap01 (GNR 6980P), M=2048 prefill block, single socket NUMA 0-2, 128 threads, 2026-09-10. This is the enablement TARGET baseline; the in-SGLang peer-relative gate later compares the wired model against these same shapes to catch wiring loss.",
+  "qkv": 38.97,
+  "o": 32.53,
+  "gate_up": 30.95,
+  "down": 41.65
+}

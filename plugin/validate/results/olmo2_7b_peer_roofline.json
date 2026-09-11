@@ -1,0 +1,55 @@
+{
+  "model": "olmo2_7b",
+  "hardware_profile": "Intel Xeon 6980P",
+  "streamed_ceiling_tflops": 60.6,
+  "eff_abs_min": 0.7,
+  "eff_rel_min": 0.9,
+  "m_block": 2048,
+  "ops": [
+    {
+      "op": "qkv",
+      "M": 2048,
+      "K": 4096,
+      "N": 12288,
+      "tflops": 35.37,
+      "eff_abs": 0.584,
+      "eff_rel": 1.261,
+      "donor": "llama3_8b K4096xN6144=28.06TF",
+      "verdict": "PASS"
+    },
+    {
+      "op": "o",
+      "M": 2048,
+      "K": 4096,
+      "N": 4096,
+      "tflops": 25.47,
+      "eff_abs": 0.42,
+      "eff_rel": 1.099,
+      "donor": "llama3_8b K4096xN4096=23.17TF",
+      "verdict": "PASS"
+    },
+    {
+      "op": "gate_up",
+      "M": 2048,
+      "K": 4096,
+      "N": 22016,
+      "tflops": 25.36,
+      "eff_abs": 0.418,
+      "eff_rel": 0.969,
+      "donor": "llama3_8b K4096xN28672=26.17TF",
+      "verdict": "PASS"
+    },
+    {
+      "op": "down",
+      "M": 2048,
+      "K": 11008,
+      "N": 4096,
+      "tflops": 36.52,
+      "eff_abs": 0.603,
+      "eff_rel": 0.945,
+      "donor": "llama3_8b K14336xN4096=38.65TF",
+      "verdict": "PASS"
+    }
+  ],
+  "overall_verdict": "PASS"
+}

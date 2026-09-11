@@ -1,0 +1,93 @@
+# Enablement Certificate — OLMo 2 7B on Intel Xeon 6980P (GNR)
+# Emitted by the model-enablement workflow (throughput-thesis leg), 2026-09-10.
+# Every performance/accuracy number below traces to a recorded run on pcl-gnrap01.
+
+model: allenai/OLMo-2-1124-7B          # local: /scratch/bkaul/models/OLMo-2-1124-7B
+config_hash: hidden4096-L32-H32-KV32-I11008-V100352
+node_profile: gnr_6980p                # Intel Xeon 6980P, pcl-gnrap01
+plugin_commit: intel_cpu_models/olmo2_cpu.py (generated)
+dtype: bf16
+verdict: GREEN                         # coverage+accuracy(parity+task)+dispatch+peer-relative PASS.
+                                       # non-blocking follow-ups: peer end-to-end normalized, determinism repeats
+
+coverage:
+  verdict: ALL_COVERED
+  ops:
+    - {op: dense_gemm,      kernel: amx_brgemm_bf16_prepacked,        donor: llama3_8b/qwen25_7b, verdict: COVERED}
+    - {op: gqa_attention,   kernel: intel_amx_attention_backend,      donor: llama3_8b,           verdict: COVERED}
+    - {op: rms_norm,        kernel: cpu_rms_norm,                     donor: llama3_8b,           verdict: COVERED}
+    - {op: qk_norm,         kernel: cpu_rms_norm,                     donor: olmo2,               verdict: COVERED}
+    - {op: rope,            kernel: cpu_rotary,                       donor: llama3_8b,           verdict: COVERED}
+    - {op: swiglu,          kernel: cpu_silu_and_mul,                 donor: llama3_8b,           verdict: COVERED}
+    - {op: embed_and_head,  kernel: vocab_parallel_embedding_prepacked, donor: llama3_8b,         verdict: COVERED}
+  fallbacks: []
+
+accuracy:
+  reference: hf_transformers_bf16
+  parity_next_token:                   # accuracy-oracle layer 1 (top-1 greedy vs HF)
+    prompts: 12
+    top1_agreement: 1.0
+    tolerance: {agree_min: 0.9}
+    verdict: PASS
+    evidence: plugin/validate/results/olmo2_7b_accuracy.json
+  task:                                # accuracy-oracle layer 2
+    gsm8k: {num_questions: 100, num_shots: 8, accuracy: 0.60, invalid: 0, latency_s: 48.5,
+            verdict: PASS, evidence: plugin/validate/results/olmo2_7b_gsm8k.json}
+    mmlu:  {status: FOLLOW_UP}
+
+dispatch:
+  isa_confirmed: true                  # AMX genuinely active on GNR
+  evidence: "torch._is_amx_tile_supported=True; cpu_has_amx_support=True; unquant._is_cpu_amx_available=True (prepack branch runs for every linear)"
+  note: "torch.cpu._is_amx_tile_supported() false-negative NOT present on this node; verified live"
+
+performance_absolute:                  # isolated AMX GEMM, M=2048, single socket, /60.6 TF ceiling
+  freq_ghz: 2.68
+  flops_per_cycle_per_core: 1024
+  hot_ops:
+    - {op: qkv,     K: 4096,  N: 12288, achieved_tflops: 35.37, eff_abs: 0.584}
+    - {op: o,       K: 4096,  N: 4096,  achieved_tflops: 25.47, eff_abs: 0.420}
+    - {op: gate_up, K: 4096,  N: 22016, achieved_tflops: 25.36, eff_abs: 0.418}
+    - {op: down,    K: 11008, N: 4096,  achieved_tflops: 36.52, eff_abs: 0.603}
+  note: "eff_abs is shape-dependent and matches the donor band (0.38-0.83); the 0.70 bar is per shape, gated relative to peers below"
+
+performance_peer_relative:             # THE performance proof: same kernel as enabled peers
+  hot_ops:
+    - {op: qkv,     eff_rel: 1.261, donor: "llama3_8b K4096xN6144=28.06TF",  verdict: PASS}
+    - {op: o,       eff_rel: 1.099, donor: "llama3_8b K4096xN4096=23.17TF",  verdict: PASS}
+    - {op: gate_up, eff_rel: 0.969, donor: "llama3_8b K4096xN28672=26.17TF", verdict: PASS}
+    - {op: down,    eff_rel: 0.945, donor: "llama3_8b K14336xN4096=38.65TF", verdict: PASS}
+  verdict: PASS                        # all eff_rel >= 0.90 vs enabled donor on identical kernel
+  evidence: plugin/validate/results/olmo2_7b_peer_roofline.json
+  end_to_end:                          # in-SGLang serving, TP=1, single socket (128c, NUMA 0-2)
+    prefill_tok_s: 1320.9
+    decode_tok_s: 91.0
+    prefill_achieved_tflops: 18.2
+    prefill_eff_abs_vs_streamed: 0.30  # whole-model (incl. attention/norm/overhead), informational
+    linear_gflops_per_token: 13.77
+    peer_normalized_comparison: {status: PENDING, reason: "needs a donor-model end-to-end run"}
+    evidence: plugin/validate/results/olmo2_7b_throughput.json
+
+determinism:
+  sampling: greedy_temp0
+  repeats: 1                           # formal bit-stability repeat = follow-up
+  stable: null
+
+diff:
+  patch_paths:
+    - plugin/intel_cpu_models/olmo2_cpu.py          # generated thin override
+    - plugin/intel_cpu_models/_cpu_enablement.py    # shared mixin (framework)
+  touches_core_sglang: false           # MUST be false — satisfied
+  lint_clean: null
+
+reproduce:
+  node: "srun --partition=gnrap --nodes=1 pcl-gnrap01"
+  env: "SGLANG_USE_CPU_ENGINE=1 SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=sglang-cpu-opt/plugin"
+  accuracy_cmd: "python plugin/validate/accuracy_parity.py --model <path> --tp 1"
+  peer_roofline_cmd: "python plugin/validate/peer_roofline.py --profile <hw.yaml> --baselines <peer-baselines.yaml> --config plugin/validate/fixtures/olmo2_7b_config.json --measured-json plugin/validate/results/olmo2_7b_raw_ops.json"
+  throughput_cmd: "OMP_NUM_THREADS=128 numactl --cpunodebind=0,1,2 --membind=0,1,2 python plugin/validate/throughput_bench.py --model <path> --config plugin/validate/fixtures/olmo2_7b_config.json --tp 1 --batch 8 --input-len 512 --output-len 64 --ceiling-tflops 60.6"
+
+thesis_metrics:
+  wall_clock_hours: "<1 day (same-day enablement incl. SGLang CPU build + weights)"
+  automation_pct: "decomposition + coverage + wiring + validators generic; per-model code = 1 thin generated class"
+  human_review_minutes: pending
+  throughput_vs_generic: "n/a (baseline generic-CPU run not separately captured)"

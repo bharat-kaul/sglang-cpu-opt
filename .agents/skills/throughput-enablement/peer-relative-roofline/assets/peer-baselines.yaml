@@ -1,0 +1,66 @@
+# Peer baselines — donor efficiencies + end-to-end throughput, per node
+#
+# The performance bar for peer-relative-roofline. Each number is a DONOR model
+# (already enabled on CPU) running a kernel we reuse, measured on THIS node with
+# roofline-validation. A newly-enabled model reusing the same kernel must reach
+# the donor's per-op efficiency (>= 0.90x) at matching shapes.
+#
+# ALL VALUES BELOW ARE PLACEHOLDERS (measured: false). Fill by running each donor's
+# roofline on the target node BEFORE trusting any peer-relative verdict. A stale or
+# cross-node baseline invalidates the gate.
+
+hardware_profile: gnr_6980p  # pcl-gnrap01, measured 2026-09-10
+
+# Direct peer bar = measured donor GEMM TFLOP/s at the layer shape, prefill block
+# M=2048, single socket (NUMA 0-2 = 128 physical cores), pcl-gnrap01, 2026-09-10.
+# Kernel: torch.matmul bf16 -> oneDNN AMX BRGEMM — the SAME kernel SGLang's
+# prepacked linear path dispatches, so a correctly-wired new model must match
+# these TFLOP/s at the same shape (eff_rel). NOTE: torch._C._cpu.
+# _is_amx_tile_supported() reports False on GNR (known false-negative, see
+# amx-vectorization skill) yet AMX runs — the 23-50 TF/socket magnitudes confirm
+# AMX, not AVX-512. streamed_gemm ceiling (context only) = 60.6 TF/socket.
+per_op_efficiency:
+  dense_gemm:
+    - {donor: llama3_8b, layer: qkv,     M: 2048, K: 4096,  N: 6144,  tflops: 28.06, eff_vs_streamed: 0.46, measured: true}
+    - {donor: llama3_8b, layer: o,       M: 2048, K: 4096,  N: 4096,  tflops: 23.17, eff_vs_streamed: 0.38, measured: true}
+    - {donor: llama3_8b, layer: gate_up, M: 2048, K: 4096,  N: 28672, tflops: 26.17, eff_vs_streamed: 0.43, measured: true}
+    - {donor: llama3_8b, layer: down,    M: 2048, K: 14336, N: 4096,  tflops: 38.65, eff_vs_streamed: 0.64, measured: true}
+    - {donor: qwen25_7b, layer: gate_up, M: 2048, K: 3584,  N: 37888, tflops: 29.26, eff_vs_streamed: 0.48, measured: true}
+    - {donor: qwen25_7b, layer: down,    M: 2048, K: 18944, N: 3584,  tflops: 50.56, eff_vs_streamed: 0.83, measured: true}
+    # NOTE: OLMo 2 is a TARGET being enabled, not a donor. Its raw-kernel numbers are
+    # recorded in its certificate and only promoted to donors here AFTER it is
+    # certified (accuracy + in-SGLang peer-relative), per learned-patterns.
+  moe_grouped_gemm:
+    # LOW-FIDELITY per-expert dense proxy (single M=2048 GEMM, NOT the batched
+    # grouped kernel). Replace with true FusedMoE CPU profiling once sglang is installed.
+    - {donor: olmoe_expert, layer: w1, M: 2048, K: 2048, N: 2048, tflops: 6.78, measured: true, fidelity: proxy}
+    - {donor: olmoe_expert, layer: w2, M: 2048, K: 1024, N: 2048, tflops: 1.95, measured: true, fidelity: proxy}
+  gqa_attention:
+    - {donor: llama3_8b, shape_family: gqa_prefill, tflops: null, measured: false, note: "needs sglang in-model profiling"}
+  mla_attention:
+    - {donor: deepseek_v2, shape_family: mla_decode, tflops: null, measured: false, note: "needs sglang in-model profiling"}
+
+# Normalized end-to-end throughput of the donor: tokens/s per active GFLOP,
+# measured at a fixed batch/seq, prefill and decode separately. The new model's
+# normalized throughput must reach >= 0.90x the shape-comparable donor.
+end_to_end:
+  - donor: llama_dense
+    active_gflop_per_token: null
+    prefill_tok_s_per_gflop: null
+    decode_tok_s_per_gflop: null
+    batch: null
+    seq: null
+    measured: false
+  - donor: qwen2_moe
+    active_gflop_per_token: null
+    prefill_tok_s_per_gflop: null
+    decode_tok_s_per_gflop: null
+    batch: null
+    seq: null
+    measured: false
+
+# Tolerances (see peer-relative-roofline verdict rules)
+tolerances:
+  eff_abs_min: 0.70          # of achievable ceiling, single socket
+  eff_rel_min: 0.90          # within 10% of donor running the identical kernel
+  end_to_end_min: 0.90       # normalized prefill AND decode vs peer

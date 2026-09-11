@@ -1,0 +1,122 @@
+# Kernel Capability Registry — data
+#
+# The contract layer between a model op graph (model-op-decomposition) and the
+# existing CPU/AMX kernels. coverage-gate matches ops against `provides`;
+# peer-relative-roofline uses `donor_efficiency` as the performance bar.
+#
+# donor_efficiency MUST be measured on the CURRENT node (roofline-validation on the
+# donor model). Values below are PLACEHOLDERS marked `measured: false` until the
+# donor roofline is run on this hardware profile — do not trust a peer verdict
+# against an unmeasured bar.
+
+hardware_profile: UNSET   # e.g. gnr_6980p ; set by establish-achievable-performance
+
+ops:
+  - op: dense_gemm
+    kernel: amx_brgemm_bf16_prepacked
+    provides:
+      dtype: [bf16, fp16]
+      layout: vnni2_prepacked
+      divisibility: {OC: 16, IC: 32}
+    sglang_hook: sglang.srt.layers.amx_utils.PackWeightMethod
+    donors:
+      - {model: llama, donor_efficiency: null, measured: false}
+      - {model: qwen2, donor_efficiency: null, measured: false}
+
+  - op: gqa_attention
+    kernel: intel_amx_attention_backend
+    provides:
+      dtype: [bf16, fp16]
+      mask: causal
+      attention_kind: [mha, gqa]
+    sglang_hook: sglang.srt.utils.use_intel_amx_backend
+    donors:
+      - {model: llama, donor_efficiency: null, measured: false}
+      - {model: qwen2, donor_efficiency: null, measured: false}
+
+  - op: mla_attention
+    kernel: fused_mla_rope_cpu
+    provides:
+      dtype: [bf16]
+      attention_kind: [mla]
+    sglang_hook: sglang.srt.models.deepseek_common.attention_forward_methods.forward_mla_fused_rope_cpu
+    donors:
+      - {model: deepseek_v2, donor_efficiency: null, measured: false}
+
+  - op: moe_grouped_gemm
+    kernel: fused_moe_cpu_amx
+    provides:
+      dtype: [bf16, int8]
+      layout: vnni2_prepacked
+      routing: [topk, shared_expert]
+    sglang_hook: sglang.srt.layers.amx_utils._amx_process_weight_after_loading
+    donors:
+      - {model: qwen2_moe, donor_efficiency: null, measured: false}
+      - {model: deepseek_v2, donor_efficiency: null, measured: false}
+
+  - op: rms_norm            # includes QK-norm (RMSNorm on q,k) used by olmo2/olmoe
+    kernel: cpu_rms_norm
+    provides:
+      dtype: [bf16, fp16, fp32]
+    sglang_hook: sglang.srt.layers.layernorm.RMSNorm
+    donors:
+      - {model: llama, donor_efficiency: null, measured: false}
+
+  - op: rope
+    kernel: cpu_rotary
+    provides:
+      dtype: [bf16, fp16]
+      scaling: [none, linear, dynamic, yarn, llama3]
+    sglang_hook: sglang.srt.layers.rotary_embedding
+    donors:
+      - {model: llama, donor_efficiency: null, measured: false}
+
+  - op: swiglu
+    kernel: cpu_silu_and_mul
+    provides:
+      dtype: [bf16, fp16]
+    sglang_hook: sglang.srt.layers.activation.SiluAndMul
+    donors:
+      - {model: llama, donor_efficiency: null, measured: false}
+
+  - op: w8a8_int8_gemm
+    kernel: amx_int8_gemm
+    provides:
+      dtype: [int8]
+      layout: vnni_prepacked
+      divisibility: {OC: 16, IC: 32}
+    sglang_hook: sglang.srt.hardware_backend.cpu.quantization   # --quantization w8a8_int8
+    donors:
+      - {model: llama_w8a8, donor_efficiency: null, measured: false}
+
+  - op: embed_and_head
+    kernel: vocab_parallel_embedding_prepacked
+    provides:
+      dtype: [bf16, fp16]
+    sglang_hook: sglang.srt.layers.vocab_parallel_embedding
+    donors:
+      - {model: llama, donor_efficiency: null, measured: false}
+
+# Ops with NO (or AVX-512-only) CPU AMX kernel — coverage-gate flags these as GAP/
+# PARTIAL and routes to the cpu-optimizer (new-kernel) leg. Never dense-approximate.
+# DeepSeek Flash v4.1 (DeepSeek-V4 / DSA) analysis: plugin/coverage/deepseek_v4_flash_coverage.yaml
+known_gaps:
+  - op: dsa_indexer_logits_gemm      # DSA lightning indexer decode
+    reason: "index_gemm_kernel_nn exists in AVX-512 but AMX M=16 decode kernel unwritten (decode.cpp:13 TODO)"
+    leg: new-kernel
+    verdict: PARTIAL
+  - op: kv_compressor                # DSA indexer KV compression
+    reason: "compress kernels Triton/CUDA/HIP only; no csrc/cpu compressor"
+    leg: new-kernel
+    verdict: GAP
+  - op: fp8_group_quant_hadamard_cpu # dsv4 indexer query proj
+    reason: "no CPU AMX fp8 per-token-group quant + Hadamard kernel"
+    leg: new-kernel
+    verdict: GAP
+  - op: sparse_prefill_attention_cpu # DSA sparse prefill
+    reason: "sparse-prefill selection kernels Triton only"
+    leg: new-kernel
+    verdict: GAP
+  - op: attention_sink_or_novel_mask
+    reason: "only covered if a donor already runs the identical mask on CPU"
+    leg: new-kernel

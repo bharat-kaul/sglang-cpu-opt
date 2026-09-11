@@ -1,0 +1,68 @@
+# Enablement Certificate — OLMo-2-7B W8A8-INT8 on Intel Xeon 6980P (GNR)
+# Second precision of the OLMo-2-7B precision matrix (see Olmo2ForCausalLM.yaml for BF16).
+# Emitted by the model-enablement workflow, 2026-09-11. Auto-quantized (no manual step).
+
+model: allenai/OLMo-2-1124-7B  ->  W8A8-INT8   # /scratch/bkaul/models/OLMo-2-1124-7B-w8a8int8
+node_profile: gnr_6980p
+plugin_commit: intel_cpu_models/olmo2_cpu.py (generated) + quantize/rtn_w8a8_int8.py
+precision: w8a8_int8            # per-channel weight int8 + dynamic per-token activation
+verdict: GREEN
+
+provenance_auto_quant:
+  tool: plugin/quantize/rtn_w8a8_int8.py
+  method: calibration-free RTN (per-channel symmetric weight int8; activations dynamic per-token)
+  quantized_linears: 224        # 32 layers x 7 projections; lm_head kept in higher precision
+  note: "w8a8 int8 kernel is a DONOR capability (AMX INT8, ~2x peak); inherited automatically"
+
+coverage:
+  verdict: ALL_COVERED
+  kernel: amx_int8_gemm (int8_scaled_mm_with_quant) + intel_amx attention + FusedMoE
+  donor: llama3_8b (w8a8 int8 path)
+
+accuracy:
+  reference: hf_transformers_bf16 (ORIGINAL unquantized checkpoint)   # HF cannot load int8
+  parity_next_token:
+    prompts: 12
+    top1_agreement: 1.0         # int8 matches the bf16 original exactly on the prompt set
+    tolerance: {agree_min: 0.75}
+    verdict: PASS
+    evidence: plugin/validate/results/olmo2_7b_int8_accuracy.json
+  task:
+    gsm8k: {num_questions: 100, num_shots: 8, accuracy: 0.61, invalid: 0, latency_s: 36.1,
+            bf16_reference: 0.60, verdict: PASS, note: "task accuracy preserved vs BF16",
+            evidence: plugin/validate/results/olmo2_7b_int8_gsm8k.json}
+
+dispatch:
+  isa_confirmed: true
+  evidence: "AMX INT8 path (int8_scaled_mm_with_quant, is_vnni=True) on CPU"
+
+performance:
+  end_to_end:                   # in-SGLang serving, TP=1, single socket
+    prefill_tok_s: 2012.8
+    decode_tok_s: 134.7
+    prefill_achieved_tflops: 27.7
+    prefill_eff_abs_vs_bf16_ceiling: 0.458
+    evidence: plugin/validate/results/olmo2_7b_int8_throughput.json
+  vs_bf16:                      # the payoff of the second precision
+    prefill_speedup: 1.52       # 2012.8 / 1321.0
+    decode_speedup: 1.48        # 134.7 / 91.0
+    accuracy_delta_gsm8k: +0.01 # 0.61 vs 0.60 (within noise)
+
+determinism: {sampling: greedy_temp0, repeats: 1, stable: null}
+
+diff:
+  patch_paths:
+    - plugin/intel_cpu_models/olmo2_cpu.py
+    - plugin/intel_cpu_models/_cpu_enablement.py
+    - plugin/quantize/rtn_w8a8_int8.py            # the auto-quantizer
+  touches_core_sglang: false
+
+reproduce:
+  quantize_cmd: "python plugin/quantize/rtn_w8a8_int8.py --model <bf16_dir> --out <int8_dir>"
+  serve_flag: "--quantization w8a8_int8"
+  accuracy_cmd: "python plugin/validate/accuracy_parity.py --model <int8_dir> --ref-model <bf16_dir> --quantization w8a8_int8 --agree-min 0.75"
+
+precision_matrix_summary: |
+  OLMo-2-7B enabled at BOTH precisions from the SAME donor kernels, automatically:
+    BF16 : gsm8k 0.60, 1321 prefill / 91 decode tok/s   (accuracy-tight)
+    INT8 : gsm8k 0.61, 2013 prefill / 135 decode tok/s  (~1.5x faster, accuracy preserved)

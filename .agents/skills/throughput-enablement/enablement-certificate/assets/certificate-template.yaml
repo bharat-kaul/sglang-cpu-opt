@@ -1,0 +1,70 @@
+# Enablement Certificate — template
+#
+# Emitted by enablement-certificate, one per (model, node, config). GREEN only when
+# every gate passes with recorded, node-local evidence. Fill from actual gate runs;
+# never hand-enter performance numbers (provenance rule).
+
+model: null                  # e.g. allenai/OLMo-2-1124-13B
+config_hash: null
+node_profile: null           # e.g. gnr_6980p
+plugin_commit: null
+dtype: bf16                  # or w8a8_int8 (validated as a separate certificate)
+verdict: PENDING             # GREEN | RED | PENDING
+
+coverage:
+  verdict: null              # ALL_COVERED | GAP
+  ops: []                    # [{op, kernel, donor, verdict, failed_field?}]
+  fallbacks: []              # [{op, path, efficiency_haircut}]
+
+accuracy:
+  reference: null            # hf_fp32 | sglang_gpu
+  per_layer:
+    tolerance: {cosine_min: 0.999, top1_agreement: 1.0}
+    worst_layer: null
+    worst_cosine: null
+    worst_max_abs_err: null
+    verdict: null
+  task:
+    gsm8k:      {model: null, reference: null, delta: null}
+    mmlu:       {model: null, reference: null, delta: null}
+    hellaswag:  {model: null, reference: null, delta: null}
+    tolerance_pts: 1.0
+    verdict: null
+
+dispatch:
+  isa_confirmed: null        # true if ONEDNN_VERBOSE shows amx for all hot ops
+  evidence: null             # excerpt / profile path
+
+performance_absolute:
+  hot_ops: []                # [{op, shape, achieved_tflops, ceiling, eff_abs}]
+  freq_ghz: null
+  flops_per_cycle_per_core: null
+  verdict: null              # PASS if all eff_abs >= 0.70
+
+performance_peer_relative:
+  hot_ops: []                # [{op, shape, eff_abs, donor, donor_eff, eff_rel}]
+  end_to_end:
+    prefill_ratio_vs_peer: null
+    decode_ratio_vs_peer: null
+    peer: null
+  verdict: null              # PASS if all eff_rel >= 0.90 and end_to_end >= 0.90
+
+determinism:
+  repeats: null
+  stable: null
+
+diff:
+  patch_path: null
+  touches_core_sglang: false # MUST be false
+  lint_clean: null
+
+reproduce:
+  launch_cmd: null
+  accuracy_cmd: null
+  roofline_cmd: null
+
+thesis_metrics:
+  wall_clock_hours: null
+  automation_pct: null
+  human_review_minutes: null
+  throughput_vs_generic: null
