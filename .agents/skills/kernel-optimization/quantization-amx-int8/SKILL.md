@@ -9,9 +9,29 @@ BF16 tuning maximizes efficiency at a fixed ceiling; quantization **raises the
 ceiling**. AMX INT8 (`amx_int8`) does ~2x the ops/cycle of AMX BF16
 (`amx_int8_ops_per_cycle_per_core` ≈ 2048 vs 1024).
 
+## Two INDEPENDENT benefits (they decouple — pick by regime)
+Low precision helps in two separate ways; a target may have one without the other:
+1. **Raises the COMPUTE ceiling** — only when the HW has the low-precision matmul
+   (INT8 AMX). Relevant to COMPUTE-bound ops (prefill GEMM).
+2. **Reduces STREAMED BYTES → raises the MEMORY-bound ceiling** — works **even when the
+   HW has NO native low-precision compute**: store the weights low-precision and
+   **dequant-to-bf16 in-kernel**. On CPU **decode is weight-streaming-bound**, so fewer
+   weight bytes = directly faster, and this is usually the BIGGER win. This is why fp4 /
+   int4 STORAGE is valid on GNR (no 4-bit matmul) purely as a bandwidth/memory optimization
+   — the cheap in-kernel dequant is hidden behind the memory stall. (See
+   `model-roofline-analysis`: "reduce operand precision" is the #1 decode lever.)
+
+So choose by regime: compute-bound → need real low-precision AMX tiles (benefit 1);
+memory-bound decode → low-precision STORAGE + dequant-to-bf16 suffices (benefit 2),
+no low-precision compute required.
+
 ## Trigger
-Compute-bound op already tuned in BF16, and the model's accuracy budget tolerates
-INT8 (validate!). Requires `amx_int8`.
+Either regime, once the model's accuracy budget tolerates lower precision (validate!):
+- **Compute-bound** op already tuned in BF16 → full INT8 (W8A8) to raise the compute
+  ceiling. Requires `amx_int8`.
+- **Memory-bound** op (esp. decode weight-streaming) → low-precision **STORAGE** to cut
+  streamed bytes, dequant-to-bf16 in-kernel. Does NOT require low-precision compute
+  support — valid on GNR for fp4/int4 weights purely as a bandwidth/memory win.
 
 ## Options (increasing risk/reward)
 1. **Weight-only INT8** (activations BF16): halves weight bandwidth, modest compute
@@ -58,7 +78,10 @@ sub-8-bit layout (DSV4: `fused_experts_cpu` asserts `packed_w1.size(2)==packed_K
      path), zero new kernel — but only where 4× fits (tiny-faithful, smaller/flash models).
   2. **fp4 in RAM, dequant-per-tile IN-KERNEL → bf16 AMX:** memory stays 1× (fp4), same
      numerics as (1) — a NEW kernel to author (sub-8-bit-weight, bf16-compute grouped GEMM).
-     This is the real large-model path.
+     This is the real large-model path. **Note: this is ALSO the PERFORMANT decode path**,
+     not just a capacity fix — decode is weight-streaming-bound, so keeping weights fp4
+     (1/4 the bytes of bf16) directly raises the memory-bound throughput ceiling; the
+     in-kernel dequant is cheap relative to the bytes saved (benefit 2 above).
 - **Sequence:** bf16 parity (reference) → int8 → int4-storage/int8-compute, each diffed vs the
   bf16 result. Same as the playbook's correctness-first rule; int4-storage on GNR is ALSO
   dequant-to-int8/bf16 (no int4 compute).
