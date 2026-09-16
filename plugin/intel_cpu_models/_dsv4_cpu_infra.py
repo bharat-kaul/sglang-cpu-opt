@@ -107,6 +107,7 @@ def install() -> None:
     _install_dsv4_core_kernels()
     _install_dsv4_attention_cpu()
     _install_moe_gate_cpu_fix()
+    _install_moe_hash_cpu_fix()
     _install_dsa_profile_bypass()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
@@ -327,6 +328,71 @@ def _install_moe_gate_cpu_fix() -> None:
         return _orig(self, hidden_states, *a, **k)
 
     _dv2.MoEGate.forward = _fwd
+
+
+def _install_moe_hash_cpu_fix() -> None:
+    # Hash-routed layers (num_hash_layers>0) use HashTopK, whose forward needs the
+    # per-token input_ids to look up tid2eid. The CPU MoE path (DeepseekV2MoE.forward_cpu)
+    # only receives hidden_states and calls self.topk(hidden_states, router_logits) with no
+    # input_ids -> TypeError. Thread input_ids to HashTopK on CPU by stashing it in forward
+    # and binding it into the topk call within the original forward_cpu.
+    if not current_platform.is_cpu():
+        return
+    import os
+
+    # HashTopK's fused path JIT-compiles a CUDA kernel (nvcc); force the torch fallback.
+    os.environ["SGLANG_OPT_USE_FUSED_HASH_TOPK"] = "0"
+    import sglang.srt.models.deepseek_v2 as _dv2
+
+    MoE = _dv2.DeepseekV2MoE
+    if getattr(MoE, "_cpu_hash_patched", False):
+        return
+    _orig_forward = MoE.forward
+    _orig_forward_cpu = MoE.forward_cpu
+
+    def _patched_forward(
+        self,
+        hidden_states,
+        forward_batch=None,
+        gemm_output_zero_allocator=None,
+        input_ids=None,
+        input_ids_global=None,
+        skip_shared_experts=False,
+    ):
+        # HashTopK indexes tid2eid with the global token ids (see forward_normal).
+        self._cpu_hash_input_ids = (
+            input_ids_global if input_ids_global is not None else input_ids
+        )
+        return _orig_forward(
+            self,
+            hidden_states,
+            forward_batch,
+            gemm_output_zero_allocator,
+            input_ids,
+            input_ids_global,
+            skip_shared_experts,
+        )
+
+    def _patched_forward_cpu(self, hidden_states):
+        if not getattr(self, "is_hash", False):
+            return _orig_forward_cpu(self, hidden_states)
+        _ids = getattr(self, "_cpu_hash_input_ids", None)
+        _orig_topk_forward = self.topk.forward
+
+        def _bound(hs, rl, *a, **k):
+            k.setdefault("input_ids", _ids)
+            return _orig_topk_forward(hs, rl, *a, **k)
+
+        self.topk.forward = _bound
+        try:
+            return _orig_forward_cpu(self, hidden_states)
+        finally:
+            self.topk.forward = _orig_topk_forward
+
+    MoE.forward = _patched_forward
+    MoE.forward_cpu = _patched_forward_cpu
+    MoE._cpu_hash_patched = True
+    logger.info("intel_cpu_models: threaded input_ids to HashTopK on CPU (hash MoE layers).")
 
 
 def _install_dsv4_attention_cpu() -> None:
