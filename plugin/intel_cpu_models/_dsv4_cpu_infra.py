@@ -579,6 +579,33 @@ def _install_dsa_profile_bypass() -> None:
 
     _dsv4b.DeepseekV4AttnBackend.init_forward_metadata_prefill = _prefill_md_no_compress
 
+    # Decode path: make_forward_metadata_from_raw_decode hardcodes need_compress=True and
+    # builds the compress plan (nvcc JIT -> "Failed to build sgl_kernel_jit_dpsk_v4_compress_plan"
+    # on CPU). Mirror the prefill bypass: build core-attn metadata with need_compress=False and
+    # no indexer/compress plan.
+    if hasattr(_dsv4b.DeepseekV4AttnBackend, "make_forward_metadata_from_raw_decode"):
+        _DSV4Metadata = _dsv4b.DSV4Metadata
+
+        def _decode_md_no_compress(self, raw_metadata):
+            core = self.make_core_attn_metadata(
+                req_to_token=self.req_to_token,
+                req_pool_indices_repeated=raw_metadata.req_pool_indices,
+                seq_lens_casual=raw_metadata.seq_lens,
+                max_seq_len=self.MAX_SEQ_LEN_FOR_CAPTURE,
+                out_loc=raw_metadata.out_cache_loc,
+                need_compress=False,
+            )
+            return _DSV4Metadata(
+                core,
+                None,
+                c4_compress_metadata=None,
+                c128_compress_metadata=None,
+            )
+
+        _dsv4b.DeepseekV4AttnBackend.make_forward_metadata_from_raw_decode = (
+            _decode_md_no_compress
+        )
+
     # need_compress=False builds no compress metadata, but the model forward still calls
     # forward_core_compressor (plan=None -> crash). No-op it under the bypass.
     if hasattr(_dsv4b.DeepseekV4AttnBackend, "forward_core_compressor"):
