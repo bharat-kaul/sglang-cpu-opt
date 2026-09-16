@@ -1,6 +1,8 @@
 # sglang-cpu-opt — Automated CPU Model Enablement for SGLang
 
-An **agentic workflow** (parameterized skill files + agents) that takes a newly
+North Star: Deliver an AI Systems Performance Engineering Agentic Workflow that enables day-0 support for new models with accuracy and performance. So our goal is to have the workflow and skill files such that this is automated.
+
+How: An **agentic workflow** (parameterized skill files + agents) that takes a newly
 released model and enables **performant, accurate CPU inference** in SGLang on Intel
 Xeon (AMX) — as an Intel-maintained **plugin, no fork** — by reusing existing
 hand-optimized kernels and proving both correctness and performance.
