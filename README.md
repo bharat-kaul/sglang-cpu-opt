@@ -36,10 +36,15 @@ automatically from the same donor kernels (capability inheritance).
     (`fused_q_norm_rope`, `fused_k_norm_rope`+fp8-pack+paged-write, MHC sinkhorn/combine) —
     [plugin/intel_cpu_models/_dsv4_cpu_infra.py](plugin/intel_cpu_models/_dsv4_cpu_infra.py).
   - **Feasibility gate** demonstrated on `index_gemm(M16)` (GNR+EMR microbench → data-driven DEFER).
-  - **Remaining (scoped):** the DSA compute family — compressor (+CUDA-JIT paged plan), sparse-prefill,
-    indexer. Finding: the dsv4 backend has **no dense path** (DSA *is* its attention forward), so there
-    is no bypass-to-profile shortcut — the family must be authored. This is the multi-kernel Thesis-2
-    build the workflow correctly scoped.
+  - **Novel DSA compute kernels authored + parity-validated on CPU** (reference-first, the ops the
+    scan flagged as GAP): compressor softmax-pool, lightning-indexer (logits+top-k), sparse-prefill
+    attention — [dsa_compressor_cpu.py](plugin/intel_cpu_models/dsa_compressor_cpu.py),
+    [dsa_indexer_cpu.py](plugin/intel_cpu_models/dsa_indexer_cpu.py),
+    [dsa_sparse_attention_cpu.py](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py) (parity gates PASS).
+  - **Remaining (scoped):** paged-integration plumbing (compressor plan byte-layout + state-pool ring
+    gather/scatter + backend forward wiring) to run end-to-end, then the real **806 GB Pro** run
+    (weights ready) for perf + accuracy. Finding: the dsv4 backend has **no dense path** (DSA *is* its
+    attention forward), so there is no bypass shortcut — the family is authored, integration remains.
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**

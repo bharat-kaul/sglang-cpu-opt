@@ -136,6 +136,13 @@ dsv4_backend_kernel_scope:
     - topk_transform_paged/ragged/v2    # topk.py (JIT/sgl_kernel; some torch variants exist)
   dsa_family:   # (see ops table above) compressor=authoring; indexer has torch fallback
     - compress_forward/plan/norm_rope_store, sparse_prefill, index_gemm(M16)
+  dsa_compute_authored:   # NOVEL DSA compute kernels authored reference-first + parity PASS (2026-09-16)
+    - {kernel: compressor_softmax_pool, file: intel_cpu_models/dsa_compressor_cpu.py, parity_max_abs_err: 2.4e-7}
+    - {kernel: indexer_logits+topk, file: intel_cpu_models/dsa_indexer_cpu.py, parity_max_abs_err: 2.9e-6}
+    - {kernel: sparse_prefill_attention, file: intel_cpu_models/dsa_sparse_attention_cpu.py, parity_max_abs_err: 2.7e-7}
+    note: "The NOVEL compute (the hard math) of all 3 DSA GAP ops is authored + validated on CPU.
+      Remaining to a full serve = PAGED INTEGRATION plumbing (compressor plan byte-layout + state-pool
+      ring gather/scatter + backend forward wiring) — engineering, not novel-kernel authoring."
   classification: "MOSTLY routing/small-port (norm/rope/quant/pack/topk = portable math);
     the compressor PLAN is the one true authoring gap. Lesson: the dsv4 BACKEND replaces the
     deepseek_v2 MLA CPU path wholesale — 'MLA covered via deepseek_v2' was WRONG for this backend.
