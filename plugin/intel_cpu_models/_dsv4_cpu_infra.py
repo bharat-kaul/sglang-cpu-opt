@@ -106,6 +106,7 @@ def install() -> None:
     _install_mhc_cpu()
     _install_dsv4_core_kernels()
     _install_dsv4_attention_cpu()
+    _install_moe_gate_cpu_fix()
     _install_dsa_profile_bypass()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
@@ -298,6 +299,34 @@ def _torch_flash_mla_with_kvcache(
             p = s.softmax(dim=-1)
         out[t] = p @ K[:, :head_dim_v]
     return (out.unsqueeze(1).to(q.dtype),)
+
+
+def _install_moe_gate_cpu_fix() -> None:
+    # Dummy-weight artifact: PackWeightMethod transposes the MoE gate weight to
+    # [hidden, experts], but MoEGate.forward's float32 fast-path calls F.linear without
+    # accounting for it (real bf16/fp8 weights take the AMX path instead). Transpose when
+    # we detect that packed [hidden, experts] float32 layout on CPU.
+    if not current_platform.is_cpu():
+        return
+    import torch
+    import torch.nn.functional as F
+
+    import sglang.srt.models.deepseek_v2 as _dv2
+
+    _orig = _dv2.MoEGate.forward
+
+    def _fwd(self, hidden_states, *a, **k):
+        w = self.weight
+        if (
+            w.dtype == torch.float32
+            and w.dim() == 2
+            and w.shape[0] == hidden_states.shape[-1]
+            and w.shape[1] != hidden_states.shape[-1]
+        ):
+            return F.linear(hidden_states.float(), w.t().contiguous())
+        return _orig(self, hidden_states, *a, **k)
+
+    _dv2.MoEGate.forward = _fwd
 
 
 def _install_dsv4_attention_cpu() -> None:
