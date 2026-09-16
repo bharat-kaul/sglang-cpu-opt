@@ -21,5 +21,5 @@ python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
   --device cpu --tp 4 --batch-size 1 --input-len 8 --output-len 4 \
   --trust-remote-code --disable-cuda-graph \
-  --mem-fraction-static 0.90 --max-total-tokens 2048
+  --mem-fraction-static 0.90 --max-total-tokens 16384 --swa-full-tokens-ratio 0.5
 echo "[exit=$?]"
