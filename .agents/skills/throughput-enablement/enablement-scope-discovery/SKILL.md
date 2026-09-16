@@ -19,6 +19,12 @@ enablement-scope-discovery → model-profile-hotspots → coverage-gate → …`
 static closure that makes the scope honest; it feeds `coverage-gate` and is done
 BEFORE any measurement (you cannot measure what will not yet run).
 
+> The static scope is a hypothesis; the cheapest way to VALIDATE it (and surface the
+> infra breaks it still misses — TP/NUMA, config padding, allocator) is a
+> reference-wiring bring-up on a **tiny architecturally-faithful config** (real arch
+> switches, tiny dims, dummy weights). Do that before the expensive full run — see
+> `cpu-serving-integration`'s reference-wiring-first section.
+
 ## Inputs
 The op graph (`model-op-decomposition`); the SGLang model class; the arch's
 attention backend class; the KV/memory-pool + `kv_cache_configurator` for the arch;

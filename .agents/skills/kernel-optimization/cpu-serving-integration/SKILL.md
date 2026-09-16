@@ -35,6 +35,41 @@ serve" phase; its gate is the workflow's proof deliverable.
 4. **Gather.** Per query, gather its attended tokens via the page indices (+ compressed
    "extra" indices), unpack to bf16, attend.
 
+## Reference-wiring-FIRST (the correctness backbone)
+**Build the end-to-end serving path with fallback/reference kernels and make it RUN +
+CORRECT *before* optimizing anything.** Per-kernel parity (kernel-authoring 1b) proves a
+kernel's *math* but NOT its *integration*: a wrong paged byte layout, page-index, sink,
+or metadata field passes unit parity and still yields garbage end-to-end. Only a running
+reference serving path catches those. This ordering also surfaces the whole INFRA layer
+(NUMA/TP, config adjustment, allocator, KV pool) that static analysis misses — reactively,
+one break at a time, is how DSV4 revealed ~24 breaks; doing it deliberately front-loads them.
+
+**So the phase order is:** roofline + `enablement-scope-discovery` → **reference-wiring
+bring-up (this)** → author/optimize each kernel against the now-running reference →
+real-weights accuracy + perf. The reference path is your oracle for every later optimization.
+
+### The tiny-faithful config (makes it practical at any model size)
+The user's fair objection — "the real model is 100s of GB, you can't iterate on it" — is
+solved by a **tiny but architecturally-faithful config**: copy EVERY architecture *switch*
+from the real config (attention form e.g. MLA, sparse/DSA on, hash/clustering layers on,
+quant scheme e.g. fp8 block-quant, `head_dim`/rope/compress-ratios, `num_key_value_heads`)
+but shrink the *dimensions* (2 layers, tiny hidden/experts) and use `--load-format dummy`.
+It runs in **seconds on a login node**, exercises the **same code paths**, and hits the
+**same wiring/infra breaks** (DSV4: reproduced the TP `num_key_value_heads` config bug and
+the MoE/attention breaks on tiny, not on the 806 GB model). Debug the plumbing here; spend
+expensive full-scale load cycles only on the final accuracy/perf run.
+- **Faithful means the switches, not the sizes.** A tiny config with `num_hash_layers=0`
+  or DSA bypassed is NOT faithful — it silently skips whole subsystems. Match every flag.
+- **Keep optimized kernels behind a flag** so the reference path stays runnable, then
+  **A/B-diff reference-vs-optimized on the same input** = an end-to-end correctness
+  regression harness (stronger than unit parity).
+- **What tiny-faithful + dummy weights does NOT catch:** (a) accuracy — needs REAL
+  weights + `accuracy-oracle`; (b) weight-shape/quant-packing artifacts that differ from
+  real (DSV4 dummy fp8 gave a spurious `packed_w1 260 vs 512` that real weights resolve —
+  do NOT chase dummy-only shape bugs); (c) some scale-only bugs (memory/NUMA/TP capacity).
+  Keep TWO run types: **structural/wiring** (tiny, dummy, cheap, frequent) and
+  **accuracy+scale** (real weights, expensive, final).
+
 ## Procedure
 1. Read the backend `forward` to get the interface (q/k/v shapes, compress_ratio, sink,
    which caches + index tensors) and the serving kernel's contract.
@@ -47,6 +82,19 @@ serve" phase; its gate is the workflow's proof deliverable.
    `roofline_vs_measured.py` for the perf proof (same machine config, labeled).
 
 ## Learnings (DeepSeek-V4, transferable)
+- **Wiring/infra ≫ kernels in break-count.** The bring-up cleared ~24 breaks; almost all
+  were plumbing (Triton→torch ports, config/TP, allocator, metadata, `input_ids`
+  threading), not novel math. Front-load them with reference-wiring-first on tiny-faithful.
+- **CPU multi-NUMA = TP across NUMA.** SGLang CPU sizes each rank's memory as
+  `total/n_numa` and binds it to one NUMA node, so a model bigger than one NUMA node's RAM
+  MUST be TP-sharded (tp = #NUMA, or a divisor of the head count). A tp=1 process OOMs at
+  the single-node limit regardless of total RAM. On a node with more NUMA nodes than ranks,
+  no explicit bind is needed; when ranks > NUMA nodes, set `SGLANG_CPU_OMP_THREADS_BIND`.
+- **MLA breaks the generic unaligned-CPU-TP head padding.** `adjust_config_with_unaligned_cpu_tp`
+  fires when `total_kv_heads % tp != 0`; MLA's single replicated latent KV head (1) always
+  trips it and the GQA-oriented pad rewrites `num_key_value_heads` (1→N), violating the
+  model's `num_key_value_heads == 1` invariant. Patch the pad size to 1 for MLA. General
+  lesson: framework TP/config helpers assume GQA — verify they no-op for MLA/novel attention.
 - **A novel-feature backend has no dense fallback** — DSA sparse attention IS the dsv4
   forward; you cannot bypass it to a dense path. Verify a fallback exists before
   planning any bypass (also in `model-profile-hotspots`).

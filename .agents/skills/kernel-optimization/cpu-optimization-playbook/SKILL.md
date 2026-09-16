@@ -17,6 +17,13 @@ condition is met and gating every step against the measured roofline.
 > accurate, perf-vs-roofline model in the enablement-certificate. `cpu-serving-integration`
 > is the step that turns authored kernels into that running model.
 
+> **Reference-wiring-FIRST.** Before optimizing, wire the full serving path with
+> fallback/reference kernels and make it RUN + CORRECT on a **tiny architecturally-faithful
+> config** (real arch switches, tiny dims, dummy weights — runs in seconds, same code paths).
+> This front-loads the wiring/infra breaks (TP/NUMA, config, allocator, metadata) that static
+> analysis misses and gives a running reference to A/B every later optimization against.
+> Correctness backbone first, speed on top. See `cpu-serving-integration`.
+
 > Two legs, one plugin. This playbook is the **new-kernel** leg (write/optimize a
 > kernel). `model-enablement-playbook` is the **throughput** leg (wire a new model
 > from EXISTING kernels). The enablement `coverage-gate` hands a genuine gap to
