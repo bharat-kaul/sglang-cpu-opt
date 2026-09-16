@@ -10,6 +10,13 @@ task. It does not itself optimize; it **routes** the op through a progressive,
 composable library of per-technique skills, loading each only when its trigger
 condition is met and gating every step against the measured roofline.
 
+> **North-star deliverable (both legs).** Enablement is "done" ONLY when the new model
+> RUNS end-to-end on CPU, is ACCURACY-parity vs a trusted reference (accuracy-oracle,
+> real weights), AND ships a published ROOFLINE-TARGET-vs-MEASURED perf artifact at a
+> labeled machine config. Authoring/tuning a kernel is a means; the proof is the running,
+> accurate, perf-vs-roofline model in the enablement-certificate. `cpu-serving-integration`
+> is the step that turns authored kernels into that running model.
+
 > Two legs, one plugin. This playbook is the **new-kernel** leg (write/optimize a
 > kernel). `model-enablement-playbook` is the **throughput** leg (wire a new model
 > from EXISTING kernels). The enablement `coverage-gate` hands a genuine gap to
@@ -28,6 +35,7 @@ condition is met and gating every step against the measured roofline.
 |---|-----------------|-----------|----------|
 | G | `kernel-feasibility-gate` | BEFORE authoring a net-new kernel | user-reviewed roofline + measured baseline; go/no-go |
 | A | `kernel-authoring` | writing a NET-NEW kernel (not just tuning) | draft matches FP32 ref |
+| S | `cpu-serving-integration` | novel kernels authored+validated; make the model actually RUN | model runs end-to-end + accuracy + roofline-vs-measured |
 | 0 | `establish-achievable-performance` | ALWAYS first, once per hardware profile | sets the ceilings |
 | 1 | `roofline-validation` | after every implementation step | % of achievable |
 | 2 | `openmp-parallelization` | op runs on >1 core | scaling efficiency |

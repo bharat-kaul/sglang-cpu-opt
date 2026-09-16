@@ -42,6 +42,9 @@ For a coverage GAP (e.g. DeepSeek-V4 DSA indexer). Driven by the `cpu-optimizer`
   walk-through + baseline microbenchmark + Amdahl; prevents building the wrong kernel
 - `kernel-authoring` — GENERATIVE: write a new kernel by adapting a donor (SGLang corpus
   map + LIBXSMM/TPP + oneDNN); load first when authoring, before the tuning skills
+- `cpu-serving-integration` — MAKE IT RUN: wire authored kernels into the model's serving
+  runtime (attention backend forward + paged KV-cache pack/unpack + metadata); ends at the
+  proof deliverable (model runs + accuracy + roofline-vs-measured)
 - `openmp-parallelization`, `cache-blocking-tiling`, `amx-vectorization`,
   `weight-prepacking-brgemm`, `quantization-amx-int8`
 - `cpu-gemm-amx-bf16` — worked example composing the above
