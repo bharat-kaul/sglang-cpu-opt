@@ -1,5 +1,5 @@
 {
-  "_comment": "OLMo-2-7B BF16 roofline vs measured — ALL single socket (TP=1, 128c NUMA 0-2, batch 8), from the recorded certificate (plugin/certificates/Olmo2ForCausalLM.yaml). Roofline and measured are the SAME machine config. unit=TF/s vs the streamed AMX ceiling 60.6 TF/socket; per-op = isolated AMX GEMM M=2048; model = whole-model prefill.",
+  "_comment": "OLMo-2-7B BF16 roofline vs measured — ALL single socket (TP=1, 128c NUMA 0-2, batch 8), from the recorded certificate (plugin/certificates/Olmo2ForCausalLM.yaml). Roofline and measured are the SAME machine config. unit=TF/s vs the streamed AMX ceiling 60.6 TF/socket; per-op = isolated AMX GEMM M=2048; model = whole-model prefill. SNC note (updated skill): this is COMPUTE-bound, and the rank spans all 128 cores of the socket (NUMA 0-2), so the ceiling is the full per-socket AMX compute (60.6 TF) and is NOT scaled by the SNC memory-BW effective fraction. Caveat: a TP=1 rank spanning 3 SNC domains is not memory-NUMA-local; a NUMA-local TP=3 (one rank/SNC) re-run may recover some of the 30% gap (sub-numa-clustering).",
   "model": "OLMo-2-7B (BF16)",
   "node": "gnr_6980p (SINGLE SOCKET, TP=1, batch 8)",
   "precision": "bf16",
