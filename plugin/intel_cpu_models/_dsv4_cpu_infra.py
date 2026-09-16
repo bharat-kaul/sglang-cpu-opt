@@ -101,6 +101,7 @@ def install() -> None:
     if _INSTALLED:
         return
     kcc.KVCacheConfigurator.configure = _patched_configure
+    _install_mla_cpu_tp_config_fix()
     _install_cpu_paged_allocator()
     _install_dsa_cpu_kernels()
     _install_mhc_cpu()
@@ -328,6 +329,48 @@ def _install_moe_gate_cpu_fix() -> None:
         return _orig(self, hidden_states, *a, **k)
 
     _dv2.MoEGate.forward = _fwd
+
+
+def _install_mla_cpu_tp_config_fix() -> None:
+    # CPU TP: adjust_config_with_unaligned_cpu_tp() fires when total_kv_heads % tp != 0.
+    # MLA has a single latent KV head (num_key_value_heads==1) that is replicated, not
+    # TP-sharded, so 1 % tp != 0 always triggers it, and the generic GQA-oriented kv-head
+    # padding rewrites num_key_value_heads>1 (e.g. 1->6) + num_attention_heads, violating
+    # DeepseekV4's `num_key_value_heads == 1` invariant. For MLA, force the kv-head pad
+    # size to 1 so the latent count (and derived query-head count) is preserved.
+    if not current_platform.is_cpu():
+        return
+    import sglang.srt.configs.update_config as _uc
+
+    if getattr(_uc, "_mla_cpu_tp_patched", False):
+        return
+    _orig_adjust = _uc.adjust_config_with_unaligned_cpu_tp
+
+    def _patched_adjust(model_config, load_config, tp_size):
+        hf = model_config.hf_config
+        is_mla = (
+            getattr(hf, "qk_rope_head_dim", None) is not None
+            and model_config.get_total_num_kv_heads() == 1
+        )
+        if not is_mla:
+            return _orig_adjust(model_config, load_config, tp_size)
+        _orig_pad = _uc.get_num_heads_padding_size
+        _uc.get_num_heads_padding_size = lambda *a, **k: 1
+        try:
+            return _orig_adjust(model_config, load_config, tp_size)
+        finally:
+            _uc.get_num_heads_padding_size = _orig_pad
+
+    _uc.adjust_config_with_unaligned_cpu_tp = _patched_adjust
+    # model_runner imported the symbol directly; repoint that reference too.
+    try:
+        import sglang.srt.model_executor.model_runner as _mr
+
+        _mr.adjust_config_with_unaligned_cpu_tp = _patched_adjust
+    except Exception:
+        pass
+    _uc._mla_cpu_tp_patched = True
+    logger.info("intel_cpu_models: MLA CPU-TP config fix (preserve num_key_value_heads==1).")
 
 
 def _install_moe_hash_cpu_fix() -> None:
