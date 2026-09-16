@@ -257,6 +257,11 @@ def _cpu_fused_k_norm_rope_flashmla(
 # the CPU K-write; read by the CPU torch MLA attention below.
 _KV_STASH: dict = {}
 
+# Route-2 DSA: per-layer compressed-KV stash keyed by (layer_id, compress_ratio) -> the
+# RMSNorm'd compressed KV [N_compressed, head_dim]. Written by the CPU compressor forward,
+# read by the CPU indexer (step 3). Avoids the paged state-pool entirely.
+_COMPRESSED_STASH: dict = {}
+
 
 def _torch_flash_mla_with_kvcache(
     q,
@@ -558,6 +563,50 @@ def _install_mhc_cpu() -> None:
     logger.info("intel_cpu_models: routed MHC sub-ops (sinkhorn, combine) to torch on CPU.")
 
 
+def _cpu_forward_core_compressor(self, x, forward_batch, layer_id, compressor) -> None:
+    # Route-2 CPU compressor: compute compressed KV directly over the sequence (softmax-pool
+    # over windows of `ratio` tokens), RMSNorm, and stash it per (layer_id, ratio) for the CPU
+    # indexer — bypassing the paged plan/state-pool. The compression math = compressor's own
+    # softmax-pool (mirrors _compress_forward_c128_fallback): w=softmax(score+ape), out=sum(w*kv).
+    import torch
+
+    from intel_cpu_models.dsa_compressor_cpu import compress_softmax_pool
+
+    if forward_batch.forward_mode.is_idle():
+        return
+    ratio = int(compressor.ratio)
+    head_dim = int(compressor.head_dim)
+    kv_score = compressor.compute_kv_score(x, forward_batch)  # [N, 2*head_dim] (kv | score)
+    kv_all = kv_score[:, :head_dim]
+    score_all = kv_score[:, head_dim : 2 * head_dim]
+    ape = compressor.ape.view(-1, head_dim)[:ratio]  # [ratio, head_dim]
+
+    ext = forward_batch.extend_seq_lens_cpu
+    if ext is None:
+        # Decode / no-extend: 1 new token per request; a window only completes every `ratio`
+        # steps. Online incremental compression is a later increment — stash empty for now.
+        _COMPRESSED_STASH[(layer_id, ratio)] = kv_all.new_zeros(0, head_dim)
+        return
+
+    comp_list = []
+    off = 0
+    for L in ext:
+        L = int(L)
+        nwin = L // ratio
+        if nwin > 0:
+            n = nwin * ratio
+            kv_w = kv_all[off : off + n].reshape(nwin, ratio, head_dim)
+            sc_w = score_all[off : off + n].reshape(nwin, ratio, head_dim)
+            comp_list.append(compress_softmax_pool(kv_w, sc_w, ape))
+        off += L
+    if comp_list:
+        compressed = torch.cat(comp_list, 0).to(x.dtype)
+        compressed = compressor.norm(compressed)  # RMSNorm (rotate=False for the c4/c128 compressor)
+    else:
+        compressed = kv_all.new_zeros(0, head_dim)
+    _COMPRESSED_STASH[(layer_id, ratio)] = compressed
+
+
 def _install_dsa_cpu_wire() -> None:
     # Route 2 (correctness-first DSA on CPU): compute the sparse selection over the dense KV
     # stash with the validated dsa_*_cpu kernels, AVOIDING the paged compressor plan/state-pool
@@ -580,6 +629,7 @@ def _install_dsa_cpu_wire() -> None:
 
         _cv2.create_paged_compressor_data = _cpu_no_paged_plan
         _dsv4b.create_paged_compressor_data = _cpu_no_paged_plan
+        _dsv4b.DeepseekV4AttnBackend.forward_core_compressor = _cpu_forward_core_compressor
     except Exception:
         pass
     logger.warning(
