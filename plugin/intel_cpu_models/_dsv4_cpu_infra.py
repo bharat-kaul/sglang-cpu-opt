@@ -110,6 +110,7 @@ def install() -> None:
     _install_moe_gate_cpu_fix()
     _install_moe_hash_cpu_fix()
     _install_fp4_expert_cpu_dequant()
+    _install_dsa_cpu_wire()
     _install_dsa_profile_bypass()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
@@ -555,6 +556,36 @@ def _install_mhc_cpu() -> None:
     except Exception:
         pass
     logger.info("intel_cpu_models: routed MHC sub-ops (sinkhorn, combine) to torch on CPU.")
+
+
+def _install_dsa_cpu_wire() -> None:
+    # Route 2 (correctness-first DSA on CPU): compute the sparse selection over the dense KV
+    # stash with the validated dsa_*_cpu kernels, AVOIDING the paged compressor plan/state-pool
+    # (device-only: CUDA-JIT plan_prefill / XPU / Triton, no CPU variant). This scaffold is the
+    # step-by-step ladder; opt-in via INTEL_CPU_DSV4_DSA_CPU=1 (distinct from the dense bypass).
+    # Step 1: make the compressor PLAN CPU-safe (the paged plan crashes on pin_memory + nvcc JIT).
+    import os
+
+    if not current_platform.is_cpu():
+        return
+    if os.environ.get("INTEL_CPU_DSV4_DSA_CPU", "0") != "1":
+        return
+    try:
+        import sglang.srt.layers.attention.deepseek_v4_backend as _dsv4b
+        import sglang.srt.layers.attention.dsv4.compressor_v2 as _cv2
+
+        def _cpu_no_paged_plan(*a, **k):
+            # No paged plan on CPU; route-2 computes compression over the stash instead.
+            return None
+
+        _cv2.create_paged_compressor_data = _cpu_no_paged_plan
+        _dsv4b.create_paged_compressor_data = _cpu_no_paged_plan
+    except Exception:
+        pass
+    logger.warning(
+        "intel_cpu_models: DSA CPU wire (route 2) scaffold active (INTEL_CPU_DSV4_DSA_CPU=1) — "
+        "paged compressor plan disabled; sparse chain wiring in progress."
+    )
 
 
 def _install_dsa_profile_bypass() -> None:
