@@ -41,10 +41,13 @@ automatically from the same donor kernels (capability inheritance).
     attention — [dsa_compressor_cpu.py](plugin/intel_cpu_models/dsa_compressor_cpu.py),
     [dsa_indexer_cpu.py](plugin/intel_cpu_models/dsa_indexer_cpu.py),
     [dsa_sparse_attention_cpu.py](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py) (parity gates PASS).
-  - **Remaining (scoped):** paged-integration plumbing (compressor plan byte-layout + state-pool ring
-    gather/scatter + backend forward wiring) to run end-to-end, then the real **806 GB Pro** run
-    (weights ready) for perf + accuracy. Finding: the dsv4 backend has **no dense path** (DSA *is* its
-    attention forward), so there is no bypass shortcut — the family is authored, integration remains.
+  - **Composed DSA attention validated end-to-end on CPU** — index→select→attend
+    ([dsa_attention_cpu.py](plugin/intel_cpu_models/dsa_attention_cpu.py)): at top-k=all it reduces
+    **exactly to dense attention** (err 1.8e-7), proving the whole sparse pipeline is numerically correct.
+  - **Remaining (scoped):** the paged flash-MLA *serving* runtime (compress plan byte-layout + state-pool
+    ring gather/scatter + paged fp8 cache dequant in the backend forward) to wire these kernels into an
+    end-to-end serve, then the real **806 GB Pro** run (weights ready) for perf + accuracy. This is
+    CUDA-oriented backend plumbing, not novel-kernel authoring — the novel DSA math is done + proven.
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
