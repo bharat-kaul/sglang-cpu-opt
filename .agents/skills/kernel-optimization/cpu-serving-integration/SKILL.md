@@ -35,6 +35,28 @@ serve" phase; its gate is the workflow's proof deliverable.
 4. **Gather.** Per query, gather its attended tokens via the page indices (+ compressed
    "extra" indices), unpack to bf16, attend.
 
+## Staged plan for a SPARSE/DSA attention (accuracy validation is gated on REAL weights)
+A sparse-attention arch (DSA) is a CHAIN, not one kernel — stage it, and know that only a
+running path proves integration and only REAL weights prove accuracy (dummy weights give no
+meaningful accuracy; the accuracy loop needs the full checkpoint / node run either way):
+1. **Structural bypass (dense) FIRST** — force `need_compress=False` in BOTH prefill AND
+   decode metadata (DSV4: decode's `make_forward_metadata_from_raw_decode` hardcodes it True
+   and builds the compress-plan JIT — patch it too), no-op the compressor, force non-sparse
+   attention. Gets the model GENERATING end-to-end (embed→attn→MoE→head) = structural proof,
+   NOT accuracy. This alone clears the whole infra/dtype ladder.
+2. **Then wire the sparse chain** to replace the bypass, one component at a time, each reusing
+   the parity-validated compute kernels: (a) **compressor** — compress KV (from the dense KV
+   stash, avoiding the paged state-pool) per-layer c4/c128 + rope-on-compressed; (b) **indexer**
+   — `compute_weights`+`compute_q` (projections/rope/quant) then logits vs compressed keys;
+   (c) **top-k** selection; (d) **sparse attend** over selected tokens + per-head sink.
+3. **Validate accuracy on REAL weights** vs the arch's pure-torch reference oracle
+   (`test/kits/.../dsa_attention.py`) — per-layer/logits then task. The unit kernels can be
+   green while integration (weight sourcing, rope phase, index base, sink) is wrong, so this
+   end-to-end real-weight check is the actual gate.
+Cost note: the compute math is a handful of small kernels; the CHAIN INTEGRATION (weight
+sourcing + state/stash plumbing + exact rope/index/sink matching) is the multi-week surface —
+scope it as such in `enablement-scope-discovery`, don't discover it reactively.
+
 ## Reference-wiring-FIRST (the correctness backbone)
 **Build the end-to-end serving path with fallback/reference kernels and make it RUN +
 CORRECT *before* optimizing anything.** Per-kernel parity (kernel-authoring 1b) proves a
