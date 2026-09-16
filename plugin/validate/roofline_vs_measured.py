@@ -95,7 +95,7 @@ def build_svg(d: dict) -> str:
     if not ops:
         return "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='40'></svg>"
     n = len(ops)
-    row_h, pad_l, pad_t, width, bar_gap = 46, 210, 60, 900, 6
+    row_h, pad_l, pad_t, width, bar_gap = 46, 210, 86, 900, 6
     height = pad_t + n * row_h + 40
     plot_w = width - pad_l - 40
     vmax = max(
@@ -107,16 +107,20 @@ def build_svg(d: dict) -> str:
     def x(v):
         return pad_l + (v / vmax) * plot_w
 
+    subtitle = (
+        f"Machine: {d.get('node', '?')}  \u00b7  {d.get('precision', '?')}  \u00b7  "
+        f"batch {d.get('batch', '?')}  \u00b7  {d.get('phase', '?')}"
+    )
     parts = [
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' font-family='sans-serif'>",
         f"<rect width='{width}' height='{height}' fill='white'/>",
-        f"<text x='{pad_l}' y='28' font-size='18' font-weight='bold'>"
-        f"{html.escape(str(d.get('model','?')))} — roofline vs measured "
-        f"({html.escape(unit)}, {html.escape(str(d.get('phase','?')))})</text>",
-        f"<rect x='{pad_l}' y='40' width='14' height='14' fill='#9db4d0'/>"
-        f"<text x='{pad_l+20}' y='52' font-size='12'>roofline target</text>"
-        f"<rect x='{pad_l+140}' y='40' width='14' height='14' fill='#2f6f4f'/>"
-        f"<text x='{pad_l+160}' y='52' font-size='12'>measured</text>",
+        f"<text x='{pad_l}' y='26' font-size='18' font-weight='bold'>"
+        f"{html.escape(str(d.get('model','?')))} — roofline vs measured ({html.escape(unit)})</text>",
+        f"<text x='{pad_l}' y='48' font-size='13' fill='#444'>{html.escape(subtitle)}</text>",
+        f"<rect x='{pad_l}' y='62' width='14' height='14' fill='#9db4d0'/>"
+        f"<text x='{pad_l+20}' y='74' font-size='12'>roofline target</text>"
+        f"<rect x='{pad_l+140}' y='62' width='14' height='14' fill='#2f6f4f'/>"
+        f"<text x='{pad_l+160}' y='74' font-size='12'>measured</text>",
     ]
     bh = (row_h - 2 * bar_gap) / 2
     for i, o in enumerate(ops):
