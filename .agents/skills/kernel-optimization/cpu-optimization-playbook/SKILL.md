@@ -44,6 +44,7 @@ condition is met and gating every step against the measured roofline.
 | A | `kernel-authoring` | writing a NET-NEW kernel (not just tuning) | draft matches FP32 ref |
 | S | `cpu-serving-integration` | novel kernels authored+validated; make the model actually RUN | model runs end-to-end + accuracy + roofline-vs-measured |
 | 0 | `establish-achievable-performance` | ALWAYS first, once per hardware profile | sets the ceilings |
+| D | `sub-numa-clustering` | after 0, BEFORE the tile/vectorize loop; multi-socket / SNC node | per-domain scaling + capacity fit |
 | 1 | `roofline-validation` | after every implementation step | % of achievable |
 | 2 | `openmp-parallelization` | op runs on >1 core | scaling efficiency |
 | 3 | `cache-blocking-tiling` | working set > L2; streamed operands | L2/L1 residency |
@@ -58,7 +59,10 @@ skill folders without touching the others.
 ## Decision flow
 
 ```
-0. establish-achievable-performance  -> compute_peak + streamed_gemm + mem_bw ceilings
+0. establish-achievable-performance  -> per-DOMAIN compute_peak + streamed_gemm + mem_bw ceilings
+0.5 sub-numa-clustering -> FIX the SNC/NUMA domain to optimize WITHIN (capacity fit, tp=#SNC,
+    one rank/domain, cpu+mem co-bind, first-touch). Steps below tune ONE domain, then replicate;
+    the roofline ceiling is the EFFECTIVE (tp_used/n_domains)x full node, not the ideal node.
 1. classify op + arithmetic intensity (roofline-validation: compute- vs memory-bound)
 2. if memory-bound  -> cache-blocking-tiling, then re-roofline
    if compute-bound -> amx-vectorization (right ISA/tiling), then re-roofline

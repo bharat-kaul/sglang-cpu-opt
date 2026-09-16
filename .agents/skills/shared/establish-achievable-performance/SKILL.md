@@ -30,9 +30,12 @@ unreachable number).
 
 ## Memory ceiling
 
-`tools/microbench/stream_triad.c` → achievable DRAM GB/s (single socket is the
-reliable figure; interleaved full-node reads suffer first-touch/NUMA artifacts).
-Sets the memory-bound side of the roofline.
+`tools/microbench/stream_triad.c` → achievable DRAM GB/s. Measure it **per SNC/NUMA
+domain** (cpu+mem bound to one domain) — that is the atomic unit; interleaved
+full-node reads suffer first-touch/NUMA artifacts and understate it. Aggregate =
+`domains_used × per_domain_BW` (SNC partitions a socket's BW across its domains, so
+using all domains ≈ socket BW; using fewer leaves the rest idle — see
+`sub-numa-clustering`). Sets the memory-bound side of the roofline.
 
 ## Procedure (once per hardware profile)
 
@@ -41,7 +44,7 @@ Sets the memory-bound side of the roofline.
 2. Record into the profile `achievable` block:
    - `compute_peak_tflops_per_socket` (resident microkernel)
    - `streamed_gemm_tflops_per_socket` (BRGEMM reference; mark estimated if projected)
-   - `mem_bw_gbs_per_socket` (STREAM)
+   - `mem_bw_gbs_per_socket` (STREAM; record per-SNC-domain too — aggregate = domains_used × per_domain)
 3. All later skills gate against `streamed_gemm_*`, and treat `compute_peak_*` as
    the theoretical bound.
 

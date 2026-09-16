@@ -19,9 +19,10 @@ correct and the per-core kernel path is chosen.
    is not always better (a lone 8Kx8K GEMM peaked at 96 of 128 cores on GNR).
 2. **Affinity / pinning.** `OMP_PROC_BIND=close`, `OMP_PLACES=cores` (or
    `KMP_AFFINITY=granularity=fine,compact,1,0`). Never leave threads unpinned.
-3. **NUMA / SNC.** Bind compute and memory to the same domain:
-   `numactl --cpunodebind=<d> --membind=<d>`. Prefer a single socket for a lone
-   op; only span sockets when the problem amortizes cross-socket UPI. Honor the
+3. **NUMA / SNC.** The domain GRANULARITY + capacity decision is `sub-numa-clustering`
+   (done BEFORE this loop); here you just ENFORCE it. Bind compute and memory to the
+   chosen domain: `numactl --cpunodebind=<d> --membind=<d>`. Prefer a single socket for
+   a lone op; only span sockets when the problem amortizes cross-socket UPI. Honor the
    profile's SNC layout (`numa_nodes / sockets` = nodes per socket).
 4. **First touch.** Initialize/allocate data on the thread/domain that will use it
    (first-touch policy) so pages land in the local NUMA node.

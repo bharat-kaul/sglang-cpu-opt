@@ -84,6 +84,8 @@ SGLANG_USE_CPU_ENGINE=1 sglang serve \
 ```
 `--tp` = number of sub-NUMA clusters (one TP rank per SNC); bind cores with
 `SGLANG_CPU_OMP_THREADS_BIND`. Confirm the AMX all-core layout matches the profile.
+See `sub-numa-clustering` for the capacity-fit + tp rule (per-rank footprint must fit
+one domain's RAM; tp bounded by head/expert divisibility).
 
 ## Procedure
 1. Subclass the upstream model in the plugin; override only load-time prepack hooks

@@ -21,9 +21,17 @@ measured hotlist gates entry to the kernel tier.
 
 ## Inputs
 Op graph; node achievable ceilings (`establish-achievable-performance`: compute +
-mem BW). **Default to the FULL node (all sockets)** — aggregate BW is reached only
-with NUMA-local weight sharding (TP / expert-parallel); a single un-sharded replica
-is capped at one socket's BW. The workload: prefill vs decode; **batch sweep (Xeon is
+mem BW, **per SNC/NUMA domain** — the atomic unit). Aggregate ceiling =
+`domains_used × per_domain_ceiling`, reached ONLY with NUMA-local weight sharding
+(TP / expert-parallel, one rank per domain); a single un-sharded replica is capped
+at ONE domain's BW. **SNC bake-in (do not assume the ideal full node):** usable
+domains = the *achievable* `tp` from `sub-numa-clustering`, bounded by per-domain
+CAPACITY fit AND head/expert DIVISIBILITY — which may be < total domains, leaving
+domains idle and a sub-full-node ceiling. Use `effective_ceiling =
+(tp_used / n_total_domains) × full_node_ceiling`. Worked: 6 SNC domains but
+`num_attention_heads=128` forbids tp=6 → tp=4 → decode floor uses only 4/6 of node
+BW (≈841 of 1261 GB/s). Feed the EFFECTIVE ceiling into every roofline below. The
+workload: prefill vs decode; **batch sweep (Xeon is
 a low-batch, memory-bound target — sweep B = 1, 8, 16, 32)**; seq len / context;
 speculative M.
 
