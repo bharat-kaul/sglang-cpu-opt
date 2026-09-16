@@ -68,3 +68,8 @@ achievable:
   # kept for backward-compat with roofline.py --use-profile-achievable:
   bf16_compute_tflops_per_socket: 350.8
   mem_bw_gbs_per_socket: 630.7           # STREAM triad = 74.6% of 844.8 peak
+  # Full-node aggregate BW is usable ONLY with NUMA-local weight sharding (TP=2 or
+  # expert-parallel); a single un-sharded replica is capped at one socket (630.7).
+  # Default performance analysis to the FULL node. Realistic ~0.85x for TP sync +
+  # imperfect MoE expert balance across sockets.
+  mem_bw_gbs_full_node: 1261.4

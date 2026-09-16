@@ -1,0 +1,17 @@
+{
+  "_comment": "OLMo-2-7B BF16 roofline vs measured — ALL single socket (TP=1, 128c NUMA 0-2, batch 8), from the recorded certificate (plugin/certificates/Olmo2ForCausalLM.yaml). Roofline and measured are the SAME machine config. unit=TF/s vs the streamed AMX ceiling 60.6 TF/socket; per-op = isolated AMX GEMM M=2048; model = whole-model prefill.",
+  "model": "OLMo-2-7B (BF16)",
+  "node": "gnr_6980p (SINGLE SOCKET, TP=1, batch 8)",
+  "precision": "bf16",
+  "phase": "prefill (GEMM-bound)",
+  "batch": 8,
+  "unit": "TF/s",
+  "model_roofline_target": 60.6,
+  "model_measured": 18.2,
+  "ops": [
+    {"op": "down (MLP)", "roofline_target": 60.6, "measured": 36.52, "share_pct": 30.0, "regime": "compute"},
+    {"op": "gate_up (MLP)", "roofline_target": 60.6, "measured": 25.36, "share_pct": 30.0, "regime": "compute"},
+    {"op": "qkv (attn)", "roofline_target": 60.6, "measured": 35.37, "share_pct": 25.0, "regime": "compute"},
+    {"op": "o (attn)", "roofline_target": 60.6, "measured": 25.47, "share_pct": 15.0, "regime": "compute"}
+  ]
+}

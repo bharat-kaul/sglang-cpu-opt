@@ -26,6 +26,18 @@ missing evidence, the certificate FAILS — no partial credit.
    profile, plugin commit, reproduce commands.
 8. **Diff** — the plugin-only patch (thin subclass, zero `sglang/` edits),
    lint/format-clean to SGLang conventions, ready to open as a PR.
+9. **Roofline target vs measured (PUBLISHED artifact).** Every published result
+   carries the roofline-achievable TARGET next to the MEASURED number, at the model
+   level AND per hot op, rendered as a table + bar chart via
+   `plugin/validate/roofline_vs_measured.py` (input = the `model-profile-hotspots`
+   JSON). Publish the target UP FRONT (measured usually falls below it); the per-op
+   efficiency-gap chart, ranked by recoverable fraction (shortfall × share), shows
+   exactly which kernels underperform their roofline and are the next optimization
+   RoI. Link the report/chart from the certificate and the repo results page.
+   **Same machine config, always labeled:** roofline and measured MUST be at the
+   identical config (socket count, TP, batch, precision) — never a single-socket
+   roofline against a dual-socket measured. State "single socket" vs "full node (2
+   socket)" explicitly in the `node` field and the results table.
 
 ## Pass rule
 GREEN only if: coverage ALL COVERED, accuracy within tol on BOTH layers, dispatch

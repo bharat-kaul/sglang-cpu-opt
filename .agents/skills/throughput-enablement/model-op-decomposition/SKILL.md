@@ -59,3 +59,7 @@ you trust it on the new model.
   distinct op the registry must have a contract for.
 - Fused ops in the SGLang class (fused qkv, fused gate_up) must be recorded as the
   fused kernel, not the mathematical sub-ops, so coverage matches the real kernel.
+- This graph is the COMPUTE op list only. It does NOT capture the runtime substrate
+  (KV pool, allocator, backend guards) or novel families in non-attention subsystems
+  (norm-path hash-clustering, etc.). Hand off to `enablement-scope-discovery` for the
+  dependency-closure that surfaces those BEFORE bring-up.

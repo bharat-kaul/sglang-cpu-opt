@@ -49,6 +49,14 @@ performance_peer_relative:
     peer: null
   verdict: null              # PASS if all eff_rel >= 0.90 and end_to_end >= 0.90
 
+roofline_vs_measured:        # PUBLISHED artifact (roofline_vs_measured.py)
+  unit: tok/s                # or TF/s
+  model_roofline_target: null
+  model_measured: null       # usually < target; null = target published, measured to follow
+  ops: []                    # [{op, share_pct, regime, roofline_target, measured, efficiency}]
+  report_md: null            # plugin/validate/results/<name>.md
+  chart_svg: null            # plugin/validate/results/<name>.svg
+
 determinism:
   repeats: null
   stable: null

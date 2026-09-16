@@ -1,0 +1,41 @@
+# Kernel Feasibility-Gate Audit — DSA index_gemm_kernel_nn (M=16 AMX)
+# Emitted by kernel-feasibility-gate before authoring. Decision: DEFER/SKIP.
+# GNR 6980P + EMR 8592+, 2026-09-15.
+
+op: dsa_index_gemm_kernel_nn_m16
+target: "AMX kernel for index_gemm_kernel_nn at M=16 (decode.cpp:13 TODO)"
+model: DeepSeek-V4 (deepseek_v4.py; DSA lightning indexer)
+decision: DEFER            # SKIP for normal decode; low-moderate ROI for spec decode
+
+roofline_model:
+  compute: FP32 FMA (NOT AMX/bf16) — kernel up-converts fp8/bf16 -> fp32 -> fmadd_ps
+  op_math: "C[M,N] += sum_k A[m,k]*B[indices[k],n]; gather-accumulate, C pre-scaled/row"
+  shape: {M: 16, K: 512 (index_topk), N: 128 (index_head_dim), B_dtype: fp8}
+  predicted_regime: "bracketed as maybe memory/gather-bound (AI ~18)"
+  fp32_compute_ceiling_tflops_per_socket: ~22
+  note: "roofline could not decide bottleneck -> microbench required"
+
+baseline_microbench:   # tools/microbench/dsa_index_gemm.c, single core
+  gnr_6980p: {pool64MB_1pass_gflops: 20.7, pool64MB_4pass_gflops: 21.8, ipc: 3.0, llc_miss_pct: "<4"}
+  emr_8592p: {pool64MB_1pass_gflops: 23.3, pool64MB_4pass_gflops: 26.6, ipc: 3.7, llc_miss_pct: "<2"}
+  measured_regime: "ISSUE/CONVERSION-bound, NOT memory-bound (~11-14% of FP32 peak;
+    fp8->bf16->fp32 up-convert + broadcast-A dominate; gather is L3-resident)"
+  overturned: "single-pass-over-B gives NO benefit (B L2/L3-resident; M=16 128 fp32
+    accumulators SPILL registers -> slightly slower). The roofline lever was wrong."
+  portable: "conclusion identical on GNR (Granite Rapids) and EMR (Emerald Rapids)"
+
+amdahl:
+  method: analytical (671B-class model not runnable on one node)
+  decode_is: weight-streaming-bound (~14.6B active params/token, fp8 -> ~24 ms/token)
+  indexer_nn_share:
+    normal_decode_M1: "~0.5% of decode"
+    spec_decode_M16:  "~7% of the 16-token verification step"
+
+real_lever_if_pursued: "dpbf16_ps (bf16 compute, fp32 accum) — removes fp32 up-convert,
+  2x MAC/instruction, NO staging, NO register spill. Est ~1.5-2x. NOT AMX-staging."
+higher_priority_levers: ["weight-streaming precision (fp8/int8) = the dominant ~24ms/token",
+  "MLA/MoE donor paths", "indexer nt (logits) kernel for long context (scales with seqlen)"]
+
+conclusion: "The feasibility gate (roofline -> microbench -> Amdahl) prevented building a
+  low-ROI, wrongly-designed kernel. If ever pursued (spec-decode-primary serving), use the
+  dpbf16 conversion-cost lever, not AMX staging."

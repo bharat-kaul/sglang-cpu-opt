@@ -1,0 +1,17 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='900' height='284' font-family='sans-serif'>
+<rect width='900' height='284' fill='white'/>
+<text x='210' y='28' font-size='18' font-weight='bold'>OLMo-2-7B (BF16) — roofline vs measured (TF/s, prefill (GEMM-bound))</text>
+<rect x='210' y='40' width='14' height='14' fill='#9db4d0'/><text x='230' y='52' font-size='12'>roofline target</text><rect x='350' y='40' width='14' height='14' fill='#2f6f4f'/><text x='370' y='52' font-size='12'>measured</text>
+<text x='202' y='83.0' font-size='12' text-anchor='end'>down (MLP) (30%)</text>
+<rect x='210' y='66' width='650.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='83.0' width='391.7' height='17.0' fill='#2f6f4f'/><text x='866.0' y='87.0' font-size='11'>60% of achievable</text>
+<text x='202' y='129.0' font-size='12' text-anchor='end'>gate_up (MLP) (30%)</text>
+<rect x='210' y='112' width='650.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='129.0' width='272.0' height='17.0' fill='#2f6f4f'/><text x='866.0' y='133.0' font-size='11'>42% of achievable</text>
+<text x='202' y='175.0' font-size='12' text-anchor='end'>qkv (attn) (25%)</text>
+<rect x='210' y='158' width='650.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='175.0' width='379.4' height='17.0' fill='#2f6f4f'/><text x='866.0' y='179.0' font-size='11'>58% of achievable</text>
+<text x='202' y='221.0' font-size='12' text-anchor='end'>o (attn) (15%)</text>
+<rect x='210' y='204' width='650.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='221.0' width='273.2' height='17.0' fill='#2f6f4f'/><text x='866.0' y='225.0' font-size='11'>42% of achievable</text>
+</svg>

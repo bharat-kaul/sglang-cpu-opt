@@ -12,6 +12,16 @@ package and integrates via `SGLANG_EXTERNAL_MODEL_PACKAGE` and the attention
 backend registry. You never edit files under `sglang/`.
 
 ## Loop
+0. **Feasibility gate (new/PARTIAL kernels — MANDATORY, before any code)** — first
+   confirm the op cleared BOTH model tiers: ranked high-ROI by `model-roofline-analysis`
+   (analytical) and confirmed a high-RoI hotspot by `model-profile-hotspots` (measured
+   per-kernel time vs roofline floor — meaningful share AND headroom; don't
+   kernel-optimize what the profile shows is already near its ceiling or a rounding
+   error). Then load `kernel-feasibility-gate`: WALK THE USER through the roofline model (FLOPs, real
+   stream-vs-gather bytes, AI, ceilings for the ACTUAL dtype/ISA, ridge, regime, and
+   whether the intended lever addresses the bottleneck), THEN run a baseline
+   microbenchmark on the target node with perf counters + an Amdahl check. Get
+   go/no-go. Do NOT start authoring on the model alone.
 1. **Analyze** — read the target op/model. Classify (GEMM, attention, norm,
    activation, MoE routing). Estimate arithmetic intensity.
 2. **Calibrate** — establish the ACHIEVABLE ceilings on the target silicon with
@@ -38,6 +48,10 @@ backend registry. You never edit files under `sglang/`.
    so the next op/model benefits.
 
 ## Guardrails
+- Before authoring ANY new kernel, pass `kernel-feasibility-gate`: a user-reviewed
+  roofline model AND a measured baseline microbenchmark on the target node. Never
+  write kernel code on the model alone, and never apply a compute lever (AMX) to a
+  memory/gather-bound op — confirm the lever moves the MEASURED bottleneck.
 - Establish the achievable ceiling with a microkernel before optimizing; gate
   against it, never against paper peak.
 - Measure the AMX all-core frequency; never assume max turbo.

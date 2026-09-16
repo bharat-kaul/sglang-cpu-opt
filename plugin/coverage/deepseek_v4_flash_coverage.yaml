@@ -89,6 +89,79 @@ scaffolding_tasks:
     donor_to_adapt: "sparse_prefill_kernels.py (Triton) + csrc/cpu/flash_attn.cpp"
     skills: [amx-vectorization, cache-blocking-tiling, openmp-parallelization]
 
+# ---- CPU INFRA GAPS found empirically during make-it-work (2026-09-15) ----
+# The coverage-gate above enumerated the DSA COMPUTE-op gaps. Standing the model up on
+# CPU (plugin wrapper + dummy fp8 weights, sglang 0.5.20.dev373) surfaced an ADDITIONAL
+# category the static op-scan missed: the KV-cache / memory-pool + attention-backend
+# wiring for DSA on CPU. These block make-it-work before any DSA compute kernel runs.
+cpu_infra_gaps:
+  - id: dsv4-cpu-fp8-kv-guard
+    where: "srt/mem_cache/kv_cache_configurator.py:313 configure()"
+    symptom: "ValueError: CPU FP8 KV cache requires the intel_amx attention backend"
+    cause: "generic CPU-fp8-KV guard assumes fp8 KV == MHA + intel_amx backend; does NOT
+      exempt DSV4's custom MLA packed pool (which legitimately stores fp8+bf16 as uint8).
+      Fires on CPU only (current_platform.is_cpu() gated); CUDA path is unaffected."
+    fix_direction: "plugin-side: exempt the DSV4 dsv4-backend MLA pool from the generic
+      fp8-MHA-intel_amx guard, or wire the CPU attention backend selection so DSV4 gets a
+      supported (backend, kv-pool) pair. Framework change kept in the plugin (no sglang fork)."
+  - id: dsv4-cpu-kv-pool-store-dtype
+    where: "srt/mem_cache/deepseek_v4_memory_pool.py:138 create_buffer()"
+    symptom: "AssertionError: store_dtype == torch.uint8 (when kv-cache-dtype overridden to bf16)"
+    cause: "DSV4 KV pool is hardwired to the packed byte layout (448 fp8 nope + 64*2 bf16
+      rope + 7 fp8 scales + 1 pad = 584 B/token, store_dtype uint8). --kv-cache-dtype cannot
+      override it; bf16 KV is not a valid DSV4 layout."
+    note: "=> DSV4 CPU KV must use the native packed fp8 pool; the real work is making that
+      pool + its accessors (dsv4_index_buf_accessor) run on CPU, not forcing bf16."
+  scope_impact: "Thesis-2 DSA work = 4 DSA compute kernels (coverage-gate) PLUS this KV/
+    memory-pool + backend-wiring layer. The make-it-work reference layer must land the
+    infra first (so the model executes), then model-profile-hotspots ranks which DSA
+    compute kernel to author in AMX."
+
+# ---- FULL dsv4-backend kernel scope (enablement-scope-discovery closure, 2026-09-15) ----
+# Dependency-closure grep of kernels/ops/attention/dsv4/*.py: the dsv4 attention BACKEND
+# has its own DSV4-specific kernel set (NOT the deepseek_v2 CPU path coverage assumed).
+# Each is JIT-CUDA / sgl_kernel / Triton with no CPU path unless noted. Honest remaining scope:
+dsv4_backend_kernel_scope:
+  mla_core_norm_rope:   # small torch ports (RMS-norm + rope math)
+    - fused_q_norm_rope            # elementwise.py:144 (JIT) — CURRENT FRONTIER
+    - fused_k_norm_rope_flashmla   # elementwise.py:267 (JIT)
+    - fused_rope_inplace           # elementwise.py:113 (JIT)
+  kv_quant_pack:
+    - quant_to_nope_fp8_rope_bf16_pack  # quant_k_cache.py:72 (Triton) — fp8 KV pack
+    - fused_store_cache                 # attn.py:63 (JIT)
+  moe_routing:
+    - _jit_mask_topk / _jit_hash_topk   # moe.py:20/29 (JIT) — hash/mask top-k
+    - silu_and_mul_clamp                # moe.py:182 (sgl_kernel)
+  topk_transform:
+    - topk_transform_paged/ragged/v2    # topk.py (JIT/sgl_kernel; some torch variants exist)
+  dsa_family:   # (see ops table above) compressor=authoring; indexer has torch fallback
+    - compress_forward/plan/norm_rope_store, sparse_prefill, index_gemm(M16)
+  classification: "MOSTLY routing/small-port (norm/rope/quant/pack/topk = portable math);
+    the compressor PLAN is the one true authoring gap. Lesson: the dsv4 BACKEND replaces the
+    deepseek_v2 MLA CPU path wholesale — 'MLA covered via deepseek_v2' was WRONG for this backend.
+    Either port the dsv4 kernel set OR route DSV4 core attention to the intel_amx CPU MLA backend."
+
+# ---- SECOND novel kernel family found by bring-up (2026-09-15): MHC ----
+# The coverage-gate op-scan enumerated DSA (attention subsystem) but MISSED MHC — the
+# DeepSeek-V4 hash-clustering in the NORM path (config num_hash_layers=3, hc_mult=4,
+# hc_sinkhorn_iters=20). A second, independent novel kernel family:
+mhc_hash_clustering:
+  where: "models/deepseek_v4.py hc_pre/hc_post; kernels/ops/layernorm/mhc.py"
+  status: GAP
+  ops: [mhc_pre, hc_split_sinkhorn, hc_combine, mhc_post]
+  reason: "TileLang-only (tilelang not installed on CPU). hc_pre has a torch outer frag
+    (hc_pre_torch_impl) but inner hc_split_sinkhorn + hc_combine are TileLang kernels."
+  note: "sinkhorn normalize + weighted combine are portable math -> torch CPU port is
+    small/bounded. Lesson: a model can have >1 novel kernel FAMILY in different
+    subsystems (DSA=attention, MHC=norm); scan the whole forward to the sub-op leaf."
+
+# ---- Make-it-work ladder cleared so far (login node + GNR, dummy fp8) ----
+# 1) config schema  -> base config.json on transformers-native DSV4 schema (Pro config.json)
+# 2) wo_a.weight_scale_inv assert -> DSV4 MLA REQUIRES fp8 block-quant (keep quantization_config)
+# 3) vllm._custom_ops rope import -> set SGLANG_USE_CPU_ENGINE=1 (is_cpu() gate)
+# 4) MODEL BUILDS + LOADS end-to-end on CPU in fp8 (MLA + DSA indexer + MoE instantiate)
+# 5) [CURRENT] KV-cache/memory-pool + backend wiring (the two cpu_infra_gaps above)
+
 # ---- What this demonstrates ----
 # The analyzer, run same-day on a high-profile release, pinpoints EXACTLY the missing
 # CPU work and matches the in-tree TODO (decode.cpp:13). Enablement is NOT blocked by

@@ -16,10 +16,18 @@ condition is met and gating every step against the measured roofline.
 > THIS leg via the `cpu-optimizer` agent; when the new kernel passes its roofline
 > it registers a capability contract and the model re-enters enablement.
 
+> WRITING vs optimizing. To AUTHOR a net-new kernel (a coverage GAP with no CPU
+> implementation, e.g. the DSA indexer), load **`kernel-authoring`** FIRST — it maps
+> the op to the nearest donor kernel in the SGLang corpus and the 4-layer adaptation
+> (control / inner-op / packing / epilogue), grounded in LIBXSMM/TPP + oneDNN. Then
+> the technique skills below TUNE the drafted kernel.
+
 ## The skill library (progressive order)
 
 | # | Technique skill | Load when | Gates on |
 |---|-----------------|-----------|----------|
+| G | `kernel-feasibility-gate` | BEFORE authoring a net-new kernel | user-reviewed roofline + measured baseline; go/no-go |
+| A | `kernel-authoring` | writing a NET-NEW kernel (not just tuning) | draft matches FP32 ref |
 | 0 | `establish-achievable-performance` | ALWAYS first, once per hardware profile | sets the ceilings |
 | 1 | `roofline-validation` | after every implementation step | % of achievable |
 | 2 | `openmp-parallelization` | op runs on >1 core | scaling efficiency |
@@ -49,6 +57,10 @@ skill folders without touching the others.
 ## Composition rule
 
 Apply techniques in the order above and **re-run `roofline-validation` after each**.
+Also **re-check numerical parity against the persistent reference oracle after each
+step** (see `kernel-authoring` 1b): a slow-but-correct reference is authored/kept as
+the correctness fallback, and any optimized variant that drifts from it is a
+regression, not a speedup. Speed is only valid on top of correctness.
 Stop when efficiency ≥ target (70% of the *streamed achievable* ceiling, not the
 resident compute peak — see `establish-achievable-performance`). Record which
 technique closed the gap in the skill's learned-patterns so the next op starts

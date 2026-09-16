@@ -17,6 +17,10 @@ level). Enablement reuses kernels; optimization writes/improves them.
 |---|-------|-----------|------|
 | 0 | `establish-achievable-performance` | ALWAYS first, once per node | sets ceilings |
 | 1 | `model-op-decomposition` | new model config in hand | complete op graph |
+| 1b | `fusion-analysis` | after decomposition | fusion plan (BW/AI, roofline-gated) |
+| 1c | `model-roofline-analysis` | after fusion-analysis | per-phase Amdahl-ranked high-ROI plan |
+| 1c2 | `enablement-scope-discovery` | after roofline, BEFORE first run | complete kernel-family + infra scope (dependency-closure) |
+| 1d | `model-profile-hotspots` | model runnable on node | measured RoI-ranked kernel hotlist |
 | 2 | `kernel-capability-registry` | after decomposition | contracts loaded |
 | 3 | `coverage-gate` | graph + registry ready | 100% covered, else HAND OFF |
 | 4 | `cpu-model-wiring` | coverage clean | loads + forward pass on CPU |
@@ -32,6 +36,21 @@ reuse them unmodified, and new capabilities are added as new skill folders.
 ```
 0. establish-achievable-performance  -> compute/stream/mem ceilings for THIS node
 1. model-op-decomposition            -> normalized op graph
+1b. fusion-analysis                   -> fusion plan: COVERED (donor fused-kernel) /
+                                        NEW-FUSED-KERNEL (-> kernel-authoring) / SKIP;
+                                        cross-checked vs external impls/claims
+                                        (vLLM, TRT-LLM, FlashInfer, authors, blogs)
+1c. model-roofline-analysis           -> per-phase (prefill/decode) roofline; Amdahl-rank
+                                        op-classes; high-ROI plan (memory-bound->precision,
+                                        compute-bound->AMX); gates entry to the kernel tier
+1c2. enablement-scope-discovery       -> dependency-closure walk of the ACTUAL forward + backend
+                                        + KV/memory-pool code to the sub-op leaf; enumerate ALL
+                                        kernel families (attention+norm+routing+...) AND the
+                                        runtime substrate; classify each (routing/port/authoring);
+                                        honest scope BEFORE the first run (no reactive cascade)
+1d. model-profile-hotspots            -> RUN the model (random weights ok); per-kernel measured
+                                        time vs kernel roofline floor; RoI = share*(1-efficiency);
+                                        measured hotlist wins over analytical ranking
 2. kernel-capability-registry        -> load op->kernel contracts + peer donors
 3. coverage-gate:
      all ops covered      -> continue
