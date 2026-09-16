@@ -55,6 +55,13 @@ the allocator; grep access to the whole repo.
    `triton|tilelang|deep_gemm|flash_mla|\.cuh|sgl_kernel|nvcc|get_device_properties|
    pin_memory=True|cuda_graph`, and device guards that lack an `is_cpu` branch. Every
    hit on a path this arch executes is a scope item.
+   - **Also check WEIGHT DTYPE vs target-ISA compute support.** A checkpoint's storage
+     dtype may have NO native matmul on the target (GNR AMX = bf16/int8 only; fp4 / nvfp4
+     / mxfp4 / int4 do NOT compute natively). Such experts/linears are a GAP even though
+     they "load": the CPU GEMM/MoE kernel rejects the packed sub-8-bit layout
+     (DSV4: `fused_experts_cpu` `packed_w1 3588 vs 7168` = fp4 K/2 packing). Enablement =
+     dequant-to-supported-compute-dtype; accuracy-parity target is bf16 (no new quant
+     error), memory permitting — see `quantization-amx-int8`'s storage≠compute section.
 5. **Classify each leaf** (drives the cost): **CPU-ready** (no work) / **routing**
    (a CPU/torch path exists behind a predicate/flag — flip it) / **mechanical-port**
    (Triton index/bookkeeping kernel, no fallback, pure math → torch) / **authoring**

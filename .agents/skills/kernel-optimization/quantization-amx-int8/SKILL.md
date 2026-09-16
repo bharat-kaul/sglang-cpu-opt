@@ -40,3 +40,25 @@ gate the INT8 GEMM at ≥70% of the INT8 streamed-achievable, same as BF16.
 Apply LAST in the playbook — after parallelization/tiling/BRGEMM — because it
 changes the correctness contract and should be evaluated against a fully-tuned
 BF16 baseline.
+
+## Storage dtype ≠ compute dtype (sub-8-bit checkpoints, e.g. fp4/nvfp4/mxfp4)
+GNR AMX computes in **bf16 and int8 ONLY — there is no native 4-bit (fp4/int4) matmul**.
+A checkpoint's weight dtype (fp4 experts in DeepSeek-V4-Pro; nvfp4/mxfp4/int4 GGUF) is a
+**storage/quantization format**, not a compute path on this ISA. So a sub-8-bit checkpoint
+is an ENABLEMENT GAP, not a ready kernel: the GEMM MUST upconvert the weights to a
+supported compute dtype. The framework's CPU MoE/GEMM kernel will reject the packed
+sub-8-bit layout (DSV4: `fused_experts_cpu` asserts `packed_w1.size(2)==packed_K`; fp4's
+2-per-byte packing gives K/2 → `3588 vs 7168`). Route it to a supported path:
+- **Accuracy-parity FIRST target = bf16 compute.** Dequant `fp4_level × block_scale → bf16`
+  adds NO new quantization (bf16 represents the few fp4 levels exactly) → true parity vs the
+  fp4 reference. w8a8-int8 adds ACTIVATION quant error → parity risk; do it later.
+- **Memory: upconvert is 4× (fp4→bf16), 2× (fp4→int8).** Check it FITS. DSV4-Pro experts
+  ≈735 GB fp4 → ≈2.9 TB bf16 > a 1.5 TB node. Two bf16-compute paths:
+  1. **Dequant-at-load → bf16 in RAM:** uses the EXISTING bf16 `fused_experts_cpu` (unquant
+     path), zero new kernel — but only where 4× fits (tiny-faithful, smaller/flash models).
+  2. **fp4 in RAM, dequant-per-tile IN-KERNEL → bf16 AMX:** memory stays 1× (fp4), same
+     numerics as (1) — a NEW kernel to author (sub-8-bit-weight, bf16-compute grouped GEMM).
+     This is the real large-model path.
+- **Sequence:** bf16 parity (reference) → int8 → int4-storage/int8-compute, each diffed vs the
+  bf16 result. Same as the playbook's correctness-first rule; int4-storage on GNR is ALSO
+  dequant-to-int8/bf16 (no int4 compute).
