@@ -105,6 +105,7 @@ def install() -> None:
     _install_dsa_cpu_kernels()
     _install_mhc_cpu()
     _install_dsv4_core_kernels()
+    _install_dsv4_attention_cpu()
     _install_dsa_profile_bypass()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
@@ -139,6 +140,26 @@ def _cpu_fused_q_norm_rope(q_input, q_output, eps, freqs_cis, positions):
     q_output.copy_(out.to(q_output.dtype))
 
 
+def _cpu_fused_rope_inplace(q, k, freqs_cis, positions, inverse=False):
+    # Interleaved RoPE applied IN PLACE to full [B, heads, rope_dim] q/k tensors.
+    import torch
+
+    freqs_real = torch.view_as_real(freqs_cis).flatten(-2)
+    rope_dim = freqs_real.shape[-1]
+    freq = freqs_real[positions.long()].reshape(-1, rope_dim // 2, 2)
+    fr = freq[..., 0].unsqueeze(1)
+    fi = freq[..., 1].unsqueeze(1)
+    if inverse:
+        fi = -fi
+    for t in (q, k):
+        if t is None:
+            continue
+        pairs = t.float().reshape(t.shape[0], t.shape[1], rope_dim // 2, 2)
+        xr, xi = pairs[..., 0], pairs[..., 1]
+        rot = torch.stack([xr * fr - xi * fi, xr * fi + xi * fr], dim=-1)
+        t.copy_(rot.reshape(t.shape).to(t.dtype))
+
+
 def _install_dsv4_core_kernels() -> None:
     # Reference-first torch ports of the dsv4 MLA-core fused kernels the MODEL FORWARD
     # calls directly (CUDA-JIT, no CPU path). Each mirrors the in-tree AOT/test oracle.
@@ -147,6 +168,8 @@ def _install_dsv4_core_kernels() -> None:
     import sglang.srt.models.deepseek_v4 as _dv4
 
     _dv4.fused_q_norm_rope = _cpu_fused_q_norm_rope
+    _dv4.fused_rope_inplace = _cpu_fused_rope_inplace
+    _dv4._FP8_WO_A_GEMM = False  # route o_proj (wo_a) to the standard bf16 path on CPU
 
     # K path: fused norm+rope + fp8-pack + paged scatter-write. The paged writer already
     # has an in-tree torch impl (index_buf_accessor._set_k_and_s_torch); the pack math is
@@ -214,9 +237,95 @@ def _cpu_fused_k_norm_rope_flashmla(
     else:
         roped = xn[:, nope_dim:]
     kv_out = torch.cat([normed, roped], dim=-1).to(torch.bfloat16)
+    # Stash the exact dense bf16 keys (pre-pack) so the CPU torch MLA attention reads
+    # them directly instead of unpacking the paged fp8 layout (numerically exact).
+    stash = _KV_STASH.setdefault(kvcache.data_ptr(), {})
+    for i, l in enumerate(out_loc.tolist()):
+        if l >= 0:
+            stash[int(l)] = kv_out[i].detach()
     _iba._set_k_and_s_torch(
         kvcache, out_loc, _cpu_quant_to_nope_fp8_rope_bf16_pack(kv_out), page_size
     )
+
+
+# Dense bf16 KV stash keyed by (paged-buffer data_ptr -> {loc: key[512]}). Populated by
+# the CPU K-write; read by the CPU torch MLA attention below.
+_KV_STASH: dict = {}
+
+
+def _torch_flash_mla_with_kvcache(
+    q,
+    k_cache,
+    head_dim_v,
+    block_table=None,
+    cache_seqlens=None,
+    tile_scheduler_metadata=None,
+    softmax_scale=None,
+    is_fp8_kvcache=True,
+    indices=None,
+    topk_length=None,
+    attn_sink=None,
+    extra_k_cache=None,
+    extra_indices_in_kvcache=None,
+    extra_topk_length=None,
+    **_,
+):
+    # MLA-absorbed attention on CPU: value == key; out = softmax(q.kT.scale (+) sink).k.
+    import torch
+
+    T, _, H, D = q.shape
+    out = torch.zeros(T, H, head_dim_v, dtype=torch.float32)
+    swa = _KV_STASH.get(k_cache.data_ptr(), {})
+    extra = _KV_STASH.get(extra_k_cache.data_ptr(), {}) if extra_k_cache is not None else {}
+    for t in range(T):
+        locs = []
+        if indices is not None and topk_length is not None:
+            L = int(topk_length[t])
+            locs = [int(x) for x in indices[t].reshape(-1)[:L].tolist() if x >= 0]
+        keys = [swa[l] for l in locs if l in swa]
+        if extra_indices_in_kvcache is not None and extra_topk_length is not None:
+            EL = int(extra_topk_length[t])
+            elocs = [int(x) for x in extra_indices_in_kvcache[t].reshape(-1)[:EL].tolist() if x >= 0]
+            keys += [extra[l] for l in elocs if l in extra]
+        if not keys:
+            continue
+        K = torch.stack(keys).float()  # [Kk, 512]
+        s = (q[t, 0].float() @ K[:, :D].t()) * softmax_scale  # [H, Kk]
+        if attn_sink is not None:
+            s = torch.cat([s, attn_sink.reshape(-1, 1).float()], dim=-1)
+            p = s.softmax(dim=-1)[:, :-1]
+        else:
+            p = s.softmax(dim=-1)
+        out[t] = p @ K[:, :head_dim_v]
+    return (out.unsqueeze(1).to(q.dtype),)
+
+
+def _install_dsv4_attention_cpu() -> None:
+    # Replace the CUDA flash-MLA serving kernel with the CPU torch MLA attention
+    # (reads the dense KV stash). The backend forward imports these at call time.
+    import sys
+    import types
+
+    if not current_platform.is_cpu():
+        return
+    # Force the non-sparse flash-MLA path on CPU (the sparse-prefill path uses Triton
+    # build_swa_token_ids); our torch attention handles the SWA + extra gather itself.
+    import os
+
+    os.environ.setdefault("SGLANG_OPT_FLASHMLA_SPARSE_PREFILL", "0")
+    try:
+        import sglang.srt.layers.attention.deepseek_v4_backend as _b
+
+        _b._LARGE_INDEXER_QUERY_THRESHOLD = 10**9
+    except Exception:
+        pass
+    try:
+        import sgl_kernel.flash_mla as _fm
+    except Exception:
+        _fm = types.ModuleType("sgl_kernel.flash_mla")
+        sys.modules["sgl_kernel.flash_mla"] = _fm
+    _fm.flash_mla_with_kvcache = _torch_flash_mla_with_kvcache
+    logger.info("intel_cpu_models: installed CPU torch flash-MLA attention (dense KV stash).")
 
 
 def _install_mhc_cpu() -> None:
@@ -243,6 +352,11 @@ def _install_mhc_cpu() -> None:
         return (pre.float().unsqueeze(-1) * xr).sum(dim=1).to(out_dtype)
 
     _mhc.hc_combine = _cpu_hc_combine
+    if hasattr(_mhc, "_mhc_post_torch"):
+        # hc_post passes raw post [s,n]; _mhc_post_torch wants [s,n,1].
+        _mhc.mhc_post = lambda x, residual, post, comb: _mhc._mhc_post_torch(
+            x, residual, post.unsqueeze(-1), comb
+        )
     try:
         import sglang.srt.models.deepseek_v4 as _dv4
 
