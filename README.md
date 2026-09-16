@@ -27,8 +27,19 @@ automatically from the same donor kernels (capability inheritance).
 
 ## Two theses, one plugin
 - **Thesis 1 — throughput (all-known-kernels):** enable by wiring + validation only. **PROVEN** (above).
-- **Thesis 2 — new-kernel leg:** write/tune a kernel for a genuinely novel op. **SCOPED** for
-  DeepSeek Flash v4.1 → [plugin/coverage/deepseek_v4_flash_coverage.yaml](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+- **Thesis 2 — new-kernel leg (DeepSeek Flash v4.1):** the workflow, demonstrated end-to-end:
+  - **Scope-discovery** surfaced the *true* scope — **two** novel kernel families (DSA sparse
+    attention + MHC hash-clustering) **plus** a runtime infra layer — not the "4 DSA kernels" a
+    static op-scan implied → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+  - **Enabled:** the CPU infra layer (KV pool, paged allocator, backend guards, metadata routing)
+    and the MLA-core + MHC kernels, **authored reference-first** and checked against in-tree oracles
+    (`fused_q_norm_rope`, `fused_k_norm_rope`+fp8-pack+paged-write, MHC sinkhorn/combine) —
+    [plugin/intel_cpu_models/_dsv4_cpu_infra.py](plugin/intel_cpu_models/_dsv4_cpu_infra.py).
+  - **Feasibility gate** demonstrated on `index_gemm(M16)` (GNR+EMR microbench → data-driven DEFER).
+  - **Remaining (scoped):** the DSA compute family — compressor (+CUDA-JIT paged plan), sparse-prefill,
+    indexer. Finding: the dsv4 backend has **no dense path** (DSA *is* its attention forward), so there
+    is no bypass-to-profile shortcut — the family must be authored. This is the multi-kernel Thesis-2
+    build the workflow correctly scoped.
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
