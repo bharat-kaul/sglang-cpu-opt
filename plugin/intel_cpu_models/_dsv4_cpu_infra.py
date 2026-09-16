@@ -109,6 +109,7 @@ def install() -> None:
     _install_dsv4_attention_cpu()
     _install_moe_gate_cpu_fix()
     _install_moe_hash_cpu_fix()
+    _install_fp4_expert_cpu_dequant()
     _install_dsa_profile_bypass()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
@@ -438,6 +439,49 @@ def _install_moe_hash_cpu_fix() -> None:
     logger.info("intel_cpu_models: threaded input_ids to HashTopK on CPU (hash MoE layers).")
 
 
+def _install_fp4_expert_cpu_dequant() -> None:
+    # Plan A: GNR AMX has no 4-bit matmul, and Fp8MoEMethod's fp4->fp8 dequant lives in the
+    # NON-CPU branch of process_weights_after_loading; the _is_cpu branch hands fp4-packed
+    # weights straight to AMX prepack -> fused_experts_cpu CHECK_EQ(packed_w1, packed_K) fails
+    # (fp4 K/2 packing). Dequant fp4->fp8 (lossless, SGLang's cast_e2m1fn_to_e4m3fn) on CPU
+    # BEFORE the prepack, so the existing fp8 W8A16 CPU path (which itself dequants fp8->bf16
+    # for AMX) runs. Accuracy-parity: fp8 represents the fp4 levels exactly.
+    if not current_platform.is_cpu():
+        return
+    import torch
+
+    import sglang.srt.layers.quantization.fp8 as _fp8
+
+    Method = _fp8.Fp8MoEMethod
+    if getattr(Method, "_cpu_fp4_dequant_patched", False):
+        return
+    _orig_pwal = Method.process_weights_after_loading
+
+    def _patched_pwal(self, layer):
+        if getattr(self, "is_fp4_expert", False):
+            for weight_param, scale_param in [
+                (layer.w13_weight, layer.w13_weight_scale_inv),
+                (layer.w2_weight, layer.w2_weight_scale_inv),
+            ]:
+                new_w, new_s = [], []
+                for e in range(weight_param.shape[0]):
+                    w, s = _fp8.cast_e2m1fn_to_e4m3fn(
+                        weight_param.data[e], scale_param.data[e]
+                    )
+                    new_w.append(w)
+                    new_s.append(s)
+                weight_param.data = torch.stack(new_w)
+                scale_param.data = torch.stack(new_s).float()
+                scale_param.format_ue8m0 = False
+            self.is_fp4_expert = False
+            logger.info("intel_cpu_models: dequantized FP4 experts -> FP8 on CPU (Plan A).")
+        return _orig_pwal(self, layer)
+
+    Method.process_weights_after_loading = _patched_pwal
+    Method._cpu_fp4_dequant_patched = True
+    logger.info("intel_cpu_models: installed CPU FP4->FP8 expert dequant (Plan A).")
+
+
 def _install_dsv4_attention_cpu() -> None:
     # Replace the CUDA flash-MLA serving kernel with the CPU torch MLA attention
     # (reads the dense KV stash). The backend forward imports these at call time.
@@ -499,6 +543,15 @@ def _install_mhc_cpu() -> None:
         import sglang.srt.models.deepseek_v4 as _dv4
 
         _dv4._get_mhc_ops.cache_clear()
+    except Exception:
+        pass
+    # hc_head (final MHC head combine) local-imports a Triton fused_hc_head; route it to the
+    # in-tree torch hc_head_torch on CPU (same signature).
+    try:
+        import sglang.kernels.ops.layernorm.mhc_head as _mhch
+        import sglang.srt.models.deepseek_v4 as _dv4h
+
+        _mhch.fused_hc_head = _dv4h.hc_head_torch
     except Exception:
         pass
     logger.info("intel_cpu_models: routed MHC sub-ops (sinkhorn, combine) to torch on CPU.")
