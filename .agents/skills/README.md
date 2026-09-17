@@ -44,6 +44,10 @@ Driven by the `model-enablement` agent.
   (not run_cost) by making each expensive run a MULTI-ANGLE probe with a disposition matrix
   planned up front (one load → many answers; in-situ A/B + per-op sweeps; pre-screen cheap
   hypotheses off-line). Reduces serial cluster wait. Applies `overhead-attribution` probes at scale.
+- `perf-proxy` — cut RUN_COST: iterate bottleneck-hunting + fixes on a DEPTH-reduced, FULL-WIDTH,
+  real-config proxy (dummy weights, queue-free, ~1/N time) BEFORE any full-model run; confirm
+  depth-aggregate effects + tok/s once on the full model. Shrink DEPTH not WIDTH (a narrow config
+  mis-ranks perf). Pairs with `high-information-runs` (cheap runs × more-per-run).
 
 The throughput thesis needs `throughput-enablement/` **plus** `shared/`.
 

@@ -38,7 +38,11 @@ separately; representative batch / seq-len / spec-M).
 ## Procedure
 1. **Run the real model, random weights OK.** Accuracy is irrelevant here — only
    timing. Launch with dummy/random weights so no checkpoint is needed
-   (SGLang `--load-format dummy`). Warm up, then profile a steady-state window.
+   (SGLang `--load-format dummy`). **If the full model is slow to load/run, do this on a
+   `perf-proxy` FIRST** — a depth-reduced (few-layer) but FULL-WIDTH, real-config copy that
+   reproduces every per-op bottleneck queue-free in ~1/N the time; iterate fixes there and
+   confirm ONCE on the full model. (Shrink DEPTH, never WIDTH — a narrow config mis-ranks.)
+   Warm up, then profile a steady-state window.
    Profile **prefill and decode separately** (the hot kernels differ per phase).
 2. **Collect a per-kernel wall-time profile** on the node:
    - **Run `overhead-attribution` FIRST and tag every hot op `kernel|torch|framework`**
