@@ -65,6 +65,13 @@ def build_markdown(d: dict) -> str:
     ]
     if d.get("constants_source"):
         lines += [f"**Ceiling provenance:** measured by uPP → `{d['constants_source']}`", ""]
+    if d.get("overhead_attribution"):
+        lines += [
+            f"**Overhead attribution (framework vs kernel):** [`{d['overhead_attribution']}`]"
+            f"(./{d['overhead_attribution'].split('/')[-1]}) — measured kernel/torch/framework split "
+            "that routes each hotspot to its lever.",
+            "",
+        ]
     lines += [
         f"**Model-level:** roofline target **{_fmt(mt, ' '+unit)}** · "
         f"measured **{_fmt(mm, ' '+unit)}**"

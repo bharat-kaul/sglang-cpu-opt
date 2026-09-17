@@ -56,6 +56,11 @@ Present this to the user as a short table + verdict. Do not proceed silently.
 
 ## Step 2 — Baseline microbenchmark (measure, don't trust the model alone)
 On the TARGET node, measure the closest existing kernel/path with perf counters:
+0. **First get the `overhead-attribution` bucket for this op** (kernel/torch/framework). If it
+   is tagged **kernel but far below its roofline floor** (like Flash `fused_experts` at
+   ~1.9 s/call, ~1000× above floor), the answer is **kernel-ISOLATION** (threads / weight
+   prepack / dtype path / verify ISA dispatched) — do NOT author a new kernel. Only a **torch**
+   (unoptimized) bucket justifies authoring/co-design.
 1. Reproduce the op's shape + access pattern (or call the existing kernel directly).
 2. `perf stat` for cycles, IPC, LLC/L2 misses, and DRAM bytes → classify the
    bottleneck: **DRAM-BW / L2-BW / port-issue / conversion**. This disambiguates

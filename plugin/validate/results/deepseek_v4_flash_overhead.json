@@ -1,0 +1,34 @@
+{
+  "_comment": "OVERHEAD ATTRIBUTION for the DeepSeek-V4-Flash Thesis-2 showcase, produced by the overhead-attribution skill on a REAL run (job 372849, tp=4, GNR, fp8+DSA, input-len 8 output-len 2). This is the skill USED on the showcase, not theory: it splits the measured decode time into optimized-KERNEL vs unoptimized-TORCH vs FRAMEWORK, and each bucket routes to a different lever. Source: INTEL_CPU_DSV4_TIMEIT=1 boundary timers (per-rank, tp-safe). Percentages below are of the WRAPPED leaf time (parents moe.forward/mla_attention excluded to avoid double counting); ~dense proj/norm/rope/lm_head are still UNATTRIBUTED and need the op-level profiler (next step).",
+  "model": "DeepSeek-V4-Flash",
+  "node": "gnr_6980p (SNC-on, tp=4 = 4/6 domains)",
+  "run": "job 372849, fp8, DSA-CPU, input-len 8 output-len 2",
+  "decode_tok_s_measured": 0.0032,
+  "decode_latency_s_per_token": 317.0,
+  "leaf_ops": [
+    {"op": "moe.expert_apply", "kind": "kernel", "total_s": 329.4, "per_call_s": 1.92, "n": 172,
+     "note": "native fused_experts_cpu (AMX fp8). ~1000x above its ~ms weight-streaming floor -> KERNEL-ISOLATION (threads/prepack/dtype path/verify ISA), NOT a new kernel."},
+    {"op": "dsa.mla.attend", "kind": "torch", "total_s": 249.5, "per_call_s": 0.32, "n": 774,
+     "note": "fp32 QK/softmax/PV matmuls. Real-scale CONFIRMS tiny: attend is ~all of MLA; gather+select ~0.03s. Lever = bf16/AMX attend (reference is bf16)."},
+    {"op": "dsa.indexer", "kind": "torch", "total_s": 129.2, "per_call_s": 1.54, "n": 84,
+     "note": "torch compressor(compute_kv_score+softmax-pool)+rmsnorm+mask (NOT the logits GEMM, which is sub-ms). Lever = co-design/vectorize."},
+    {"op": "dsa.compressor", "kind": "torch", "total_s": 93.1, "per_call_s": 0.57, "n": 164,
+     "note": "torch softmax-pool + rmsnorm. Lever = co-design/vectorize."},
+    {"op": "moe.framework", "kind": "framework", "total_s": 241.0, "per_call_s": 1.40, "n": 172,
+     "note": "moe.forward (570s) - expert_apply (329s) = gate/topk/dispatch/combine/shared. Lever = fusion/vectorize, no kernel."},
+    {"op": "dsa.mla.gather+select", "kind": "framework", "total_s": 0.03, "per_call_s": 0.0, "n": 774,
+     "note": "negligible -> the earlier vectorized-gather idea would NOT have moved the needle (measure-first)."}
+  ],
+  "bucket_split_of_wrapped": {
+    "torch": {"total_s": 471.8, "pct": 45.3, "lever": "author/route kernels + co-design (bf16 attend, vectorize indexer/compressor) -- the Thesis-2 work"},
+    "kernel": {"total_s": 329.4, "pct": 31.6, "lever": "kernel-ISOLATION vs uPP floor: fused_experts 1.92s/call is ~1000x above floor -> config (threads/prepack/dtype/ISA), NOT a new kernel"},
+    "framework": {"total_s": 241.0, "pct": 23.1, "lever": "fusion / fewer ops / vectorize routing -- no kernel"}
+  },
+  "unattributed_note": "The wrapped leaf ops cover the DSA + MoE; dense proj (fp8_scaled_mm), rmsnorm, rope, lm_head, embed are NOT yet wrapped (~the rest of wall time). NEXT: op-level profiler (torch.profiler/per-rank cProfile) to attribute them before committing more budget.",
+  "decisions": [
+    "MLA: fix the ATTEND phase (bf16/AMX), gated by output-tolerance parity. gather/select are ~0 -> do NOT touch them.",
+    "MoE: the 'AMX' fused_experts is itself ~1000x above floor -> kernel-isolation (a config problem surfaced early), potentially the single biggest lever.",
+    "Framework (MoE routing) 23% -> fusion/vectorize.",
+    "Profile the unattributed dense/norm/lm_head remainder next."
+  ]
+}

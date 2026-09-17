@@ -4,6 +4,8 @@
 
 **Ceiling provenance:** measured by uPP → `tools/uarch_perf_probe/samples/gnr_pcl-gnrap01_demo.json (uPP: 6 SNC domains, 226 GB/s/domain, remote/local 0.61 — corroborates the SNC-corrected ceiling)`
 
+**Overhead attribution (framework vs kernel):** [`plugin/validate/results/deepseek_v4_flash_overhead.json`](./deepseek_v4_flash_overhead.json) — measured kernel/torch/framework split that routes each hotspot to its lever.
+
 **Model-level:** roofline target **146.7 tok/s** · measured **PENDING** (target published; measured to follow)
 
 Per-op, ranked by recoverable end-to-end fraction (shortfall × phase share):

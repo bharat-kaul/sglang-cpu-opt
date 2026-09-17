@@ -41,6 +41,11 @@ separately; representative batch / seq-len / spec-M).
    (SGLang `--load-format dummy`). Warm up, then profile a steady-state window.
    Profile **prefill and decode separately** (the hot kernels differ per phase).
 2. **Collect a per-kernel wall-time profile** on the node:
+   - **Run `overhead-attribution` FIRST and tag every hot op `kernel|torch|framework`**
+     — the tp-safe, per-rank, DCE-guarded boundary timers are the primary mechanism
+     (worked example: `INTEL_CPU_DSV4_TIMEIT=1`, which prints the kernel/torch/framework
+     split); a sampler collapses under tp×OMP threads. The profiler below explains the
+     untimed FRAMEWORK residue (copies/casts/dispatch).
    - Torch/SGLang profiler trace (per-op self time), and/or `ONEDNN_VERBOSE=1` for
      per-primitive oneDNN timings (the AMX/BRGEMM GEMMs), and/or `perf record`.
    - Aggregate self-time by kernel and attribute to op-classes (attention, MoE
@@ -57,6 +62,10 @@ separately; representative batch / seq-len / spec-M).
    `roi = measured_share × (1 − efficiency)` = the fraction of phase time you could
    recover if this kernel hit its roofline. Rank kernels by `roi` descending.
 6. **Classify each hot kernel:**
+   - Route by the `overhead-attribution` bucket FIRST: **torch** (unoptimized) → author/route
+     a kernel or co-design; **kernel far below its floor** → kernel-isolation (config: threads,
+     prepack, dtype path, verify ISA) NOT a new kernel; **kernel at floor** → accept; **framework**
+     → fusion / fewer ops / bf16-end-to-end, no kernel. Then within that:
    - big share **and** low efficiency → **top RoI**, descend to `kernel-feasibility-gate`.
    - big share **and** high efficiency → already near ceiling; the only lever left is
      a *different roofline* (e.g. lower precision to cut the memory-bound floor) — note it.

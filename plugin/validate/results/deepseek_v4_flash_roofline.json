@@ -61,5 +61,6 @@
       "note": "full-node ref 3000 x4/6"
     }
   ],
-  "constants_source": "tools/uarch_perf_probe/samples/gnr_pcl-gnrap01_demo.json (uPP: 6 SNC domains, 226 GB/s/domain, remote/local 0.61 \u2014 corroborates the SNC-corrected ceiling)"
+  "constants_source": "tools/uarch_perf_probe/samples/gnr_pcl-gnrap01_demo.json (uPP: 6 SNC domains, 226 GB/s/domain, remote/local 0.61 \u2014 corroborates the SNC-corrected ceiling)",
+  "overhead_attribution": "plugin/validate/results/deepseek_v4_flash_overhead.json"
 }
