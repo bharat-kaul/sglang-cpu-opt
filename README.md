@@ -60,11 +60,11 @@ leg (Thesis 2)** measured = *our authored* kernel; in the **reuse leg (Thesis 1)
 *reused donor* kernel, so the gap shows whether the donor kernels are actually optimized or leave
 headroom (an RoI even when no new kernel was written).
 - **Thesis 1 — donor-kernel optimization** (OLMo-2-7B, BF16, GNR): [report](plugin/validate/results/olmo2_7b_donor_roofline.md)
-  · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.svg) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom.
+  · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.png) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom.
 - DeepSeek-V4-Flash (decode, fp8, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
-  · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.svg)
+  · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.png)
 - DeepSeek-V4-Pro (decode, bf16/fp4-storage, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_pro_roofline.md)
-  · ![chart](plugin/validate/results/deepseek_v4_pro_roofline.svg)
+  · ![chart](plugin/validate/results/deepseek_v4_pro_roofline.png)
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 

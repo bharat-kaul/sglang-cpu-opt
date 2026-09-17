@@ -1,18 +1,18 @@
-<svg xmlns='http://www.w3.org/2000/svg' width='900' height='310' font-family='sans-serif'>
-<rect width='900' height='310' fill='white'/>
+<svg xmlns='http://www.w3.org/2000/svg' width='1120' height='310' font-family='sans-serif'>
+<rect width='1120' height='310' fill='white'/>
 <text x='210' y='26' font-size='18' font-weight='bold'>OLMo-2-7B donor kernels (Thesis-1 reuse) — roofline vs measured (TF/s)</text>
 <text x='210' y='48' font-size='13' fill='#444'>Machine: gnr_6980p (SINGLE SOCKET, TP=1, 128c NUMA 0-2, batch 8)  ·  bf16  ·  batch 8  ·  prefill (GEMM-bound; measured = reused donor kernel)  ·  7B dense</text>
 <rect x='210' y='62' width='14' height='14' fill='#9db4d0'/><text x='230' y='74' font-size='12'>roofline target</text><rect x='350' y='62' width='14' height='14' fill='#2f6f4f'/><text x='370' y='74' font-size='12'>measured</text>
 <text x='202' y='109.0' font-size='12' text-anchor='end'>down (MLP) (30%)</text>
-<rect x='210' y='92' width='650.0' height='17.0' fill='#9db4d0'/>
-<rect x='210' y='109.0' width='391.7' height='17.0' fill='#2f6f4f'/><text x='866.0' y='113.0' font-size='11'>60% of achievable</text>
+<rect x='210' y='92' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='109.0' width='427.9' height='17.0' fill='#2f6f4f'/><text x='926.0' y='113.0' font-size='11'>60% of achievable</text>
 <text x='202' y='155.0' font-size='12' text-anchor='end'>gate_up (MLP) (30%)</text>
-<rect x='210' y='138' width='650.0' height='17.0' fill='#9db4d0'/>
-<rect x='210' y='155.0' width='272.0' height='17.0' fill='#2f6f4f'/><text x='866.0' y='159.0' font-size='11'>42% of achievable</text>
+<rect x='210' y='138' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='155.0' width='297.1' height='17.0' fill='#2f6f4f'/><text x='926.0' y='159.0' font-size='11'>42% of achievable</text>
 <text x='202' y='201.0' font-size='12' text-anchor='end'>qkv (attn) (25%)</text>
-<rect x='210' y='184' width='650.0' height='17.0' fill='#9db4d0'/>
-<rect x='210' y='201.0' width='379.4' height='17.0' fill='#2f6f4f'/><text x='866.0' y='205.0' font-size='11'>58% of achievable</text>
+<rect x='210' y='184' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='201.0' width='414.4' height='17.0' fill='#2f6f4f'/><text x='926.0' y='205.0' font-size='11'>58% of achievable</text>
 <text x='202' y='247.0' font-size='12' text-anchor='end'>o (attn) (15%)</text>
-<rect x='210' y='230' width='650.0' height='17.0' fill='#9db4d0'/>
-<rect x='210' y='247.0' width='273.2' height='17.0' fill='#2f6f4f'/><text x='866.0' y='251.0' font-size='11'>42% of achievable</text>
+<rect x='210' y='230' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='247.0' width='298.4' height='17.0' fill='#2f6f4f'/><text x='926.0' y='251.0' font-size='11'>42% of achievable</text>
 </svg>

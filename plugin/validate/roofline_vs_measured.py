@@ -80,7 +80,7 @@ def build_markdown(d: dict) -> str:
         )
     lines += [
         "",
-        "![roofline vs measured](./" + d.get("_svg_name", "roofline_vs_measured.svg") + ")",
+        "![roofline vs measured](./" + d.get("_img_name", "roofline_vs_measured.png") + ")",
         "",
         "> Bars: roofline-achievable (target) vs measured per op. A tall gap on a "
         "high-share op is the top optimization RoI. `PENDING` = target published; "
@@ -96,9 +96,9 @@ def build_svg(d: dict) -> str:
     if not ops:
         return "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='40'></svg>"
     n = len(ops)
-    row_h, pad_l, pad_t, width, bar_gap = 46, 210, 86, 900, 6
+    row_h, pad_l, pad_t, width, bar_gap = 46, 210, 86, 1120, 6
     height = pad_t + n * row_h + 40
-    plot_w = width - pad_l - 40
+    plot_w = width - pad_l - 200
     vmax = max(
         max((o.get("roofline_target") or 0) for o in ops),
         max((o.get("measured") or 0) for o in ops),
@@ -154,19 +154,51 @@ def build_svg(d: dict) -> str:
     return "\n".join(parts)
 
 
+def _rasterize_png(svg_path: Path, png_path: Path) -> bool:
+    """SVG -> PNG so GitHub renders the chart (it refuses to render SVG).
+
+    Prefers rsvg-convert; falls back to cairosvg. Returns True on success.
+    """
+    import shutil
+    import subprocess
+
+    exe = shutil.which("rsvg-convert")
+    if exe:
+        try:
+            subprocess.run(
+                [exe, "-z", "2", "-o", str(png_path), str(svg_path)],
+                check=True,
+                capture_output=True,
+            )
+            return True
+        except Exception:
+            pass
+    try:
+        import cairosvg  # type: ignore
+
+        cairosvg.svg2png(url=str(svg_path), write_to=str(png_path), scale=2.0)
+        return True
+    except Exception:
+        return False
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="inp", required=True)
-    ap.add_argument("--out-prefix", required=True, help="path prefix for .md/.svg outputs")
+    ap.add_argument("--out-prefix", required=True, help="path prefix for .md/.svg/.png outputs")
     args = ap.parse_args()
 
     d = json.loads(Path(args.inp).read_text())
     out = Path(args.out_prefix)
     out.parent.mkdir(parents=True, exist_ok=True)
-    d["_svg_name"] = out.name + ".svg"
-    (out.parent / (out.name + ".svg")).write_text(build_svg(d))
+    svg_path = out.parent / (out.name + ".svg")
+    png_path = out.parent / (out.name + ".png")
+    svg_path.write_text(build_svg(d))
+    # GitHub renders PNG reliably but refuses SVG; embed the PNG when we can
+    # rasterize, else fall back to the SVG reference.
+    d["_img_name"] = out.name + (".png" if _rasterize_png(svg_path, png_path) else ".svg")
     (out.parent / (out.name + ".md")).write_text(build_markdown(d))
-    print(f"wrote {out}.md and {out}.svg")
+    print(f"wrote {out}.md, {out}.svg and {d['_img_name']}")
 
 
 if __name__ == "__main__":

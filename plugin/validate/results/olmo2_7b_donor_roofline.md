@@ -13,6 +13,6 @@ Per-op, ranked by recoverable end-to-end fraction (shortfall × phase share):
 | qkv (attn) | 25.0 | compute | 60.6 | 35.4 | 58% | 10.4 |
 | o (attn) | 15.0 | compute | 60.6 | 25.5 | 42% | 8.7 |
 
-![roofline vs measured](./olmo2_7b_donor_roofline.svg)
+![roofline vs measured](./olmo2_7b_donor_roofline.png)
 
 > Bars: roofline-achievable (target) vs measured per op. A tall gap on a high-share op is the top optimization RoI. `PENDING` = target published; measured fills in when the kernel runs.

@@ -102,6 +102,7 @@ def install() -> None:
         return
     kcc.KVCacheConfigurator.configure = _patched_configure
     _install_mla_cpu_tp_config_fix()
+    _install_dsv4_rope_cpu_fix()
     _install_cpu_paged_allocator()
     _install_dsa_cpu_kernels()
     _install_mhc_cpu()
@@ -114,6 +115,69 @@ def install() -> None:
     _install_dsa_profile_bypass()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
+
+
+def _install_dsv4_rope_cpu_fix() -> None:
+    """Let pure-SWA (compress_ratio=0) layers build their RoPE on CPU.
+
+    DeepSeek-V4 selects RoPE per layer: C4/C128 layers use the compressed YaRN
+    RoPE (rope_scaling set), while pure-SWA layers (compress_ratio=0) use the
+    main *unscaled* RoPE and pass rope_scaling=None. The CPU factory
+    (get_rope_cpu) only implements deepseek_yarn and asserts
+    ``rope_scaling is not None``, so the unscaled layers fail at build time.
+    Flash trips this immediately (layers 0-1 are compress_ratio=0); Pro's first
+    C128 layer hid it. Route the unscaled CPU case to the standard ``get_rope``,
+    whose plain RotaryEmbedding runs natively (forward_native) on CPU.
+    """
+    from sglang.srt.layers.rotary_embedding import factory as _rope_factory
+
+    _orig_wrapper = _rope_factory.get_rope_wrapper
+
+    def _patched_get_rope_wrapper(
+        head_size,
+        rotary_dim,
+        max_position,
+        base,
+        is_neox_style=True,
+        rope_scaling=None,
+        dtype=None,
+        partial_rotary_factor=1.0,
+        device=None,
+    ):
+        if device == "cpu" and rope_scaling is None:
+            # Unscaled (pure-SWA) RoPE: the standard factory returns a plain
+            # RotaryEmbedding that dispatches to forward_native on CPU.
+            return _rope_factory.get_rope(
+                head_size,
+                rotary_dim,
+                max_position,
+                base,
+                is_neox_style,
+                None,
+                dtype,
+                partial_rotary_factor,
+            )
+        return _orig_wrapper(
+            head_size,
+            rotary_dim,
+            max_position,
+            base,
+            is_neox_style,
+            rope_scaling,
+            dtype,
+            partial_rotary_factor,
+            device,
+        )
+
+    _rope_factory.get_rope_wrapper = _patched_get_rope_wrapper
+    # deepseek_v4 imported the symbol by value; repoint that reference too.
+    try:
+        from sglang.srt.models import deepseek_v4 as _dsv4
+
+        if getattr(_dsv4, "get_rope_wrapper", None) is not None:
+            _dsv4.get_rope_wrapper = _patched_get_rope_wrapper
+    except Exception:
+        pass
 
 
 def _cpu_fused_q_norm_rope(q_input, q_output, eps, freqs_cis, positions):

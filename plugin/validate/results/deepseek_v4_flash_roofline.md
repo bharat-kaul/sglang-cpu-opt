@@ -15,6 +15,6 @@ Per-op, ranked by recoverable end-to-end fraction (shortfall × phase share):
 | norm/rope/act | 4.0 | memory | 4000.0 | PENDING | PENDING | 4.0 |
 | lm_head + embed | 3.0 | memory | 2000.0 | PENDING | PENDING | 3.0 |
 
-![roofline vs measured](./deepseek_v4_flash_roofline.svg)
+![roofline vs measured](./deepseek_v4_flash_roofline.png)
 
 > Bars: roofline-achievable (target) vs measured per op. A tall gap on a high-share op is the top optimization RoI. `PENDING` = target published; measured fills in when the kernel runs.
