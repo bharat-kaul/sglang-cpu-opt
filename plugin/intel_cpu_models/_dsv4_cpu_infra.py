@@ -26,6 +26,55 @@ _orig_configure = kcc.KVCacheConfigurator.configure
 _INSTALLED = False
 
 
+# Env-gated per-function wall-time counters (INTEL_CPU_DSV4_TIMEIT=1). Inert otherwise:
+# _timed returns the original function unchanged when off, so the normal path is untouched.
+import os as _os
+
+_TIMEIT_ON = _os.environ.get("INTEL_CPU_DSV4_TIMEIT", "0") == "1"
+_TIMES: dict = {}
+
+
+def _timed(name: str):
+    """Decorator that accumulates wall time per call under `name` (no-op when off)."""
+    if not _TIMEIT_ON:
+        return lambda fn: fn
+
+    import functools
+    import time
+
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrap(*a, **k):
+            t0 = time.perf_counter()
+            try:
+                return fn(*a, **k)
+            finally:
+                rec = _TIMES.setdefault(name, [0.0, 0])
+                rec[0] += time.perf_counter() - t0
+                rec[1] += 1
+
+        return wrap
+
+    return deco
+
+
+def _dump_times() -> None:
+    if not _TIMES:
+        return
+    rows = sorted(_TIMES.items(), key=lambda kv: kv[1][0], reverse=True)
+    total = sum(v[0] for _, v in rows)
+    lines = [f"[DSV4 TIMEIT] pid={_os.getpid()} total={total:.3f}s over {len(rows)} ops"]
+    for name, (t, n) in rows:
+        lines.append(f"  {t:8.3f}s  {100*t/total:5.1f}%  n={n:<6d} {name}")
+    logger.warning("\n".join(lines))
+
+
+if _TIMEIT_ON:
+    import atexit as _atexit
+
+    _atexit.register(_dump_times)
+
+
 def _is_cpu_dsv4(self) -> bool:
     if not current_platform.is_cpu():
         return False
@@ -551,8 +600,8 @@ def _install_moe_hash_cpu_fix() -> None:
         finally:
             self.topk.forward = _orig_topk_forward
 
-    MoE.forward = _patched_forward
-    MoE.forward_cpu = _patched_forward_cpu
+    MoE.forward = _timed("moe.forward")(_patched_forward)
+    MoE.forward_cpu = _timed("moe.forward_cpu")(_patched_forward_cpu)
     MoE._cpu_hash_patched = True
     logger.info("intel_cpu_models: threaded input_ids to HashTopK on CPU (hash MoE layers).")
 
@@ -658,7 +707,7 @@ def _install_fp4_expert_cpu_dequant() -> None:
         return _orig_apply(self, layer, dispatch_output)
 
     Method.process_weights_after_loading = _patched_pwal
-    Method.apply = _patched_apply
+    Method.apply = _timed("moe.expert_apply")(_patched_apply)
     Method._cpu_fp4_dequant_patched = True
     logger.info("intel_cpu_models: installed CPU FP4 expert handler (Plan A fp8 / BF16-in-forward).")
 
@@ -687,7 +736,7 @@ def _install_dsv4_attention_cpu() -> None:
     except Exception:
         _fm = types.ModuleType("sgl_kernel.flash_mla")
         sys.modules["sgl_kernel.flash_mla"] = _fm
-    _fm.flash_mla_with_kvcache = _torch_flash_mla_with_kvcache
+    _fm.flash_mla_with_kvcache = _timed("dsa.mla_attention")(_torch_flash_mla_with_kvcache)
     logger.info("intel_cpu_models: installed CPU torch flash-MLA attention (dense KV stash).")
 
 
@@ -875,8 +924,12 @@ def _install_dsa_cpu_wire() -> None:
 
         _cv2.create_paged_compressor_data = _cpu_no_paged_plan
         _dsv4b.create_paged_compressor_data = _cpu_no_paged_plan
-        _dsv4b.DeepseekV4AttnBackend.forward_core_compressor = _cpu_forward_core_compressor
-        _dsv4b.DeepseekV4AttnBackend.forward_c4_indexer = _cpu_forward_c4_indexer
+        _dsv4b.DeepseekV4AttnBackend.forward_core_compressor = _timed("dsa.compressor")(
+            _cpu_forward_core_compressor
+        )
+        _dsv4b.DeepseekV4AttnBackend.forward_c4_indexer = _timed("dsa.indexer")(
+            _cpu_forward_c4_indexer
+        )
     except Exception:
         pass
     logger.warning(
