@@ -32,10 +32,18 @@ import os as _os
 
 _TIMEIT_ON = _os.environ.get("INTEL_CPU_DSV4_TIMEIT", "0") == "1"
 _TIMES: dict = {}
+# Overhead category per timed op, so a run separates optimized-KERNEL time (AMX) from
+# unoptimized-TORCH compute and FRAMEWORK orchestration. "parent" = contains other timed
+# leaves (excluded from the category split to avoid double counting).
+_TIMES_KIND: dict = {}
 
 
-def _timed(name: str):
-    """Decorator that accumulates wall time per call under `name` (no-op when off)."""
+def _timed(name: str, kind: str = ""):
+    """Decorator that accumulates wall time per call under `name` (no-op when off).
+
+    `kind` in {kernel, torch, framework, parent} categorizes the op for the
+    framework-vs-kernel overhead split printed at exit.
+    """
     if not _TIMEIT_ON:
         return lambda fn: fn
 
@@ -43,6 +51,8 @@ def _timed(name: str):
     import time
 
     def deco(fn):
+        _TIMES_KIND[name] = kind
+
         @functools.wraps(fn)
         def wrap(*a, **k):
             t0 = time.perf_counter()
@@ -65,14 +75,28 @@ def _dump_times() -> None:
     total = sum(v[0] for _, v in rows)
     lines = [f"[DSV4 TIMEIT] pid={_os.getpid()} total={total:.3f}s over {len(rows)} ops"]
     for name, (t, n) in rows:
-        lines.append(f"  {t:8.3f}s  {100*t/total:5.1f}%  n={n:<6d} {name}")
+        kind = _TIMES_KIND.get(name, "")
+        lines.append(f"  {t:8.3f}s  {100*t/total:5.1f}%  n={n:<6d} {name}" + (f"  [{kind}]" if kind else ""))
+    # Framework-vs-kernel split over LEAF ops (exclude parents to avoid double counting).
+    cat = {}
+    for name, (t, _) in rows:
+        k = _TIMES_KIND.get(name, "")
+        if k and k != "parent":
+            cat[k] = cat.get(k, 0.0) + t
+    if cat:
+        catsum = sum(cat.values())
+        lines.append("  -- overhead split (leaf ops) --")
+        for k, t in sorted(cat.items(), key=lambda kv: kv[1], reverse=True):
+            lines.append(f"     {t:8.3f}s  {100*t/catsum:5.1f}%  {k}")
     logger.warning("\n".join(lines))
 
 
-def _tacc(name: str, t0: float) -> None:
+def _tacc(name: str, t0: float, kind: str = "") -> None:
     """Accumulate an elapsed interval under `name` (guard with _TIMEIT_ON at call site)."""
     import time
 
+    if kind and name not in _TIMES_KIND:
+        _TIMES_KIND[name] = kind
     rec = _TIMES.setdefault(name, [0.0, 0])
     rec[0] += time.perf_counter() - t0
     rec[1] += 1
@@ -467,7 +491,7 @@ def _torch_flash_mla_with_kvcache(
             row = pos_kept[t]
             locs = [l for p, l in enumerate(locs) if p >= cov or bool(row[p])]
         if _TIMEIT_ON:
-            _tacc("dsa.mla.select", _t0)
+            _tacc("dsa.mla.select", _t0, "framework")
             _t0 = time.perf_counter()
         keys = [swa[l] for l in locs if l in swa]
         if extra_indices_in_kvcache is not None and extra_topk_length is not None:
@@ -478,7 +502,7 @@ def _torch_flash_mla_with_kvcache(
             continue
         K = torch.stack(keys).float()  # [Kk, 512]
         if _TIMEIT_ON:
-            _tacc("dsa.mla.gather", _t0)
+            _tacc("dsa.mla.gather", _t0, "framework")
             _t0 = time.perf_counter()
         s = (q[t, 0].float() @ K[:, :D].t()) * softmax_scale  # [H, Kk]
         if attn_sink is not None:
@@ -488,7 +512,7 @@ def _torch_flash_mla_with_kvcache(
             p = s.softmax(dim=-1)
         out[t] = p @ K[:, :head_dim_v]
         if _TIMEIT_ON:
-            _tacc("dsa.mla.attend", _t0)
+            _tacc("dsa.mla.attend", _t0, "torch")
     return (out.unsqueeze(1).to(q.dtype),)
 
 
@@ -621,8 +645,8 @@ def _install_moe_hash_cpu_fix() -> None:
         finally:
             self.topk.forward = _orig_topk_forward
 
-    MoE.forward = _timed("moe.forward")(_patched_forward)
-    MoE.forward_cpu = _timed("moe.forward_cpu")(_patched_forward_cpu)
+    MoE.forward = _timed("moe.forward", "parent")(_patched_forward)
+    MoE.forward_cpu = _timed("moe.forward_cpu", "parent")(_patched_forward_cpu)
     MoE._cpu_hash_patched = True
     logger.info("intel_cpu_models: threaded input_ids to HashTopK on CPU (hash MoE layers).")
 
@@ -728,7 +752,7 @@ def _install_fp4_expert_cpu_dequant() -> None:
         return _orig_apply(self, layer, dispatch_output)
 
     Method.process_weights_after_loading = _patched_pwal
-    Method.apply = _timed("moe.expert_apply")(_patched_apply)
+    Method.apply = _timed("moe.expert_apply", "kernel")(_patched_apply)
     Method._cpu_fp4_dequant_patched = True
     logger.info("intel_cpu_models: installed CPU FP4 expert handler (Plan A fp8 / BF16-in-forward).")
 
@@ -757,7 +781,7 @@ def _install_dsv4_attention_cpu() -> None:
     except Exception:
         _fm = types.ModuleType("sgl_kernel.flash_mla")
         sys.modules["sgl_kernel.flash_mla"] = _fm
-    _fm.flash_mla_with_kvcache = _timed("dsa.mla_attention")(_torch_flash_mla_with_kvcache)
+    _fm.flash_mla_with_kvcache = _timed("dsa.mla_attention", "parent")(_torch_flash_mla_with_kvcache)
     logger.info("intel_cpu_models: installed CPU torch flash-MLA attention (dense KV stash).")
 
 
@@ -945,10 +969,10 @@ def _install_dsa_cpu_wire() -> None:
 
         _cv2.create_paged_compressor_data = _cpu_no_paged_plan
         _dsv4b.create_paged_compressor_data = _cpu_no_paged_plan
-        _dsv4b.DeepseekV4AttnBackend.forward_core_compressor = _timed("dsa.compressor")(
+        _dsv4b.DeepseekV4AttnBackend.forward_core_compressor = _timed("dsa.compressor", "torch")(
             _cpu_forward_core_compressor
         )
-        _dsv4b.DeepseekV4AttnBackend.forward_c4_indexer = _timed("dsa.indexer")(
+        _dsv4b.DeepseekV4AttnBackend.forward_c4_indexer = _timed("dsa.indexer", "torch")(
             _cpu_forward_c4_indexer
         )
     except Exception:
