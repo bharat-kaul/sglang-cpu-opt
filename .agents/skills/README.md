@@ -40,6 +40,10 @@ Driven by the `model-enablement` agent.
   their roofline via thread count/affinity, NUMA/SNC binding, TP-rank→domain map, prepack,
   dtype/ISA dispatch. Cheap, no-code, usually the highest-leverage first fix (a mis-set knob
   inflates the whole run). Triggered by `overhead-attribution` (kernel far from floor, isolated-fast).
+- `high-information-runs` — experiment design when the RUN is the bottleneck: cut NUM_RUNS
+  (not run_cost) by making each expensive run a MULTI-ANGLE probe with a disposition matrix
+  planned up front (one load → many answers; in-situ A/B + per-op sweeps; pre-screen cheap
+  hypotheses off-line). Reduces serial cluster wait. Applies `overhead-attribution` probes at scale.
 
 The throughput thesis needs `throughput-enablement/` **plus** `shared/`.
 
