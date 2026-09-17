@@ -69,6 +69,16 @@ def _dump_times() -> None:
     logger.warning("\n".join(lines))
 
 
+def _tacc(name: str, t0: float) -> None:
+    """Accumulate an elapsed interval under `name` (guard with _TIMEIT_ON at call site)."""
+    import time
+
+    rec = _TIMES.setdefault(name, [0.0, 0])
+    rec[0] += time.perf_counter() - t0
+    rec[1] += 1
+
+
+
 if _TIMEIT_ON:
     import atexit as _atexit
 
@@ -433,6 +443,8 @@ def _torch_flash_mla_with_kvcache(
     **_,
 ):
     # MLA-absorbed attention on CPU: value == key; out = softmax(q.kT.scale (+) sink).k.
+    import time
+
     import torch
 
     T, _, H, D = q.shape
@@ -445,6 +457,7 @@ def _torch_flash_mla_with_kvcache(
     pos_kept = _SEL_HOLDER.get("pos_kept")
     _SEL_HOLDER["pos_kept"] = None
     for t in range(T):
+        _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
         locs = []
         if indices is not None and topk_length is not None:
             L = int(topk_length[t])
@@ -453,6 +466,9 @@ def _torch_flash_mla_with_kvcache(
             cov = int(pos_kept.shape[1])
             row = pos_kept[t]
             locs = [l for p, l in enumerate(locs) if p >= cov or bool(row[p])]
+        if _TIMEIT_ON:
+            _tacc("dsa.mla.select", _t0)
+            _t0 = time.perf_counter()
         keys = [swa[l] for l in locs if l in swa]
         if extra_indices_in_kvcache is not None and extra_topk_length is not None:
             EL = int(extra_topk_length[t])
@@ -461,6 +477,9 @@ def _torch_flash_mla_with_kvcache(
         if not keys:
             continue
         K = torch.stack(keys).float()  # [Kk, 512]
+        if _TIMEIT_ON:
+            _tacc("dsa.mla.gather", _t0)
+            _t0 = time.perf_counter()
         s = (q[t, 0].float() @ K[:, :D].t()) * softmax_scale  # [H, Kk]
         if attn_sink is not None:
             s = torch.cat([s, attn_sink.reshape(-1, 1).float()], dim=-1)
@@ -468,6 +487,8 @@ def _torch_flash_mla_with_kvcache(
         else:
             p = s.softmax(dim=-1)
         out[t] = p @ K[:, :head_dim_v]
+        if _TIMEIT_ON:
+            _tacc("dsa.mla.attend", _t0)
     return (out.unsqueeze(1).to(q.dtype),)
 
 
