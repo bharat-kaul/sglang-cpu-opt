@@ -36,6 +36,8 @@ _TIMES: dict = {}
 # unoptimized-TORCH compute and FRAMEWORK orchestration. "parent" = contains other timed
 # leaves (excluded from the category split to avoid double counting).
 _TIMES_KIND: dict = {}
+# One-time MoE kernel-isolation diagnostic (tokens/expert-shapes/dtype/threads), env-gated.
+_MOE_DIAG: dict = {}
 
 
 def _timed(name: str, kind: str = ""):
@@ -741,6 +743,30 @@ def _install_fp4_expert_cpu_dequant() -> None:
         return _orig_pwal(self, layer)
 
     def _patched_apply(self, layer, dispatch_output):
+        if _TIMEIT_ON and not _MOE_DIAG.get("done"):
+            _MOE_DIAG["done"] = True
+            try:
+                import torch as _t
+
+                x = dispatch_output.hidden_states
+                _tw, ti, _ = dispatch_output.topk_output
+                w13 = getattr(layer, "w13_weight", None)
+                w2 = getattr(layer, "w2_weight", None)
+                logger.warning(
+                    "[MOE DIAG] tokens=%s xdtype=%s topk_ids=%s w13=%s/%s w2=%s/%s "
+                    "threads=%d amx=%s",
+                    tuple(x.shape),
+                    x.dtype,
+                    tuple(ti.shape),
+                    tuple(w13.shape) if w13 is not None else None,
+                    getattr(w13, "dtype", None),
+                    tuple(w2.shape) if w2 is not None else None,
+                    getattr(w2, "dtype", None),
+                    _t.get_num_threads(),
+                    use_intel_amx_backend(layer) if "use_intel_amx_backend" in globals() else "?",
+                )
+            except Exception as _e:  # noqa: BLE001
+                logger.warning("[MOE DIAG] failed: %s", _e)
         if getattr(layer, "_fp4_bf16_moe", False):
             from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
 
