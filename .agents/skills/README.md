@@ -32,6 +32,10 @@ Driven by the `model-enablement` agent.
 ## `shared/` — used by BOTH legs
 - `establish-achievable-performance` — calibrate the node's achievable ceilings (step 0)
 - `roofline-validation` — turn a throughput number into a pass/fail verdict
+- `overhead-attribution` — split a slow run into KERNEL vs unoptimized-TORCH vs FRAMEWORK
+  time EARLY (tagged env-gated boundary timers → op profiler → kernel-isolation vs the uPP
+  roofline floor), so you fix the right layer and don't author a kernel that can't move
+  end-to-end time. Refines `model-profile-hotspots`; feeds `kernel-feasibility-gate`.
 
 The throughput thesis needs `throughput-enablement/` **plus** `shared/`.
 
