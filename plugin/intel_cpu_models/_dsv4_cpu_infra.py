@@ -493,6 +493,46 @@ def _install_moe_hash_cpu_fix() -> None:
     logger.info("intel_cpu_models: threaded input_ids to HashTopK on CPU (hash MoE layers).")
 
 
+def _dequant_fp4_to_bf16(w_int8, scale):
+    # fp4(e2m1) packed int8 [O, I//2] + block scale -> bf16 [O, I]. Reuse SGLang's lossless
+    # fp4->fp8 cast (128-block ue8m0 scale), then fp8 * 2^scale per 128-block -> bf16.
+    import torch
+
+    import sglang.srt.layers.quantization.fp8 as _fp8
+
+    w_fp8, s = _fp8.cast_e2m1fn_to_e4m3fn(w_int8, scale)  # fp8 [O,I], e8m0 [O//128, I//128]
+    o, i = w_fp8.shape
+    wf = w_fp8.float().reshape(o // 128, 128, i // 128, 128)
+    sf = s.float().reshape(o // 128, 1, i // 128, 1)
+    return (wf * sf).reshape(o, i).to(torch.bfloat16)
+
+
+def _torch_fp4_moe_apply(layer, x, topk_weights, topk_ids):
+    # BF16 showcase MoE: keep experts fp4 in RAM, dequant each ROUTED expert fp4->bf16 once,
+    # then bf16 matmul (SwiGLU). Fits the node (fp4 storage); bf16 compute = accuracy-safe.
+    import torch
+    import torch.nn.functional as F
+
+    T, hidden = x.shape
+    out = torch.zeros(T, hidden, dtype=torch.float32)
+    xf = x.float()
+    for e in topk_ids.unique().tolist():
+        if e < 0 or e >= layer.w13_weight.shape[0]:
+            continue
+        mask = topk_ids == e
+        tok, slot = mask.nonzero(as_tuple=True)
+        if tok.numel() == 0:
+            continue
+        w13 = _dequant_fp4_to_bf16(layer.w13_weight[e], layer.w13_weight_scale_inv[e]).float()
+        w2 = _dequant_fp4_to_bf16(layer.w2_weight[e], layer.w2_weight_scale_inv[e]).float()
+        gate_up = xf[tok] @ w13.t()  # [n, 2*inter]
+        g, u = gate_up.chunk(2, dim=-1)
+        act = F.silu(g) * u
+        oe = act @ w2.t()  # [n, hidden]
+        out.index_add_(0, tok, oe * topk_weights[tok, slot].float().unsqueeze(-1))
+    return out.to(x.dtype)
+
+
 def _install_fp4_expert_cpu_dequant() -> None:
     # Plan A: GNR AMX has no 4-bit matmul, and Fp8MoEMethod's fp4->fp8 dequant lives in the
     # NON-CPU branch of process_weights_after_loading; the _is_cpu branch hands fp4-packed
@@ -509,9 +549,20 @@ def _install_fp4_expert_cpu_dequant() -> None:
     Method = _fp8.Fp8MoEMethod
     if getattr(Method, "_cpu_fp4_dequant_patched", False):
         return
+    import os
+
+    # BF16 showcase (large models that don't fit fp8): keep experts fp4 in RAM, dequant to bf16
+    # in the MoE forward. fp8 load-dequant doubles experts (~1.58TB > node); fp4 raw ~790GB fits.
+    _bf16_moe = os.environ.get("INTEL_CPU_DSV4_FP4_MOE_BF16", "0") == "1"
     _orig_pwal = Method.process_weights_after_loading
+    _orig_apply = Method.apply
 
     def _patched_pwal(self, layer):
+        if getattr(self, "is_fp4_expert", False) and _bf16_moe:
+            # Keep fp4 raw (skip fp8 dequant + AMX prepack); the apply dequants per expert.
+            layer._fp4_bf16_moe = True
+            logger.info("intel_cpu_models: FP4 experts kept raw for BF16-in-forward MoE.")
+            return
         if getattr(self, "is_fp4_expert", False):
             for weight_param, scale_param in [
                 (layer.w13_weight, layer.w13_weight_scale_inv),
@@ -531,9 +582,21 @@ def _install_fp4_expert_cpu_dequant() -> None:
             logger.info("intel_cpu_models: dequantized FP4 experts -> FP8 on CPU (Plan A).")
         return _orig_pwal(self, layer)
 
+    def _patched_apply(self, layer, dispatch_output):
+        if getattr(layer, "_fp4_bf16_moe", False):
+            from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
+
+            topk_weights, topk_ids, _ = dispatch_output.topk_output
+            out = _torch_fp4_moe_apply(
+                layer, dispatch_output.hidden_states, topk_weights, topk_ids
+            )
+            return StandardCombineInput(hidden_states=out)
+        return _orig_apply(self, layer, dispatch_output)
+
     Method.process_weights_after_loading = _patched_pwal
+    Method.apply = _patched_apply
     Method._cpu_fp4_dequant_patched = True
-    logger.info("intel_cpu_models: installed CPU FP4->FP8 expert dequant (Plan A).")
+    logger.info("intel_cpu_models: installed CPU FP4 expert handler (Plan A fp8 / BF16-in-forward).")
 
 
 def _install_dsv4_attention_cpu() -> None:
