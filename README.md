@@ -9,7 +9,9 @@ hand-optimized kernels and proving both correctness and performance.
 
 > **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
 >
-> **Bird's-eye view:** [docs/agentic-workflow-slide.html](docs/agentic-workflow-slide.html) — the staged agentic workflow (HW characterization → analysis → roofline → coverage → reuse/author → validate → certify), the North Star, and the 27 skills mapped to each stage (open in a browser; Print → Save as PDF for a slide).
+> **Bird's-eye view of the agentic workflow & skills** — the staged, measure-first methodology behind the North Star (HW characterization → analysis → roofline → coverage → reuse/author → validate → certify), with all **29 skills** mapped to each stage. Click the slide for the interactive version:
+
+[![Staged agentic workflow for Day-0 CPU model enablement — 29 skills mapped from HW characterization through roofline, kernel reuse/authoring, validation and certification](docs/agentic-workflow-slide.png)](docs/agentic-workflow-slide.html)
 
 ## Results at a glance (Intel Xeon 6980P / Granite Rapids, single socket)
 
