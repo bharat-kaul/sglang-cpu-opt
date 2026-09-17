@@ -28,10 +28,14 @@ Read the donor/reference kernel to get the EXACT compute + access pattern, then:
 3. **Arithmetic intensity** = FLOPs / bytes (do it for BOTH the current blocking and
    the proposed one — the delta is often the real lever).
 4. **Ceilings for the ACTUAL compute** — match the dtype/ISA the kernel really uses.
-   FP32 FMA ≈ 64 FLOP/cyc/core; bf16 dpbf16 ~2×; AMX ~16×; memory = achievable
-   (gather-effective, not paper STREAM). **Never assume the AMX/bf16 ceiling for an
-   FP32 or memory-bound kernel.**
-5. **Ridge + regime** — compute-bound (AI≥ridge) or memory/gather-bound (AI<ridge).
+   Take them from **uArch Performance Probe `machine_constants.json`** (`compute_peak` per
+   dtype, `memory` DRAM + per-domain BW, `roofline_ridge`) — measured + self-validated on the
+   target node, not assumed. FP32 FMA ≈ 64 FLOP/cyc/core; bf16 dpbf16 ~2×; AMX ~16×; memory =
+   achievable (gather-effective, not paper STREAM). **Never assume the AMX/bf16 ceiling for an
+   FP32 or memory-bound kernel.** (If no `machine_constants.json` exists for this node, run uPP
+   first — an un-characterized node is a gate failure.)
+5. **Ridge + regime** — compute-bound (AI≥ridge) or memory/gather-bound (AI<ridge). Use the
+   measured `roofline_ridge` from uPP for this dtype.
 6. **Lever check** — does the intended optimization address the ACTUAL bottleneck?
    Compute lever (AMX) on a memory-bound op = red flag. Traffic-reduction levers:
    single-pass, convert-once, cache-block, prepack, AND **reduce operand precision**.

@@ -39,12 +39,25 @@ using all domains ≈ socket BW; using fewer leaves the rest idle — see
 
 ## Procedure (once per hardware profile)
 
-1. Build + run both microbenchmarks on-node (`tools/microbench/run_microbench.sh`)
-   or auto-generate the whole profile with `tools/calibrate.py`.
+0. **Run uArch Performance Probe (uPP) FIRST — it is the primary calibration engine**
+   (`tools/uarch_perf_probe/`, skill `uarch-perf-probe`). One run emits
+   `machine_constants.json` covering the streamed-achievable compute peak per dtype, the
+   DRAM triad BW, the **per-SNC-domain BW matrix** (regenerates the SNC constants, not
+   assumed), the roofline ridge, the gather-stage crossover, and thread scaling — and it
+   **self-validates** (frequency hygiene + ISA presence + DCE-guarded timing), so an
+   unpinned/mis-configured node is flagged instead of silently corrupting the ceilings. On a
+   new uarch (e.g. a GNR follow-on) this is the *sole* source of the constants; on GNR it
+   refreshes/verifies the priors and catches drift.
+1. Map the uPP outputs into the profile `achievable` block (see step 2). uPP's `compute_peak`
+   is the **streamed-achievable** (oneDNN/AMX GEMM) number; the **resident** compute PEAK
+   (upper bound) is the complementary native probe `tools/microbench/amx_peak.c` (a uPP
+   native-probe extension point). Legacy path: `tools/microbench/run_microbench.sh` /
+   `tools/calibrate.py` still work but are subsumed by uPP.
 2. Record into the profile `achievable` block:
-   - `compute_peak_tflops_per_socket` (resident microkernel)
-   - `streamed_gemm_tflops_per_socket` (BRGEMM reference; mark estimated if projected)
-   - `mem_bw_gbs_per_socket` (STREAM; record per-SNC-domain too — aggregate = domains_used × per_domain)
+   - `compute_peak_tflops_per_socket` (resident microkernel — amx_peak native probe)
+   - `streamed_gemm_tflops_per_socket` (uPP `compute_peak.bfloat16`; mark estimated if projected)
+   - `mem_bw_gbs_per_socket` (uPP `memory.dram_triad`; per-SNC-domain from uPP `numa.bw_matrix`
+     — aggregate = domains_used × per_domain)
 3. All later skills gate against `streamed_gemm_*`, and treat `compute_peak_*` as
    the theoretical bound.
 
@@ -55,6 +68,10 @@ fixes FLOP/cycle, and (c) measures the AMX all-core clock (which is well below m
 turbo). Without it, every downstream "efficiency %" is meaningless.
 
 ## Bundled tools
-- `tools/microbench/amx_peak.c` — resident-tile AMX BF16 compute peak.
-- `tools/microbench/stream_triad.c` — STREAM triad memory bandwidth.
-- `tools/calibrate.py` — probes the node + runs both, emits a filled profile (Day-0).
+- **uArch Performance Probe (`tools/uarch_perf_probe/`) — PRIMARY.** Full self-validating
+  suite → `machine_constants.json` (streamed compute peak, DRAM + per-SNC-domain BW, ridge,
+  gather crossover, thread scaling). Run this first; the rest are complements/legacy.
+- `tools/microbench/amx_peak.c` — resident-tile AMX BF16 compute peak (the UPPER-BOUND number
+  uPP does not yet measure natively; add as a uPP native probe).
+- `tools/microbench/stream_triad.c` — STREAM triad memory bandwidth (subsumed by uPP `memory`).
+- `tools/calibrate.py` — legacy Day-0 profile filler (subsumed by uPP).

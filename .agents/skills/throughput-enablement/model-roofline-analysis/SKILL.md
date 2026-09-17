@@ -21,7 +21,11 @@ measured hotlist gates entry to the kernel tier.
 
 ## Inputs
 Op graph; node achievable ceilings (`establish-achievable-performance`: compute +
-mem BW, **per SNC/NUMA domain** — the atomic unit). Aggregate ceiling =
+mem BW, **per SNC/NUMA domain** — the atomic unit). Those ceilings come from
+**uArch Performance Probe (`uarch-perf-probe`) `machine_constants.json`** — compute
+peak per dtype, DRAM + **per-SNC-domain BW matrix**, ridge — measured + self-validated
+on the target node (never hand-typed priors; on a new uarch it is the sole source).
+Aggregate ceiling =
 `domains_used × per_domain_ceiling`, reached ONLY with NUMA-local weight sharding
 (TP / expert-parallel, one rank per domain); a single un-sharded replica is capped
 at ONE domain's BW. **SNC bake-in (do not assume the ideal full node):** usable
