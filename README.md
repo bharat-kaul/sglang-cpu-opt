@@ -56,8 +56,10 @@ Every published result carries the **roofline achievable target** alongside the 
 number, plus a **per-op breakdown** of which kernels fall short of their roofline (measured is
 usually below target — the gap is the remaining optimization RoI). Target is published up front;
 measured fills in when the kernels run.
-- DeepSeek-Flash-v4.1 (decode, fp8, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
+- DeepSeek-V4-Flash (decode, fp8, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
   · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.svg)
+- DeepSeek-V4-Pro (decode, bf16/fp4-storage, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_pro_roofline.md)
+  · ![chart](plugin/validate/results/deepseek_v4_pro_roofline.svg)
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 

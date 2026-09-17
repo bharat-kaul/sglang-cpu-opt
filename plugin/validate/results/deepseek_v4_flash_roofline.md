@@ -1,4 +1,4 @@
-# Roofline target vs measured — DeepSeek-Flash-v4.1
+# Roofline target vs measured — DeepSeek-V4-Flash
 
 **Node** `gnr_6980p (SNC-on: 6 NUMA domains; heads not div by 6 -> TP=4 = 4/6 domains; effective 841/1261 GB/s)` · **fp8** · **decode** · batch 32 · unit `tok/s`
 
