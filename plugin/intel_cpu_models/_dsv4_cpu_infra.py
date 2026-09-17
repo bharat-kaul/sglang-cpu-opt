@@ -267,6 +267,11 @@ _COMPRESSED_STASH: dict = {}
 _TOPK_STASH: dict = {}
 _HAD_CACHE: dict = {}
 
+# Route-2 DSA step 4: the indexer publishes a per-query position-keep mask [N, S*ratio]
+# here; the very next MLA attention (same layer) consumes AND clears it. A non-indexer layer
+# leaves it None -> that layer's attention stays dense. Handles alternating c4/c128 layers.
+_SEL_HOLDER: dict = {"pos_kept": None}
+
 
 def _rmsnorm_torch(x, norm):
     # Torch RMSNorm (avoids the sgl_kernel CPU RMSNorm's strict input==weight dtype check).
@@ -321,11 +326,20 @@ def _torch_flash_mla_with_kvcache(
     out = torch.zeros(T, H, head_dim_v, dtype=torch.float32)
     swa = _KV_STASH.get(k_cache.data_ptr(), {})
     extra = _KV_STASH.get(extra_k_cache.data_ptr(), {}) if extra_k_cache is not None else {}
+    # DSA step 4: consume+clear the indexer's per-query position-keep mask (None on a
+    # non-indexer layer -> dense). A position beyond the compressed coverage is the recent
+    # tail (always attended). locs are in sequence-position order (index p == position p).
+    pos_kept = _SEL_HOLDER.get("pos_kept")
+    _SEL_HOLDER["pos_kept"] = None
     for t in range(T):
         locs = []
         if indices is not None and topk_length is not None:
             L = int(topk_length[t])
             locs = [int(x) for x in indices[t].reshape(-1)[:L].tolist() if x >= 0]
+        if pos_kept is not None and t < pos_kept.shape[0]:
+            cov = int(pos_kept.shape[1])
+            row = pos_kept[t]
+            locs = [l for p, l in enumerate(locs) if p >= cov or bool(row[p])]
         keys = [swa[l] for l in locs if l in swa]
         if extra_indices_in_kvcache is not None and extra_topk_length is not None:
             EL = int(extra_topk_length[t])
@@ -703,7 +717,13 @@ def _cpu_forward_c4_indexer(self, x, q_lora, forward_batch, c4_indexer, *args, *
     causal = key_start.unsqueeze(0) <= positions.reshape(-1, 1)  # query sees only past windows
     logits = logits.masked_fill(~causal, float("-inf"))
     ktop = min(int(c4_indexer.index_topk), logits.shape[1])
-    _TOPK_STASH[c4_indexer.layer_id] = torch.topk(logits, ktop, dim=1).indices
+    topk = torch.topk(logits, ktop, dim=1).indices  # [N, ktop] compressed-block indices
+    _TOPK_STASH[c4_indexer.layer_id] = topk
+    # Publish the per-query position-keep mask for step-4 sparse attention: block j -> original
+    # positions [j*ratio, (j+1)*ratio). Consumed+cleared by the next MLA attention (same layer).
+    kept = torch.zeros(logits.shape[0], ck.shape[0], dtype=torch.bool, device=logits.device)
+    kept.scatter_(1, topk.clamp(min=0), True)
+    _SEL_HOLDER["pos_kept"] = kept.repeat_interleave(ratio, dim=1)  # [N, S*ratio]
 
 
 def _install_dsa_cpu_wire() -> None:
