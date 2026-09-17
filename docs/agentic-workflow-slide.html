@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Day-0 CPU Model Enablement — Agentic Workflow</title>
+<style>
+  :root{
+    --ink:#12233b; --muted:#5b6b80; --line:#dbe3ec; --bg:#f4f7fb;
+    --hw:#0e7c86; --analyze:#2563a8; --roof:#4b3fbf; --cover:#7c3aed;
+    --t1:#1d9b62; --t2:#d9770a; --valid:#c02c48; --cert:#334155; --star:#0b2447;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#e7edf5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}
+  .slide{width:1280px;min-height:720px;margin:18px auto;background:linear-gradient(180deg,#ffffff,#fafcff);
+    border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 40px rgba(16,35,59,.14);padding:26px 30px 22px;position:relative}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  h1{margin:2px 0 2px;font-size:27px;line-height:1.12;color:var(--star)}
+  h1 span{color:var(--t2)}
+  .north{display:flex;gap:14px;align-items:stretch;margin:10px 0 16px}
+  .north .goal{flex:1;background:#f2f7ff;border:1px solid #d5e4fb;border-left:5px solid var(--roof);border-radius:10px;padding:10px 14px}
+  .north .goal b{color:var(--star)}
+  .north .chips{display:flex;gap:8px;align-items:center}
+  .chip{font-size:12px;font-weight:700;padding:7px 11px;border-radius:999px;border:1px solid}
+  .chip.t1{color:var(--t1);border-color:#b7e6cd;background:#eefaf2}
+  .chip.t2{color:var(--t2);border-color:#f6dcb4;background:#fdf4e6}
+  .pill-row{font-size:12px;color:var(--muted);margin-top:4px}
+  .flow{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:stretch}
+  .stage{border:1px solid var(--line);border-radius:11px;background:#fff;padding:10px 11px;display:flex;flex-direction:column;position:relative}
+  .stage .n{position:absolute;top:-10px;left:10px;width:22px;height:22px;border-radius:50%;color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+  .stage h3{margin:6px 0 2px;font-size:13.5px;letter-spacing:.01em}
+  .stage .sub{font-size:11px;color:var(--muted);margin-bottom:7px;line-height:1.25}
+  .skills{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto}
+  .sk{font-size:10.5px;font-weight:600;padding:3px 7px;border-radius:6px;background:#f1f5fa;border:1px solid #e2e9f2;color:#31465e;white-space:nowrap}
+  .stage.hw .n{background:var(--hw)} .stage.hw{border-top:3px solid var(--hw)}
+  .stage.an .n{background:var(--analyze)} .stage.an{border-top:3px solid var(--analyze)}
+  .stage.rf .n{background:var(--roof)} .stage.rf{border-top:3px solid var(--roof)}
+  .stage.cv .n{background:var(--cover)} .stage.cv{border-top:3px solid var(--cover)}
+  .stage.vl .n{background:var(--valid)} .stage.vl{border-top:3px solid var(--valid)}
+  .stage.ct .n{background:var(--cert)} .stage.ct{border-top:3px solid var(--cert)}
+  .branch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 4px}
+  .lane{border:1px solid var(--line);border-radius:11px;padding:9px 12px;background:#fff}
+  .lane.t1{border-left:5px solid var(--t1)} .lane.t2{border-left:5px solid var(--t2)}
+  .lane .lh{font-size:12.5px;font-weight:800;display:flex;gap:8px;align-items:center}
+  .lane.t1 .lh{color:var(--t1)} .lane.t2 .lh{color:var(--t2)}
+  .lane .ls{font-size:11px;color:var(--muted);margin:2px 0 6px}
+  .why{margin-top:12px;border:1px solid #d6e0ec;border-radius:11px;background:linear-gradient(180deg,#f7fbff,#eef5fd);padding:11px 14px}
+  .why h4{margin:0 0 6px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--roof)}
+  .why .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .why .item{font-size:11.5px;line-height:1.3}
+  .why .item b{display:block;color:var(--star);font-size:12px;margin-bottom:1px}
+  .foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:11px;color:var(--muted)}
+  .legend{display:flex;gap:12px;flex-wrap:wrap}
+  .lg{display:flex;gap:5px;align-items:center}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .arrow{color:#9db0c6;font-weight:800}
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="kicker">North Star · Day-0 CPU enablement of a brand-new model — no fork of the serving stack</div>
+  <h1>A staged, measure-first agentic workflow that turns a new model into a <span>running, accuracy-parity, roofline-proven</span> CPU deployment</h1>
+
+  <div class="north">
+    <div class="goal">
+      <b>Definition of done (published at a labeled machine config):</b>
+      &nbsp;① the model <b>RUNS</b> end-to-end on CPU · ② <b>ACCURACY parity</b> vs a trusted reference on real weights · ③ <b>ROOFLINE target vs measured</b> for every hot op.
+      <div class="pill-row">Worked flagship: DeepSeek-V4 (Flash / Pro) with a novel sparse-attention (DSA) op family.</div>
+    </div>
+    <div class="chips">
+      <span class="chip t1">Thesis 1 · reuse donor kernels</span>
+      <span class="chip t2">Thesis 2 · author new kernels</span>
+    </div>
+  </div>
+
+  <div class="flow">
+    <div class="stage hw"><span class="n">0</span>
+      <h3>Characterize the silicon</h3>
+      <div class="sub">Microbenchmark the target HW → measured ceilings. Self-validating (freq/ISA/DCE-guard).</div>
+      <div class="skills"><span class="sk">uarch-perf-probe (uPP)</span></div>
+    </div>
+    <div class="stage an"><span class="n">1</span>
+      <h3>Analyze the model</h3>
+      <div class="sub">Config → op graph, fusion opportunities, and the FULL closure of novel-kernel families + runtime.</div>
+      <div class="skills"><span class="sk">model-op-decomposition</span><span class="sk">fusion-analysis</span><span class="sk">enablement-scope-discovery</span></div>
+    </div>
+    <div class="stage rf"><span class="n">2</span>
+      <h3>Roofline (set the target)</h3>
+      <div class="sub">Achievable ceilings from uPP → whole-model, per-phase, Amdahl-ranked plan → measured hotlist.</div>
+      <div class="skills"><span class="sk">establish-achievable-performance</span><span class="sk">model-roofline-analysis</span><span class="sk">model-profile-hotspots</span></div>
+    </div>
+    <div class="stage cv"><span class="n">3</span>
+      <h3>Coverage &amp; routing</h3>
+      <div class="sub">Match each op to an existing kernel contract; route every gap to reuse or author.</div>
+      <div class="skills"><span class="sk">kernel-capability-registry</span><span class="sk">coverage-gate</span></div>
+    </div>
+    <div class="stage vl"><span class="n">4</span>
+      <h3>Validate (prove it)</h3>
+      <div class="sub">Per-layer + task accuracy; throughput pass/fail; perf vs donor; framework-vs-kernel residual.</div>
+      <div class="skills"><span class="sk">accuracy-oracle</span><span class="sk">roofline-validation</span><span class="sk">peer-relative-roofline</span><span class="sk">overhead-attribution</span></div>
+    </div>
+    <div class="stage ct"><span class="n">5</span>
+      <h3>Certify &amp; ship</h3>
+      <div class="sub">Machine-checkable pass/fail + a PR-ready diff. Two orchestrators drive the legs.</div>
+      <div class="skills"><span class="sk">enablement-certificate</span><span class="sk">model-enablement-playbook</span><span class="sk">cpu-optimization-playbook</span></div>
+    </div>
+  </div>
+
+  <div class="branch">
+    <div class="lane t1">
+      <div class="lh">◆ Thesis 1 — reuse (enable from existing kernels) <span class="arrow">→ hours, day-0</span></div>
+      <div class="ls">Op is already covered by an AMX/BRGEMM donor kernel → wire it into the plugin (prepack, intel_amx, FusedMoE, every precision the donor supports). Proven bar = the donor's own measured efficiency.</div>
+      <div class="skills"><span class="sk">cpu-model-wiring</span><span class="sk">peer-relative-roofline</span></div>
+    </div>
+    <div class="lane t2">
+      <div class="lh">◆ Thesis 2 — author (net-new kernel) <span class="arrow">→ gated, isolation-certified</span></div>
+      <div class="ls">Coverage gap (e.g. DSA indexer) → go/no-go gate → adapt the nearest donor (BRGEMM building block) → make it run → tune → certify at its roofline in isolation.</div>
+      <div class="skills"><span class="sk">kernel-feasibility-gate</span><span class="sk">kernel-authoring</span><span class="sk">cpu-serving-integration</span><span class="sk">amx-vectorization</span><span class="sk">cache-blocking-tiling</span><span class="sk">weight-prepacking-brgemm</span><span class="sk">quantization-amx-int8</span><span class="sk">openmp-parallelization</span><span class="sk">sub-numa-clustering</span><span class="sk">cpu-gemm-amx-bf16</span></div>
+    </div>
+  </div>
+
+  <div class="why">
+    <h4>Why it is reliable — every number is measured, every step is gated</h4>
+    <div class="grid">
+      <div class="item"><b>Measured, not assumed</b>Ceilings come from uPP on the real silicon, with freq/ISA self-checks — priors are regenerated per node.</div>
+      <div class="item"><b>Gate at every stage</b>Analytical → empirical → isolation. No kernel is authored without a user-reviewed feasibility gate.</div>
+      <div class="item"><b>Certify = eliminate</b>Each operator is certified at its roofline in isolation, removing it as a suspect; the e2e residual is then provably framework / inter-kernel.</div>
+      <div class="item"><b>Correctness first</b>A slow-but-correct reference oracle ships first; per-layer parity + task accuracy gate every fast path.</div>
+      <div class="item"><b>Honest publishing</b>Roofline target vs measured is published with provenance at a labeled config — the gap is stated, not hidden.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="legend">
+      <span class="lg"><span class="dot" style="background:var(--hw)"></span>HW characterization</span>
+      <span class="lg"><span class="dot" style="background:var(--analyze)"></span>Analyze</span>
+      <span class="lg"><span class="dot" style="background:var(--roof)"></span>Roofline</span>
+      <span class="lg"><span class="dot" style="background:var(--cover)"></span>Coverage</span>
+      <span class="lg"><span class="dot" style="background:var(--t1)"></span>Thesis 1 reuse</span>
+      <span class="lg"><span class="dot" style="background:var(--t2)"></span>Thesis 2 author</span>
+      <span class="lg"><span class="dot" style="background:var(--valid)"></span>Validate</span>
+      <span class="lg"><span class="dot" style="background:var(--cert)"></span>Certify</span>
+    </div>
+    <div>27 skill files · reusable across models &amp; microarchitectures</div>
+  </div>
+</div>
+</body>
+</html>
