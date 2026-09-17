@@ -36,6 +36,19 @@ condition is met and gating every step against the measured roofline.
 > (control / inner-op / packing / epilogue), grounded in LIBXSMM/TPP + oneDNN. Then
 > the technique skills below TUNE the drafted kernel.
 
+> **One law, recurring at every level — FIT THE WORK TO THE RESOURCE, up front, from a
+> MEASURED constant.** Each technique below is the same decision at a different level of the
+> hierarchy: match the unit of work to the resource's capacity/shape BEFORE tuning, or overhead
+> dominates. Decide these up front from `uarch-perf-probe` constants, not after:
+> | Level | Fit the work so… | Resource constant (uPP) | Mismatch failure |
+> |---|---|---|---|
+> | Threads (grain) | work/thread ≥ sync/spawn floor | thread-scaling knee | inverse scaling (MoE 0.1ms@4 vs 2432ms@60) |
+> | Cache (tile) | working set ≤ L2/core, reused panel resident | cache-ladder sizes | L2 spill → DRAM re-streaming |
+> | SIMD/AMX (layout) | data in VNNI/tile order, dims divisible | tile shape / ISA | gather/stride stalls, padding waste |
+> | Bandwidth (precision) | operand bytes ≤ BW can feed | per-domain BW, ridge | BW-starved compute unit |
+> These are two-sided (too small wastes the unit; too big overruns it) — sweep the curve, it can
+> be non-monotonic. `overhead-attribution` tells you WHICH level is the current bottleneck.
+
 ## The skill library (progressive order)
 
 | # | Technique skill | Load when | Gates on |
