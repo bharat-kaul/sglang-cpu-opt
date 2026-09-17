@@ -262,6 +262,40 @@ _KV_STASH: dict = {}
 # read by the CPU indexer (step 3). Avoids the paged state-pool entirely.
 _COMPRESSED_STASH: dict = {}
 
+# Route-2 DSA step 3: per-layer indexer top-k KV indices [N_q, k], written by the CPU
+# forward_c4_indexer, read by the CPU sparse attention (step 4).
+_TOPK_STASH: dict = {}
+_HAD_CACHE: dict = {}
+
+
+def _rmsnorm_torch(x, norm):
+    # Torch RMSNorm (avoids the sgl_kernel CPU RMSNorm's strict input==weight dtype check).
+    import torch
+
+    w = norm.weight
+    eps = getattr(norm, "variance_epsilon", getattr(norm, "eps", 1e-6))
+    xf = x.float()
+    xf = xf / torch.sqrt(xf.pow(2).mean(dim=-1, keepdim=True) + eps)
+    return (xf * w.float()).to(w.dtype)
+
+
+def _walsh_hadamard(n: int, device) -> "torch.Tensor":
+    # Normalized Walsh-Hadamard matrix (recursive, /sqrt(2) per doubling); mirrors the NPU
+    # backend's _walsh_hadamard_matrix. _apply = plain matmul.
+    import math
+
+    import torch
+
+    key = (n, str(device))
+    cached = _HAD_CACHE.get(key)
+    if cached is not None:
+        return cached
+    had = torch.ones(1, 1, dtype=torch.float32, device=device)
+    while had.shape[0] != n:
+        had = torch.cat((torch.cat([had, had], 1), torch.cat([had, -had], 1)), 0) / math.sqrt(2)
+    _HAD_CACHE[key] = had.contiguous()
+    return _HAD_CACHE[key]
+
 
 def _torch_flash_mla_with_kvcache(
     q,
@@ -601,10 +635,75 @@ def _cpu_forward_core_compressor(self, x, forward_batch, layer_id, compressor) -
         off += L
     if comp_list:
         compressed = torch.cat(comp_list, 0).to(x.dtype)
-        compressed = compressor.norm(compressed)  # RMSNorm (rotate=False for the c4/c128 compressor)
+        compressed = _rmsnorm_torch(compressed, compressor.norm)  # rotate=False for c4/c128 compressor
     else:
         compressed = kv_all.new_zeros(0, head_dim)
     _COMPRESSED_STASH[(layer_id, ratio)] = compressed
+
+
+def _cpu_forward_c4_indexer(self, x, q_lora, forward_batch, c4_indexer, *args, **kwargs) -> None:
+    # Route-2 CPU indexer (step 3): replace forward_c4_indexer wholesale (the paged
+    # fp8_paged_mqa_logits reads the paged compressed KV route-2 avoids). Mirrors the NPU torch
+    # indexer + compute_q spec (rope on trailing 64 + 128-pt Hadamard, skip fp8) + my
+    # dsa_indexer_cpu logits/topk over a freshly-compressed index-KV. Stashes top-k for step 4.
+    # NOTE: structural (runs); exact causal/rope-phase/hadamard-norm correctness is validated on
+    # REAL weights vs the dsa_attention.py oracle (dummy weights can't check accuracy).
+    import torch
+
+    from intel_cpu_models.dsa_compressor_cpu import compress_softmax_pool
+
+    if forward_batch.forward_mode.is_idle() or x.shape[0] == 0:
+        return
+    positions = forward_batch.positions
+    nh = int(c4_indexer.n_heads)
+    hd = int(c4_indexer.head_dim)  # 128
+    rope_dim = int(c4_indexer.rope_head_dim)  # 64
+
+    # (1) compute_q: wq_b(q_lora) -> rope(trailing rope_dim) -> 128-pt Hadamard (bf16, skip fp8).
+    q, _ = c4_indexer.wq_b(q_lora)
+    q = q.view(-1, nh, hd)
+    rp = q[..., hd - rope_dim :].contiguous()
+    _cpu_fused_rope_inplace(rp, None, c4_indexer.freqs_cis, positions)
+    q[..., hd - rope_dim :] = rp
+    q = torch.matmul(q.float().reshape(-1, hd), _walsh_hadamard(hd, q.device)).reshape(-1, nh, hd)
+
+    # (2) weights = weights_proj(x) * weight_scale.
+    w, _ = c4_indexer.weights_proj(x)
+    w = w.float() * float(c4_indexer.weight_scale)  # [N, nh]
+
+    # (3) indexer compressed index-KV (own compressor, ratio 4): softmax-pool + RMSNorm.
+    comp = c4_indexer.compressor
+    ratio = int(comp.ratio)
+    chd = int(comp.head_dim)
+    kv_score = comp.compute_kv_score(x, forward_batch)  # [N, 2*chd]
+    kv_all = kv_score[:, :chd]
+    score_all = kv_score[:, chd : 2 * chd]
+    ape = comp.ape.view(-1, chd)[:ratio]
+    ext = forward_batch.extend_seq_lens_cpu or [int(x.shape[0])]
+    comp_list, key_start_list, off = [], [], 0
+    for L in ext:
+        L = int(L)
+        nwin = L // ratio
+        if nwin > 0:
+            n = nwin * ratio
+            kv_w = kv_all[off : off + n].reshape(nwin, ratio, chd)
+            sc_w = score_all[off : off + n].reshape(nwin, ratio, chd)
+            comp_list.append(compress_softmax_pool(kv_w, sc_w, ape))
+            key_start_list.append(torch.arange(nwin, device=x.device) * ratio)
+        off += L
+    if not comp_list:
+        _TOPK_STASH[c4_indexer.layer_id] = q.new_zeros(q.shape[0], 0, dtype=torch.long)
+        return
+    ck = _rmsnorm_torch(torch.cat(comp_list, 0).to(x.dtype), comp.norm).float()  # [S, chd]
+    key_start = torch.cat(key_start_list, 0)  # [S] window start position
+
+    # (4) logits (relu, per-head weight, sum) + causal mask + top-k.
+    scores = torch.einsum("nhd,sd->nhs", q, ck)  # [N, nh, S]
+    logits = (torch.relu(scores) * w.unsqueeze(-1)).sum(dim=1)  # [N, S]
+    causal = key_start.unsqueeze(0) <= positions.reshape(-1, 1)  # query sees only past windows
+    logits = logits.masked_fill(~causal, float("-inf"))
+    ktop = min(int(c4_indexer.index_topk), logits.shape[1])
+    _TOPK_STASH[c4_indexer.layer_id] = torch.topk(logits, ktop, dim=1).indices
 
 
 def _install_dsa_cpu_wire() -> None:
@@ -630,6 +729,7 @@ def _install_dsa_cpu_wire() -> None:
         _cv2.create_paged_compressor_data = _cpu_no_paged_plan
         _dsv4b.create_paged_compressor_data = _cpu_no_paged_plan
         _dsv4b.DeepseekV4AttnBackend.forward_core_compressor = _cpu_forward_core_compressor
+        _dsv4b.DeepseekV4AttnBackend.forward_c4_indexer = _cpu_forward_c4_indexer
     except Exception:
         pass
     logger.warning(
