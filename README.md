@@ -55,7 +55,12 @@ automatically from the same donor kernels (capability inheritance).
 Every published result carries the **roofline achievable target** alongside the **measured**
 number, plus a **per-op breakdown** of which kernels fall short of their roofline (measured is
 usually below target — the gap is the remaining optimization RoI). Target is published up front;
-measured fills in when the kernels run.
+measured fills in when the kernels run. The **same chart serves both legs**: in the **new-kernel
+leg (Thesis 2)** measured = *our authored* kernel; in the **reuse leg (Thesis 1)** measured = the
+*reused donor* kernel, so the gap shows whether the donor kernels are actually optimized or leave
+headroom (an RoI even when no new kernel was written).
+- **Thesis 1 — donor-kernel optimization** (OLMo-2-7B, BF16, GNR): [report](plugin/validate/results/olmo2_7b_donor_roofline.md)
+  · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.svg) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom.
 - DeepSeek-V4-Flash (decode, fp8, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
   · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.svg)
 - DeepSeek-V4-Pro (decode, bf16/fp4-storage, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_pro_roofline.md)
