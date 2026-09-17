@@ -5,6 +5,26 @@
 - freq hygiene: governor=performance turbo_disabled=False clean=False
   - ⚠ turbo enabled: throughput may be optimistic and non-reproducible; pin frequency for repeatable characterization
 
+## Results table (one metric per microbenchmark)
+
+| probe            | metric                 | value               | cross-check                        |
+| ---------------- | ---------------------- | ------------------- | ---------------------------------- |
+| compute_peak     | GEMM bfloat16          | 30921.2 GF/s        | AMX bf16 achievable peak           |
+| compute_peak     | GEMM float32           | 8484.4 GF/s         | ~1/4-1/8 of bf16 (no AMX for fp32) |
+| compute_peak     | GEMM int8              | 11661.3 GOPS        | ~2x bf16 if AMX-int8 dispatched    |
+| memory           | DRAM triad BW          | 2151.6 GB/s         | vs #channels x DDR rate            |
+| memory           | peak cache BW          | 2082.5 GB/s @ 128MB | L2/LLC-resident                    |
+| numa             | domains                | 6                   | SNC/sub-NUMA count                 |
+| numa             | local / remote BW      | 226.3 / 138.2 GB/s  | remote < local                     |
+| roofline_ridge   | ridge bfloat16         | 14.4 flops/byte     | = peak / DRAM BW                   |
+| roofline_ridge   | ridge float32          | 3.9 flops/byte      | = peak / DRAM BW                   |
+| roofline_ridge   | ridge int8             | 5.4 flops/byte      | = peak / DRAM BW                   |
+| gather_crossover | stage-then-BRGEMM M>=  | 1                   | small on cache-hot                 |
+| threading        | cores to saturate BW   | 64                  | < total cores                      |
+| threading        | peak compute (all thr) | 14450.2 GF/s        | vs compute_peak                    |
+| threading        | peak BW (all thr)      | 296.8 GB/s          | vs DRAM triad                      |
+
+
 ## Compute peak (achieved GEMM)
 - bfloat16: 30921.2 GF/s
 - float32: 8484.4 GF/s
