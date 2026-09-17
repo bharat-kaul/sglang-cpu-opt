@@ -2,6 +2,8 @@
 
 **Node** `gnr_6980p (SINGLE SOCKET, TP=1, 128c NUMA 0-2, batch 8)` · **bf16** · **prefill (GEMM-bound; measured = reused donor kernel; ceiling = bandwidth)** · batch 8 · unit `TF/s` · **7B dense**
 
+**Ceiling provenance:** measured by uPP → `tools/uarch_perf_probe/samples/gnr_pcl-gnrap01_demo.json (uPP: 6 SNC domains, 226 GB/s/domain, remote/local 0.61 — corroborates the SNC-corrected ceiling)`
+
 **Model-level:** roofline target **60.6 TF/s** · measured **18.2 TF/s** · **30% of achievable**
 
 Per-op, ranked by recoverable end-to-end fraction (shortfall × phase share):

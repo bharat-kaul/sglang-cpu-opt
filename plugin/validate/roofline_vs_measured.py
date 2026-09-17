@@ -62,6 +62,10 @@ def build_markdown(d: dict) -> str:
         f"**{d.get('phase','?')}** · batch {d.get('batch','?')} · unit `{unit}`"
         + (f" · **{d.get('params')}**" if d.get('params') else ""),
         "",
+    ]
+    if d.get("constants_source"):
+        lines += [f"**Ceiling provenance:** measured by uPP → `{d['constants_source']}`", ""]
+    lines += [
         f"**Model-level:** roofline target **{_fmt(mt, ' '+unit)}** · "
         f"measured **{_fmt(mm, ' '+unit)}**"
         + (f" · **{meff*100:.0f}% of achievable**" if meff is not None else " (target published; measured to follow)"),
@@ -112,6 +116,7 @@ def build_svg(d: dict) -> str:
         f"Machine: {d.get('node', '?')}  \u00b7  {d.get('precision', '?')}  \u00b7  "
         f"batch {d.get('batch', '?')}  \u00b7  {d.get('phase', '?')}"
         + (f"  \u00b7  {d.get('params')}" if d.get('params') else "")
+        + ("  \u00b7  ceilings: uPP-measured" if d.get("constants_source") else "")
     )
     parts = [
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' font-family='sans-serif'>",

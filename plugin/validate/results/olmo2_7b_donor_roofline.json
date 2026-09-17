@@ -10,9 +10,38 @@
   "model_roofline_target": 60.6,
   "model_measured": 18.2,
   "ops": [
-    {"op": "down (MLP)", "roofline_target": 60.6, "measured": 36.52, "share_pct": 30.0, "regime": "bw", "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K14336xN4096=38.65TF; eff_rel 0.945 (wiring preserves donor); eff_abs 0.60 -> 40% headroom, all composition/traffic (not tile-loop)"},
-    {"op": "gate_up (MLP)", "roofline_target": 60.6, "measured": 25.36, "share_pct": 30.0, "regime": "bw", "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K4096xN28672=26.17TF; eff_rel 0.969; eff_abs 0.42 -> 58% headroom (biggest RoI), composition/traffic"},
-    {"op": "qkv (attn)", "roofline_target": 60.6, "measured": 35.37, "share_pct": 25.0, "regime": "bw", "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K4096xN6144=28.06TF; eff_rel 1.261 (exceeds donor); eff_abs 0.58 -> 42% headroom, composition/traffic"},
-    {"op": "o (attn)", "roofline_target": 60.6, "measured": 25.47, "share_pct": 15.0, "regime": "bw", "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K4096xN4096=23.17TF; eff_rel 1.099; eff_abs 0.42 -> 58% headroom, composition/traffic"}
-  ]
+    {
+      "op": "down (MLP)",
+      "roofline_target": 60.6,
+      "measured": 36.52,
+      "share_pct": 30.0,
+      "regime": "bw",
+      "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K14336xN4096=38.65TF; eff_rel 0.945 (wiring preserves donor); eff_abs 0.60 -> 40% headroom, all composition/traffic (not tile-loop)"
+    },
+    {
+      "op": "gate_up (MLP)",
+      "roofline_target": 60.6,
+      "measured": 25.36,
+      "share_pct": 30.0,
+      "regime": "bw",
+      "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K4096xN28672=26.17TF; eff_rel 0.969; eff_abs 0.42 -> 58% headroom (biggest RoI), composition/traffic"
+    },
+    {
+      "op": "qkv (attn)",
+      "roofline_target": 60.6,
+      "measured": 35.37,
+      "share_pct": 25.0,
+      "regime": "bw",
+      "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K4096xN6144=28.06TF; eff_rel 1.261 (exceeds donor); eff_abs 0.58 -> 42% headroom, composition/traffic"
+    },
+    {
+      "op": "o (attn)",
+      "roofline_target": 60.6,
+      "measured": 25.47,
+      "share_pct": 15.0,
+      "regime": "bw",
+      "note": "backend oneDNN/LIBXSMM BRGEMM (M>4); donor llama3_8b K4096xN4096=23.17TF; eff_rel 1.099; eff_abs 0.42 -> 58% headroom, composition/traffic"
+    }
+  ],
+  "constants_source": "tools/uarch_perf_probe/samples/gnr_pcl-gnrap01_demo.json (uPP: 6 SNC domains, 226 GB/s/domain, remote/local 0.61 \u2014 corroborates the SNC-corrected ceiling)"
 }

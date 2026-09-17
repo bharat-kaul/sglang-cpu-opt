@@ -1,7 +1,7 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='1120' height='310' font-family='sans-serif'>
 <rect width='1120' height='310' fill='white'/>
 <text x='210' y='26' font-size='18' font-weight='bold'>OLMo-2-7B (BF16) — roofline vs measured (TF/s)</text>
-<text x='210' y='48' font-size='13' fill='#444'>Machine: gnr_6980p (SINGLE SOCKET, TP=1, batch 8)  ·  bf16  ·  batch 8  ·  prefill (GEMM-bound)</text>
+<text x='210' y='48' font-size='13' fill='#444'>Machine: gnr_6980p (SINGLE SOCKET, TP=1, batch 8)  ·  bf16  ·  batch 8  ·  prefill (GEMM-bound)  ·  ceilings: uPP-measured</text>
 <rect x='210' y='62' width='14' height='14' fill='#9db4d0'/><text x='230' y='74' font-size='12'>roofline target</text><rect x='350' y='62' width='14' height='14' fill='#2f6f4f'/><text x='370' y='74' font-size='12'>measured</text>
 <text x='202' y='109.0' font-size='12' text-anchor='end'>down (MLP) (30%)</text>
 <rect x='210' y='92' width='710.0' height='17.0' fill='#9db4d0'/>

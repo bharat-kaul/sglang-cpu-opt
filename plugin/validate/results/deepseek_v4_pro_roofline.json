@@ -12,11 +12,51 @@
   "model_roofline_target": 38.7,
   "model_measured": null,
   "ops": [
-    {"op": "moe_grouped_gemm (routed experts)", "roofline_target": 42.0, "measured": null, "share_pct": 72.0, "regime": "memory", "note": "1.6T model near-saturated at B=32 (~half the model streamed/step); the model bound. full-node ref ~63 x4/6"},
-    {"op": "mla_attention_core", "roofline_target": 260.0, "measured": null, "share_pct": 10.0, "regime": "memory", "note": "MLA-absorbed; full-node ref ~390 x4/6"},
-    {"op": "dense_proj (q/kv/o)", "roofline_target": 350.0, "measured": null, "share_pct": 7.0, "regime": "memory"},
-    {"op": "dsa_indexer", "roofline_target": 700.0, "measured": null, "share_pct": 5.0, "regime": "compute", "note": "~0.5% at M=1; small (compute ceiling also 4/6)"},
-    {"op": "norm/rope/act", "roofline_target": 1050.0, "measured": null, "share_pct": 3.0, "regime": "memory"},
-    {"op": "lm_head + embed", "roofline_target": 530.0, "measured": null, "share_pct": 3.0, "regime": "memory"}
-  ]
+    {
+      "op": "moe_grouped_gemm (routed experts)",
+      "roofline_target": 42.0,
+      "measured": null,
+      "share_pct": 72.0,
+      "regime": "memory",
+      "note": "1.6T model near-saturated at B=32 (~half the model streamed/step); the model bound. full-node ref ~63 x4/6"
+    },
+    {
+      "op": "mla_attention_core",
+      "roofline_target": 260.0,
+      "measured": null,
+      "share_pct": 10.0,
+      "regime": "memory",
+      "note": "MLA-absorbed; full-node ref ~390 x4/6"
+    },
+    {
+      "op": "dense_proj (q/kv/o)",
+      "roofline_target": 350.0,
+      "measured": null,
+      "share_pct": 7.0,
+      "regime": "memory"
+    },
+    {
+      "op": "dsa_indexer",
+      "roofline_target": 700.0,
+      "measured": null,
+      "share_pct": 5.0,
+      "regime": "compute",
+      "note": "~0.5% at M=1; small (compute ceiling also 4/6)"
+    },
+    {
+      "op": "norm/rope/act",
+      "roofline_target": 1050.0,
+      "measured": null,
+      "share_pct": 3.0,
+      "regime": "memory"
+    },
+    {
+      "op": "lm_head + embed",
+      "roofline_target": 530.0,
+      "measured": null,
+      "share_pct": 3.0,
+      "regime": "memory"
+    }
+  ],
+  "constants_source": "tools/uarch_perf_probe/samples/gnr_pcl-gnrap01_demo.json (uPP: 6 SNC domains, 226 GB/s/domain, remote/local 0.61 \u2014 corroborates the SNC-corrected ceiling)"
 }

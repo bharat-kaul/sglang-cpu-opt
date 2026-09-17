@@ -1,7 +1,7 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='1120' height='402' font-family='sans-serif'>
 <rect width='1120' height='402' fill='white'/>
 <text x='210' y='26' font-size='18' font-weight='bold'>DeepSeek-V4-Pro — roofline vs measured (tok/s)</text>
-<text x='210' y='48' font-size='13' fill='#444'>Machine: gnr_6980p (SNC-on: 6 NUMA domains; TP=4 = 4/6 domains; effective 841/1261 GB/s)  ·  bf16 (fp4-storage, dequant-in-forward)  ·  batch 32  ·  decode  ·  1.6T total / 49B active (MoE)</text>
+<text x='210' y='48' font-size='13' fill='#444'>Machine: gnr_6980p (SNC-on: 6 NUMA domains; TP=4 = 4/6 domains; effective 841/1261 GB/s)  ·  bf16 (fp4-storage, dequant-in-forward)  ·  batch 32  ·  decode  ·  1.6T total / 49B active (MoE)  ·  ceilings: uPP-measured</text>
 <rect x='210' y='62' width='14' height='14' fill='#9db4d0'/><text x='230' y='74' font-size='12'>roofline target</text><rect x='350' y='62' width='14' height='14' fill='#2f6f4f'/><text x='370' y='74' font-size='12'>measured</text>
 <text x='202' y='109.0' font-size='12' text-anchor='end'>moe_grouped_gemm (routed experts) (72%)</text>
 <rect x='210' y='92' width='28.4' height='17.0' fill='#9db4d0'/>

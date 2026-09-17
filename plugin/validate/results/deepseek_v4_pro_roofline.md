@@ -2,6 +2,8 @@
 
 **Node** `gnr_6980p (SNC-on: 6 NUMA domains; TP=4 = 4/6 domains; effective 841/1261 GB/s)` · **bf16 (fp4-storage, dequant-in-forward)** · **decode** · batch 32 · unit `tok/s` · **1.6T total / 49B active (MoE)**
 
+**Ceiling provenance:** measured by uPP → `tools/uarch_perf_probe/samples/gnr_pcl-gnrap01_demo.json (uPP: 6 SNC domains, 226 GB/s/domain, remote/local 0.61 — corroborates the SNC-corrected ceiling)`
+
 **Model-level:** roofline target **38.7 tok/s** · measured **PENDING** (target published; measured to follow)
 
 Per-op, ranked by recoverable end-to-end fraction (shortfall × phase share):
