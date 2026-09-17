@@ -1,6 +1,6 @@
 # Roofline target vs measured — DeepSeek-V4-Pro
 
-**Node** `gnr_6980p (SNC-on: 6 NUMA domains; TP=4 = 4/6 domains; effective 841/1261 GB/s)` · **bf16 (fp4-storage, dequant-in-forward)** · **decode** · batch 32 · unit `tok/s`
+**Node** `gnr_6980p (SNC-on: 6 NUMA domains; TP=4 = 4/6 domains; effective 841/1261 GB/s)` · **bf16 (fp4-storage, dequant-in-forward)** · **decode** · batch 32 · unit `tok/s` · **1.6T total / 49B active (MoE)**
 
 **Model-level:** roofline target **38.7 tok/s** · measured **PENDING** (target published; measured to follow)
 

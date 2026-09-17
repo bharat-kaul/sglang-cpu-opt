@@ -59,7 +59,8 @@ def build_markdown(d: dict) -> str:
         f"# Roofline target vs measured — {d.get('model','?')}",
         "",
         f"**Node** `{d.get('node','?')}` · **{d.get('precision','?')}** · "
-        f"**{d.get('phase','?')}** · batch {d.get('batch','?')} · unit `{unit}`",
+        f"**{d.get('phase','?')}** · batch {d.get('batch','?')} · unit `{unit}`"
+        + (f" · **{d.get('params')}**" if d.get('params') else ""),
         "",
         f"**Model-level:** roofline target **{_fmt(mt, ' '+unit)}** · "
         f"measured **{_fmt(mm, ' '+unit)}**"
@@ -110,6 +111,7 @@ def build_svg(d: dict) -> str:
     subtitle = (
         f"Machine: {d.get('node', '?')}  \u00b7  {d.get('precision', '?')}  \u00b7  "
         f"batch {d.get('batch', '?')}  \u00b7  {d.get('phase', '?')}"
+        + (f"  \u00b7  {d.get('params')}" if d.get('params') else "")
     )
     parts = [
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' font-family='sans-serif'>",
