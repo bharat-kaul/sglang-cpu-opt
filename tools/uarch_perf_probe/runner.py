@@ -51,6 +51,77 @@ def _fmt(v, u=""):
     return f"{v:.1f}{u}" if isinstance(v, (int, float)) else "n/a"
 
 
+def summary_rows(c: dict) -> list:
+    """One headline metric per microbenchmark, with a cross-check hint the reader can sanity-check.
+
+    Returns rows of (probe, metric, value, cross-check).
+    """
+    rows = []
+    cp = c.get("compute_peak", {}).get("peak", {})
+    for dt, v in cp.items():
+        g = v.get("gflops") or v.get("gops")
+        unit = "GOPS" if "gops" in v else "GF/s"
+        xc = {
+            "bfloat16": "AMX bf16 achievable peak",
+            "int8": "~2x bf16 if AMX-int8 dispatched",
+            "float32": "~1/4-1/8 of bf16 (no AMX for fp32)",
+        }.get(dt, "")
+        rows.append(("compute_peak", f"GEMM {dt}", f"{_fmt(g)} {unit}" if g else "n/a", xc))
+    mem = c.get("memory", {})
+    rows.append(
+        ("memory", "DRAM triad BW", f"{_fmt(mem.get('dram_triad_bw_gbps'))} GB/s", "vs #channels x DDR rate")
+    )
+    ladder = [r for r in mem.get("cache_ladder", []) if "bw_gbps" in r]
+    if ladder:
+        top = max(ladder, key=lambda r: r["bw_gbps"])
+        rows.append(
+            ("memory", "peak cache BW", f"{_fmt(top['bw_gbps'])} GB/s @ {top['mb']}MB", "L2/LLC-resident")
+        )
+    numa = c.get("numa", {})
+    if numa.get("status") == "ok":
+        rows.append(("numa", "domains", str(numa.get("n_domains")), "SNC/sub-NUMA count"))
+        rows.append(
+            (
+                "numa",
+                "local / remote BW",
+                f"{_fmt(numa.get('local_bw_gbps'))} / {_fmt(numa.get('remote_bw_gbps'))} GB/s",
+                "remote < local",
+            )
+        )
+    rr = c.get("roofline_ridge", {}).get("ridge_flops_per_byte", {})
+    for dt, v in rr.items():
+        rows.append(("roofline_ridge", f"ridge {dt}", f"{_fmt(v)} flops/byte", "= peak / DRAM BW"))
+    gx = c.get("gather_crossover", {})
+    if gx.get("status") == "ok":
+        rows.append(
+            ("gather_crossover", "stage-then-BRGEMM M>=", str(gx.get("prefer_stage_M_ge")), "small on cache-hot")
+        )
+    thr = c.get("threading", {})
+    if thr.get("status") == "ok":
+        rows.append(
+            ("threading", "cores to saturate BW", str(thr.get("cores_to_saturate_bw")), "< total cores")
+        )
+        comp = thr.get("compute_scaling") or []
+        mems = thr.get("memory_scaling") or []
+        if comp:
+            rows.append(("threading", "peak compute (all thr)", f"{_fmt(comp[-1]['gflops'])} GF/s", "vs compute_peak"))
+        if mems:
+            rows.append(("threading", "peak BW (all thr)", f"{_fmt(max(m['bw_gbps'] for m in mems))} GB/s", "vs DRAM triad"))
+    return rows
+
+
+def render_table(c: dict) -> str:
+    rows = summary_rows(c)
+    w = [max(len(r[i]) for r in rows + [("probe", "metric", "value", "cross-check")]) for i in range(4)]
+    head = ("probe", "metric", "value", "cross-check")
+    line = "| " + " | ".join(head[i].ljust(w[i]) for i in range(4)) + " |"
+    sep = "| " + " | ".join("-" * w[i] for i in range(4)) + " |"
+    body = [
+        "| " + " | ".join(str(r[i]).ljust(w[i]) for i in range(4)) + " |" for r in rows
+    ]
+    return "\n".join([line, sep, *body])
+
+
 def render_md(c: dict) -> str:
     m = c["meta"]
     L = [
@@ -65,6 +136,7 @@ def render_md(c: dict) -> str:
     ]
     for w in m["freq_hygiene"].get("warnings", []):
         L.append(f"  - ⚠ {w}")
+    L += ["", "## Results table (one metric per microbenchmark)", "", render_table(c), ""]
     cp = c.get("compute_peak", {}).get("peak", {})
     L += ["", "## Compute peak (achieved GEMM)"]
     for dt, v in cp.items():
@@ -122,7 +194,9 @@ def main() -> None:
     with open(md_path, "w") as f:
         f.write(render_md(c))
 
-    print(f"[uPP] wrote {args.out} and {md_path}")
+    print(f"[uPP] wrote {args.out} and {md_path}\n")
+    print(render_table(c))
+    print("\nderived_kernel_knobs:")
     print(json.dumps(c["derived_kernel_knobs"], indent=2))
 
 
