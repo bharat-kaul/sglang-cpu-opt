@@ -1,0 +1,283 @@
+{
+  "probe_version": "0.1",
+  "meta": {
+    "node": "pcl-gnrap01.sc.intel.com",
+    "platform": "Linux-6.12.0-55.34.1.el10_0.x86_64-x86_64-with-glibc2.39",
+    "python": "3.12.13",
+    "cpu_count": 512,
+    "numa_nodes": 6,
+    "isa": {
+      "avx512f": true,
+      "avx512_bf16": true,
+      "amx_bf16": true,
+      "amx_int8": true,
+      "amx_tile": true,
+      "avx512_vnni": true,
+      "avx_vnni": true
+    },
+    "freq_hygiene": {
+      "governor": "performance",
+      "turbo_disabled": false,
+      "clean": false,
+      "warnings": [
+        "turbo enabled: throughput may be optimistic and non-reproducible; pin frequency for repeatable characterization"
+      ]
+    },
+    "torch": "2.12.0+cpu",
+    "torch_threads": 256
+  },
+  "compute_peak": {
+    "status": "ok",
+    "peak": {
+      "bfloat16": {
+        "gflops": 30921.188197058556,
+        "n": 4096
+      },
+      "float32": {
+        "gflops": 8484.449650660485,
+        "n": 4096
+      },
+      "int8": {
+        "gops": 11661.259680192486,
+        "n": 4096
+      }
+    }
+  },
+  "memory": {
+    "status": "ok",
+    "cache_ladder": [
+      {
+        "mb": 0.016,
+        "bw_gbps": 12.27886355788957
+      },
+      {
+        "mb": 0.128,
+        "bw_gbps": 1.4704391793441693
+      },
+      {
+        "mb": 0.5,
+        "bw_gbps": 5.392060164853784
+      },
+      {
+        "mb": 2,
+        "bw_gbps": 17.58380626174439
+      },
+      {
+        "mb": 8,
+        "bw_gbps": 65.24379324644246
+      },
+      {
+        "mb": 32,
+        "bw_gbps": 273.8718241549177
+      },
+      {
+        "mb": 128,
+        "bw_gbps": 2082.484095108714
+      },
+      {
+        "mb": 512,
+        "bw_gbps": 231.84418861111993
+      }
+    ],
+    "dram_triad_bw_gbps": 2151.6366452715147
+  },
+  "roofline_ridge": {
+    "status": "ok",
+    "ridge_flops_per_byte": {
+      "bfloat16": 14.37,
+      "float32": 3.94,
+      "int8": 5.42
+    },
+    "note": "ridge = compute_peak / dram_bw (both measured); below-ridge AI => memory-bound"
+  },
+  "gather_crossover": {
+    "status": "ok",
+    "sweep": [
+      {
+        "M": 1,
+        "gemm_s": 0.0001267930492758751,
+        "gather_gemm_s": 0.0001273057423532009,
+        "overhead_frac": 0.004043542451686829
+      },
+      {
+        "M": 2,
+        "gemm_s": 0.0006617875769734383,
+        "gather_gemm_s": 0.0008020619861781597,
+        "overhead_frac": 0.21196289275516508
+      },
+      {
+        "M": 4,
+        "gemm_s": 0.00028640730306506157,
+        "gather_gemm_s": 0.00030136713758111,
+        "overhead_frac": 0.05223272715448212
+      },
+      {
+        "M": 8,
+        "gemm_s": 0.00033521419391036034,
+        "gather_gemm_s": 0.00029264669865369797,
+        "overhead_frac": -0.12698595712819175
+      },
+      {
+        "M": 16,
+        "gemm_s": 0.0006199078634381294,
+        "gather_gemm_s": 0.0003047073259949684,
+        "overhead_frac": -0.5084635250390237
+      },
+      {
+        "M": 32,
+        "gemm_s": 0.0007128180004656315,
+        "gather_gemm_s": 0.00088538508862257,
+        "overhead_frac": 0.24209137261434643
+      },
+      {
+        "M": 64,
+        "gemm_s": 6.87250867486e-05,
+        "gather_gemm_s": 0.00019491417333483696,
+        "overhead_frac": 1.836142994592983
+      }
+    ],
+    "prefer_stage_M_ge": 1,
+    "note": "smallest M where gather overhead < 25% of the GEMM (torch proxy)"
+  },
+  "threading": {
+    "status": "ok",
+    "compute_scaling": [
+      {
+        "threads": 1,
+        "gflops": 1440.2168438825179
+      },
+      {
+        "threads": 2,
+        "gflops": 2777.177817605003
+      },
+      {
+        "threads": 4,
+        "gflops": 5140.771130885238
+      },
+      {
+        "threads": 8,
+        "gflops": 9315.067523888918
+      },
+      {
+        "threads": 16,
+        "gflops": 14457.362341169468
+      },
+      {
+        "threads": 32,
+        "gflops": 23980.058685088272
+      },
+      {
+        "threads": 64,
+        "gflops": 12334.83388412541
+      },
+      {
+        "threads": 512,
+        "gflops": 14450.226788132313
+      }
+    ],
+    "memory_scaling": [
+      {
+        "threads": 1,
+        "bw_gbps": 12.005159765021546
+      },
+      {
+        "threads": 2,
+        "bw_gbps": 25.028569635571234
+      },
+      {
+        "threads": 4,
+        "bw_gbps": 54.21632859677869
+      },
+      {
+        "threads": 8,
+        "bw_gbps": 115.84319336287321
+      },
+      {
+        "threads": 16,
+        "bw_gbps": 171.61868395384275
+      },
+      {
+        "threads": 32,
+        "bw_gbps": 253.12201515385223
+      },
+      {
+        "threads": 64,
+        "bw_gbps": 296.811798880958
+      },
+      {
+        "threads": 512,
+        "bw_gbps": 25.543051027047824
+      }
+    ],
+    "cores_to_saturate_bw": 64
+  },
+  "numa": {
+    "status": "ok",
+    "n_domains": 6,
+    "bw_matrix_gbps": [
+      [
+        222.34015048165992,
+        203.91061234278513,
+        205.62729183596346,
+        111.18412747233938,
+        101.65875154249638,
+        110.29119335174846
+      ],
+      [
+        125.53831397369306,
+        224.6296941902092,
+        100.70128191474933,
+        112.32638201937617,
+        102.38113632720206,
+        110.79143172213988
+      ],
+      [
+        209.344751819489,
+        207.91984816937588,
+        232.76944738564688,
+        112.07463924238105,
+        85.28358782327192,
+        113.52502223507399
+      ],
+      [
+        113.84599664221767,
+        88.14503601071915,
+        111.67956664204385,
+        231.9133872672626,
+        205.43370928186087,
+        218.93059332866426
+      ],
+      [
+        111.65815323656723,
+        103.42052989686943,
+        108.45744498983208,
+        196.7324465437194,
+        225.72478930922162,
+        202.47608013506522
+      ],
+      [
+        112.10263615095405,
+        65.32390246966018,
+        93.19402440026468,
+        197.79872905981713,
+        205.0669847980971,
+        220.6477192002078
+      ]
+    ],
+    "local_bw_gbps": 226.33753130570133,
+    "remote_bw_gbps": 138.2274735126146
+  },
+  "derived_kernel_knobs": {
+    "one_tp_rank_per_domain": true,
+    "n_tp_ranks_hint": 6,
+    "remote_bw_penalty": 0.611,
+    "per_domain_bw_gbps": 226.3,
+    "prefer_amx_stage_M_ge": 1,
+    "cores_to_saturate_bw": 64,
+    "ridge_flops_per_byte": {
+      "bfloat16": 14.37,
+      "float32": 3.94,
+      "int8": 5.42
+    }
+  }
+}

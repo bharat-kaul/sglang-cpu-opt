@@ -58,3 +58,14 @@ hygiene self-checks. Keep the JSON schema stable for consumers.
 ## Demo consumer
 This repo's DeepSeek-V4 CPU enablement workflow is the reference consumer: its roofline charts
 and kernel-authoring feasibility gate read the same constants uPP emits.
+
+## Sample output (GNR, demo)
+[`samples/gnr_pcl-gnrap01_demo.md`](samples/gnr_pcl-gnrap01_demo.md) — a run on the GNR node:
+uPP independently regenerated the SNC constants from measurement (**6 domains**, per-domain BW
+~226 GB/s, remote/local BW 0.61) that the workflow had baked into its roofline from priors —
+i.e. the tool rediscovers the priors on real silicon. Caveats visible in that sample (honest,
+and both are flagged by the run): frequency was **not pinned** (turbo on → `clean=false`), the
+**int8 peak looks low** (`torch._int_mm` likely not dispatching AMX-int8 — a native-probe /
+dispatch-check refinement), and the **smallest cache-ladder points are dispatch-bound noise**
+(need more iters for tiny buffers). Pin frequency + add the int8 dispatch check for an
+authoritative run.
