@@ -104,6 +104,50 @@ def _tacc(name: str, t0: float, kind: str = "") -> None:
     rec[1] += 1
 
 
+def _resolve_moe_thread_cap(orig_apply, self, layer, dispatch_output):
+    """Thread count to cap the native MoE apply at (runtime-config fix), or None.
+
+    `fused_experts_cpu` scales INVERSELY with threads on this MoE shape (isolation:
+    ~0.1ms@8thr vs ~2432ms@60thr) -- a threading pathology, not a bad kernel. Set
+    INTEL_CPU_DSV4_MOE_THREADS=N for a fixed cap, or =auto to self-tune once on the real
+    node/shape (first-call micro-sweep picks the fastest). Cached after the first resolve.
+    """
+    spec = _os.environ.get("INTEL_CPU_DSV4_MOE_THREADS", "")
+    if not spec:
+        return None
+    if "cap" in _MOE_DIAG:
+        return _MOE_DIAG["cap"]
+    import torch as _tt
+
+    cur = _tt.get_num_threads()
+    if spec.isdigit():
+        _MOE_DIAG["cap"] = max(1, min(int(spec), cur))
+        logger.warning("[MOE THREADCAP] fixed threads=%d (was %d)", _MOE_DIAG["cap"], cur)
+        return _MOE_DIAG["cap"]
+    if spec == "auto":
+        import time as _t
+
+        cands = sorted({c for c in (4, 8, 16, 24, 32, cur) if 1 <= c <= cur})
+        best, best_t = cur, float("inf")
+        for c in cands:
+            _tt.set_num_threads(c)
+            orig_apply(self, layer, dispatch_output)  # warm at this count
+            _t0 = _t.perf_counter()
+            for _ in range(2):
+                orig_apply(self, layer, dispatch_output)
+            dt = (_t.perf_counter() - _t0) / 2
+            if dt < best_t:
+                best_t, best = dt, c
+        _tt.set_num_threads(cur)
+        _MOE_DIAG["cap"] = best
+        logger.warning(
+            "[MOE THREADCAP] auto-picked threads=%d (%.1fms) from %s (was %d)",
+            best, best_t * 1e3, cands, cur,
+        )
+        return best
+    return None
+
+
 
 if _TIMEIT_ON:
     import atexit as _atexit
@@ -800,7 +844,19 @@ def _install_fp4_expert_cpu_dequant() -> None:
                 layer, dispatch_output.hidden_states, topk_weights, topk_ids
             )
             return StandardCombineInput(hidden_states=out)
-        return _orig_apply(self, layer, dispatch_output)
+        # runtime-config fix: cap threads around the native MoE apply (fused_experts scales
+        # inversely with threads on this shape); explicit N or self-tuned via =auto.
+        _cap = _resolve_moe_thread_cap(_orig_apply, self, layer, dispatch_output)
+        if _cap is None:
+            return _orig_apply(self, layer, dispatch_output)
+        import torch as _tt
+
+        _prev = _tt.get_num_threads()
+        _tt.set_num_threads(_cap)
+        try:
+            return _orig_apply(self, layer, dispatch_output)
+        finally:
+            _tt.set_num_threads(_prev)
 
     Method.process_weights_after_loading = _patched_pwal
     Method.apply = _timed("moe.expert_apply", "kernel")(_patched_apply)
