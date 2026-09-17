@@ -5,7 +5,7 @@ description: "Proactive, EARLY discipline to split a model run's time into optim
 
 # Overhead Attribution (framework vs kernel, early)
 
-A model that RUNS but is slow has its time in one of three buckets, and the fix is
+A model that RUNS but is slow has its time in one of four buckets, and the fix is
 different for each:
 - **KERNEL** — an optimized (AMX/BRGEMM) kernel doing real compute. Near its
   roofline floor → *not* the lever (don't re-author it). Far from the floor →
@@ -15,13 +15,44 @@ different for each:
 - **FRAMEWORK** — orchestration: dispatch, python loops, copies, casts, gather/scatter,
   routing/topk, metadata. Fixed by fusion / fewer ops / bf16-end-to-end / vectorizing
   python — *no kernel needed*.
+- **INTER-KERNEL DEPENDENCY** — the *glue* between two individually-optimal kernels:
+  layout/dtype conversions, re-pack, staging/copies to hand off data, serialization
+  (no overlap), missing cross-op fusion. Only visible END-TO-END (each kernel is fine
+  in isolation). Fixed by unifying layouts/dtypes across adjacent ops, fusing, or
+  pipelining — again *no kernel authoring*.
+
+## Two-phase method (isolate-certify, then attribute the e2e residual)
+The decomposition that makes the buckets clean (per the operator-roofline discipline).
+**Core reasoning — certification is ELIMINATION:** optimizing each operator against its
+*measured* roofline in isolation and certifying it at its floor *removes that operator
+from the suspect list*. Once every kernel is eliminated as a source of slowdown, the
+end-to-end gap can only be the non-kernel components — so attention is forced onto
+framework and inter-kernel dependency. You don't guess what's slow; you eliminate the
+kernels one by one until only the glue remains.
+1. **Phase A — per-operator, in ISOLATION.** For each operator: operator-level roofline
+   → optimize/author → measure vs that roofline **standalone** → **certify** it at (or
+   near) its floor. A certified kernel is a *fixed point* (its isolated time is its floor)
+   and is thereby ELIMINATED as an e2e suspect.
+2. **Phase B — plug all certified kernels into the END-TO-END run.** Because each kernel
+   is individually optimal, the e2e residual is *by construction* NOT the kernels:
+   `residual = measured_e2e − Σ(isolated_kernel_floors)` = **FRAMEWORK + INTER-KERNEL
+   DEPENDENCY**. That residual is the second-order target, attacked with fusion / layout
+   unification / threading-config / pipelining — never more kernel authoring.
+This is exactly the MoE finding: isolated floor ≈ 1 ms, e2e ≈ 1920 ms → the ~1919 ms
+residual is framework/config (thread binding), not the kernel. Isolation-certify first
+so the e2e gap is unambiguously attributable.
 
 **Do this EARLY** — before `model-profile-hotspots` commits kernel budget. Attributing
 the buckets first tells you the *ceiling* of what any optimization can buy and which
-layer to touch. (This session's evidence: the presumed hotspot was wrong 3× in a row;
-the "AMX" MoE cost 1.9 s/call — a *kernel* ~1000× above its memory floor, not the DSA
-we were chasing; and the split was 60% torch / 40% kernel / ~0% framework — so the
-reachable win was bounded by the torch bucket, not by out-tuning the AMX kernel.)
+layer to touch. (This session's evidence: the presumed hotspot was wrong 4× in a row;
+the "AMX" MoE cost 1.9 s/call — a *kernel* ~1000× above its floor whose isolated GEMM is
+0.33 ms, so the gap is integration/config, not the kernel.)
+
+## The layered method (cheapest first)
+1. **Boundary timers (cheap, always first).** Wrap the hot op boundaries with an
+   env-gated, per-rank, DCE-safe timer and TAG each `kernel|torch|framework|parent`
+   (`parent` = contains other timed leaves; excluded from the split). Print a split
+   over leaf ops at exit. Deterministic and tp-safe (each rank prints its own) —
 
 ## The layered method (cheapest first)
 1. **Boundary timers (cheap, always first).** Wrap the hot op boundaries with an
@@ -57,10 +88,16 @@ indexer was the top DSA piece; at real scale it was the MLA attention.)
 | kernel far from roofline | kernel-config: threads, prepack, dtype path, verify ISA | authoring a *new* kernel |
 | kernel at roofline | accept (memory/compute-bound floor) | any further kernel work |
 | framework | fusion, fewer ops, bf16-end-to-end, vectorize python | a compute kernel |
+| inter-kernel dependency | unify layout/dtype across adjacent ops, fuse, pipeline/overlap | a compute kernel |
 
 ## Ties into the workflow
+- **Phase A / Phase B split:** the per-operator isolation loop (operator roofline →
+  optimize → measure vs roofline → certify) lives in `kernel-feasibility-gate` +
+  `kernel-authoring` + `roofline-validation`; this skill owns **Phase B** — attributing
+  the end-to-end residual (`measured_e2e − Σ isolated_kernel_floors`) to framework vs
+  inter-kernel dependency once the kernels are isolation-certified.
 - Refines `model-profile-hotspots` — same "run the model, rank by measured time," but
-  adds the framework/kernel/torch tag so the RoI ranking is honest about which layer.
+  adds the framework/kernel/torch/inter-kernel tag so the RoI ranking is honest.
 - Feeds `kernel-feasibility-gate` — a `kernel`-tagged op far from roofline must go to
   isolation (step 3) BEFORE authoring; a `framework`/`torch` op routes to fusion/authoring.
 - Uses `uarch-perf-probe` (`machine_constants.json`) as the roofline floor in step 3.
