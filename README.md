@@ -8,6 +8,8 @@ Xeon (AMX) — as an Intel-maintained **plugin, no fork** — by reusing existin
 hand-optimized kernels and proving both correctness and performance.
 
 > **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
+>
+> **Bird's-eye view:** [docs/agentic-workflow-slide.html](docs/agentic-workflow-slide.html) — the staged agentic workflow (HW characterization → analysis → roofline → coverage → reuse/author → validate → certify), the North Star, and the 27 skills mapped to each stage (open in a browser; Print → Save as PDF for a slide).
 
 ## Results at a glance (Intel Xeon 6980P / Granite Rapids, single socket)
 

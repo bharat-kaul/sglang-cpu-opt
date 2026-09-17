@@ -36,6 +36,10 @@ Driven by the `model-enablement` agent.
   time EARLY (tagged env-gated boundary timers → op profiler → kernel-isolation vs the uPP
   roofline floor), so you fix the right layer and don't author a kernel that can't move
   end-to-end time. Refines `model-profile-hotspots`; feeds `kernel-feasibility-gate`.
+- `runtime-config-tuning` — the FRAMEWORK/CONFIG lever: make already-optimal kernels reach
+  their roofline via thread count/affinity, NUMA/SNC binding, TP-rank→domain map, prepack,
+  dtype/ISA dispatch. Cheap, no-code, usually the highest-leverage first fix (a mis-set knob
+  inflates the whole run). Triggered by `overhead-attribution` (kernel far from floor, isolated-fast).
 
 The throughput thesis needs `throughput-enablement/` **plus** `shared/`.
 
@@ -51,6 +55,9 @@ For a coverage GAP (e.g. DeepSeek-V4 DSA indexer). Driven by the `cpu-optimizer`
   proof deliverable (model runs + accuracy + roofline-vs-measured)
 - `openmp-parallelization`, `cache-blocking-tiling`, `amx-vectorization`,
   `weight-prepacking-brgemm`, `quantization-amx-int8`
+- `inter-kernel-fusion` — Phase-B glue lever: once each op is isolation-certified, kill the
+  dtype/layout conversions, staging copies, and serialization BETWEEN kernels (the e2e residual
+  that isn't framework/config). Complements `fusion-analysis` (graph-level, up front).
 - `cpu-gemm-amx-bf16` — worked example composing the above
 
 ## Cross-cutting / org-reusable plug-ins (used by ANY workflow)

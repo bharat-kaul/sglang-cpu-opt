@@ -96,8 +96,8 @@
     </div>
     <div class="stage vl"><span class="n">4</span>
       <h3>Validate (prove it)</h3>
-      <div class="sub">Per-layer + task accuracy; throughput pass/fail; perf vs donor; framework-vs-kernel residual.</div>
-      <div class="skills"><span class="sk">accuracy-oracle</span><span class="sk">roofline-validation</span><span class="sk">peer-relative-roofline</span><span class="sk">overhead-attribution</span></div>
+      <div class="sub">Per-layer + task accuracy; throughput pass/fail; perf vs donor; framework-vs-kernel residual → the right lever.</div>
+      <div class="skills"><span class="sk">accuracy-oracle</span><span class="sk">roofline-validation</span><span class="sk">peer-relative-roofline</span><span class="sk">overhead-attribution</span><span class="sk">runtime-config-tuning</span></div>
     </div>
     <div class="stage ct"><span class="n">5</span>
       <h3>Certify &amp; ship</h3>
@@ -115,7 +115,7 @@
     <div class="lane t2">
       <div class="lh">◆ Thesis 2 — author (net-new kernel) <span class="arrow">→ gated, isolation-certified</span></div>
       <div class="ls">Coverage gap (e.g. DSA indexer) → go/no-go gate → adapt the nearest donor (BRGEMM building block) → make it run → tune → certify at its roofline in isolation.</div>
-      <div class="skills"><span class="sk">kernel-feasibility-gate</span><span class="sk">kernel-authoring</span><span class="sk">cpu-serving-integration</span><span class="sk">amx-vectorization</span><span class="sk">cache-blocking-tiling</span><span class="sk">weight-prepacking-brgemm</span><span class="sk">quantization-amx-int8</span><span class="sk">openmp-parallelization</span><span class="sk">sub-numa-clustering</span><span class="sk">cpu-gemm-amx-bf16</span></div>
+      <div class="skills"><span class="sk">kernel-feasibility-gate</span><span class="sk">kernel-authoring</span><span class="sk">cpu-serving-integration</span><span class="sk">amx-vectorization</span><span class="sk">cache-blocking-tiling</span><span class="sk">weight-prepacking-brgemm</span><span class="sk">quantization-amx-int8</span><span class="sk">openmp-parallelization</span><span class="sk">sub-numa-clustering</span><span class="sk">inter-kernel-fusion</span><span class="sk">cpu-gemm-amx-bf16</span></div>
     </div>
   </div>
 
@@ -141,7 +141,7 @@
       <span class="lg"><span class="dot" style="background:var(--valid)"></span>Validate</span>
       <span class="lg"><span class="dot" style="background:var(--cert)"></span>Certify</span>
     </div>
-    <div>27 skill files · reusable across models &amp; microarchitectures</div>
+    <div>29 skill files · reusable across models &amp; microarchitectures</div>
   </div>
 </div>
 </body>
