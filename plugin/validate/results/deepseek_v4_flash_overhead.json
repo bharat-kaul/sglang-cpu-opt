@@ -7,7 +7,7 @@
   "decode_latency_s_per_token": 317.0,
   "leaf_ops": [
     {"op": "moe.expert_apply", "kind": "kernel", "total_s": 329.4, "per_call_s": 1.92, "n": 172,
-     "note": "native fused_experts_cpu (FP8_W8A16: fp8 weights, bf16 acts, VNNI). ISOLATION at Flash shape (H=4096, I=2048, top-6): per-expert bf16 GEMM pair 0.33ms, 6-expert fp8 weight-stream floor 0.67ms -> should be ~1-2ms/call, measured 1920ms/call = ~1000-2000x above floor -> KERNEL-CONFIG problem (prime suspect: tp=4 thread-binding and/or all-256-expert streaming), NOT a new kernel. Confirm via [MOE DIAG] real thread count."},
+     "note": "native fused_experts_cpu (FP8_W8A16). IN-SITU ISOLATION (real packed weights, tiny) = INVERSE THREAD SCALING: 8thr=0.1ms, 16thr=350ms, 60thr=2432ms, 120thr=5175ms. Kernel HITS ITS FLOOR at low threads (0.1ms) -> the ~1000x is a THREADING PATHOLOGY (runtime-config), NOT a kernel to author. Fix = cap threads around the MoE apply to the optimal count (tiny~8; real-Flash TBD via ISO sweep). See runtime-config-tuning."},
     {"op": "dsa.mla.attend", "kind": "torch", "total_s": 249.5, "per_call_s": 0.32, "n": 774,
      "note": "fp32 QK/softmax/PV matmuls. Real-scale CONFIRMS tiny: attend is ~all of MLA; gather+select ~0.03s. Lever = bf16/AMX attend (reference is bf16)."},
     {"op": "dsa.indexer", "kind": "torch", "total_s": 129.2, "per_call_s": 1.54, "n": 84,

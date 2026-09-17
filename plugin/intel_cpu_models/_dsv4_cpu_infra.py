@@ -767,6 +767,31 @@ def _install_fp4_expert_cpu_dequant() -> None:
                 )
             except Exception as _e:  # noqa: BLE001
                 logger.warning("[MOE DIAG] failed: %s", _e)
+        if _os.environ.get("INTEL_CPU_DSV4_MOE_ISO", "0") == "1" and not _MOE_DIAG.get("iso"):
+            _MOE_DIAG["iso"] = True
+            # In-situ isolation with the REAL packed weights: re-time the real expert apply
+            # across thread counts. Flat -> kernel/shape bound (e.g. all-256-expert stream);
+            # scaling -> thread/binding bound. Decides the runtime-config vs kernel question.
+            try:
+                import time as _t
+
+                import torch as _tt
+
+                _orig_nt = _tt.get_num_threads()
+                for _nth in sorted({_orig_nt, _orig_nt * 2, 16, 8}):
+                    if _nth < 1:
+                        continue
+                    _tt.set_num_threads(_nth)
+                    _r = _orig_apply(self, layer, dispatch_output)  # warm
+                    _t0 = _t.perf_counter()
+                    for _ in range(3):
+                        _r = _orig_apply(self, layer, dispatch_output)
+                    logger.warning(
+                        "[MOE ISO] threads=%d apply=%.1fms", _nth, (_t.perf_counter() - _t0) / 3 * 1e3
+                    )
+                _tt.set_num_threads(_orig_nt)
+            except Exception as _e:  # noqa: BLE001
+                logger.warning("[MOE ISO] failed: %s", _e)
         if getattr(layer, "_fp4_bf16_moe", False):
             from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
 
