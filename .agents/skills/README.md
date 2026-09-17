@@ -48,3 +48,14 @@ For a coverage GAP (e.g. DeepSeek-V4 DSA indexer). Driven by the `cpu-optimizer`
 - `openmp-parallelization`, `cache-blocking-tiling`, `amx-vectorization`,
   `weight-prepacking-brgemm`, `quantization-amx-int8`
 - `cpu-gemm-amx-bf16` — worked example composing the above
+
+## Cross-cutting / org-reusable plug-ins (used by ANY workflow)
+- `uarch-perf-probe` — **uArch Performance Probe (uPP):** standalone microbenchmark suite that
+  CHARACTERIZES a CPU microarchitecture and emits `machine_constants.json` (compute peak per
+  dtype, cache/DRAM BW ladder, NUMA/SNC BW matrix, roofline ridge, gather-stage crossover,
+  thread scaling) with self-validation (freq-hygiene + ISA-dispatch + DCE-guarded timing).
+  Converts "trust the priors" → "regenerate the priors on the real silicon" for an unseen uarch
+  (e.g. a GNR follow-on), and refreshes/verifies them on a known part. Feeds
+  `establish-achievable-performance`, `model-roofline-analysis`, and the `kernel-authoring`
+  knobs. Runnable suite: `tools/uarch_perf_probe/`. No model/serving dependency — any agentic
+  workflow can call it; this repo's DeepSeek-V4 workflow is the demo consumer.
