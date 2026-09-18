@@ -40,6 +40,8 @@ _TIMES_KIND: dict = {}
 _MOE_DIAG: dict = {}
 # Set once the decode-wide thread cap is installed; disables the (superseded) per-op MoE cap.
 _DECODE_CAP_ACTIVE = False
+# Set once gloo TP all-reduce is installed; makes the per-forward decode cap tp>1-safe.
+_TP_GLOO_ACTIVE = False
 
 
 def _release_freed_memory() -> None:
@@ -462,6 +464,8 @@ def _install_cpu_gloo_allreduce() -> None:
         import sglang.srt.distributed.parallel_state as _ps
 
         _ps.is_shm_available = lambda *a, **k: False
+        global _TP_GLOO_ACTIVE
+        _TP_GLOO_ACTIVE = True
         logger.info(
             "intel_cpu_models: CPU TP all-reduce forced through torch.distributed (gloo); "
             "bypassing the pathological sgl_kernel shm all-reduce."
@@ -548,13 +552,24 @@ def _install_decode_thread_cap() -> None:
             try:
                 import torch.distributed as _d
 
-                st["safe"] = not (_d.is_available() and _d.is_initialized() and _d.get_world_size() > 1)
+                world = _d.get_world_size() if (_d.is_available() and _d.is_initialized()) else 1
             except Exception:
-                st["safe"] = True
+                world = 1
+            # tp=1 is always safe. tp>1 is safe ONLY with gloo all-reduce: the sgl_kernel shm
+            # all-reduce is a spin barrier sized to the init thread count, so per-forward
+            # set_num_threads() would deadlock it -- gloo has no such barrier.
+            st["safe"] = (world == 1) or _TP_GLOO_ACTIVE
             if not st["safe"]:
                 logger.warning(
-                    "[DECODE THREADCAP] tp>1 detected -> per-forward cap DISABLED (shm AllReduce "
-                    "spin barrier would deadlock); use SGLANG_CPU_OMP_THREADS_BIND for headroom."
+                    "[DECODE THREADCAP] tp>1 without gloo -> per-forward cap DISABLED (shm "
+                    "AllReduce spin barrier would deadlock); set INTEL_CPU_DSV4_TP_GLOO=1 or "
+                    "use SGLANG_CPU_OMP_THREADS_BIND for headroom."
+                )
+            elif world > 1:
+                logger.warning(
+                    "[DECODE THREADCAP] tp=%d with gloo all-reduce -> per-forward cap ENABLED "
+                    "(no shm spin barrier to desync).",
+                    world,
                 )
         is_decode = False
         try:
