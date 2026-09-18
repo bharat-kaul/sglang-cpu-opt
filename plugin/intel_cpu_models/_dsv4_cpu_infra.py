@@ -548,32 +548,38 @@ def _install_decode_thread_cap() -> None:
     st = {}
 
     def _fwd(self, input_ids, positions, forward_batch, *a, **k):
-        if "safe" not in st:
+        if "world" not in st:
             try:
                 import torch.distributed as _d
 
-                world = _d.get_world_size() if (_d.is_available() and _d.is_initialized()) else 1
+                st["world"] = _d.get_world_size() if (_d.is_available() and _d.is_initialized()) else 1
             except Exception:
-                world = 1
-            # tp>1 is UNSAFE for a per-forward set_num_threads() -- even with gloo all-reduce it
-            # DEADLOCKS: gloo only redirects the all-reduce, but the MoE dispatch/combine and other
-            # sgl_kernel ops still use shared-memory spin barriers sized to the INIT thread count,
-            # which changing the count mid-forward desyncs (verified: tp=4+gloo hung in the first
-            # decode forward). For tp>1 use SGLANG_CPU_OMP_THREADS_BIND to leave headroom at LAUNCH
-            # (fixed count -> barriers sized correctly), not a per-forward cap.
-            st["safe"] = world == 1
-            if not st["safe"]:
+                st["world"] = 1
+        world = st["world"]
+        # tp>1: a per-forward set/RESTORE deadlocks (restoring to the init count mid-run desyncs
+        # the sgl_kernel shm spin barriers in MoE dispatch/all-reduce -- verified hang). Instead set
+        # the count ONCE, permanently, on the FIRST forward (all ranks do this deterministically at
+        # the same logical point, so the barriers size to the capped count and stay consistent) --
+        # this also lands BELOW the M=1 decode thread cliff (SGLang otherwise runs the full ~42 =
+        # the cliff point even under SGLANG_CPU_OMP_THREADS_BIND). No restore -> no desync.
+        if world > 1:
+            if "n" not in st:
+                st["n"] = 1
+                prev = _tt.get_num_threads()
+                cap = fixed if fixed is not None else max(1, prev - headroom)
+                _tt.set_num_threads(cap)
                 logger.warning(
-                    "[DECODE THREADCAP] tp>1 detected -> per-forward cap DISABLED (shm barriers in "
-                    "MoE/all-reduce would deadlock, even with gloo); use SGLANG_CPU_OMP_THREADS_BIND "
-                    "to leave ~2 cores/rank headroom at launch instead."
+                    "[DECODE THREADCAP] tp=%d PERMANENT thread set %d -> %d (fixed once, no restore)",
+                    world, prev, cap,
                 )
+            return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
+        # tp=1: safe to cap per-decode-forward and restore.
         is_decode = False
         try:
             is_decode = forward_batch.forward_mode.is_decode_or_idle()
         except Exception:
             pass
-        if not st["safe"] or not is_decode:
+        if not is_decode:
             return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
         prev = _tt.get_num_threads()
         cap = min(fixed if fixed is not None else max(1, prev - headroom), prev)
@@ -590,7 +596,10 @@ def _install_decode_thread_cap() -> None:
     cls._decode_thread_capped = True
     global _DECODE_CAP_ACTIVE
     _DECODE_CAP_ACTIVE = True
-    logger.info("intel_cpu_models: decode thread cap = %s (headroom=%d, tp=1 only)", spec, headroom)
+    logger.info(
+        "intel_cpu_models: decode thread cap = %s (headroom=%d; tp=1 per-forward, tp>1 permanent)",
+        spec, headroom,
+    )
 
 
 def _install_gemm_timeit() -> None:
