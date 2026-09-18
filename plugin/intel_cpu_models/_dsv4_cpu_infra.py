@@ -251,8 +251,48 @@ def install() -> None:
     _install_dsa_profile_bypass()
     _install_gemm_timeit()
     _install_decode_thread_cap()
+    _install_cpu_interleave_mem()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
+
+
+def _install_cpu_interleave_mem() -> None:
+    """Report FULL-NODE free memory on CPU so a single tp=1 rank can hold a model larger than
+    one NUMA domain (interleaved across the node with `numactl --interleave=all`).
+
+    SGLang sizes per-rank CPU memory as total_free / n_numa (get_available_gpu_memory), so tp=1
+    on a 6-domain node sees only ~1/6 of RAM and a model that exceeds one domain won't fit. For
+    the tp=1-interleaved decode-roofline path (which avoids the TP shm AllReduce entirely), report
+    the full node's free memory instead. Gate: INTEL_CPU_DSV4_INTERLEAVE_MEM=1. Use ONLY at tp=1.
+    """
+    if not _os.environ.get("INTEL_CPU_DSV4_INTERLEAVE_MEM"):
+        return
+    import sglang.srt.utils.common as _c
+
+    _orig = _c.get_available_gpu_memory
+
+    def _patched(device, gpu_id, distributed=False, empty_cache=True, cpu_group=None):
+        if device == "cpu":
+            import psutil
+
+            return round(psutil.virtual_memory().available / (1 << 30), 3)
+        return _orig(
+            device, gpu_id, distributed=distributed, empty_cache=empty_cache, cpu_group=cpu_group
+        )
+
+    _c.get_available_gpu_memory = _patched
+    for _mod in ("sglang.srt.model_executor.model_runner",):
+        try:
+            import importlib
+
+            m = importlib.import_module(_mod)
+            if hasattr(m, "get_available_gpu_memory"):
+                m.get_available_gpu_memory = _patched
+        except Exception:
+            pass
+    logger.info(
+        "intel_cpu_models: CPU interleaved-memory mode -- reporting full-node free memory (tp=1)."
+    )
 
 
 def _install_decode_thread_cap() -> None:
