@@ -556,21 +556,20 @@ def _install_decode_thread_cap() -> None:
             except Exception:
                 st["world"] = 1
         world = st["world"]
-        # tp>1: a per-forward set/RESTORE deadlocks (restoring to the init count mid-run desyncs
-        # the sgl_kernel shm spin barriers in MoE dispatch/all-reduce -- verified hang). Instead set
-        # the count ONCE, permanently, on the FIRST forward (all ranks do this deterministically at
-        # the same logical point, so the barriers size to the capped count and stay consistent) --
-        # this also lands BELOW the M=1 decode thread cliff (SGLang otherwise runs the full ~42 =
-        # the cliff point even under SGLANG_CPU_OMP_THREADS_BIND). No restore -> no desync.
+        # tp>1: DO NOT touch the thread count. The sgl_kernel shm spin barriers (MoE dispatch,
+        # all-reduce) are sized at init_cpu_threads_env and any post-init set_num_threads() desyncs
+        # them -> DEADLOCK. Verified both ways: per-forward set/restore hung, and a permanent set
+        # hung too (also ranks get UNEQUAL counts since domains differ 42 vs 43 cores). To cap M=1
+        # decode threads at tp>1 you must reduce the count AT INIT (before the barriers size), which
+        # this hook cannot do. So tp>1 runs uncapped here (see the SNC/domain-size analysis: tp>1
+        # M=1 decode is ~330x slower than tp=1 on this stack regardless).
         if world > 1:
             if "n" not in st:
                 st["n"] = 1
-                prev = _tt.get_num_threads()
-                cap = fixed if fixed is not None else max(1, prev - headroom)
-                _tt.set_num_threads(cap)
                 logger.warning(
-                    "[DECODE THREADCAP] tp=%d PERMANENT thread set %d -> %d (fixed once, no restore)",
-                    world, prev, cap,
+                    "[DECODE THREADCAP] tp=%d -> cap SKIPPED (post-init set_num_threads desyncs the "
+                    "shm barriers -> deadlock; count must be reduced at init, not here).",
+                    world,
                 )
             return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
         # tp=1: safe to cap per-decode-forward and restore.
