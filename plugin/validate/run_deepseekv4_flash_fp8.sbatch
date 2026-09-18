@@ -23,7 +23,7 @@ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 cd /data/nfs_home/bkaul
 python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
-  --device cpu --tp 4 --batch-size 1 --input-len 128 --output-len 16 \
+  --device cpu --tp 4 --batch-size 1 --input-len 1 --output-len 16 \
   --trust-remote-code --disable-cuda-graph \
   --mem-fraction-static 0.85 --max-total-tokens 16384 --swa-full-tokens-ratio 0.5
 echo "[exit=$?]"
