@@ -35,6 +35,6 @@ python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
   --device cpu --tp 1 --batch-size 1 --input-len 1 --output-len 16 \
   --trust-remote-code --disable-cuda-graph \
-  --mem-fraction-static 0.05 --max-total-tokens 4096 --swa-full-tokens-ratio 0.5
+  --mem-fraction-static 0.85 --max-total-tokens 4096 --swa-full-tokens-ratio 0.5
 echo "[exit=$?]"
 kill "$SAMPLER" 2>/dev/null
