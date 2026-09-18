@@ -907,18 +907,30 @@ def _install_mhc_cpu() -> None:
     _mhc.hc_split_sinkhorn = _mhc._hc_split_sinkhorn_torch
 
     def _cpu_hc_combine(x_flat, pre, hc, out_dtype):
-        # y[m, h] = sum_k pre[m, k] * x_flat[m, k*H + h]
+        # y[m, h] = sum_k pre[m, k] * x_flat[m, k*H + h]. einsum streams the contraction
+        # instead of materializing the [m, hc, h] broadcast product then summing it.
         import torch  # noqa: F401
 
         m = x_flat.shape[0]
         h = x_flat.shape[1] // hc
         xr = x_flat.reshape(m, hc, h).float()
-        return (pre.float().unsqueeze(-1) * xr).sum(dim=1).to(out_dtype)
+        return torch.einsum("mk,mkh->mh", pre.float(), xr).to(out_dtype)
 
     _mhc.hc_combine = _cpu_hc_combine
     if hasattr(_mhc, "_mhc_post_torch"):
-        # hc_post passes raw post [s,n]; _mhc_post_torch wants [s,n,1].
-        _mhc.mhc_post = lambda x, residual, post, comb: _mhc._mhc_post_torch(
+        import torch
+
+        def _mhc_post_cpu(x, residual, post_layer_mix, comb_res_mix):
+            # Same math as _mhc_post_torch, but einsum('sjk,sjh->skh') replaces the
+            # (comb.unsqueeze(-1) * residual.unsqueeze(2)).sum(dim=1) that materializes a
+            # [s, n, n, h] intermediate (the ~1.1s/call decode hotspot). Parity ~1e-6.
+            # einsum/bmm needs matching operand dtypes; the original broadcast-mul promoted
+            # bf16xfp32 -> fp32, so cast both to fp32 to keep identical numerics.
+            term2 = torch.einsum("sjk,sjh->skh", comb_res_mix.float(), residual.float())
+            return (post_layer_mix * x.unsqueeze(1) + term2).type_as(x)
+
+        # hc_post passes raw post [s,n]; the mix wants [s,n,1].
+        _mhc.mhc_post = lambda x, residual, post, comb: _mhc_post_cpu(
             x, residual, post.unsqueeze(-1), comb
         )
     try:
