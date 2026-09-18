@@ -17,11 +17,13 @@ unset INTEL_CPU_DSV4_FP4_MOE_BF16        # fp8 fits -> fast AMX (not the slow bf
 unset INTEL_CPU_DSV4_BYPASS_DSA
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
+export INTEL_CPU_DSV4_DECODE_THREADS=auto  # decode-wide thread cap (bound-2) — the 200x M=1 fix
+export INTEL_CPU_DSV4_TIMEIT=1             # per-op wall-time breakdown (kernel/torch/framework)
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 cd /data/nfs_home/bkaul
 python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
-  --device cpu --tp 4 --batch-size 1 --input-len 8 --output-len 4 \
+  --device cpu --tp 4 --batch-size 1 --input-len 128 --output-len 16 \
   --trust-remote-code --disable-cuda-graph \
   --mem-fraction-static 0.85 --max-total-tokens 16384 --swa-full-tokens-ratio 0.5
 echo "[exit=$?]"
