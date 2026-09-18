@@ -242,8 +242,130 @@ def install() -> None:
     _install_fp4_expert_cpu_dequant()
     _install_dsa_cpu_wire()
     _install_dsa_profile_bypass()
+    _install_gemm_timeit()
+    _install_decode_thread_cap()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
+
+
+def _install_decode_thread_cap() -> None:
+    """Cap threads for the whole M=1 decode forward.
+
+    At decode (1 token) every kernel is trivially small, so the native GEMMs
+    (`fp8_scaled_mm_cpu`, `weight_packed_linear`, `shared_expert_cpu`, `fused_experts_cpu`)
+    and the torch DSA/MHC ops all pay a parallel-for barrier over the full NUMA-domain thread
+    count (SGLang binds ~42 and ignores OMP_NUM_THREADS). Using the FULL bound count starves the
+    main/framework/OS thread, so the barrier stalls on descheduled threads and dominates the
+    whole forward. Capping the entire decode forward to a few cores BELOW the bound removes it:
+    a fixed-cap sweep (proxy, 4-layer) is monotonic up to bound-2 then cliffs at the bound --
+    8->0.563s, 16->0.429s, 24->0.306s, 32->0.182s, 40(bound-2)->0.062s, 42(bound)->12.8s (a
+    ~200x cliff). So the rule is deterministic: leave a few cores of headroom. Prefill (large M,
+    compute-bound) is left untouched. `INTEL_CPU_DSV4_DECODE_THREADS=N` sets a fixed cap; `=auto`
+    uses bound - INTEL_CPU_DSV4_DECODE_HEADROOM (default 2).
+
+    NOTE: do NOT sweep thread counts across the first few decode steps to self-tune -- that is
+    confounded (each probe sits at a different context length AND resizing the thread pool
+    upward charges the resize to the higher-thread probe), and it mis-picks the WORST value.
+    The bound-2 rule from the clean fixed-cap sweep is robust; sweep offline with a fixed cap
+    per run if a node needs re-tuning.
+    """
+    spec = _os.environ.get("INTEL_CPU_DSV4_DECODE_THREADS", "")
+    if not (spec.isdigit() or spec == "auto"):
+        return
+    import torch as _tt
+
+    import sglang.srt.models.deepseek_v4 as _dv4
+
+    cls = _dv4.DeepseekV4ForCausalLM
+    if getattr(cls, "_decode_thread_capped", False):
+        return
+    _orig_fwd = cls.forward
+    fixed = int(spec) if spec.isdigit() else None
+    headroom = int(_os.environ.get("INTEL_CPU_DSV4_DECODE_HEADROOM", "2"))
+    logged = {}
+
+    def _fwd(self, input_ids, positions, forward_batch, *a, **k):
+        is_decode = False
+        try:
+            is_decode = forward_batch.forward_mode.is_decode_or_idle()
+        except Exception:
+            pass
+        if not is_decode:
+            return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
+        prev = _tt.get_num_threads()
+        cap = fixed if fixed is not None else max(1, prev - headroom)
+        cap = min(cap, prev)
+        if "n" not in logged:
+            logged["n"] = 1
+            logger.warning("[DECODE THREADCAP] threads %d -> %d (M=1 decode)", prev, cap)
+        _tt.set_num_threads(cap)
+        try:
+            return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
+        finally:
+            _tt.set_num_threads(prev)
+
+    cls.forward = _fwd
+    cls._decode_thread_capped = True
+    logger.info("intel_cpu_models: decode-wide thread cap = %s (headroom=%d)", spec, headroom)
+
+
+def _install_gemm_timeit() -> None:
+    """TIMEIT-only: wall-time the dense linear GEMMs in-model (they are ~0.02ms isolated but
+    the cProfile decode profile attributed ~0.25s/call — measure the true in-model wall time
+    and the actual thread count, without the profiler perturbing it).
+
+    Also supports an experimental per-call thread cap (INTEL_CPU_DSV4_DENSE_THREADS=N): the
+    dense M=1 GEMM runs at torch's default 42 threads in-model (SGLang binds the NUMA-domain
+    core count and ignores OMP_NUM_THREADS); capping tests whether that 42-thread contended
+    barrier is the ~0.25s/call pathology."""
+    dense_threads = _os.environ.get("INTEL_CPU_DSV4_DENSE_THREADS", "")
+    dense_cap = int(dense_threads) if dense_threads.isdigit() else None
+    if not _TIMEIT_ON and dense_cap is None:
+        return
+    import time
+
+    import torch as _tt
+
+    def _wrap(cls, label):
+        if getattr(cls, "_gemm_timed", False):
+            return
+        orig = cls.apply
+
+        def _apply(self, *a, **k):
+            if "gemm.threads" not in _MOE_DIAG:
+                _MOE_DIAG["gemm.threads"] = _tt.get_num_threads()
+                logger.warning(
+                    "[GEMM TIMEIT] torch.get_num_threads()=%d dense_cap=%s",
+                    _MOE_DIAG["gemm.threads"], dense_cap,
+                )
+            t0 = time.perf_counter() if _TIMEIT_ON else 0.0
+            prev = None
+            if dense_cap is not None:
+                prev = _tt.get_num_threads()
+                _tt.set_num_threads(dense_cap)
+            try:
+                return orig(self, *a, **k)
+            finally:
+                if prev is not None:
+                    _tt.set_num_threads(prev)
+                if _TIMEIT_ON:
+                    _tacc(label, t0, "kernel")
+
+        cls.apply = _apply
+        cls._gemm_timed = True
+
+    try:
+        from sglang.srt.layers.quantization.fp8 import Fp8LinearMethod
+
+        _wrap(Fp8LinearMethod, "dense.fp8_linear")
+    except Exception:
+        pass
+    try:
+        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
+
+        _wrap(UnquantizedLinearMethod, "dense.bf16_linear")
+    except Exception:
+        pass
 
 
 def _install_dsv4_rope_cpu_fix() -> None:
@@ -437,18 +559,60 @@ def _cpu_fused_k_norm_rope_flashmla(
     kv_out = torch.cat([normed, roped], dim=-1).to(torch.bfloat16)
     # Stash the exact dense bf16 keys (pre-pack) so the CPU torch MLA attention reads
     # them directly instead of unpacking the paged fp8 layout (numerically exact).
-    stash = _KV_STASH.setdefault(kvcache.data_ptr(), {})
-    for i, l in enumerate(out_loc.tolist()):
-        if l >= 0:
-            stash[int(l)] = kv_out[i].detach()
+    _stash_kv_write(kvcache.data_ptr(), out_loc, kv_out)
     _iba._set_k_and_s_torch(
         kvcache, out_loc, _cpu_quant_to_nope_fp8_rope_bf16_pack(kv_out), page_size
     )
 
 
-# Dense bf16 KV stash keyed by (paged-buffer data_ptr -> {loc: key[512]}). Populated by
-# the CPU K-write; read by the CPU torch MLA attention below.
-_KV_STASH: dict = {}
+# Dense bf16 KV stash as a CONTIGUOUS buffer per paged-buffer data_ptr: _KV_BUF[dp] holds
+# keys[pool, 512], _KV_VALID[dp] marks written slots. The CPU MLA attention gathers with a
+# single index_select instead of a Python dict+stack (the per-token loop was ~46s of decode
+# dispatch overhead). Populated by the CPU K-write below; read by the MLA attention.
+_KV_BUF: dict = {}
+_KV_VALID: dict = {}
+
+
+def _stash_kv_write(dp: int, out_loc, kv_out) -> None:
+    import torch
+
+    ol = out_loc.long()
+    m = ol >= 0
+    if not bool(m.any()):
+        return
+    olv = ol[m]
+    kvv = kv_out[m].detach()
+    hd = kvv.shape[-1]
+    need = int(olv.max().item()) + 1
+    buf = _KV_BUF.get(dp)
+    if buf is None:
+        cap = max(need, 1024)
+        buf = torch.zeros(cap, hd, dtype=kvv.dtype)
+        _KV_BUF[dp] = buf
+        _KV_VALID[dp] = torch.zeros(cap, dtype=torch.bool)
+    elif need > buf.shape[0]:
+        cap = max(need, buf.shape[0] * 2)
+        nb = torch.zeros(cap, hd, dtype=buf.dtype)
+        nb[: buf.shape[0]] = buf
+        nv = torch.zeros(cap, dtype=torch.bool)
+        nv[: buf.shape[0]] = _KV_VALID[dp]
+        _KV_BUF[dp] = buf = nb
+        _KV_VALID[dp] = nv
+    buf[olv] = kvv.to(buf.dtype)
+    _KV_VALID[dp][olv] = True
+
+
+def _stash_kv_gather(dp: int, idx):
+    # Filter idx to written slots and gather rows in one index_select. Returns None if empty.
+    buf = _KV_BUF.get(dp)
+    if buf is None or idx.numel() == 0:
+        return None
+    valid = _KV_VALID[dp]
+    idx = idx[idx < buf.shape[0]]
+    idx = idx[valid[idx]]
+    if idx.numel() == 0:
+        return None
+    return buf.index_select(0, idx).float()
 
 # Route-2 DSA: per-layer compressed-KV stash keyed by (layer_id, compress_ratio) -> the
 # RMSNorm'd compressed KV [N_compressed, head_dim]. Written by the CPU compressor forward,
@@ -519,8 +683,8 @@ def _torch_flash_mla_with_kvcache(
 
     T, _, H, D = q.shape
     out = torch.zeros(T, H, head_dim_v, dtype=torch.float32)
-    swa = _KV_STASH.get(k_cache.data_ptr(), {})
-    extra = _KV_STASH.get(extra_k_cache.data_ptr(), {}) if extra_k_cache is not None else {}
+    dp = k_cache.data_ptr()
+    edp = extra_k_cache.data_ptr() if extra_k_cache is not None else None
     # DSA step 4: consume+clear the indexer's per-query position-keep mask (None on a
     # non-indexer layer -> dense). A position beyond the compressed coverage is the recent
     # tail (always attended). locs are in sequence-position order (index p == position p).
@@ -528,25 +692,40 @@ def _torch_flash_mla_with_kvcache(
     _SEL_HOLDER["pos_kept"] = None
     for t in range(T):
         _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
-        locs = []
         if indices is not None and topk_length is not None:
             L = int(topk_length[t])
-            locs = [int(x) for x in indices[t].reshape(-1)[:L].tolist() if x >= 0]
-        if pos_kept is not None and t < pos_kept.shape[0]:
+            idx = indices[t].reshape(-1)[:L].long()
+            idx = idx[idx >= 0]
+        else:
+            idx = torch.empty(0, dtype=torch.long)
+        # pos_kept positional filter (over the first `cov` selected locs; tail always kept).
+        if pos_kept is not None and t < pos_kept.shape[0] and idx.numel() > 0:
             cov = int(pos_kept.shape[1])
-            row = pos_kept[t]
-            locs = [l for p, l in enumerate(locs) if p >= cov or bool(row[p])]
+            n = idx.shape[0]
+            keep = torch.ones(n, dtype=torch.bool)
+            m = min(cov, n)
+            if m > 0:
+                keep[:m] = pos_kept[t, :m].bool()
+            idx = idx[keep]
         if _TIMEIT_ON:
             _tacc("dsa.mla.select", _t0, "framework")
             _t0 = time.perf_counter()
-        keys = [swa[l] for l in locs if l in swa]
-        if extra_indices_in_kvcache is not None and extra_topk_length is not None:
+        # Gather selected keys in one index_select (attention is a softmax-weighted sum over
+        # keys => order-invariant, so the set of keys is all that matters).
+        parts = []
+        kk = _stash_kv_gather(dp, idx)
+        if kk is not None:
+            parts.append(kk)
+        if extra_indices_in_kvcache is not None and extra_topk_length is not None and edp is not None:
             EL = int(extra_topk_length[t])
-            elocs = [int(x) for x in extra_indices_in_kvcache[t].reshape(-1)[:EL].tolist() if x >= 0]
-            keys += [extra[l] for l in elocs if l in extra]
-        if not keys:
+            eidx = extra_indices_in_kvcache[t].reshape(-1)[:EL].long()
+            eidx = eidx[eidx >= 0]
+            ek = _stash_kv_gather(edp, eidx)
+            if ek is not None:
+                parts.append(ek)
+        if not parts:
             continue
-        K = torch.stack(keys).float()  # [Kk, 512]
+        K = parts[0] if len(parts) == 1 else torch.cat(parts, dim=0)  # [Kk, 512]
         if _TIMEIT_ON:
             _tacc("dsa.mla.gather", _t0, "framework")
             _t0 = time.perf_counter()

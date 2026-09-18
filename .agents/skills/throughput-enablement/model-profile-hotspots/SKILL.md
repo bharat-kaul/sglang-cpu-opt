@@ -35,6 +35,19 @@ node's achievable ceilings, from `establish-achievable-performance` +
 `roofline-validation`); the workload point(s) to profile (prefill and decode
 separately; representative batch / seq-len / spec-M).
 
+## Step 0 (do FIRST): rule out a SYSTEMIC-config pathology before per-op ranking
+A single systemic runtime-config mis-setting inflates **every** op roughly uniformly — so if
+you rank per-op hotspots first you optimize on inflated numbers and chase the wrong ops. **The
+tell is uniform slowness: the whole run is far below roofline and no single op stands out after
+normalizing.** Before any per-op RoI work, do a cheap systemic sweep (see `runtime-config-tuning`):
+thread count/cap (esp. the **decode M=1 thread cliff** — capping the decode forward to
+`domain_cores − 2` gave a **~200× decode win** here; the full bound starves the framework thread),
+NUMA/membind, prepack, ISA dispatch. One decode-thread-cap sweep reranked the entire hotlist and
+dwarfed every per-op micro-optimization we had tried first (gather vectorization, einsum reforms).
+Only once the systemic config is fixed is the per-op profile trustworthy. **Regret from this repo:
+we spent multiple fix cycles on per-op micro-opts before the systemic thread sweep that made them
+irrelevant — do the systemic sweep FIRST.**
+
 ## Procedure
 1. **Run the real model, random weights OK.** Accuracy is irrelevant here — only
    timing. Launch with dummy/random weights so no checkpoint is needed
@@ -52,6 +65,12 @@ separately; representative batch / seq-len / spec-M).
      untimed FRAMEWORK residue (copies/casts/dispatch).
    - Torch/SGLang profiler trace (per-op self time), and/or `ONEDNN_VERBOSE=1` for
      per-primitive oneDNN timings (the AMX/BRGEMM GEMMs), and/or `perf record`.
+   - **Rank by WALL time, not `cProfile` self-time.** cProfile adds ~µs of per-Python-call
+     overhead, so it massively OVER-WEIGHTS Python-call-heavy glue (list-comps, per-token
+     loops, dict gathers): here a Python gather loop showed **46 s of cProfile "self"** that
+     was ~0 in wall-time (the vectorized fix changed decode by nothing). Use the env-gated
+     wall timers (`INTEL_CPU_DSV4_TIMEIT`) to rank; use cProfile only to *confirm* C-kernel
+     (AMX) costs, never to rank Python-glue ops.
    - Aggregate self-time by kernel and attribute to op-classes (attention, MoE
      grouped-GEMM, dense proj, norm/rope/act, embedding/lm_head, indexer).
 3. **Measured Amdahl share.** For each kernel/op-class: `measured_share =

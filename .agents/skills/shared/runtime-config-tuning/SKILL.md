@@ -16,6 +16,35 @@ while its isolated GEMM floor was ~0.33 ms and its fp8 weight-stream floor ~0.67
 `OMP_NUM_THREADS` / `SGLANG_CPU_OMP_THREADS_BIND`, so each rank was thread-starved and
 contended. No kernel work could have fixed that.
 
+**Origin lesson 2 — the DECODE (M=1) thread cliff (this repo):** at decode the batch is 1
+token, so every GEMM/op is trivially small and the cost is the parallel-for *barrier*, not
+compute. Running the whole decode forward at the framework's default thread count (the full
+NUMA-domain core count, e.g. 42) was catastrophic; a decode-wide cap swept sharply:
+
+| threads | 8 | 16 | 24 | 32 | **40 (bound−2)** | 42 (bound) |
+|---|---|---|---|---|---|---|
+| decode s/tok | 0.563 | 0.429 | 0.306 | 0.182 | **0.062** | **12.8** |
+
+Monotonic improvement up to `bound−2`, then a **~200× cliff at the full bound**: using *all*
+domain cores leaves none for the main/framework/OS thread, so the barrier stalls on
+descheduled worker threads. Two rules fall out:
+- **Leave headroom.** Cap threads at ~`domain_cores − 2` for the M=1 decode phase; never use
+  the full bound. Prefill (large M, compute-bound) is separate — it wants all cores.
+- **Thread settings are PHASE-dependent.** The optimum for decode (barrier-bound, wants
+  headroom) ≠ prefill (compute-bound, wants all cores). Cap per-phase (hook the decode
+  forward), don't set one global thread count.
+- **Isolated microbenches MISLEAD here.** An isolated M=1 GEMM on an idle node is *fastest at
+  the full thread count* (0.017 ms @ 42) — the exact opposite of in-model, because idle has no
+  framework threads to contend. You MUST measure in-model wall time (a per-op timer like
+  `INTEL_CPU_DSV4_TIMEIT`), not an isolated kernel bench, to see the contention cliff.
+- **Don't self-tune by sweeping across live decode steps — it's confounded.** Probing a
+  different thread count on each of the first few decode steps mixes two confounds: each probe
+  sits at a *different context length*, and resizing the thread pool upward charges the resize
+  cost to the higher-thread probe. In this repo that in-run sweep picked threads=8 and rated the
+  true optimum (40) as the *worst* — the exact inverse of the clean fixed-cap sweep. Use a
+  **deterministic rule** (`domain_cores − headroom`) taken from an **offline fixed-cap sweep**
+  (one fixed value per run, compare steady-state medians); never a live in-run search.
+
 ## The knobs (in leverage order), each vs a uPP-measured budget
 1. **Thread count + affinity.** Each TP rank must get a disjoint, NUMA-local core set.
    Set `OMP_NUM_THREADS` = cores-per-domain and bind (`SGLANG_CPU_OMP_THREADS_BIND`,

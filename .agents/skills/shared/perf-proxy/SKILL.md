@@ -29,6 +29,25 @@ performance** — small width changes the per-op regime (cache-fit, different th
 dispatch-bound). This repo learned it the hard way: a `hidden=512, 8-expert` tiny config gave
 the WRONG perf conclusion ~4× in a row. The perf proxy keeps width REAL and shrinks only depth.
 
+## CRITICAL: run on the TARGET ISA host (AMX) when at all possible
+The proxy is DEPTH-reduced, so it is small and fast **on any host** — which tempts you onto a
+queue-free login/dev node. But if that node lacks the target ISA (e.g. no AMX), every
+kernel-bound op (dense GEMM, MoE, attention matmul) runs a **slow scalar/vector fallback** and
+its cost is **non-representative**. Two concrete failures this causes:
+- the **absolute** decode/prefill number is dominated by fallback junk (measured: the 4-layer
+  Flash proxy on a no-AMX login node spent ~50% of decode in fallback dense/MoE kernels that are
+  cheap AMX weight-streams on the real node);
+- you go **blind to M=1 kernel pathologies on the real node** — the exact bug class already found
+  here (`fused_experts` inverse thread-scaling, ~1000× above floor). You cannot find a dense-GEMM
+  M=1 threading pathology on a host that never runs the AMX kernel.
+
+Rule: **run the proxy on a node with the target ISA.** The proxy is small, so even a queued
+target node (e.g. an idle GNR partition) usually costs only minutes — check `sinfo`/`squeue`
+first; an idle target node beats a mis-representative login node every time. Only fall back to a
+non-ISA host for **device-independent** iteration (torch/Python framework overhead: DSA/MHC
+fallbacks, cast churn, Python-loop gather, metadata rebuild) — and then NEVER trust its
+kernel-op ranking or its absolute tok/s; treat only the torch/Python-overhead ops as real.
+
 ## Validated (this repo)
 DeepSeek-V4-Flash 4-layer proxy on the login node (no queue):
 - reproduced the **real** MoE shape `w13=(256, 4096, 4096)` (tiny had `(8,512,512)`),
