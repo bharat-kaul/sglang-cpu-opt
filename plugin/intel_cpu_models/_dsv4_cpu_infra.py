@@ -555,21 +555,18 @@ def _install_decode_thread_cap() -> None:
                 world = _d.get_world_size() if (_d.is_available() and _d.is_initialized()) else 1
             except Exception:
                 world = 1
-            # tp=1 is always safe. tp>1 is safe ONLY with gloo all-reduce: the sgl_kernel shm
-            # all-reduce is a spin barrier sized to the init thread count, so per-forward
-            # set_num_threads() would deadlock it -- gloo has no such barrier.
-            st["safe"] = (world == 1) or _TP_GLOO_ACTIVE
+            # tp>1 is UNSAFE for a per-forward set_num_threads() -- even with gloo all-reduce it
+            # DEADLOCKS: gloo only redirects the all-reduce, but the MoE dispatch/combine and other
+            # sgl_kernel ops still use shared-memory spin barriers sized to the INIT thread count,
+            # which changing the count mid-forward desyncs (verified: tp=4+gloo hung in the first
+            # decode forward). For tp>1 use SGLANG_CPU_OMP_THREADS_BIND to leave headroom at LAUNCH
+            # (fixed count -> barriers sized correctly), not a per-forward cap.
+            st["safe"] = world == 1
             if not st["safe"]:
                 logger.warning(
-                    "[DECODE THREADCAP] tp>1 without gloo -> per-forward cap DISABLED (shm "
-                    "AllReduce spin barrier would deadlock); set INTEL_CPU_DSV4_TP_GLOO=1 or "
-                    "use SGLANG_CPU_OMP_THREADS_BIND for headroom."
-                )
-            elif world > 1:
-                logger.warning(
-                    "[DECODE THREADCAP] tp=%d with gloo all-reduce -> per-forward cap ENABLED "
-                    "(no shm spin barrier to desync).",
-                    world,
+                    "[DECODE THREADCAP] tp>1 detected -> per-forward cap DISABLED (shm barriers in "
+                    "MoE/all-reduce would deadlock, even with gloo); use SGLANG_CPU_OMP_THREADS_BIND "
+                    "to leave ~2 cores/rank headroom at launch instead."
                 )
         is_decode = False
         try:
