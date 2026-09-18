@@ -7,6 +7,8 @@
 # physical placement + INTEL_CPU_DSV4_INTERLEAVE_MEM=1 so SGLang reports full-node memory.
 #SBATCH --partition=gnrap
 #SBATCH --nodes=1
+#SBATCH --exclusive
+#SBATCH --mem=0
 #SBATCH --time=00:40:00
 #SBATCH --job-name=dsv4_flash_tp1i
 #SBATCH --output=/scratch/bkaul/dsv4_flash_tp1i_%j.log
@@ -25,9 +27,16 @@ export INTEL_CPU_DSV4_INTERLEAVE_MEM=1        # report full-node mem + re-apply 
 export INTEL_CPU_DSV4_TIMEIT=1
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 cd /data/nfs_home/bkaul
+# Background per-node RSS sampler: verify the interleave policy actually spreads pages
+# (skill: "verify placement, don't assume it"). Logs numastat every 30s for the python PID.
+( for _ in $(seq 1 40); do sleep 30; p=$(pgrep -f 'bench_one_batch' | head -1); \
+    [ -n "$p" ] && echo "[numastat $(date +%H:%M:%S) pid=$p]" && numastat -p "$p" 2>/dev/null | tail -4; \
+  done ) &
+SAMPLER=$!
 numactl --interleave=all python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
   --device cpu --tp 1 --batch-size 1 --input-len 1 --output-len 16 \
   --trust-remote-code --disable-cuda-graph \
   --mem-fraction-static 0.05 --max-total-tokens 4096 --swa-full-tokens-ratio 0.5
 echo "[exit=$?]"
+kill "$SAMPLER" 2>/dev/null
