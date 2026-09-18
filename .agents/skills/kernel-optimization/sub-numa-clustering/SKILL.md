@@ -125,18 +125,26 @@ so it doesn't re-pin the rank. **Verify placement, don't assume it** — check p
 for path B, or the shard sitting on its own node for path A. A node-0 pile-up = policy was
 clobbered or never active.
 
-**Setting the loader thread's interleave mask is often NOT enough — MIGRATE the tensor.** The
+**Setting the loader thread's interleave mask is often NOT enough — and post-hoc page migration
+is unreliable; prefer per-domain first-touch (path A) or a footprint that fits one domain.** The
 policy is per-thread and applies at FAULT time to *the faulting thread*. If the weights are
 materialized by a **different thread pool** (dequant / AMX-prepack / a caching allocator's
-worker threads that are pinned to node 0), those pages fault on node 0 no matter what policy
-the main/loader thread holds — measured: interleave mask set on the main thread, yet
-`numastat` showed 245 GB of 266 GB on node 0 → OOM at node 0's ~258 GB. The robust fix is to
-**forcibly migrate each materialized weight tensor** with `mbind(addr, len, MPOL_INTERLEAVE,
-nodemask=all, MPOL_MF_MOVE)` right after it is built, per layer (so node 0 never accumulates).
-Notes: glibc does NOT export `mbind` — call it via `syscall(SYS_mbind=237)` on x86_64; and
-libnuma's `numa_interleave_memory()` will NOT migrate existing pages (it omits `MPOL_MF_MOVE`),
-so it only affects *future* allocations — use direct `mbind` with `MPOL_MF_MOVE` for pages that
-already exist.
+worker threads pinned to node 0), those pages fault on node 0 no matter what policy the
+main/loader thread holds — measured: interleave mask set on the main thread, yet `numastat`
+showed 245 GB of 266 GB on node 0 → OOM at node 0's ~258 GB. Trying to fix this *after the fact*
+by migrating each tensor with `mbind(MPOL_INTERLEAVE, MPOL_MF_MOVE)` **did not work** in
+practice: `mbind` returned 0 but a controlled test (force node-0 fault via `set_mempolicy(MPOL_BIND)`,
+then mbind-migrate) showed the pages stayed on node 0 (`548226 → 548242` pages, unchanged) —
+`MPOL_MF_MOVE` silently skips pages it can't cheaply move (e.g. THP-backed torch allocations), and
+returning 0 does NOT mean pages moved. **Conclusions:** (1) for a model whose fp8/bf16 resident
+exceeds one domain, do NOT rely on tp=1 + interleave-at-load — use **path A (TP-shard, per-domain
+first-touch)** which faults each shard locally by construction; (2) if you must stay tp=1, pick a
+**load format that fits one domain** (e.g. keep experts in the smaller on-disk quant like fp4 and
+up-convert per-use in the forward) so no cross-domain spread is needed; (3) tp=1 + interleave is
+also the WRONG choice for memory-bound decode *performance* — it puts one rank's compute on one
+domain reading remote-scattered pages (≈ one domain's BW, worse with remote hops), whereas TP-shard
+runs compute on every domain against LOCAL memory and reaches the aggregate BW. Interleave-at-load
+is a last resort only when first-touch is genuinely controllable (single loader thread you own).
 
 ## Procedure
 1. Read the hardware profile: sockets, cores/socket, SNC nodes/socket, per-domain RAM &
