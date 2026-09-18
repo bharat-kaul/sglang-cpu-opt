@@ -256,25 +256,22 @@ def install() -> None:
 
 
 def _install_decode_thread_cap() -> None:
-    """Cap threads for the whole M=1 decode forward.
+    """Cap threads for the whole M=1 decode forward (tp=1 only; tp>1 uses core-binding headroom).
 
-    At decode (1 token) every kernel is trivially small, so the native GEMMs
-    (`fp8_scaled_mm_cpu`, `weight_packed_linear`, `shared_expert_cpu`, `fused_experts_cpu`)
-    and the torch DSA/MHC ops all pay a parallel-for barrier over the full NUMA-domain thread
-    count (SGLang binds ~42 and ignores OMP_NUM_THREADS). Using the FULL bound count starves the
-    main/framework/OS thread, so the barrier stalls on descheduled threads and dominates the
-    whole forward. Capping the entire decode forward to a few cores BELOW the bound removes it:
-    a fixed-cap sweep (proxy, 4-layer) is monotonic up to bound-2 then cliffs at the bound --
-    8->0.563s, 16->0.429s, 24->0.306s, 32->0.182s, 40(bound-2)->0.062s, 42(bound)->12.8s (a
-    ~200x cliff). So the rule is deterministic: leave a few cores of headroom. Prefill (large M,
-    compute-bound) is left untouched. `INTEL_CPU_DSV4_DECODE_THREADS=N` sets a fixed cap; `=auto`
-    uses bound - INTEL_CPU_DSV4_DECODE_HEADROOM (default 2).
+    At M=1 decode every kernel is trivially small, so the cost is the parallel-for BARRIER, not
+    compute. SGLang binds the full NUMA-domain thread count (~42-43, ignoring OMP_NUM_THREADS);
+    using the FULL bound count starves the main/framework/OS thread and the barrier stalls -- a
+    fixed-cap sweep (proxy, 4-layer, tp=1) is monotonic up to bound-2 then cliffs at the bound:
+    32->0.182s, 40(bound-2)->0.062s, 42(bound)->12.8s (~200x). Capping the decode forward to
+    bound-2 gives the 200x win. `INTEL_CPU_DSV4_DECODE_THREADS=N` fixes the count; `=auto` uses
+    bound - INTEL_CPU_DSV4_DECODE_HEADROOM (default 2).
 
-    NOTE: do NOT sweep thread counts across the first few decode steps to self-tune -- that is
-    confounded (each probe sits at a different context length AND resizing the thread pool
-    upward charges the resize to the higher-thread probe), and it mis-picks the WORST value.
-    The bound-2 rule from the clean fixed-cap sweep is robust; sweep offline with a fixed cap
-    per run if a node needs re-tuning.
+    tp>1 CAVEAT: SGLang's TP AllReduce is a shared-memory SPIN BARRIER (sgl_kernel.initialize)
+    sized to the thread count at init. Calling set_num_threads() per-forward changes the count
+    after init and DEADLOCKS the barrier at tp>1. So the per-forward cap is applied ONLY at
+    world_size==1. For tp>1, leave the headroom via `SGLANG_CPU_OMP_THREADS_BIND` (bind each rank
+    to its domain cores MINUS ~2) -- set before launch, so the count is fixed once at init and the
+    shm barrier is sized correctly (tp-safe, no hang).
     """
     spec = _os.environ.get("INTEL_CPU_DSV4_DECODE_THREADS", "")
     if not (spec.isdigit() or spec == "auto"):
@@ -289,21 +286,32 @@ def _install_decode_thread_cap() -> None:
     _orig_fwd = cls.forward
     fixed = int(spec) if spec.isdigit() else None
     headroom = int(_os.environ.get("INTEL_CPU_DSV4_DECODE_HEADROOM", "2"))
-    logged = {}
+    st = {}
 
     def _fwd(self, input_ids, positions, forward_batch, *a, **k):
+        if "safe" not in st:
+            try:
+                import torch.distributed as _d
+
+                st["safe"] = not (_d.is_available() and _d.is_initialized() and _d.get_world_size() > 1)
+            except Exception:
+                st["safe"] = True
+            if not st["safe"]:
+                logger.warning(
+                    "[DECODE THREADCAP] tp>1 detected -> per-forward cap DISABLED (shm AllReduce "
+                    "spin barrier would deadlock); use SGLANG_CPU_OMP_THREADS_BIND for headroom."
+                )
         is_decode = False
         try:
             is_decode = forward_batch.forward_mode.is_decode_or_idle()
         except Exception:
             pass
-        if not is_decode:
+        if not st["safe"] or not is_decode:
             return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
         prev = _tt.get_num_threads()
-        cap = fixed if fixed is not None else max(1, prev - headroom)
-        cap = min(cap, prev)
-        if "n" not in logged:
-            logged["n"] = 1
+        cap = min(fixed if fixed is not None else max(1, prev - headroom), prev)
+        if "n" not in st:
+            st["n"] = 1
             logger.warning("[DECODE THREADCAP] threads %d -> %d (M=1 decode)", prev, cap)
         _tt.set_num_threads(cap)
         try:
@@ -315,7 +323,7 @@ def _install_decode_thread_cap() -> None:
     cls._decode_thread_capped = True
     global _DECODE_CAP_ACTIVE
     _DECODE_CAP_ACTIVE = True
-    logger.info("intel_cpu_models: decode-wide thread cap = %s (headroom=%d)", spec, headroom)
+    logger.info("intel_cpu_models: decode thread cap = %s (headroom=%d, tp=1 only)", spec, headroom)
 
 
 def _install_gemm_timeit() -> None:
