@@ -266,8 +266,35 @@ def install() -> None:
     _install_gemm_timeit()
     _install_decode_thread_cap()
     _install_cpu_interleave_mem()
+    _install_cpu_gloo_allreduce()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
+
+
+def _install_cpu_gloo_allreduce() -> None:
+    """Route the CPU TP all-reduce through torch.distributed (gloo) instead of SGLang's custom
+    shared-memory all-reduce.
+
+    parallel_state._all_reduce_in_place picks `sgl_kernel.shm_allreduce` when is_shm_available(),
+    else `torch.distributed.all_reduce`. On this node the shm path is pathological: in-model
+    ~3s/op under the bench (desynced spin barrier), and even the synced case ~58ms/op -- vs gloo
+    ~4ms/op measured standalone (a generic collective). Our per-token TP comm is tiny (8KB x ~2/
+    layer), so latency, not bandwidth, dominates; gloo is far better than the broken shm and kills
+    the ~750x pathology. Gate: INTEL_CPU_DSV4_TP_GLOO=1. (A tuned oneCCL collective would be ~us,
+    but it is not installed here.)
+    """
+    if not _os.environ.get("INTEL_CPU_DSV4_TP_GLOO"):
+        return
+    try:
+        import sglang.srt.distributed.parallel_state as _ps
+
+        _ps.is_shm_available = lambda *a, **k: False
+        logger.info(
+            "intel_cpu_models: CPU TP all-reduce forced through torch.distributed (gloo); "
+            "bypassing the pathological sgl_kernel shm all-reduce."
+        )
+    except Exception as e:
+        logger.warning("intel_cpu_models: could not force gloo TP all-reduce: %s", e)
 
 
 def _install_cpu_interleave_mem() -> None:
