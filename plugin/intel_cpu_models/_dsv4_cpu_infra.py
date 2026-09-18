@@ -38,6 +38,8 @@ _TIMES: dict = {}
 _TIMES_KIND: dict = {}
 # One-time MoE kernel-isolation diagnostic (tokens/expert-shapes/dtype/threads), env-gated.
 _MOE_DIAG: dict = {}
+# Set once the decode-wide thread cap is installed; disables the (superseded) per-op MoE cap.
+_DECODE_CAP_ACTIVE = False
 
 
 def _timed(name: str, kind: str = ""):
@@ -111,9 +113,14 @@ def _resolve_moe_thread_cap(orig_apply, self, layer, dispatch_output):
     ~0.1ms@8thr vs ~2432ms@60thr) -- a threading pathology, not a bad kernel. Set
     INTEL_CPU_DSV4_MOE_THREADS=N for a fixed cap, or =auto to self-tune once on the real
     node/shape (first-call micro-sweep picks the fastest). Cached after the first resolve.
+
+    SUPERSEDED by the decode-wide cap: when INTEL_CPU_DSV4_DECODE_THREADS is active it already
+    caps the whole M=1 decode forward (MoE included), and a per-op MoE cap on top CONFLICTS
+    (measured: composing the two regresses decode ~200x back to the cliff). So this per-op cap
+    is disabled whenever the decode cap is installed; use the decode cap alone.
     """
     spec = _os.environ.get("INTEL_CPU_DSV4_MOE_THREADS", "")
-    if not spec:
+    if not spec or _DECODE_CAP_ACTIVE:
         return None
     if "cap" in _MOE_DIAG:
         return _MOE_DIAG["cap"]
@@ -306,6 +313,8 @@ def _install_decode_thread_cap() -> None:
 
     cls.forward = _fwd
     cls._decode_thread_capped = True
+    global _DECODE_CAP_ACTIVE
+    _DECODE_CAP_ACTIVE = True
     logger.info("intel_cpu_models: decode-wide thread cap = %s (headroom=%d)", spec, headroom)
 
 
