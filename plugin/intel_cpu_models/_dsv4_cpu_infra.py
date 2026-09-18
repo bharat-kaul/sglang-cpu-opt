@@ -90,6 +90,120 @@ def _set_numa_interleave_all() -> None:
         logger.warning("intel_cpu_models: could not set NUMA interleave-all: %s", e)
 
 
+_LIBNUMA = None
+_LIBC_MBIND = None
+_NUMA_NNODES = 0
+
+
+def _get_libnuma():
+    """Cache a libnuma handle (None if unavailable)."""
+    global _LIBNUMA, _NUMA_NNODES
+    if _LIBNUMA is None:
+        try:
+            import ctypes
+
+            lib = ctypes.CDLL("libnuma.so.1")
+            if lib.numa_available() < 0:
+                _LIBNUMA = False
+            else:
+                lib.numa_num_configured_nodes.restype = ctypes.c_int
+                _NUMA_NNODES = int(lib.numa_num_configured_nodes())
+                _LIBNUMA = lib
+        except Exception:
+            _LIBNUMA = False
+    return _LIBNUMA or None
+
+
+def _get_mbind():
+    """Cache a libc handle for the mbind syscall (None if unavailable).
+
+    glibc does NOT export `mbind` as a public symbol, so we invoke it via the raw
+    syscall (SYS_mbind = 237 on x86_64)."""
+    global _LIBC_MBIND
+    if _LIBC_MBIND is None:
+        try:
+            import ctypes
+            import platform
+
+            if platform.machine() != "x86_64":
+                _LIBC_MBIND = False
+                return None
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            libc.syscall.restype = ctypes.c_long
+            _LIBC_MBIND = libc
+        except Exception:
+            _LIBC_MBIND = False
+    return _LIBC_MBIND or None
+
+
+def _interleave_tensor_memory(t) -> None:
+    """Migrate a CPU tensor's pages to interleave across all NUMA nodes.
+
+    Setting the calling thread's interleave mask does NOT spread weights: the fp4->fp8 dequant and
+    AMX-prepack pages are FAULTED by sgl_kernel worker threads bound to node 0 (node-local policy),
+    so they all land on node 0 regardless of the main thread's policy (measured: 245GB/266GB on
+    node 0 -> OOM at node 0's ~258GB). We call mbind(MPOL_INTERLEAVE, MPOL_MF_MOVE) DIRECTLY on the
+    tensor's address range, which MIGRATES the already-faulted pages round-robin across all nodes
+    (libnuma's numa_interleave_memory would NOT migrate -- it omits MPOL_MF_MOVE). Per-layer, so
+    node 0 never accumulates."""
+    try:
+        import ctypes
+
+        if t is None or t.numel() == 0 or not t.is_cpu:
+            return
+        nbytes = t.numel() * t.element_size()
+        if nbytes < (1 << 20):  # skip small tensors; migration has per-call overhead
+            return
+        if _get_libnuma() is None:
+            return
+        libc = _get_mbind()
+        if libc is None or _NUMA_NNODES <= 1:
+            return
+        SYS_mbind = 237  # x86_64
+        MPOL_INTERLEAVE = 3
+        MPOL_MF_MOVE = 1 << 1
+        addr = t.data_ptr()
+        page = 4096
+        aligned = addr & ~(page - 1)  # mbind needs a page-aligned start
+        size = nbytes + (addr - aligned)
+        nodemask = ctypes.c_ulong((1 << _NUMA_NNODES) - 1)  # all configured nodes
+        maxnode = ctypes.sizeof(nodemask) * 8  # bits available in the mask word
+        ret = libc.syscall(
+            ctypes.c_long(SYS_mbind),
+            ctypes.c_void_p(aligned),
+            ctypes.c_ulong(size),
+            ctypes.c_int(MPOL_INTERLEAVE),
+            ctypes.byref(nodemask),
+            ctypes.c_ulong(maxnode),
+            ctypes.c_uint(MPOL_MF_MOVE),
+        )
+        if ret != 0:
+            err = ctypes.get_errno()
+            if not _MOE_DIAG.get("mbind_warned"):
+                _MOE_DIAG["mbind_warned"] = True
+                logger.warning("intel_cpu_models: mbind(MPOL_INTERLEAVE|MOVE) errno=%d", err)
+    except Exception as e:
+        logger.warning("intel_cpu_models: mbind interleave failed: %s", e)
+
+
+def _interleave_layer_weights(layer) -> None:
+    """Interleave the large packed weight/scale tensors of a just-loaded layer across NUMA nodes."""
+    if not _os.environ.get("INTEL_CPU_DSV4_INTERLEAVE_MEM"):
+        return
+    for name in (
+        "w13_weight",
+        "w2_weight",
+        "w13_weight_scale_inv",
+        "w2_weight_scale_inv",
+        "weight",
+        "weight_scale_inv",
+    ):
+        t = getattr(layer, name, None)
+        if t is not None:
+            _interleave_tensor_memory(getattr(t, "data", t))
+
+
+
 def _timed(name: str, kind: str = ""):
     """Decorator that accumulates wall time per call under `name` (no-op when off).
 
@@ -1111,6 +1225,7 @@ def _install_fp4_expert_cpu_dequant() -> None:
             self.is_fp4_expert = False
             _rss1 = _rss_gb()
             out = _orig_pwal(self, layer)
+            _interleave_layer_weights(layer)  # migrate packed weights off node0 -> spread across nodes
             _release_freed_memory()
             _di = _MOE_DIAG.setdefault("dq_layer", 0)
             _MOE_DIAG["dq_layer"] = _di + 1
@@ -1125,6 +1240,7 @@ def _install_fp4_expert_cpu_dequant() -> None:
         # dequanted on one rank; without this the CPU allocator holds every layer's freed fp4 +
         # AMX-prepack scratch and the load peak overflows node RAM (single-rank ~275GB fp8, but
         # transient peak was >1.25TB -> OOM). glibc malloc_trim gives it back after each layer.
+        _interleave_layer_weights(layer)
         _release_freed_memory()
         return out
 
