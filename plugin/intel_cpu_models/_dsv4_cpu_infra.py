@@ -118,7 +118,10 @@ def _get_mbind():
     """Cache a libc handle for the mbind syscall (None if unavailable).
 
     glibc does NOT export `mbind` as a public symbol, so we invoke it via the raw
-    syscall (SYS_mbind = 237 on x86_64)."""
+    syscall (SYS_mbind = 237 on x86_64). We set argtypes EXPLICITLY for the fixed
+    7-arg form: without argtypes, ctypes mis-marshals the variadic 7th arg (the
+    mbind `flags`), silently dropping MPOL_MF_MOVE so mbind returns 0 but never
+    migrates the already-faulted pages."""
     global _LIBC_MBIND
     if _LIBC_MBIND is None:
         try:
@@ -130,6 +133,15 @@ def _get_mbind():
                 return None
             libc = ctypes.CDLL("libc.so.6", use_errno=True)
             libc.syscall.restype = ctypes.c_long
+            libc.syscall.argtypes = [
+                ctypes.c_long,  # syscall number
+                ctypes.c_void_p,  # addr
+                ctypes.c_ulong,  # len
+                ctypes.c_int,  # mode
+                ctypes.c_void_p,  # nodemask*
+                ctypes.c_ulong,  # maxnode
+                ctypes.c_uint,  # flags
+            ]
             _LIBC_MBIND = libc
         except Exception:
             _LIBC_MBIND = False
@@ -182,6 +194,9 @@ def _interleave_tensor_memory(t) -> None:
             if not _MOE_DIAG.get("mbind_warned"):
                 _MOE_DIAG["mbind_warned"] = True
                 logger.warning("intel_cpu_models: mbind(MPOL_INTERLEAVE|MOVE) errno=%d", err)
+            return
+        _MOE_DIAG["mbind_bytes"] = _MOE_DIAG.get("mbind_bytes", 0) + nbytes
+        _MOE_DIAG["mbind_ok"] = _MOE_DIAG.get("mbind_ok", 0) + 1
     except Exception as e:
         logger.warning("intel_cpu_models: mbind interleave failed: %s", e)
 
@@ -190,6 +205,7 @@ def _interleave_layer_weights(layer) -> None:
     """Interleave the large packed weight/scale tensors of a just-loaded layer across NUMA nodes."""
     if not _os.environ.get("INTEL_CPU_DSV4_INTERLEAVE_MEM"):
         return
+    _before = _MOE_DIAG.get("mbind_bytes", 0)
     for name in (
         "w13_weight",
         "w2_weight",
@@ -201,6 +217,15 @@ def _interleave_layer_weights(layer) -> None:
         t = getattr(layer, name, None)
         if t is not None:
             _interleave_tensor_memory(getattr(t, "data", t))
+    # Diagnostic: confirm migration actually ran (first few layers only, to prove the fix).
+    _nl = _MOE_DIAG.get("mbind_layers", 0)
+    _MOE_DIAG["mbind_layers"] = _nl + 1
+    if _nl < 3:
+        moved = (_MOE_DIAG.get("mbind_bytes", 0) - _before) / (1 << 30)
+        logger.info(
+            "intel_cpu_models: layer mbind-migrated %.1fGB across %d nodes (ok=%d, errno_warned=%s)",
+            moved, _NUMA_NNODES, _MOE_DIAG.get("mbind_ok", 0), _MOE_DIAG.get("mbind_warned", False),
+        )
 
 
 
