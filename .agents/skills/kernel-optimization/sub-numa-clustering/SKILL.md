@@ -85,6 +85,13 @@ size, and it decides tp vs interleave. Compute up front:
 3. Reducing the load PEAK (so a tighter fit works): free intermediates per layer + return
    memory to the OS (`gc.collect()` + glibc `malloc_trim(0)`); note the CPU torch/`malloc`
    allocator does NOT return freed memory to the OS on its own.
+4. **Scheduler cgroup cap (rule out FIRST — it masquerades as a NUMA OOM):** on Slurm/k8s a
+   job with no explicit whole-node memory request gets a **cgroup memory limit** (~`DefMemPerCPU
+   × allocated_CPUs`), often close to one domain's RAM. The process is then OOM-killed at that
+   TOTAL RSS *regardless of how well pages are spread across domains* — so an `exit=137` at a
+   round GB number well below node total is a cgroup cap, NOT NUMA concentration. Verify with
+   `numastat -p <pid>` (spread = not NUMA-bound). Fix: request the whole node
+   (`--exclusive --mem=0` on Slurm) for any load that approaches one-domain RAM.
 
 ## Loading data across domains — HOW the weights get placed (any model)
 Overcoming the capacity constraint is a **placement** problem solved at LOAD time: you control
