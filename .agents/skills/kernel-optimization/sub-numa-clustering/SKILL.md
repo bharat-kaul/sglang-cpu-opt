@@ -86,14 +86,48 @@ size, and it decides tp vs interleave. Compute up front:
    memory to the OS (`gc.collect()` + glibc `malloc_trim(0)`); note the CPU torch/`malloc`
    allocator does NOT return freed memory to the OS on its own.
 
+## Loading data across domains — HOW the weights get placed (any model)
+Overcoming the capacity constraint is a **placement** problem solved at LOAD time: you control
+*which domain each weight page lands on*. Placement is decided by the OS NUMA **memory policy
+in effect at the moment a page is first written** (first-touch) — NOT by the model code and
+NOT by which core computes on it later. There are two mechanisms; pick per the OOM-check path:
+
+- **(A) Per-domain first-touch loaders (the sharded / `tp=#domains` path).** Each rank (or
+  loader thread) is cpu+mem bound to ONE domain (`numactl --cpunodebind=d --membind=d`, or
+  SGLang's auto one-rank-per-domain) and writes ONLY its own shard of the weights. Because the
+  writing thread is domain-local, first-touch lands each shard in that domain's DRAM →
+  NUMA-local bandwidth, no policy tricks needed. This is the default and the fastest, but it
+  requires the model to be SHARDED so every domain owns a disjoint slice.
+- **(B) Interleave policy (the `tp=1` capacity path — one model too big for one domain).** Set
+  an **interleave** memory policy (`numactl --interleave=all` or libnuma
+  `numa_set_interleave_mask(numa_all_nodes_ptr)`) so the OS round-robins each page across all
+  nodes **regardless of which thread touches it**. This is thread-independent, so it spreads
+  the weights `1/N` per domain even when the loader is effectively single-threaded (the common
+  case for a dequant/prepack loop). It trades some bandwidth (each rank now reads remote pages
+  too) for the capacity to hold a model larger than one domain.
+
+**The one rule that makes either work (and the #1 failure mode):** the policy must be ACTIVE
+at the instant of allocation/first write. Two things silently defeat it — (1) a single-threaded
+load/dequant loop first-touches everything to node 0 unless an interleave policy overrides it;
+(2) the serving framework's thread-init (e.g. `sgl_kernel.init_cpu_threads_env`) **resets the
+memory policy to node-local** when it pins threads, so any policy you set at process start is
+gone before weights load. Therefore: **(re-)assert the placement policy AFTER thread-init and
+BEFORE the weight-load loop**, and disable the framework's own membind (`SGLANG_AUTO_NUMA_BIND=0`)
+so it doesn't re-pin the rank. **Verify placement, don't assume it** — check per-node RSS
+(`numastat -p <pid>`, or sum `/proc/<pid>/numa_maps`) during load: you want ~`total/N` per node
+for path B, or the shard sitting on its own node for path A. A node-0 pile-up = policy was
+clobbered or never active.
+
 ## Procedure
 1. Read the hardware profile: sockets, cores/socket, SNC nodes/socket, per-domain RAM &
    NUMA-local bandwidth (from establish-achievable-performance's STREAM/GEMM microbench).
 2. **Lone kernel:** pick ONE domain to optimize within; bind cpu+mem to it; first-touch its
    operands. Tune (roofline → threads → tile → vectorize) against that domain's ceiling.
    Scale out only if the op is replicated across domains (e.g. per-rank weights).
-3. **Whole model (serving):** apply the capacity-fit rule → choose `tp`; set binding; confirm
-   per-rank footprint fits one domain; then run.
+3. **Whole model (serving):** apply the capacity-fit rule → choose `tp`; then pick the LOAD
+   path (see "Loading data across domains"): sharded per-domain first-touch (A) if it fits per
+   rank, else `tp=1` + interleave (B) for a model bigger than one domain / memory-bound decode.
+   Set/re-assert the placement policy after thread-init, confirm per-node RSS during load, run.
 4. Validate cross-domain behavior: if scaling collapses crossing a domain/socket, you are
    NUMA-bound → stay in-domain and replicate, do not interleave.
 
