@@ -67,18 +67,35 @@ def main():
         print("SKIP: single NUMA node, cannot test spread")
         return
 
-    # Pin to node 0 so first-touch lands everything on node 0 (reproduce the pathology).
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    libc.syscall.restype = ctypes.c_long
+    SYS_set_mempolicy = 238  # x86_64
+    MPOL_DEFAULT, MPOL_BIND = 0, 2
+
+    def set_mempolicy(mode, nodemask_val):
+        nm = ctypes.c_ulong(nodemask_val)
+        return libc.syscall(
+            ctypes.c_long(SYS_set_mempolicy),
+            ctypes.c_int(mode),
+            ctypes.byref(nm) if nodemask_val else None,
+            ctypes.c_ulong(ctypes.sizeof(nm) * 8),
+        )
+
+    # Reproduce the pathology: FORCE node-0-local allocation for the fault (this is what
+    # sgl_kernel's node-local worker-thread policy does), independent of numactl --interleave.
     libnuma.numa_run_on_node(0)
+    r = set_mempolicy(MPOL_BIND, 0b1)  # bind allocations to node 0 only
+    print(f"set_mempolicy(MPOL_BIND, node0) ret={r}")
     n = 2 * 1024 * 1024 * 1024 // 4  # 2 GiB of float32
     t = torch.empty(n, dtype=torch.float32)
-    t.fill_(1.0)  # fault every page (on node 0)
+    t.fill_(1.0)  # fault every page -> lands on node 0
+    set_mempolicy(MPOL_DEFAULT, 0)  # restore default so mbind is the only thing that spreads
 
     before = _pages_per_node()
     print("BEFORE (pages/node):", {k: before[k] for k in sorted(before)})
 
     ret, err = _mbind_interleave(t, nnodes)
     print(f"mbind ret={ret} errno={err}")
-    t[0] += 1  # touch after migration (no new faults expected; pages already resident)
 
     after = _pages_per_node()
     print("AFTER  (pages/node):", {k: after[k] for k in sorted(after)})
