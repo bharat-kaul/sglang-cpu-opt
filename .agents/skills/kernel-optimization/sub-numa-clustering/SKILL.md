@@ -125,6 +125,19 @@ so it doesn't re-pin the rank. **Verify placement, don't assume it** — check p
 for path B, or the shard sitting on its own node for path A. A node-0 pile-up = policy was
 clobbered or never active.
 
+**Setting the loader thread's interleave mask is often NOT enough — MIGRATE the tensor.** The
+policy is per-thread and applies at FAULT time to *the faulting thread*. If the weights are
+materialized by a **different thread pool** (dequant / AMX-prepack / a caching allocator's
+worker threads that are pinned to node 0), those pages fault on node 0 no matter what policy
+the main/loader thread holds — measured: interleave mask set on the main thread, yet
+`numastat` showed 245 GB of 266 GB on node 0 → OOM at node 0's ~258 GB. The robust fix is to
+**forcibly migrate each materialized weight tensor** with `mbind(addr, len, MPOL_INTERLEAVE,
+nodemask=all, MPOL_MF_MOVE)` right after it is built, per layer (so node 0 never accumulates).
+Notes: glibc does NOT export `mbind` — call it via `syscall(SYS_mbind=237)` on x86_64; and
+libnuma's `numa_interleave_memory()` will NOT migrate existing pages (it omits `MPOL_MF_MOVE`),
+so it only affects *future* allocations — use direct `mbind` with `MPOL_MF_MOVE` for pages that
+already exist.
+
 ## Procedure
 1. Read the hardware profile: sockets, cores/socket, SNC nodes/socket, per-domain RAM &
    NUMA-local bandwidth (from establish-achievable-performance's STREAM/GEMM microbench).
