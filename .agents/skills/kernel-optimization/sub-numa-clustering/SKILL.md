@@ -1,6 +1,6 @@
 ---
 name: sub-numa-clustering
-description: "Use RIGHT AFTER establish-achievable-performance and BEFORE the parallelize→tile→vectorize tuning loop, on any multi-socket / SNC (sub-NUMA-clustered) Xeon. Decides the NUMA/SNC DOMAIN you optimize WITHIN: SNC on/off, domain granularity (numa_nodes/sockets), the capacity-per-domain fit that determines whether a model must be sharded across domains, and the CPU serving mapping (tp = number of SNC clusters, one rank per domain, cpu+mem co-bound, first-touch). Everything downstream — the roofline ceiling, thread-count sweep, cache blocking, AMX vectorization, weight prepack — is measured and tuned within ONE domain and then replicated across domains, so the domain must be fixed FIRST or the tuning runs against a wrong, unstable interleaved/cross-domain footprint. USE FOR: placing a kernel or a whole model onto NUMA/SNC domains; choosing tp for CPU serving; diagnosing cross-domain bandwidth thrash / erratic thread scaling. DO NOT USE FOR: intra-domain thread-count/affinity micro-tuning (that is openmp-parallelization), or GPU placement."
+description: "Use RIGHT AFTER establish-achievable-performance and BEFORE the parallelize→tile→vectorize tuning loop, on any multi-socket / SNC (sub-NUMA-clustered) Xeon. Decides the NUMA/SNC DOMAIN you optimize WITHIN: SNC on/off, domain granularity (numa_nodes/sockets), the capacity-per-domain fit that determines whether a model must be sharded across domains, and the CPU serving mapping (tp = number of SNC clusters, one rank per domain, cpu+mem co-bound, first-touch). INCLUDES an UPFRONT OOM CHECK (run before the first launch): per-rank LOAD-TRANSIENT peak footprint (not just resident weights — dtype up-convert like fp4→fp8 doubling + checkpoint-held + AMX-prepack copies) vs ONE domain's RAM, deciding tp-shard vs tp=1-interleave, and how to keep the interleave memory policy from being clobbered by the framework's thread init. Everything downstream — the roofline ceiling, thread-count sweep, cache blocking, AMX vectorization, weight prepack — is measured and tuned within ONE domain and then replicated across domains, so the domain must be fixed FIRST or the tuning runs against a wrong, unstable interleaved/cross-domain footprint. USE FOR: placing a kernel or a whole model onto NUMA/SNC domains; choosing tp for CPU serving; the per-domain-RAM OOM check before a run; diagnosing cross-domain bandwidth thrash / erratic thread scaling / single-rank OOM at one-domain RAM. DO NOT USE FOR: intra-domain thread-count/affinity micro-tuning (that is openmp-parallelization), or GPU placement."
 ---
 
 # Sub-NUMA Clustering (choose the optimization DOMAIN before tuning within it)
@@ -60,6 +60,32 @@ On CPU serving, each rank is sized to **one domain's** memory, not the whole nod
   single-latent-KV-head (MLA) invariant — verify config helpers no-op for MLA (see
   cpu-serving-integration).
 
+## UPFRONT OOM CHECK (do this BEFORE the first run — it is cheap and saves hours)
+The per-domain fit must be checked against the **load-transient PEAK**, not the resident model
+size, and it decides tp vs interleave. Compute up front:
+1. **Per-rank LOAD-PEAK footprint**, not just final weights. Load transiently holds MULTIPLE
+   full copies: the on-disk checkpoint (held while processing), any dtype up-conversion
+   (e.g. fp4→fp8 DOUBLES expert bytes; fp8→bf16), AND the AMX-prepacked copy. Measured on
+   GNR/Flash: a ~275 GB fp8 model reached ~304 GB resident but the fp4 checkpoint alone was
+   ~162 GB loaded *before* any dequant — instrument RSS per layer (`psutil`) if unsure.
+   Rule of thumb: budget **peak ≈ 1.5–2× resident** for a load-time dtype convert + prepack.
+2. **Compare to ONE domain's RAM** (`total_node_RAM / n_SNC`, ~248–258 GB on GNR SNC-on).
+   If `per_rank_peak > one_domain_RAM` → you WILL OOM at that domain even with TBs free
+   node-wide (the OOM-killer fires at ~one node's 256 GB, RSS far below total). Pick a path:
+   - **(A) TP-shard (default for prefill / compute-bound):** `tp = #SNC` (or a divisor that
+     also divides head count); per-rank peak ≈ `model/tp` must fit one domain. Natural
+     per-domain memory + bandwidth. BUT TP adds an all-reduce every layer.
+   - **(B) tp=1 + INTERLEAVE across domains (for memory-bound DECODE):** TP does NOT help
+     memory-bound decode — each rank still streams its shard (same total bytes/token) and TP
+     only *adds* all-reduce/coordination (measured: tp=4 decode ~8× SLOWER than tp=1 on the
+     same layers). So for best decode latency keep `tp=1` and spread the model across all
+     domains with an interleave memory policy. Requires: report full-node free memory to the
+     framework's mem sizer, cap the KV pool (`--max-total-tokens`), and — critically — see
+     the interleave-clobber learning below.
+3. Reducing the load PEAK (so a tighter fit works): free intermediates per layer + return
+   memory to the OS (`gc.collect()` + glibc `malloc_trim(0)`); note the CPU torch/`malloc`
+   allocator does NOT return freed memory to the OS on its own.
+
 ## Procedure
 1. Read the hardware profile: sockets, cores/socket, SNC nodes/socket, per-domain RAM &
    NUMA-local bandwidth (from establish-achievable-performance's STREAM/GEMM microbench).
@@ -81,9 +107,19 @@ On CPU serving, each rank is sized to **one domain's** memory, not the whole nod
 ## Learnings (GNR, transferable)
 - Full-node interleave is NOT free bandwidth: a lone GEMM was WORSE full-node-interleaved
   than single-socket; NUMA-local sharding (one rank/domain) is how you reach the ~1261 GB/s
-  aggregate, not one un-sharded replica.
-- `tp=1` on a big model OOMs at one-domain RAM even with TBs free node-wide — the memory
-  accounting and binding are per-domain. Shard.
+  aggregate, not one un-sharded replica. (So interleave is a CAPACITY workaround for a model
+  that must be tp=1, not a bandwidth win — expect BW below a NUMA-local shard.)
+- `tp=1` on a big model OOMs at one-domain RAM even with TBs free node-wide — the OOM-killer
+  fires at ~one node's 256 GB while total RSS is far below node total. Shard, OR interleave.
+- **Interleave gets CLOBBERED — you must re-apply it.** `numactl --interleave=all` works in
+  isolation (a 288 GB alloc spread exactly 1/6 across 6 nodes), but the framework's thread
+  init (`sgl_kernel.init_cpu_threads_env`) resets the memory policy to node-LOCAL when it
+  binds threads, so a tp=1 rank re-concentrates on node 0 and OOMs. Fix: RE-APPLY the
+  interleave mask AFTER thread init and BEFORE weight load — `libnuma
+  numa_set_interleave_mask(numa_all_nodes_ptr)` (verified: RSS then sailed past the one-node
+  256 GB wall). Also `SGLANG_AUTO_NUMA_BIND=0` so the framework doesn't `--membind` the rank.
+  And note a single-threaded load/dequant loop first-touches node 0, so the interleave POLICY
+  (not first-touch) is what spreads it.
 - Two runtimes (MKL/OMP) fighting numactl → erratic thread scaling; pin one.
 - Fix the domain BEFORE the tuning loop; otherwise every roofline/tile/vectorize number is
   measured against a shifting, cross-domain footprint.
