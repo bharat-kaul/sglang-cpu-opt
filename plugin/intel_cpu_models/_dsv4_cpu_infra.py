@@ -42,6 +42,20 @@ _MOE_DIAG: dict = {}
 _DECODE_CAP_ACTIVE = False
 
 
+def _release_freed_memory() -> None:
+    """Return allocator-held freed memory to the OS (glibc malloc_trim) + run gc. Used after
+    each layer's fp4->fp8 dequant so the single-rank (tp=1) load peak doesn't overflow node RAM."""
+    import gc
+
+    gc.collect()
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
 def _timed(name: str, kind: str = ""):
     """Decorator that accumulates wall time per call under `name` (no-op when off).
 
@@ -1018,9 +1032,16 @@ def _install_fp4_expert_cpu_dequant() -> None:
                 weight_param.data = torch.stack(new_w)
                 scale_param.data = torch.stack(new_s).float()
                 scale_param.format_ue8m0 = False
+                del new_w, new_s
             self.is_fp4_expert = False
             logger.info("intel_cpu_models: dequantized FP4 experts -> FP8 on CPU (Plan A).")
-        return _orig_pwal(self, layer)
+        out = _orig_pwal(self, layer)
+        # Return freed fp4/intermediate memory to the OS. At tp=1 all 43 layers' experts are
+        # dequanted on one rank; without this the CPU allocator holds every layer's freed fp4 +
+        # AMX-prepack scratch and the load peak overflows node RAM (single-rank ~275GB fp8, but
+        # transient peak was >1.25TB -> OOM). glibc malloc_trim gives it back after each layer.
+        _release_freed_memory()
+        return out
 
     def _patched_apply(self, layer, dispatch_output):
         if _TIMEIT_ON and not _MOE_DIAG.get("done"):
