@@ -18,8 +18,10 @@ unset INTEL_CPU_DSV4_FP4_MOE_BF16
 unset INTEL_CPU_DSV4_BYPASS_DSA
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
+export SGLANG_AUTO_NUMA_BIND=0                # don't membind rank to node0 (fights interleave)
+export SGLANG_NUMA_BIND_V2=0
 export INTEL_CPU_DSV4_DECODE_THREADS=auto     # tp=1 -> per-forward cap works (200x M=1 fix)
-export INTEL_CPU_DSV4_INTERLEAVE_MEM=1        # report full-node free mem so 292GB fits at tp=1
+export INTEL_CPU_DSV4_INTERLEAVE_MEM=1        # report full-node mem + re-apply interleave policy
 export INTEL_CPU_DSV4_TIMEIT=1
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 cd /data/nfs_home/bkaul
@@ -27,5 +29,5 @@ numactl --interleave=all python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
   --device cpu --tp 1 --batch-size 1 --input-len 1 --output-len 16 \
   --trust-remote-code --disable-cuda-graph \
-  --mem-fraction-static 0.10 --max-total-tokens 8192 --swa-full-tokens-ratio 0.5
+  --mem-fraction-static 0.05 --max-total-tokens 4096 --swa-full-tokens-ratio 0.5
 echo "[exit=$?]"

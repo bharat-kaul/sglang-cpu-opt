@@ -56,6 +56,40 @@ def _release_freed_memory() -> None:
         pass
 
 
+def _rss_gb() -> float:
+    try:
+        import psutil
+
+        return psutil.Process().memory_info().rss / (1 << 30)
+    except Exception:
+        return -1.0
+
+
+def _set_numa_interleave_all() -> None:
+    """Re-apply an interleave-all memory policy for this process.
+
+    numactl --interleave=all is CLOBBERED by sgl_kernel.init_cpu_threads_env (it binds threads and
+    sets node-local allocation), so a single tp=1 rank concentrates all weights on node 0 and OOMs
+    at that node's ~256GB even though the node has ~1.5TB. Re-setting the interleave mask via libnuma
+    after that (before weight load) spreads allocations round-robin across all NUMA nodes."""
+    try:
+        import ctypes
+
+        libnuma = ctypes.CDLL("libnuma.so.1")
+        if libnuma.numa_available() < 0:
+            logger.warning("intel_cpu_models: libnuma reports NUMA unavailable; interleave not set.")
+            return
+        mask = ctypes.c_void_p.in_dll(libnuma, "numa_all_nodes_ptr")
+        libnuma.numa_set_interleave_mask.argtypes = [ctypes.c_void_p]
+        libnuma.numa_set_interleave_mask(mask)
+        logger.info(
+            "intel_cpu_models: re-applied NUMA interleave-all memory policy "
+            "(sgl_kernel thread init had reset it to node-local)."
+        )
+    except Exception as e:
+        logger.warning("intel_cpu_models: could not set NUMA interleave-all: %s", e)
+
+
 def _timed(name: str, kind: str = ""):
     """Decorator that accumulates wall time per call under `name` (no-op when off).
 
@@ -308,6 +342,7 @@ def _install_cpu_interleave_mem() -> None:
     """
     if not _os.environ.get("INTEL_CPU_DSV4_INTERLEAVE_MEM"):
         return
+    _set_numa_interleave_all()
     import sglang.srt.utils.common as _c
 
     _orig = _c.get_available_gpu_memory
@@ -1056,12 +1091,35 @@ def _install_fp4_expert_cpu_dequant() -> None:
                     )
                     new_w.append(w)
                     new_s.append(s)
+        if getattr(self, "is_fp4_expert", False):
+            _rss0 = _rss_gb()
+            for weight_param, scale_param in [
+                (layer.w13_weight, layer.w13_weight_scale_inv),
+                (layer.w2_weight, layer.w2_weight_scale_inv),
+            ]:
+                new_w, new_s = [], []
+                for e in range(weight_param.shape[0]):
+                    w, s = _fp8.cast_e2m1fn_to_e4m3fn(
+                        weight_param.data[e], scale_param.data[e]
+                    )
+                    new_w.append(w)
+                    new_s.append(s)
                 weight_param.data = torch.stack(new_w)
                 scale_param.data = torch.stack(new_s).float()
                 scale_param.format_ue8m0 = False
                 del new_w, new_s
             self.is_fp4_expert = False
-            logger.info("intel_cpu_models: dequantized FP4 experts -> FP8 on CPU (Plan A).")
+            _rss1 = _rss_gb()
+            out = _orig_pwal(self, layer)
+            _release_freed_memory()
+            _di = _MOE_DIAG.setdefault("dq_layer", 0)
+            _MOE_DIAG["dq_layer"] = _di + 1
+            logger.info(
+                "intel_cpu_models: dequantized FP4->FP8 layer %d (Plan A) RSS %.1f->%.1f->%.1fGB "
+                "(pre-dq / post-dq / post-prepack+trim)",
+                _di, _rss0, _rss1, _rss_gb(),
+            )
+            return out
         out = _orig_pwal(self, layer)
         # Return freed fp4/intermediate memory to the OS. At tp=1 all 43 layers' experts are
         # dequanted on one rank; without this the CPU allocator holds every layer's freed fp4 +
