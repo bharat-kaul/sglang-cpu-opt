@@ -5,7 +5,7 @@
 **How:** An **agentic workflow** (parameterized skill files + agents) that takes a newly
 released model and enables **performant, accurate CPU inference** in SGLang on Intel
 Xeon (AMX) — as an Intel-maintained **plugin, no fork** — by reusing existing
-hand-optimized kernels and proving both correctness and performance.
+hand-optimized kernels or creating new kernels (having distilled knowhow into skill files) and proving both correctness and performance.
 
 > **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
 >
