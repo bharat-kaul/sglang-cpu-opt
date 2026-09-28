@@ -1249,6 +1249,31 @@ def _install_fp4_expert_cpu_dequant() -> None:
             import torch as _t
 
             _rss0 = _rss_gb()
+            w13s = getattr(layer, "w13_weight_scale", None)
+            if w13s is None:
+                w13s = layer.w13_weight_scale_inv
+            w2s = getattr(layer, "w2_weight_scale", None)
+            if w2s is None:
+                w2s = layer.w2_weight_scale_inv
+            w13s = w13s.view(_t.uint8) if w13s.dtype != _t.uint8 else w13s
+            w2s = w2s.view(_t.uint8) if w2s.dtype != _t.uint8 else w2s
+            if not _MOE_DIAG.get("mx_shape_logged"):
+                _MOE_DIAG["mx_shape_logged"] = True
+                logger.warning(
+                    "[MXFP4 SHAPE] w13=%s/%s w2=%s/%s w13_scale=%s/%s w2_scale=%s/%s",
+                    tuple(layer.w13_weight.shape), layer.w13_weight.dtype,
+                    tuple(layer.w2_weight.shape), layer.w2_weight.dtype,
+                    tuple(w13s.shape), w13s.dtype, tuple(w2s.shape), w2s.dtype,
+                )
+            # The DeepSeek loader pads the packed-K (last) dim of the fp4 weights (e.g. 2048->2052)
+            # while the e8m0 group-32 scale stays sized to the TRUE K. The MXFP4 kernel wants
+            # packed_K = K/2 = (scale_groups * 32) / 2 = scale_groups * 16; slice off the padding.
+            _w13_ic = w13s.shape[-1] * 16
+            _w2_ic = w2s.shape[-1] * 16
+            if layer.w13_weight.shape[-1] != _w13_ic:
+                layer.w13_weight = layer.w13_weight[..., :_w13_ic].contiguous()
+            if layer.w2_weight.shape[-1] != _w2_ic:
+                layer.w2_weight = layer.w2_weight[..., :_w2_ic].contiguous()
             # Use convert_weight_packed (exactly what fused_experts_cpu(MXFP4) calls internally when
             # is_vnni=False) so is_vnni=True gets the identical layout. NOT _amx_process_weight_after_
             # loading -- that generic path treats the uint8 fp4 as int8 and appends a 4-byte/row
@@ -1260,14 +1285,6 @@ def _install_fp4_expert_cpu_dequant() -> None:
                 _t.ops.sgl_kernel.convert_weight_packed(layer.w2_weight), requires_grad=False
             )
             layer.use_intel_amx_backend = True
-            w13s = getattr(layer, "w13_weight_scale", None)
-            if w13s is None:
-                w13s = layer.w13_weight_scale_inv
-            w2s = getattr(layer, "w2_weight_scale", None)
-            if w2s is None:
-                w2s = layer.w2_weight_scale_inv
-            w13s = w13s.view(_t.uint8) if w13s.dtype != _t.uint8 else w13s
-            w2s = w2s.view(_t.uint8) if w2s.dtype != _t.uint8 else w2s
             layer.w13_weight_scale = _t.nn.Parameter(
                 _t.ops.sgl_kernel.convert_scale_packed(w13s.contiguous()), requires_grad=False
             )
