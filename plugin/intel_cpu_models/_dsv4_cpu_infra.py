@@ -442,6 +442,7 @@ def install() -> None:
     _install_decode_thread_cap()
     _install_cpu_interleave_mem()
     _install_cpu_gloo_allreduce()
+    _install_hidden_debug()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
 
@@ -924,6 +925,10 @@ _SEL_HOLDER: dict = {"pos_kept": None}
 # One-shot attention diagnostic (gated by INTEL_CPU_DSV4_ATTN_DEBUG=1): file-based so it survives
 # the Engine scheduler subprocess whose stdout the sbatch log does not capture.
 _ATTN_DBG: dict = {"n": 0}
+
+# Per-layer hidden-state diagnostic (gated by INTEL_CPU_DSV4_HID_DEBUG=1): logs each decoder
+# layer's input/output activation stats to a file to localize where the forward goes bad.
+_HID_DBG: dict = {"n": 0}
 
 
 def _rmsnorm_torch(x, norm):
@@ -1639,6 +1644,55 @@ def _install_dsv4_attention_cpu() -> None:
         sys.modules["sgl_kernel.flash_mla"] = _fm
     _fm.flash_mla_with_kvcache = _timed("dsa.mla_attention", "parent")(_torch_flash_mla_with_kvcache)
     logger.info("intel_cpu_models: installed CPU torch flash-MLA attention (dense KV stash).")
+
+
+def _install_hidden_debug() -> None:
+    # Localizer: wrap each decoder layer's forward to record input/output activation stats
+    # (abs-mean, abs-max, NaN) to a file, for the first forward pass. Finds where the model
+    # goes bad (NaN/explode/collapse) when the output is garbage. Gated + one-shot.
+    if _os.environ.get("INTEL_CPU_DSV4_HID_DEBUG") != "1":
+        return
+    import torch
+
+    import sglang.srt.models.deepseek_v4 as _dv4
+
+    Layer = _dv4.DeepseekV4DecoderLayer
+    if getattr(Layer, "_hid_dbg_patched", False):
+        return
+    _orig = Layer.forward
+    _f = _os.environ.get("HID_DBG_FILE", "/scratch/bkaul/dsv4_hid_debug.txt")
+
+    def _stat(t):
+        try:
+            tf = t.float()
+            return f"mean={tf.abs().mean().item():.3e} max={tf.abs().max().item():.3e} nan={int(torch.isnan(tf).any())}"
+        except Exception:  # noqa: BLE001
+            return "NA"
+
+    def _fwd(self, *a, **k):
+        lid = getattr(self, "layer_id", getattr(self, "layer_idx", -1))
+        cap = _HID_DBG["n"] < 16
+        if cap:
+            inp = next((x for x in a if torch.is_tensor(x) and x.dim() >= 2 and x.is_floating_point()), None)
+            try:
+                with open(_f, "a") as fh:
+                    fh.write(f"L{lid} IN  {_stat(inp) if inp is not None else 'NA'}\n")
+            except Exception:  # noqa: BLE001
+                pass
+        out = _orig(self, *a, **k)
+        if cap:
+            hs = out[0] if isinstance(out, (tuple, list)) else out
+            try:
+                with open(_f, "a") as fh:
+                    fh.write(f"L{lid} OUT {_stat(hs)}\n")
+            except Exception:  # noqa: BLE001
+                pass
+            _HID_DBG["n"] += 1
+        return out
+
+    Layer.forward = _fwd
+    Layer._hid_dbg_patched = True
+    logger.info("intel_cpu_models: installed per-layer hidden-state debug hook.")
 
 
 def _install_mhc_cpu() -> None:

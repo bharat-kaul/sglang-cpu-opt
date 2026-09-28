@@ -160,14 +160,14 @@ dtype_bridge_gates:
     stored_dtype: mxfp4            # packed e2m1 + F8_E8M0 group-32 scales
     compute_dtype: bf16           # W4A16: fused fp4->bf16 dequant inside the AMX GEMM
     kernel: "fused_experts_cpu(CPUQuantMethod.MXFP4)"
-    status: STANDALONE-PARITY-PASS  # kernel-math gate PASS (cosine 0.999992, rel 5.9e-3, EMR/SPR AMX-bf16); in-situ real-ckpt probe still pending
+    status: PARITY-PASS  # standalone (cosine 0.999992, EMR) AND in-situ real-ckpt (cosine 0.999995) both PASS; MoE bridge verified. NOTE: a SEPARATE shared-path bug (proj/rope/norm/MHC) still makes the full model emit garbage - under debug, NOT a MoE issue.
     gates:
       - {form: standalone, file: plugin/validate/test_mxfp4_moe_cpu.py, run: run_mxfp4_parity.sbatch,
          checks: "kernel vs independent torch e2m1/e8m0 dequant oracle (same packed bytes)",
          result: PASS, cosine: 0.999992, rel_err: 5.9e-3, node: "EMR/SPR (AMX-bf16; ISA-portable to GNR)"}
       - {form: in-situ, flag: INTEL_CPU_DSV4_MOE_PARITY, log: "[MXFP4 PARITY]",
          checks: "kernel vs torch fp4 oracle on the REAL checkpoint + REAL activations, layer 0",
-         result: PENDING}
+         result: PASS, cosine: 0.999995, rel_err: 5.1e-3}
     note: "Standalone kernel-math gate PASSES (cosine 0.999992) -> the MXFP4 dequant + VNNI pack +
       e8m0 group-32 scale + SwiGLU math is correct; correctness is ISA-portable so this holds for GNR.
       End-to-end coherence (accuracy_generate) separately caught a decode zero-attention bug (SHARED

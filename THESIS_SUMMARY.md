@@ -68,7 +68,7 @@ weight family, and how each is verified:
 
 | Weight family | Stored / moved | Compute (AMX tile) | Bridge | Lossless? | Correctness gate |
 |---|---|---|---|---|---|
-| MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k is exact in bf16 | ✅ parity test **PASS** (cosine 0.999992, rel 5.9e-3 vs fp32 oracle) · in-situ real-ckpt probe *pending* |
+| MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k is exact in bf16 | ✅ parity **PASS** — standalone cos 0.999992 + in-situ real-ckpt cos 0.999995 |
 | MLA/indexer/shared-expert proj | **fp8** e4m3 | **bf16** | W8A16, dequant fp8→bf16 | ✅ fp8 levels exact in bf16 | donor fp8 CPU path (deepseek-v2) |
 | norms / router / embed / lm_head | bf16 | bf16 | none (native) | — | native |
 
