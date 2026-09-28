@@ -921,6 +921,10 @@ _HAD_CACHE: dict = {}
 # leaves it None -> that layer's attention stays dense. Handles alternating c4/c128 layers.
 _SEL_HOLDER: dict = {"pos_kept": None}
 
+# One-shot attention diagnostic (gated by INTEL_CPU_DSV4_ATTN_DEBUG=1): file-based so it survives
+# the Engine scheduler subprocess whose stdout the sbatch log does not capture.
+_ATTN_DBG: dict = {"n": 0}
+
 
 def _rmsnorm_torch(x, norm):
     # Torch RMSNorm (avoids the sgl_kernel CPU RMSNorm's strict input==weight dtype check).
@@ -982,6 +986,19 @@ def _torch_flash_mla_with_kvcache(
     # tail (always attended). locs are in sequence-position order (index p == position p).
     pos_kept = _SEL_HOLDER.get("pos_kept")
     _SEL_HOLDER["pos_kept"] = None
+    _dbg = _os.environ.get("INTEL_CPU_DSV4_ATTN_DEBUG") == "1"
+    if _dbg and _ATTN_DBG["n"] < 8:
+        _v = _KV_VALID.get(dp)
+        try:
+            with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_attn_debug.txt"), "a") as _f:
+                _f.write(
+                    f"ATTN#{_ATTN_DBG['n']}: T={T} H={H} D={D} hdv={head_dim_v} dp={dp} "
+                    f"kv_valid={_v is not None} n_valid={int(_v.sum()) if _v is not None else -1} "
+                    f"idx_from_indices={indices is not None and topk_length is not None} "
+                    f"pos_kept={pos_kept is not None} nbufs={len(_KV_BUF)}\n"
+                )
+        except Exception:  # noqa: BLE001
+            pass
     for t in range(T):
         _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
         if indices is not None and topk_length is not None:
@@ -1041,6 +1058,14 @@ def _torch_flash_mla_with_kvcache(
         out[t] = p @ K[:, :head_dim_v]
         if _TIMEIT_ON:
             _tacc("dsa.mla.attend", _t0, "torch")
+    if _dbg and _ATTN_DBG["n"] < 8:
+        try:
+            _z = int((out.abs().sum(dim=(1, 2)) == 0).sum())
+            with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_attn_debug.txt"), "a") as _f:
+                _f.write(f"ATTN#{_ATTN_DBG['n']} OUT: sum_abs={float(out.abs().sum()):.3e} zero_rows={_z}/{T}\n")
+        except Exception:  # noqa: BLE001
+            pass
+        _ATTN_DBG["n"] += 1
     return (out.unsqueeze(1).to(q.dtype),)
 
 
