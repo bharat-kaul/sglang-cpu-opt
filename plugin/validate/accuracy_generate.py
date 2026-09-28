@@ -18,7 +18,9 @@ PROMPTS = [
 
 
 def main():
-    if os.environ.get("ACC_QUICK") == "1":
+    if os.environ.get("ACC_PROMPT_IDX") is not None:
+        prompts = [PROMPTS[int(os.environ["ACC_PROMPT_IDX"])]]
+    elif os.environ.get("ACC_QUICK") == "1":
         prompts = PROMPTS[:1]
     else:
         prompts = PROMPTS
