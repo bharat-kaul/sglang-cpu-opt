@@ -18,7 +18,7 @@ export HID_DBG_FILE=/scratch/bkaul/dsv4_hid_debug_${SLURM_JOB_ID}.txt
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
 export INTEL_CPU_DSV4_DECODE_THREADS=8
-export ACC_QUICK=1
+export ACC_QUICK=0
 export ACC_MAX_NEW=1
 cd /data/nfs_home/bkaul
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/accuracy_generate.py

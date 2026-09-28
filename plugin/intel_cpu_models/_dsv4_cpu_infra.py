@@ -1704,7 +1704,7 @@ def _install_hidden_debug() -> None:
                 r = _olp(self, *a, **k)
                 try:
                     lg = getattr(r, "next_token_logits", None)
-                    if lg is not None and _HID_DBG.get("lp", 0) < 3:
+                    if lg is not None and _HID_DBG.get("lp", 0) < 16:
                         _HID_DBG["lp"] = _HID_DBG.get("lp", 0) + 1
                         v, i = torch.topk(lg[-1].float(), 5)
                         with open(_f, "a") as fh:
