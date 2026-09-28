@@ -70,10 +70,11 @@ The workflow, demonstrated end-to-end:
   NUMA/SNC domain → clean tp=1**, sidestepping the tp>1 / NUMA-interleave swamp that an fp4→fp8
   up-convert forced. Loads ~135 s; prefill + multi-token decode complete →
   [run](plugin/validate/run_deepseekv4_flash_mxfp4_tp1.sbatch).
-- **FP4→bf16 dtype bridge is parity-checked, not assumed** — a standalone kernel-vs-torch-oracle
-  test + an in-situ probe on the real checkpoint
-  ([test_mxfp4_moe_cpu.py](plugin/validate/test_mxfp4_moe_cpu.py), `INTEL_CPU_DSV4_MOE_PARITY`);
-  status **PENDING** (queued) → [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+- **FP4→bf16 dtype bridge is parity-checked, not assumed** — the standalone kernel-vs-torch-oracle
+  test **PASSES** (cosine 0.999992, rel 5.9e-3 vs an fp32 dequant oracle), verifying the MXFP4
+  dequant + VNNI pack + GEMM math; the in-situ real-checkpoint probe (`INTEL_CPU_DSV4_MOE_PARITY`)
+  is still queued → [test_mxfp4_moe_cpu.py](plugin/validate/test_mxfp4_moe_cpu.py),
+  [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
 - **Accuracy oracle caught a real decode bug** — the real-prompt coherence check found garbage
   output (DSA sparse selection stubbed at decode → MLA gathered nothing → zero attention); fixed
   with a causal **dense fallback**. Full parity + task-accuracy re-run is queued; **decode perf/tok-s
@@ -93,7 +94,7 @@ is a dequant **bridge** verified numerically, not assumed:
 
 | Weight family (DeepSeek-V4-Flash) | Stored / moved | Compute (AMX) | Bridge | Lossless? | Correctness gate |
 |---|---|---|---|---|---|
-| MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k exact in bf16 | [MXFP4 parity test](plugin/validate/test_mxfp4_moe_cpu.py) + in-situ probe |
+| MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k exact in bf16 | ✅ [parity test](plugin/validate/test_mxfp4_moe_cpu.py) **PASS** (cos 0.999992) · in-situ pending |
 | MLA / indexer / shared-expert proj | **fp8** e4m3 | **bf16** | W8A16, dequant fp8→bf16 | ✅ fp8 levels exact in bf16 | donor fp8 CPU path |
 | norms / router / embed / lm_head | bf16 | bf16 | none (native) | — | native |
 

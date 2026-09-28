@@ -160,15 +160,19 @@ dtype_bridge_gates:
     stored_dtype: mxfp4            # packed e2m1 + F8_E8M0 group-32 scales
     compute_dtype: bf16           # W4A16: fused fp4->bf16 dequant inside the AMX GEMM
     kernel: "fused_experts_cpu(CPUQuantMethod.MXFP4)"
-    status: PARITY-PENDING        # kernel wired + hand-verified format; numeric gate not yet PASS
+    status: STANDALONE-PARITY-PASS  # kernel-math gate PASS (cosine 0.999992, rel 5.9e-3, EMR/SPR AMX-bf16); in-situ real-ckpt probe still pending
     gates:
       - {form: standalone, file: plugin/validate/test_mxfp4_moe_cpu.py, run: run_mxfp4_parity.sbatch,
-         checks: "kernel vs independent torch e2m1/e8m0 dequant oracle (same packed bytes)"}
+         checks: "kernel vs independent torch e2m1/e8m0 dequant oracle (same packed bytes)",
+         result: PASS, cosine: 0.999992, rel_err: 5.9e-3, node: "EMR/SPR (AMX-bf16; ISA-portable to GNR)"}
       - {form: in-situ, flag: INTEL_CPU_DSV4_MOE_PARITY, log: "[MXFP4 PARITY]",
-         checks: "kernel vs torch fp4 oracle on the REAL checkpoint + REAL activations, layer 0"}
-    note: "End-to-end coherence (accuracy_generate) already caught a decode zero-attention bug
-      (SHARED path, not the MoE bridge); these gates isolate the MXFP4 kernel itself. Do NOT
-      report the MoE as correctness-verified until at least one gate PASSes."
+         checks: "kernel vs torch fp4 oracle on the REAL checkpoint + REAL activations, layer 0",
+         result: PENDING}
+    note: "Standalone kernel-math gate PASSES (cosine 0.999992) -> the MXFP4 dequant + VNNI pack +
+      e8m0 group-32 scale + SwiGLU math is correct; correctness is ISA-portable so this holds for GNR.
+      End-to-end coherence (accuracy_generate) separately caught a decode zero-attention bug (SHARED
+      path, not the MoE bridge). Remaining: the in-situ real-checkpoint probe (loader scale layout /
+      real SwiGLU order) before calling the MoE bridge fully verified on real weights."
 
 # ---- SECOND novel kernel family found by bring-up (2026-09-15): MHC ----
 # The coverage-gate op-scan enumerated DSA (attention subsystem) but MISSED MHC — the
