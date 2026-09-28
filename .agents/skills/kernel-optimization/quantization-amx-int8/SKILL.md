@@ -45,7 +45,20 @@ manufacture the domain overflow yourself. Instead:
    the GEMM — no bf16 materialization, which is what makes a naive per-token Python dequant
    ~100× too slow). Mirror the framework's own low-bit method (load-time prepack + scale pack
    + the fused apply) rather than authoring a kernel.
-3. Validate accuracy vs the higher-precision reference (`accuracy-oracle`).
+3. **Accuracy is keyed on whether the SHRINK is LOSSLESS — not on the compute precision.**
+   Accuracy is fixed by the *operand* precision (the weight values entering the matmul);
+   upconvert-to-bf16-for-compute does NOT recover bits thrown away at downconvert. So:
+   - **Lossless shrink = zero accuracy loss, no eval needed** (just confirm it): the resident
+     low-bit is an *exact re-encoding* of the source — either the checkpoint is **native** in
+     that format (keeping it discards nothing), or the format represents every value exactly
+     (fp4 e2m1 × power-of-2 e8m0 → bf16 is bit-exact; fp8 captures fp4 levels exactly). Here a
+     W4A16 path and the higher-precision path compute on IDENTICAL weight values.
+   - **Lossy shrink = MUST validate** (`accuracy-oracle`): if you shrink by *quantizing a
+     higher-precision checkpoint down* (bf16/fp8 → int4/fp4 to fit), the loss is incurred at
+     the downconvert and no compute precision undoes it.
+   - Even with lossless weights, two axes still cost accuracy and need a check: **activation
+     precision** (W4A16 vs W4A8) and any **scale/group re-encoding** to match a kernel (a
+     de-replication is exact; a real group-size change or fp4→int4 scale requant is lossy).
 
 Real case (DeepSeek-V4-Flash, GNR): the routed experts ship **native MXFP4** (~137 GB). A
 Plan-A dequant to fp8 inflated them to ~275 GB, which exceeds one 258 GB SNC domain and forced

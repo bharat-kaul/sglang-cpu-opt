@@ -90,8 +90,25 @@ size, and it decides tp vs interleave. Compute up front:
        STORAGE + in-kernel dequant needs NO low-bit matmul HW, cuts both footprint AND streamed
        bytes, and — crucially here — lets a too-big model become a **single-domain tp=1** model,
        side-stepping every placement hack below. Precision-to-fit is a CAPACITY lever applied
-       FIRST, not a throughput lever applied last. Validate accuracy against the higher-precision
-       reference (`accuracy-oracle`).
+       FIRST, not a throughput lever applied last.
+     - **Accuracy: keyed on whether the SHRINK is lossless, NOT on the compute precision.**
+       Accuracy is set by the *operand* precision (the weight values fed to the matmul); a
+       higher-precision accumulator/upconvert-for-compute does NOT restore bits discarded when
+       the weights were downconverted. So:
+       · **Lossless shrink → zero accuracy loss, no eval needed (just a sanity check).** This is
+         the case when the low-bit resident is an *exact re-encoding* of the source: (a) the
+         checkpoint is **native** in that format (keeping fp4 you already have throws nothing
+         away — our MXFP4 case), or (b) the target dtype represents every source value exactly
+         (fp4 e2m1 × power-of-2 e8m0 → bf16 is bit-exact; fp8 captures fp4 levels exactly, which
+         is why the old fp8 path and MXFP4 compute on *identical* weight values).
+       · **Lossy shrink → you MUST validate (`accuracy-oracle`).** If you shrink by *quantizing a
+         higher-precision checkpoint down* (bf16/fp8 → int4/fp4 to make it fit), the loss is
+         baked in at the downconvert and no compute precision undoes it.
+       · Two loss axes persist even with lossless *weights*: (1) **activation precision** —
+         W4A16 (bf16 acts) vs W4A8 (int8/fp8 acts) is a real accuracy difference; (2) **scale /
+         group re-encoding** — a genuine group-size change or scale requant (e.g. fp4→int4) is
+         lossy, so any scale reshaping done to match a kernel must be verified *bit-exact* (a
+         de-replication is exact; a group-size change is not).
    - **(A) TP-shard (only if it still won't fit one domain, or you are prefill/compute-bound):**
      `tp = #SNC` (or a divisor that also divides head count); per-rank peak ≈ `model/tp` must
      fit one domain. Natural per-domain memory + bandwidth. BUT TP adds an all-reduce every
