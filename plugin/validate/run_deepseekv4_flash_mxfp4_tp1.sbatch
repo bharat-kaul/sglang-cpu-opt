@@ -20,7 +20,8 @@ export INTEL_CPU_DSV4_MXFP4_MOE=1                 # native MXFP4 W4A16 experts (
 unset INTEL_CPU_DSV4_FP4_MOE_BF16
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
-export INTEL_CPU_DSV4_DECODE_THREADS=auto         # tp=1 -> per-forward cap works (200x M=1 fix)
+export INTEL_CPU_DSV4_DECODE_THREADS=8            # real-Flash MoE has steep inverse thread scaling
+                                                  # (~0.1ms@8 vs ~2s@40); MoE dominates the forward
 export INTEL_CPU_DSV4_TIMEIT=1
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 cd /data/nfs_home/bkaul
@@ -31,7 +32,7 @@ cd /data/nfs_home/bkaul
 SAMPLER=$!
 python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
-  --device cpu --tp 1 --batch-size 1 --input-len 1 --output-len 16 \
+  --device cpu --tp 1 --batch-size 1 --input-len 1 --output-len 8 \
   --trust-remote-code --disable-cuda-graph \
   --mem-fraction-static 0.85 --max-total-tokens 4096 --swa-full-tokens-ratio 0.5
 echo "[exit=$?]"
