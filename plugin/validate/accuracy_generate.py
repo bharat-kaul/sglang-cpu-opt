@@ -25,8 +25,8 @@ def main():
         trust_remote_code=True,
         disable_cuda_graph=True,
         mem_fraction_static=0.85,
-        max_total_tokens=4096,
-        attention_backend=None,
+        max_total_tokens=8192,
+        swa_full_tokens_ratio=0.8,
     )
     sampling = {"temperature": 0.0, "max_new_tokens": 32}
     tag = "MXFP4" if os.environ.get("INTEL_CPU_DSV4_MXFP4_MOE") == "1" else "FP8-ref"
