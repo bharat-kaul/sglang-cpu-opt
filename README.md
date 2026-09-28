@@ -9,6 +9,8 @@ hand-optimized kernels or creating new kernels (having distilled knowhow into sk
 
 > **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
 >
+> **Correctness & hygiene, up front:** every enablement clears a fixed gate set *before* any number is published — (1) **dtype hygiene** — each weight family's stored dtype is audited and mapped to a supported compute dtype (low-bit **moved**, bf16 **computed**), and every `stored ≠ compute` dequant bridge is **parity-checked, not assumed**; (2) **coverage-gate** — no novel op is silently dense-approximated; (3) **accuracy oracle** — real-prompt coherence → per-layer parity → task accuracy; (4) **honest roofline** — target vs measured at one labeled machine config. Unproven numbers are labeled UNVALIDATED, never implied.
+>
 > **Bird's-eye view of the agentic workflow & skills** — the staged, measure-first methodology behind the North Star (HW characterization → analysis → roofline → coverage → reuse/author → validate → certify), with all **31 skills** mapped to each stage.
 
 ![Staged agentic workflow for Day-0 CPU model enablement: 31 skills mapped from HW characterization through roofline, kernel reuse and authoring, validation and certification](docs/agentic-workflow-slide.png)

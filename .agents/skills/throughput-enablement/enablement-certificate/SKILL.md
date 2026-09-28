@@ -39,6 +39,22 @@ missing evidence, the certificate FAILS — no partial credit.
    roofline against a dual-socket measured. State "single socket" vs "full node (2
    socket)" explicitly in the `node` field and the results table.
 
+## Reviewer-facing hygiene blurb (put it where the boss/user looks FIRST)
+A certificate proves rigor to someone who opens it — but leadership and users mostly see the
+LANDING surfaces (README top, THESIS_SUMMARY, the workflow slide, a results page). Each of those
+MUST carry a SHORT "what's checked, up front" blurb so a reader sees the right things were done
+WITHOUT digging into the certificate. Keep it to a few lines enumerating the gates in place:
+- **dtype hygiene** — stored→compute dtype audited per weight family; every `stored ≠ compute`
+  dequant bridge parity-checked (not assumed).
+- **coverage** — no novel op silently dense-approximated.
+- **accuracy** — real-prompt coherence → per-layer parity → task accuracy.
+- **honest roofline** — target vs measured at one labeled machine config.
+Rules: (1) state it as a claim BACKED BY A LINK to the evidence (certificate / parity test /
+coverage yaml), never a bare assertion; (2) any number not yet proven is labeled **UNVALIDATED /
+PENDING**, never implied as done — an honest "in progress" blurb beats an overclaim a reviewer can
+puncture (this is exactly what pre-empts the "did you actually verify X?" question). This blurb is
+the human-facing dual of the machine-checkable certificate; publish both.
+
 ## Pass rule
 GREEN only if: coverage ALL COVERED, accuracy within tol on BOTH layers, dispatch
 confirmed, every hot op passes BOTH eff_abs ≥ 0.70 AND eff_rel ≥ 0.90, end-to-end
