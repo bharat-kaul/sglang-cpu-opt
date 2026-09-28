@@ -1305,6 +1305,11 @@ def _mxfp4_insitu_parity(layer, x0, topk_w0, topk_id0, out_kernel, rc):
             "[MXFP4 PARITY] %s cosine=%.6f rel=%.3e max_abs=%.3e (kernel vs torch fp4 oracle, real ckpt)",
             verdict, cos, rel, max_abs,
         )
+        try:  # file-based too: the Engine scheduler subprocess stdout is not captured in the sbatch log
+            with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_mxfp4_parity_insitu.txt"), "a") as _f:
+                _f.write(f"[MXFP4 PARITY] {verdict} cosine={cos:.6f} rel={rel:.3e} max_abs={max_abs:.3e}\n")
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as _e:  # noqa: BLE001
         logger.warning("[MXFP4 PARITY] probe failed: %s", _e)
     finally:
