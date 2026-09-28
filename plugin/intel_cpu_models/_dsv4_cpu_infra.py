@@ -1249,21 +1249,27 @@ def _install_fp4_expert_cpu_dequant() -> None:
             import torch as _t
 
             _rss0 = _rss_gb()
-            w13s = getattr(layer, "w13_weight_scale", None)
+            # Use w13_weight_scale_INV: that is the group-32 e8m0 scale [E, OC, K/32] the MXFP4
+            # kernel wants (Plan-A's cast_e2m1fn_to_e4m3fn asserts scale.size(1)==in_dim//32 on it).
+            # w13_weight_scale (no _inv) is a DIFFERENT, 4x-finer tensor -- do NOT use it here.
+            w13s = getattr(layer, "w13_weight_scale_inv", None)
             if w13s is None:
-                w13s = layer.w13_weight_scale_inv
-            w2s = getattr(layer, "w2_weight_scale", None)
+                w13s = layer.w13_weight_scale
+            w2s = getattr(layer, "w2_weight_scale_inv", None)
             if w2s is None:
-                w2s = layer.w2_weight_scale_inv
+                w2s = layer.w2_weight_scale
             w13s = w13s.view(_t.uint8) if w13s.dtype != _t.uint8 else w13s
             w2s = w2s.view(_t.uint8) if w2s.dtype != _t.uint8 else w2s
             if not _MOE_DIAG.get("mx_shape_logged"):
                 _MOE_DIAG["mx_shape_logged"] = True
+                _alt13 = getattr(layer, "w13_weight_scale", None)
                 logger.warning(
-                    "[MXFP4 SHAPE] w13=%s/%s w2=%s/%s w13_scale=%s/%s w2_scale=%s/%s",
+                    "[MXFP4 SHAPE] w13=%s/%s w2=%s/%s w13_scale_inv=%s/%s w2_scale_inv=%s/%s "
+                    "alt_w13_scale=%s",
                     tuple(layer.w13_weight.shape), layer.w13_weight.dtype,
                     tuple(layer.w2_weight.shape), layer.w2_weight.dtype,
                     tuple(w13s.shape), w13s.dtype, tuple(w2s.shape), w2s.dtype,
+                    tuple(_alt13.shape) if _alt13 is not None else None,
                 )
             # The MXFP4 kernel wants group-32 e8m0 scales: [E, OC, K/32] (128 groups for K=4096).
             # The loader delivers a 4x-finer scale here ([.,.,512] / [.,.,256]); the checkpoint is
