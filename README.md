@@ -70,13 +70,28 @@ whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gat
     attention — [dsa_compressor_cpu.py](plugin/intel_cpu_models/dsa_compressor_cpu.py),
     [dsa_indexer_cpu.py](plugin/intel_cpu_models/dsa_indexer_cpu.py),
     [dsa_sparse_attention_cpu.py](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py) (parity gates PASS).
-  - **Composed DSA attention validated end-to-end on CPU** — index→select→attend
+  - **Composed DSA attention validated in isolation on CPU** — index→select→attend
     ([dsa_attention_cpu.py](plugin/intel_cpu_models/dsa_attention_cpu.py)): at top-k=all it reduces
-    **exactly to dense attention** (err 1.8e-7), proving the whole sparse pipeline is numerically correct.
-  - **Remaining (scoped):** the paged flash-MLA *serving* runtime (compress plan byte-layout + state-pool
-    ring gather/scatter + paged fp8 cache dequant in the backend forward) to wire these kernels into an
-    end-to-end serve, then the real **806 GB Pro** run (weights ready) for perf + accuracy. This is
-    CUDA-oriented backend plumbing, not novel-kernel authoring — the novel DSA math is done + proven.
+    **exactly to dense attention** (err 1.8e-7), proving the sparse-attention math is numerically
+    correct (standalone; wiring it into the in-model *incremental* decode path is in Remaining).
+  - **Runs end-to-end on CPU at tp=1 via native MXFP4** — the routed experts stay 4-bit and run the
+    CPU **MXFP4 W4A16** MoE kernel (fused fp4→bf16), so the full model holds **~200 GB → fits ONE
+    NUMA/SNC domain → clean tp=1**, sidestepping the tp>1 / NUMA-interleave swamp that an fp4→fp8
+    up-convert forced. Loads ~135 s; prefill + multi-token decode complete →
+    [run](plugin/validate/run_deepseekv4_flash_mxfp4_tp1.sbatch).
+  - **FP4→bf16 dtype bridge is parity-checked, not assumed** — a standalone kernel-vs-torch-oracle
+    test + an in-situ probe on the real checkpoint
+    ([test_mxfp4_moe_cpu.py](plugin/validate/test_mxfp4_moe_cpu.py), `INTEL_CPU_DSV4_MOE_PARITY`);
+    status **PENDING** (queued) → [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+  - **Accuracy oracle caught a real decode bug** — the real-prompt coherence check found garbage
+    output (DSA sparse selection stubbed at decode → MLA gathered nothing → zero attention); fixed
+    with a causal **dense fallback**. Full parity + task-accuracy re-run is queued; **decode perf/tok-s
+    held UNVALIDATED** until it passes (the earlier fast number was on the pre-fix, attention-off model).
+  - **Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
+    (O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime (compress-plan byte-layout +
+    state-pool ring gather/scatter + paged fp8 cache dequant in the backend forward); finish the
+    accuracy validation; then the real **806 GB Pro** run (weights ready) for perf + accuracy. This is
+    backend plumbing + tuning, not novel-kernel authoring — the novel DSA math is authored + proven in isolation.
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
