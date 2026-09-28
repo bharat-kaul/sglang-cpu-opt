@@ -61,11 +61,29 @@ resident model at **~200 GB → fits one domain → clean tp=1**, sidestepping t
 problem. *Lesson (now an upfront skill check): treat a capacity overflow as a footprint/precision
 problem first — never inflate a native low-bit checkpoint; keep it low-bit and use the low-bit kernel.*
 
+**Precision & compute-type hygiene (up front).** The model is NOT uniform precision. GNR AMX has
+native tiles for **bf16 / fp16 / int8 only — no fp8 or fp4 matmul** — so every sub-16-bit weight is
+*moved* low-bit (bandwidth/capacity) and *computed* in bf16 after a fused dequant. The choices per
+weight family, and how each is verified:
+
+| Weight family | Stored / moved | Compute (AMX tile) | Bridge | Lossless? | Correctness gate |
+|---|---|---|---|---|---|
+| MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k is exact in bf16 | MXFP4 parity test + in-situ probe — *pending* |
+| MLA/indexer/shared-expert proj | **fp8** e4m3 | **bf16** | W8A16, dequant fp8→bf16 | ✅ fp8 levels exact in bf16 | donor fp8 CPU path (deepseek-v2) |
+| norms / router / embed / lm_head | bf16 | bf16 | none (native) | — | native |
+
+No int8 *compute* is used here: int8 is the only low-precision AMX tile, but routing fp4/fp8 through
+int8 would add activation-quant error — so compute stays **bf16** (lossless), and the low precision is
+spent purely on movement/footprint. Every `stored ≠ compute` row is a dequant **bridge** that is
+verified numerically, not assumed (see the correctness-gate column; `coverage/deepseek_v4_flash_coverage.yaml`
+→ `dtype_bridge_gates`).
+
 **Status today.**
 - ✅ **Runs end-to-end on CPU** (Granite Rapids, tp=1): loads in ~135 s, resident ~200 GB on one
   SNC domain, prefill + multi-token decode complete.
 - ✅ **Data-type audit** (upfront, from the real checkpoint): every op maps to a supported GNR type
-  — fp4 experts→W4A16, fp8 MLA/indexer/shared-experts→W8A16 (dequant→bf16 AMX), bf16→native AMX.
+  (see the precision-hygiene table above) — fp4 experts→W4A16, fp8 MLA/indexer/shared-experts→W8A16
+  (dequant→bf16 AMX), bf16→native AMX. Each `stored ≠ compute` bridge carries a required parity gate.
 - ✅ **Decode thread-cap** tuned on the **real** model (the heavy MoE dominates → whole-forward
   optimum ~8 threads, not the dummy-weight proxy's ~40).
 - 🔧 **Correctness gate in progress.** A real-prompt coherence check (the accuracy oracle's Layer 0)
