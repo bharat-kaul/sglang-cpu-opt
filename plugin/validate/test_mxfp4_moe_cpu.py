@@ -71,8 +71,13 @@ def main() -> None:
     torch.manual_seed(0)
     from sglang.srt.layers.amx_utils import CPUQuantMethod
 
+    try:
+        import sgl_kernel  # noqa: F401  — registers torch.ops.sgl_kernel.* (needed without a model load)
+    except Exception as e:  # noqa: BLE001
+        print(f"MXFP4 MoE parity: SKIP (cannot import sgl_kernel: {e})")
+        return
     if not hasattr(torch.ops.sgl_kernel, "fused_experts_cpu"):
-        print("MXFP4 MoE parity: SKIP (sgl_kernel.fused_experts_cpu unavailable)")
+        print("MXFP4 MoE parity: SKIP (sgl_kernel.fused_experts_cpu unavailable after import)")
         return
 
     E, hidden, inter, T, topk = 8, 128, 256, 6, 2
