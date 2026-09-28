@@ -127,3 +127,11 @@ sub-8-bit layout (DSV4: `fused_experts_cpu` asserts `packed_w1.size(2)==packed_K
 - **Sequence:** bf16 parity (reference) → int8 → int4-storage/int8-compute, each diffed vs the
   bf16 result. Same as the playbook's correctness-first rule; int4-storage on GNR is ALSO
   dequant-to-int8/bf16 (no int4 compute).
+- **The dequant bridge is UNVERIFIED until a numeric parity gate passes.** Whether you dequant at
+  load (path 1) or per-tile in-kernel (path 2), the fp4→bf16 decode (scale layout, nibble order,
+  group/block size, VNNI prepack, SwiGLU gate/up split) fails SILENTLY when wrong — plausible
+  garbage, not a crash. Do NOT treat "the bf16 kernel exists and it ran" as correct. Emit the
+  per-kernel parity gate from `accuracy-oracle` §low-bit parity gate: kernel output vs an
+  independent torch dequant oracle from the SAME packed bytes, decoded per the KERNEL's exact
+  convention (read the kernel source, not a different quant path). Worked example:
+  `plugin/validate/test_mxfp4_moe_cpu.py` + the `INTEL_CPU_DSV4_MOE_PARITY` in-situ probe.

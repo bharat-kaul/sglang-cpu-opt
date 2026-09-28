@@ -1219,6 +1219,68 @@ def _torch_fp4_moe_apply(layer, x, topk_weights, topk_ids):
     return out.to(x.dtype)
 
 
+# Standard OCP e2m1: nibble -> value (matches csrc/cpu/vec.h cvt_mxfp4_e2m1_bf16, low-nibble-first).
+_MXFP4_E2M1 = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0]
+
+
+def _mxfp4_dequant_raw(packed, scale_f32, group=32):
+    # packed fp4 [O, K//2] (int8/uint8 bits) + float32 pow2 group-32 scale [O, K//group] -> fp32 [O,K].
+    import torch
+
+    lut = torch.tensor(_MXFP4_E2M1, dtype=torch.float32)
+    pu = packed.view(torch.uint8) if packed.dtype != torch.uint8 else packed
+    low = (pu & 0xF).long()
+    high = ((pu >> 4) & 0xF).long()
+    O, khalf = pu.shape
+    nib = torch.empty(O, khalf * 2, dtype=torch.long)
+    nib[:, 0::2] = low
+    nib[:, 1::2] = high
+    vals = lut[nib]
+    s = scale_f32.float().repeat_interleave(group, dim=-1)
+    return vals * s
+
+
+def _mxfp4_insitu_parity(layer, x0, topk_w0, topk_id0, out_kernel, rc):
+    # Real-checkpoint correctness probe: compare the MXFP4 kernel output to a torch dequant+SwiGLU
+    # oracle built from the SAME raw fp4 weights + scales, on the SAME real activations. Runs once.
+    import torch
+    import torch.nn.functional as F
+
+    ref = layer._mxfp4_ref
+    try:
+        if getattr(rc, "apply_router_weight_on_input", False):
+            logger.warning("[MXFP4 PARITY] apply_router_weight_on_input=True; oracle uses output weighting")
+        E = ref["w13"].shape[0]
+        T, hidden = x0.shape
+        xf = x0.float()
+        w13 = torch.stack([_mxfp4_dequant_raw(ref["w13"][e], ref["w13s"][e]) for e in range(E)])
+        w2 = torch.stack([_mxfp4_dequant_raw(ref["w2"][e], ref["w2s"][e]) for e in range(E)])
+        oracle = torch.zeros(T, hidden, dtype=torch.float32)
+        for e in range(E):
+            mask = topk_id0 == e
+            tok, slot = mask.nonzero(as_tuple=True)
+            if tok.numel() == 0:
+                continue
+            g, u = (xf[tok] @ w13[e].t()).chunk(2, dim=-1)
+            oe = (F.silu(g) * u) @ w2[e].t()
+            oracle.index_add_(0, tok, oe * topk_w0[tok, slot].float().unsqueeze(-1))
+        got = out_kernel.float()
+        diff = (got - oracle).abs()
+        sc = oracle.abs().max().clamp_min(1e-6)
+        max_abs = diff.max().item()
+        rel = (max_abs / sc).item()
+        cos = F.cosine_similarity(got.reshape(1, -1), oracle.reshape(1, -1)).item()
+        verdict = "PASS" if (cos >= 0.99 and rel <= 0.08) else "FAIL"
+        logger.warning(
+            "[MXFP4 PARITY] %s cosine=%.6f rel=%.3e max_abs=%.3e (kernel vs torch fp4 oracle, real ckpt)",
+            verdict, cos, rel, max_abs,
+        )
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("[MXFP4 PARITY] probe failed: %s", _e)
+    finally:
+        layer._mxfp4_ref = None  # free the stashed raw fp4 weights
+
+
 def _install_fp4_expert_cpu_dequant() -> None:
     # Plan A: GNR AMX has no 4-bit matmul, and Fp8MoEMethod's fp4->fp8 dequant lives in the
     # NON-CPU branch of process_weights_after_loading; the _is_cpu branch hands fp4-packed
@@ -1260,6 +1322,25 @@ def _install_fp4_expert_cpu_dequant() -> None:
             import torch as _t
 
             _rss0 = _rss_gb()
+            # Optional in-situ correctness probe: stash the FIRST layer's raw fp4 weights + scales
+            # (before they are replaced by the packed versions) so _patched_apply can compare the
+            # kernel output against a torch dequant+SwiGLU oracle on the real checkpoint + real
+            # activations. Gated + first-layer-only so it costs ~one layer of fp4 RAM, freed after.
+            if (
+                _os.environ.get("INTEL_CPU_DSV4_MOE_PARITY", "0") == "1"
+                and _MOE_DIAG.get("parity_ref") is None
+            ):
+                _MOE_DIAG["parity_ref"] = True
+                layer._mxfp4_ref = {
+                    "w13": layer.w13_weight.detach().clone(),
+                    "w2": layer.w2_weight.detach().clone(),
+                    "w13s": (getattr(layer, "w13_weight_scale_inv", None)
+                             if getattr(layer, "w13_weight_scale_inv", None) is not None
+                             else layer.w13_weight_scale).detach().clone(),
+                    "w2s": (getattr(layer, "w2_weight_scale_inv", None)
+                            if getattr(layer, "w2_weight_scale_inv", None) is not None
+                            else layer.w2_weight_scale).detach().clone(),
+                }
             # The loader delivers the group-32 scale as FLOAT32 power-of-2 values in
             # w13_weight_scale_inv ([E, OC, K/32]); the MXFP4 kernel wants the e8m0 EXPONENT byte
             # (uint8, scale = 2^(byte-127)) = the float32 biased-exponent field (bits>>23)&0xFF.
@@ -1447,6 +1528,10 @@ def _install_fp4_expert_cpu_dequant() -> None:
             x = dispatch_output.hidden_states
             topk_weights, topk_ids, _ = dispatch_output.topk_output
             rc = layer.moe_runner_config
+            _ref = getattr(layer, "_mxfp4_ref", None)
+            _x0 = x if _ref is None else x.detach().clone()
+            _tw0 = None if _ref is None else topk_weights.detach().clone()
+            _ti0 = None if _ref is None else topk_ids.detach().clone()
             x, topk_weights = apply_topk_weights_cpu(
                 rc.apply_router_weight_on_input, topk_weights, x
             )
@@ -1470,6 +1555,8 @@ def _install_fp4_expert_cpu_dequant() -> None:
                 True,
                 rc.activation,
             )
+            if _ref is not None:
+                _mxfp4_insitu_parity(layer, _x0, _tw0, _ti0, out, rc)
             return StandardCombineInput(hidden_states=out)
         # runtime-config fix: cap threads around the native MoE apply (fused_experts scales
         # inversely with threads on this shape); explicit N or self-tuned via =auto.

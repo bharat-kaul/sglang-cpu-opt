@@ -46,10 +46,25 @@ not from assumptions about the family.
    - **Suboptimal-dtype ops.** Flag ops running as generic fp32/torch where a bf16/
      int8 AMX kernel exists (e.g. custom attention/indexer sub-ops); those leave
      the AMX tiles idle. Route them through the packed AMX GEMM.
-   Emit a table `{op, stored_dtype, target_compute_dtype, kernel, inflation?, note}`.
-   This audit is the input to coverage-gate (a missing low-bit kernel is a gap) and
-   to the capacity/OOM check (the resident footprint = sum of stored bytes, NOT the
-   inflated ones).
+   - **CORRECTNESS OBLIGATION (auto-emitted, do not skip).** Whenever stored_dtype ≠
+     target_compute_dtype there is a DEQUANT/REPACK BRIDGE (fp4→bf16, fp8→bf16, int4
+     unpack, VNNI prepack, group/block scale decode) sitting between the checkpoint
+     and the donor kernel. "A bf16/fp8 kernel exists" (coverage) is NOT the same as
+     "the bridge is numerically correct" — the scale layout, nibble order, SwiGLU
+     gate/up split, and pack dispatch are all easy to get silently wrong (they
+     produce plausible-looking garbage, not a crash). So for EACH such op family the
+     audit MUST emit a required numeric **parity gate**: compare the real kernel's
+     output to an INDEPENDENT torch dequant+compute oracle built from the SAME packed
+     bytes (see `accuracy-oracle` §low-bit parity gate). A converted-dtype op is only
+     "done" once this gate passes — end-to-end coherence alone does not localize a
+     bridge bug to the kernel.
+   Emit a table `{op, stored_dtype, target_compute_dtype, kernel, inflation?,
+   dtype_bridge?, parity_gate, note}`.
+   This audit is the input to coverage-gate (a missing low-bit kernel is a gap; a
+   present one with a dtype_bridge carries a correctness obligation, NOT an
+   unconditional "covered"), to accuracy-oracle (every dtype_bridge → one parity
+   gate), and to the capacity/OOM check (resident footprint = sum of stored bytes,
+   NOT the inflated ones).
 3. **Attention classification.** MHA / GQA (num_kv_heads) / MLA (kv-lora,
    absorbed) / sliding-window (window size, interleave pattern) / sparse
    (indexer/selector). Record mask kind and head_dim. This is the single most

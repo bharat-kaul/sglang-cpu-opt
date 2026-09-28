@@ -35,6 +35,19 @@ For each op in the graph:
 Also cross-check the graph against `known_gaps`: any match is an immediate GAP with
 its `leg: new-kernel` routing.
 
+### COVERED is CONDITIONAL when stored dtype ≠ compute dtype (the dtype bridge)
+A donor kernel matching on op-kind + shape does NOT mean the op is correct when the
+checkpoint's stored dtype differs from the kernel's compute dtype (fp4/mxfp4/fp8/int4
+experts on a bf16/fp8 AMX kernel). Between the packed checkpoint bytes and that kernel
+sits a **dequant/repack bridge** (scale decode, nibble order, group/block layout, VNNI
+prepack, SwiGLU gate/up split) that is easy to get silently wrong — it yields plausible
+garbage, not a crash. So for any op carrying a `dtype_bridge` (from the dtype audit,
+`model-op-decomposition` §2b), mark it **COVERED (bridge-unverified)** and attach a
+required **parity gate** obligation; it is not fully COVERED until that gate passes
+(`accuracy-oracle` §low-bit parity gate). Declaring "MoE covered because a bf16/fp8
+MoE kernel exists" while the experts are FP4 is exactly the over-eager "covered" this
+gate exists to prevent — the FP4→bf16 kernel + its packing must be proven numerically.
+
 ## Output contract
 A per-op verdict table + one overall verdict:
 - **ALL COVERED** (fallbacks allowed) → proceed to `cpu-model-wiring`.

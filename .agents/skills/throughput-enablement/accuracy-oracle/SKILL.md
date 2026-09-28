@@ -1,6 +1,6 @@
 ---
 name: accuracy-oracle
-description: "Use after cpu-model-wiring to prove the CPU-enabled model is numerically correct. THREE layered checks so a failure localizes: (0) a cheap real-prompt COHERENCE smoke test first ('it ran' on random/dummy inputs is NOT 'it's correct'; catches gross zeroed/no-op/routing/layout bugs and silently-stubbed forward paths), (1) per-layer / logits parity vs a trusted reference (HF or the GPU SGLang path) under tolerance, and (2) end-to-end task accuracy via the in-repo harnesses (gsm8k, mmlu, hellaswag) within N points. Includes a correct-by-construction ISOLATION technique to bisect MoE vs shared-path bugs. Blocks enablement on any regression; a per-layer diff pinpoints the offending op for the wiring step to fix."
+description: "Use after cpu-model-wiring to prove the CPU-enabled model is numerically correct. LAYERED checks so a failure localizes: (0) a cheap real-prompt COHERENCE smoke test first ('it ran' on random/dummy inputs is NOT 'it's correct'; catches gross zeroed/no-op/routing/layout bugs and silently-stubbed forward paths), (0.5) a per-kernel LOW-BIT PARITY gate for every dtype bridge (fp4/mxfp4/fp8/int4 weights on a bf16/fp8 kernel) — kernel output vs an independent torch dequant oracle from the same packed bytes, because 'a bf16/fp8 kernel exists' is coverage, not correctness, (1) per-layer / logits parity vs a trusted reference (HF or the GPU SGLang path) under tolerance, and (2) end-to-end task accuracy via the in-repo harnesses (gsm8k, mmlu, hellaswag) within N points. Includes a correct-by-construction ISOLATION technique to bisect MoE vs shared-path bugs. Blocks enablement on any regression; a per-layer diff pinpoints the offending op for the wiring step to fix."
 ---
 
 # Accuracy Oracle
@@ -41,6 +41,31 @@ dequant+matmul reference (same weights) while keeping the real attention/norm/ro
 the bug is in the swapped component; still garbage → it's in the SHARED path (attention/rope/
 norm). Raise the framework **watchdog timeout** first (`watchdog_timeout`) — a deliberately slow
 reference otherwise gets killed as a false "hang" (exit 137 with a watchdog stack).
+
+## Layer 0.5 — low-bit kernel parity gate (per dtype bridge)
+**Every `dtype_bridge` from the dtype audit (`model-op-decomposition` §2b) gets its own numeric
+gate — coverage ("a bf16/fp8 kernel exists") is NOT correctness.** When a kernel consumes weights
+whose STORED dtype differs from its compute dtype (fp4/mxfp4/fp8/int4 experts on a bf16/fp8 AMX
+GEMM), a dequant+repack bridge (scale decode, nibble order, group/block layout, VNNI prepack,
+SwiGLU gate/up split) sits in between and fails SILENTLY (plausible garbage, not a crash). Prove
+it before trusting end-to-end output:
+- **Independent oracle from the SAME packed bytes.** Compare the real kernel output to a torch
+  dequant+compute reference derived from the checkpoint's own packed weights + scales — decode the
+  low-bit values per the KERNEL's exact convention (read the kernel source, e.g. csrc/cpu/vec.h
+  `cvt_mxfp4_e2m1_bf16`: standard OCP e2m1 LUT, low-nibble-first, per-32 e8m0 scale = 2^(byte−127)),
+  NOT via a different quant path that may use another scale layout. Assert cosine ≥ 0.99 and small
+  relative error (bf16 accumulation vs fp32 reference → tolerate ~1e-2, but a wiring bug blows past
+  it by orders of magnitude).
+- **Two complementary forms.** (1) A STANDALONE synthetic test (random packed weights → prepack →
+  kernel vs oracle) proves the kernel + packing math, is CI-able, and needs no model load — but must
+  run on real ISA hardware (AMX). (2) An IN-SITU probe gated by an env flag stashes the first layer's
+  raw packed weights before they're replaced by the prepacked ones, then on the first real forward
+  compares kernel vs oracle on the REAL checkpoint + REAL activations — this catches checkpoint-
+  wiring bugs the synthetic test cannot (e.g. the loader's float32-pow2 scale layout, real SwiGLU
+  order). Worked example in this repo: `plugin/validate/test_mxfp4_moe_cpu.py` (standalone) +
+  `INTEL_CPU_DSV4_MOE_PARITY=1` (`[MXFP4 PARITY]` in-situ), mirroring the DSA `test_dsa_*` gates.
+This gate localizes a bridge bug to the exact kernel; end-to-end coherence (Layer 0) or task
+accuracy (Layer 2) would only tell you "something is wrong" somewhere in a 43-layer forward.
 
 ## Layer 1 — numerical parity (localizes)
 1. Feed identical token inputs to reference and CPU model.
