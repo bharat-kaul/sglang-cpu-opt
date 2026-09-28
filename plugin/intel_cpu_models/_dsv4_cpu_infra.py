@@ -987,6 +987,9 @@ def _torch_flash_mla_with_kvcache(
     pos_kept = _SEL_HOLDER.get("pos_kept")
     _SEL_HOLDER["pos_kept"] = None
     _dbg = _os.environ.get("INTEL_CPU_DSV4_ATTN_DEBUG") == "1"
+    # Isolation switch: ignore the DSA indexer selection and attend dense/causal over all valid KV.
+    # At short context dense == full attention, so coherent output here => the bug is the indexer.
+    _force_dense = _os.environ.get("INTEL_CPU_DSV4_FORCE_DENSE") == "1"
     if _dbg and _ATTN_DBG["n"] < 8:
         _v = _KV_VALID.get(dp)
         try:
@@ -1007,6 +1010,8 @@ def _torch_flash_mla_with_kvcache(
             idx = idx[idx >= 0]
         else:
             idx = torch.empty(0, dtype=torch.long)
+        if _force_dense:
+            idx = torch.empty(0, dtype=torch.long)  # -> dense fallback below (ignore indexer)
         # pos_kept positional filter (over the first `cov` selected locs; tail always kept).
         if pos_kept is not None and t < pos_kept.shape[0] and idx.numel() > 0:
             cov = int(pos_kept.shape[1])
