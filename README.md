@@ -37,24 +37,6 @@ automatically from the same donor kernels (capability inheritance).
 
 ## Two theses, one plugin
 
-**Basic dtype hygiene (checked up front, before any kernel is chosen).** GNR AMX has native matmul
-tiles for **bf16 / fp16 / int8 only — no fp8 or fp4**. So model discovery audits every weight
-family's *stored* dtype (from the real checkpoint, not just `quantization_config`) and maps it to a
-*compute* dtype the hardware actually supports: sub-16-bit weights are **moved** low-bit (a
-bandwidth/capacity win) and **computed in bf16** after a fused dequant. Every `stored ≠ compute`
-step is a dequant **bridge** that is verified numerically, not assumed:
-
-| Weight family (DeepSeek-V4-Flash) | Stored / moved | Compute (AMX) | Bridge | Lossless? | Correctness gate |
-|---|---|---|---|---|---|
-| MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k exact in bf16 | [MXFP4 parity test](plugin/validate/test_mxfp4_moe_cpu.py) + in-situ probe |
-| MLA / indexer / shared-expert proj | **fp8** e4m3 | **bf16** | W8A16, dequant fp8→bf16 | ✅ fp8 levels exact in bf16 | donor fp8 CPU path |
-| norms / router / embed / lm_head | bf16 | bf16 | none (native) | — | native |
-
-int8 is the only low-precision AMX *compute* tile; fp4/fp8 route through **bf16** compute (not int8)
-to stay lossless — the low precision is spent purely on movement/footprint. Keeping the experts
-**native 4-bit** (instead of up-converting fp4→fp8, which doubles the footprint) is what lets the
-whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
-
 - **Thesis 1 — throughput (all-known-kernels):** enable by wiring + validation only. **PROVEN** (above).
 - **Thesis 2 — new-kernel leg (DeepSeek Flash v4.1):** the workflow, demonstrated end-to-end:
   - **Scope-discovery** surfaced the *true* scope — **two** novel kernel families (DSA sparse
@@ -92,6 +74,24 @@ whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gat
     state-pool ring gather/scatter + paged fp8 cache dequant in the backend forward); finish the
     accuracy validation; then the real **806 GB Pro** run (weights ready) for perf + accuracy. This is
     backend plumbing + tuning, not novel-kernel authoring — the novel DSA math is authored + proven in isolation.
+
+  **Precision & compute-type hygiene (checked up front, before any kernel is chosen).** GNR AMX has
+  native matmul tiles for **bf16 / fp16 / int8 only — no fp8 or fp4**. So model discovery audits every
+  weight family's *stored* dtype (from the real checkpoint, not just `quantization_config`) and maps it
+  to a *compute* dtype the hardware actually supports: sub-16-bit weights are **moved** low-bit (a
+  bandwidth/capacity win) and **computed in bf16** after a fused dequant. Every `stored ≠ compute` step
+  is a dequant **bridge** verified numerically, not assumed:
+
+  | Weight family (DeepSeek-V4-Flash) | Stored / moved | Compute (AMX) | Bridge | Lossless? | Correctness gate |
+  |---|---|---|---|---|---|
+  | MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k exact in bf16 | [MXFP4 parity test](plugin/validate/test_mxfp4_moe_cpu.py) + in-situ probe |
+  | MLA / indexer / shared-expert proj | **fp8** e4m3 | **bf16** | W8A16, dequant fp8→bf16 | ✅ fp8 levels exact in bf16 | donor fp8 CPU path |
+  | norms / router / embed / lm_head | bf16 | bf16 | none (native) | — | native |
+
+  int8 is the only low-precision AMX *compute* tile; fp4/fp8 route through **bf16** compute (not int8)
+  to stay lossless — the low precision is spent purely on movement/footprint. Keeping the experts
+  **native 4-bit** (instead of up-converting fp4→fp8, which doubles the footprint) is what lets the
+  whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
