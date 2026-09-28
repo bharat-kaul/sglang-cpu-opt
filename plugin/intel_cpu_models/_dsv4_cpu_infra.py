@@ -1265,24 +1265,45 @@ def _install_fp4_expert_cpu_dequant() -> None:
                     tuple(layer.w2_weight.shape), layer.w2_weight.dtype,
                     tuple(w13s.shape), w13s.dtype, tuple(w2s.shape), w2s.dtype,
                 )
-            # The DeepSeek loader pads the packed-K (last) dim of the fp4 weights (e.g. 2048->2052)
-            # while the e8m0 group-32 scale stays sized to the TRUE K. The MXFP4 kernel wants
-            # packed_K = K/2 = (scale_groups * 32) / 2 = scale_groups * 16; slice off the padding.
-            _w13_ic = w13s.shape[-1] * 16
-            _w2_ic = w2s.shape[-1] * 16
-            if layer.w13_weight.shape[-1] != _w13_ic:
-                layer.w13_weight = layer.w13_weight[..., :_w13_ic].contiguous()
-            if layer.w2_weight.shape[-1] != _w2_ic:
-                layer.w2_weight = layer.w2_weight[..., :_w2_ic].contiguous()
+            # The MXFP4 kernel wants group-32 e8m0 scales: [E, OC, K/32] (128 groups for K=4096).
+            # The loader delivers a 4x-finer scale here ([.,.,512] / [.,.,256]); the checkpoint is
+            # group-32 ([2048,128]) so those are replicated -> downsample by taking every r-th group.
+            def _to_group32(scale, packed_ic, tag):
+                exp_g = (packed_ic * 2) // 32  # true K/32
+                g = scale.shape[-1]
+                if g == exp_g or exp_g == 0 or g % exp_g != 0:
+                    return scale
+                r = g // exp_g
+                blk_i = scale.reshape(*scale.shape[:-1], exp_g, r)  # [.,g0*r, g1*r,..]
+                interleave = bool((blk_i[..., :1] == blk_i).all().item())
+                blk_t = scale.reshape(*scale.shape[:-1], r, exp_g)  # [.,(g0..g), (g0..g),..]
+                tile = bool((blk_t[..., :1, :] == blk_t).all().item())
+                if not _MOE_DIAG.get("mx_scale_logged_" + tag):
+                    _MOE_DIAG["mx_scale_logged_" + tag] = True
+                    logger.warning(
+                        "[MXFP4 SCALE %s] g=%d exp=%d r=%d interleave_repl=%s tile_repl=%s head=%s",
+                        tag, g, exp_g, r, interleave, tile, scale[0, 0, : min(8, g)].tolist(),
+                    )
+                if tile and not interleave:
+                    return scale[..., :exp_g].contiguous()
+                return scale[..., ::r].contiguous()
+
+            w13s = _to_group32(w13s, layer.w13_weight.shape[-1], "w13")
+            w2s = _to_group32(w2s, layer.w2_weight.shape[-1], "w2")
             # Use convert_weight_packed (exactly what fused_experts_cpu(MXFP4) calls internally when
-            # is_vnni=False) so is_vnni=True gets the identical layout. NOT _amx_process_weight_after_
-            # loading -- that generic path treats the uint8 fp4 as int8 and appends a 4-byte/row
-            # compensation (2048 -> 2052), which the MXFP4 kernel's packed_K check rejects.
+            # is_vnni=False) so is_vnni=True gets the identical layout. CRITICAL: view the weight as
+            # UINT8 first -- it loads as int8 (kChar), and convert_weight_packed dispatches on dtype:
+            # int8 -> W8A8 packing (row = IC + 4-byte compensation -> 2052, kernel rejects); uint8
+            # (kByte) -> the mxfp4/int4 packing (row = IC*2 >> 1 = IC = 2048). Same bytes, free view.
+            _w13 = layer.w13_weight
+            _w2 = layer.w2_weight
+            _w13 = _w13.view(_t.uint8) if _w13.dtype != _t.uint8 else _w13
+            _w2 = _w2.view(_t.uint8) if _w2.dtype != _t.uint8 else _w2
             layer.w13_weight = _t.nn.Parameter(
-                _t.ops.sgl_kernel.convert_weight_packed(layer.w13_weight), requires_grad=False
+                _t.ops.sgl_kernel.convert_weight_packed(_w13.contiguous()), requires_grad=False
             )
             layer.w2_weight = _t.nn.Parameter(
-                _t.ops.sgl_kernel.convert_weight_packed(layer.w2_weight), requires_grad=False
+                _t.ops.sgl_kernel.convert_weight_packed(_w2.contiguous()), requires_grad=False
             )
             layer.use_intel_amx_backend = True
             layer.w13_weight_scale = _t.nn.Parameter(
