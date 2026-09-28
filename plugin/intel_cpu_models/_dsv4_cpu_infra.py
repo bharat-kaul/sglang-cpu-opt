@@ -1249,53 +1249,40 @@ def _install_fp4_expert_cpu_dequant() -> None:
             import torch as _t
 
             _rss0 = _rss_gb()
-            # Use w13_weight_scale_INV: that is the group-32 e8m0 scale [E, OC, K/32] the MXFP4
-            # kernel wants (Plan-A's cast_e2m1fn_to_e4m3fn asserts scale.size(1)==in_dim//32 on it).
-            # w13_weight_scale (no _inv) is a DIFFERENT, 4x-finer tensor -- do NOT use it here.
-            w13s = getattr(layer, "w13_weight_scale_inv", None)
-            if w13s is None:
-                w13s = layer.w13_weight_scale
-            w2s = getattr(layer, "w2_weight_scale_inv", None)
-            if w2s is None:
-                w2s = layer.w2_weight_scale
-            w13s = w13s.view(_t.uint8) if w13s.dtype != _t.uint8 else w13s
-            w2s = w2s.view(_t.uint8) if w2s.dtype != _t.uint8 else w2s
+            # The loader delivers the group-32 scale as FLOAT32 power-of-2 values in
+            # w13_weight_scale_inv ([E, OC, K/32]); the MXFP4 kernel wants the e8m0 EXPONENT byte
+            # (uint8, scale = 2^(byte-127)) = the float32 biased-exponent field (bits>>23)&0xFF.
+            # (An earlier .view(uint8) wrongly split each 4-byte float32 into 4 "groups" -> [.,512];
+            # the non-replicated head [0,0,0,60,..] is LE float32 2^-7.)
+            def _scale_to_e8m0(s):
+                if s.dtype == _t.uint8:
+                    return s.contiguous()
+                if s.dtype == _t.int8:
+                    return s.view(_t.uint8).contiguous()
+                if s.dtype == _t.float32:
+                    return ((s.contiguous().view(_t.int32) >> 23) & 0xFF).to(_t.uint8).contiguous()
+                # bf16/fp16/float8_e8m0 power-of-2 -> round(log2)+127
+                e = _t.clamp(_t.round(_t.log2(s.float().clamp_min(1.1754944e-38))) + 127, 0, 255)
+                return e.to(_t.uint8).contiguous()
+
+            _w13s_raw = getattr(layer, "w13_weight_scale_inv", None)
+            if _w13s_raw is None:
+                _w13s_raw = layer.w13_weight_scale
+            _w2s_raw = getattr(layer, "w2_weight_scale_inv", None)
+            if _w2s_raw is None:
+                _w2s_raw = layer.w2_weight_scale
             if not _MOE_DIAG.get("mx_shape_logged"):
                 _MOE_DIAG["mx_shape_logged"] = True
-                _alt13 = getattr(layer, "w13_weight_scale", None)
                 logger.warning(
-                    "[MXFP4 SHAPE] w13=%s/%s w2=%s/%s w13_scale_inv=%s/%s w2_scale_inv=%s/%s "
-                    "alt_w13_scale=%s",
+                    "[MXFP4 SHAPE] w13=%s/%s w2=%s/%s w13_scale_inv=%s/%s w2_scale_inv=%s/%s",
                     tuple(layer.w13_weight.shape), layer.w13_weight.dtype,
                     tuple(layer.w2_weight.shape), layer.w2_weight.dtype,
-                    tuple(w13s.shape), w13s.dtype, tuple(w2s.shape), w2s.dtype,
-                    tuple(_alt13.shape) if _alt13 is not None else None,
+                    tuple(_w13s_raw.shape), _w13s_raw.dtype,
+                    tuple(_w2s_raw.shape), _w2s_raw.dtype,
                 )
-            # The MXFP4 kernel wants group-32 e8m0 scales: [E, OC, K/32] (128 groups for K=4096).
-            # The loader delivers a 4x-finer scale here ([.,.,512] / [.,.,256]); the checkpoint is
-            # group-32 ([2048,128]) so those are replicated -> downsample by taking every r-th group.
-            def _to_group32(scale, packed_ic, tag):
-                exp_g = (packed_ic * 2) // 32  # true K/32
-                g = scale.shape[-1]
-                if g == exp_g or exp_g == 0 or g % exp_g != 0:
-                    return scale
-                r = g // exp_g
-                blk_i = scale.reshape(*scale.shape[:-1], exp_g, r)  # [.,g0*r, g1*r,..]
-                interleave = bool((blk_i[..., :1] == blk_i).all().item())
-                blk_t = scale.reshape(*scale.shape[:-1], r, exp_g)  # [.,(g0..g), (g0..g),..]
-                tile = bool((blk_t[..., :1, :] == blk_t).all().item())
-                if not _MOE_DIAG.get("mx_scale_logged_" + tag):
-                    _MOE_DIAG["mx_scale_logged_" + tag] = True
-                    logger.warning(
-                        "[MXFP4 SCALE %s] g=%d exp=%d r=%d interleave_repl=%s tile_repl=%s head=%s",
-                        tag, g, exp_g, r, interleave, tile, scale[0, 0, : min(8, g)].tolist(),
-                    )
-                if tile and not interleave:
-                    return scale[..., :exp_g].contiguous()
-                return scale[..., ::r].contiguous()
+            w13s = _scale_to_e8m0(_w13s_raw)  # [E, 2N, K/32] uint8 e8m0
+            w2s = _scale_to_e8m0(_w2s_raw)  # [E, K, N/32] uint8 e8m0
 
-            w13s = _to_group32(w13s, layer.w13_weight.shape[-1], "w13")
-            w2s = _to_group32(w2s, layer.w2_weight.shape[-1], "w2")
             # Use convert_weight_packed (exactly what fused_experts_cpu(MXFP4) calls internally when
             # is_vnni=False) so is_vnni=True gets the identical layout. CRITICAL: view the weight as
             # UINT8 first -- it loads as int8 (kChar), and convert_weight_packed dispatches on dtype:
