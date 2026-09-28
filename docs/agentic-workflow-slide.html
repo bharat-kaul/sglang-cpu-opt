@@ -67,7 +67,7 @@
     <div class="goal">
       <b>Definition of done (published at a labeled machine config):</b>
       &nbsp;① the model <b>RUNS</b> end-to-end on CPU · ② <b>ACCURACY parity</b> vs a trusted reference on real weights · ③ <b>ROOFLINE target vs measured</b> for every hot op.
-      <div class="pill-row">Worked flagship: DeepSeek-V4 (Flash / Pro) with a novel sparse-attention (DSA) op family.</div>
+      <div class="pill-row">Worked flagship: DeepSeek-V4 (Flash / Pro) with a novel sparse-attention (DSA) op family — Flash now RUNS end-to-end on CPU at tp=1 by keeping experts native MXFP4 (W4A16) so the whole model fits one NUMA domain; accuracy gate in progress.</div>
     </div>
     <div class="chips">
       <span class="chip t1">Thesis 1 · reuse donor kernels</span>
@@ -83,7 +83,7 @@
     </div>
     <div class="stage an"><span class="n">1</span>
       <h3>Analyze the model</h3>
-      <div class="sub">Config → op graph, fusion opportunities, and the FULL closure of novel-kernel families + runtime.</div>
+      <div class="sub">Config &rarr; op graph, fusion opportunities, an upfront <b>data-type audit</b> (each op&rsquo;s ACTUAL stored ckpt dtype &rarr; best target-HW compute dtype; flag dequant paths, low-bit-ckpt INFLATION traps, suboptimal fp32/torch ops), and the FULL closure of novel-kernel families + runtime.</div>
       <div class="skills"><span class="sk">model-op-decomposition</span><span class="sk">fusion-analysis</span><span class="sk">enablement-scope-discovery</span></div>
     </div>
     <div class="stage rf"><span class="n">2</span>
@@ -98,7 +98,7 @@
     </div>
     <div class="stage vl"><span class="n">4</span>
       <h3>Validate (prove it)</h3>
-      <div class="sub">Per-layer + task accuracy; throughput pass/fail; perf vs donor; framework-vs-kernel residual → the right lever.</div>
+      <div class="sub">Real-prompt <b>coherence smoke test FIRST</b> (&ldquo;it ran&rdquo; &ne; correct &mdash; random inputs hide garbage); then per-layer + task accuracy; throughput pass/fail; perf vs donor; framework-vs-kernel residual &rarr; the right lever.</div>
       <div class="skills"><span class="sk">accuracy-oracle</span><span class="sk">roofline-validation</span><span class="sk">peer-relative-roofline</span><span class="sk">overhead-attribution</span><span class="sk">runtime-config-tuning</span></div>
     </div>
     <div class="stage ct"><span class="n">5</span>
@@ -127,7 +127,7 @@
       <div class="item"><b>Measured, not assumed</b>Ceilings come from uPP on the real silicon, with freq/ISA self-checks — priors are regenerated per node.</div>
       <div class="item"><b>Gate at every stage</b>Analytical → empirical → isolation. No kernel is authored without a user-reviewed feasibility gate.</div>
       <div class="item"><b>Certify = eliminate</b>Each operator is certified at its roofline in isolation, removing it as a suspect; the e2e residual is then provably framework / inter-kernel.</div>
-      <div class="item"><b>Correctness first</b>A slow-but-correct reference oracle ships first; per-layer parity + task accuracy gate every fast path.</div>
+      <div class="item"><b>Correctness first</b>Real-prompt coherence check gates before any perf claim (&ldquo;it ran&rdquo; &ne; correct); a slow-but-correct reference oracle isolates the offending op; stubbed/no-op forward paths get a correct fallback, never a silent zero.</div>
       <div class="item"><b>Honest publishing</b>Roofline target vs measured is published with provenance at a labeled config — the gap is stated, not hidden.</div>
     </div>
   </div>

@@ -43,14 +43,43 @@ model on the same silicon and kernel. **Precision matrix:** BF16 and INT8 were b
 automatically from the same donor kernels (INT8 via a calibration-free RTN quantizer),
 INT8 giving ~1.5× throughput at preserved accuracy.
 
-## Thesis 2 — SCOPED & READY (DeepSeek Flash v4.1, DeepSeek-V4 / DSA)
+## Thesis 2 — RUNNING END-TO-END on CPU (DeepSeek-V4-Flash, tp=1, native MXFP4) — accuracy validation in flight
 
-Coverage-gate analysis (same-day) found the model is **mostly covered** by the DeepSeek-V2 CPU
-kernels (MLA core, dense GEMM, MoE, norm, rope, top-k). The **only** new work is one bounded
-kernel family — DeepSeek Sparse Attention: 1 PARTIAL (the AMX lightning-indexer decode GEMM at
-M=16, currently AVX-512 only) + 3 GAP (KV compressor, fp8 group-quant/Hadamard, sparse-prefill).
-The analyzer independently rediscovered SGLang's own in-tree `decode.cpp:13` TODO, and emitted
-4 scaffolding tasks for the new-kernel leg. This confirms V4.1 belongs to Thesis 2, not Thesis 1.
+**Scope (same-day coverage-gate).** The model is **mostly covered** by the DeepSeek-V2 CPU
+kernels (MLA core, dense GEMM, MoE, norm, rope, top-k); the only new family is **DeepSeek Sparse
+Attention (DSA)** — a lightning-indexer + KV-compressor + top-k sparse-MLA path (config:
+`index_n_heads=64`, `index_head_dim=128`, `index_topk=512`, per-layer `compress_ratios`,
+`sliding_window=128`). This confirms V4-Flash is a Thesis-2 model.
+
+**Breakthrough — the whole model now fits ONE NUMA/SNC domain at tp=1.** The routed experts ship
+as **native MXFP4** (packed fp4 + e8m0 group-32 scales). The naive path dequantized them to fp8,
+which **doubled** the resident footprint to ~275 GB and overflowed a single 258 GB SNC domain —
+forcing a cascade of dead-end placement hacks (TP-shard, NUMA-interleave, page-migration), and
+tp>1 M=1 decode is ~330× slower on this stack. Keeping the experts **native 4-bit** and routing
+them to the CPU **MXFP4 W4A16** MoE kernel (fused fp4→bf16 dequant in the AMX GEMM) holds the
+resident model at **~200 GB → fits one domain → clean tp=1**, sidestepping the entire distribution
+problem. *Lesson (now an upfront skill check): treat a capacity overflow as a footprint/precision
+problem first — never inflate a native low-bit checkpoint; keep it low-bit and use the low-bit kernel.*
+
+**Status today.**
+- ✅ **Runs end-to-end on CPU** (Granite Rapids, tp=1): loads in ~135 s, resident ~200 GB on one
+  SNC domain, prefill + multi-token decode complete.
+- ✅ **Data-type audit** (upfront, from the real checkpoint): every op maps to a supported GNR type
+  — fp4 experts→W4A16, fp8 MLA/indexer/shared-experts→W8A16 (dequant→bf16 AMX), bf16→native AMX.
+- ✅ **Decode thread-cap** tuned on the **real** model (the heavy MoE dominates → whole-forward
+  optimum ~8 threads, not the dummy-weight proxy's ~40).
+- 🔧 **Correctness gate in progress.** A real-prompt coherence check (the accuracy oracle's Layer 0)
+  caught that the decode path emitted garbage: the DSA sparse selection is stubbed at decode, and
+  the MLA attention had **no dense fallback**, so it gathered nothing → zero attention. Fixed with a
+  **causal dense fallback** (attend over all valid KV up to the query position); full parity + task
+  accuracy re-run is queued. *Perf/tok-s numbers are held as UNVALIDATED until this passes — the
+  earlier fast decode was measured on the pre-fix (attention-off) model.*
+- ⏭ **Next:** incremental-sparse DSA decode (O(context²)→O(context·topk) for long context) + the
+  published roofline target-vs-measured.
+
+*This is the worked Thesis-2 flagship: the coverage-gate routed it, the plugin wired native MXFP4
++ the DSA CPU path, and the accuracy oracle is now doing exactly its job — blocking on correctness
+before any performance claim.*
 
 ---
 
