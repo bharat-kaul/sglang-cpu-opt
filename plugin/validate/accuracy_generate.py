@@ -32,6 +32,7 @@ def main():
         mem_fraction_static=0.85,
         max_total_tokens=8192,
         swa_full_tokens_ratio=0.8,
+        watchdog_timeout=100000,  # fp4-raw ref is ~100s/tok -> don't let the watchdog abort it
     )
     sampling = {"temperature": 0.0, "max_new_tokens": max_new}
     if os.environ.get("INTEL_CPU_DSV4_MXFP4_MOE") == "1":
