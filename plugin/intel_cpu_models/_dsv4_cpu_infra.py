@@ -1248,10 +1248,18 @@ def _install_fp4_expert_cpu_dequant() -> None:
             # the apply routes to fused_experts_cpu(MXFP4). Experts stay 4-bit -> fit one domain.
             import torch as _t
 
-            from sglang.srt.layers.amx_utils import _amx_process_weight_after_loading
-
             _rss0 = _rss_gb()
-            _amx_process_weight_after_loading(layer, ["w13_weight", "w2_weight"])
+            # Use convert_weight_packed (exactly what fused_experts_cpu(MXFP4) calls internally when
+            # is_vnni=False) so is_vnni=True gets the identical layout. NOT _amx_process_weight_after_
+            # loading -- that generic path treats the uint8 fp4 as int8 and appends a 4-byte/row
+            # compensation (2048 -> 2052), which the MXFP4 kernel's packed_K check rejects.
+            layer.w13_weight = _t.nn.Parameter(
+                _t.ops.sgl_kernel.convert_weight_packed(layer.w13_weight), requires_grad=False
+            )
+            layer.w2_weight = _t.nn.Parameter(
+                _t.ops.sgl_kernel.convert_weight_packed(layer.w2_weight), requires_grad=False
+            )
+            layer.use_intel_amx_backend = True
             w13s = getattr(layer, "w13_weight_scale", None)
             if w13s is None:
                 w13s = layer.w13_weight_scale_inv
