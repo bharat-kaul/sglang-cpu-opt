@@ -44,6 +44,26 @@ descheduled worker threads. Two rules fall out:
   true optimum (40) as the *worst* — the exact inverse of the clean fixed-cap sweep. Use a
   **deterministic rule** (`domain_cores − headroom`) taken from an **offline fixed-cap sweep**
   (one fixed value per run, compare steady-state medians); never a live in-run search.
+- **A thread cap tuned on a PROXY / dummy weights does NOT transfer to the real model.** The
+  `bound−2` decode optimum above was found on a 4-layer perf-proxy with *dummy* MoE weights (a
+  trivial MoE), so attention dominated and wanted many threads. On the REAL model the MoE is a
+  heavy 256-expert `fused_experts` with its OWN steep inverse thread scaling (~0.1 ms @ 8 vs
+  ~2 s @ 40), and it DOMINATES the decode forward — so the real-model whole-forward optimum
+  collapsed to ~8 threads, ~5× lower than the proxy's 40. **Re-tune the thread count on the REAL
+  weights** (real MoE compute), never ship the proxy's value. The dominant op sets the cap.
+- **One cap tuned to the DOMINANT op — do NOT nest a second per-op cap inside it.** It is
+  tempting to keep a high whole-forward cap (good for attention) and drop threads only around
+  the MoE. In this repo, composing a per-op MoE `set_num_threads` INSIDE the decode-wide cap
+  regressed decode ~200× (the per-op resize churns the parallel-for pool / re-inits the barrier
+  every layer). Use a SINGLE cap set to the dominant op's optimum for the whole forward.
+- **tp>1: you CANNOT cap threads per-forward — it DEADLOCKS.** `set_num_threads()` inside the
+  forward desyncs the sgl_kernel shared-memory spin barriers (MoE dispatch / all-reduce) that
+  were sized to the thread count at init — verified hang (even with gloo all-reduce; and a
+  "set once, no restore" variant hung too because unequal-core domains give ranks different
+  counts). For tp>1, leave headroom at LAUNCH via `SGLANG_CPU_OMP_THREADS_BIND` (bind each rank
+  to its domain cores MINUS ~2) so the count is fixed once and the barriers size correctly. Note
+  tp>1 M=1 decode is ~330× slower than tp=1 here regardless (barrier cliff per rank) — prefer
+  tp=1 for memory-bound decode (see `sub-numa-clustering`).
 
 ## The knobs (in leverage order), each vs a uPP-measured budget
 1. **Thread count + affinity.** Each TP rank must get a disjoint, NUMA-local core set.

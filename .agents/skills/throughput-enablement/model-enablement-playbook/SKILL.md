@@ -35,7 +35,10 @@ reuse them unmodified, and new capabilities are added as new skill folders.
 
 ```
 0. establish-achievable-performance  -> compute/stream/mem ceilings for THIS node
-1. model-op-decomposition            -> normalized op graph
+1. model-op-decomposition            -> normalized op graph + UPFRONT DATA-TYPE AUDIT
+                                        (each op's ACTUAL stored ckpt dtype -> best target-HW
+                                        compute dtype; flag missing-native-compute dequant paths,
+                                        low-bit-ckpt INFLATION traps, and suboptimal fp32/torch ops)
 1b. fusion-analysis                   -> fusion plan: COVERED (donor fused-kernel) /
                                         NEW-FUSED-KERNEL (-> kernel-authoring) / SKIP;
                                         cross-checked vs external impls/claims
@@ -51,6 +54,12 @@ reuse them unmodified, and new capabilities are added as new skill folders.
 1d. model-profile-hotspots            -> RUN the model (random weights ok); per-kernel measured
                                         time vs kernel roofline floor; RoI = share*(1-efficiency);
                                         measured hotlist wins over analytical ranking
+                                        NOTE: random/dummy weights are OK for TIMING profiling ONLY
+                                        -- NOT correctness (a fast run on random inputs can be
+                                        numerically garbage; see accuracy-oracle Layer 0), and a
+                                        thread/config value tuned on a dummy-weight proxy must be
+                                        RE-TUNED on the real weights (the real MoE dominates and
+                                        shifts the optimum; see runtime-config-tuning)
 2. kernel-capability-registry        -> load op->kernel contracts + peer donors
 3. coverage-gate:
      all ops covered      -> continue
