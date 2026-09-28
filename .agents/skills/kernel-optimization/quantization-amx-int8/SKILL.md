@@ -1,6 +1,6 @@
 ---
 name: quantization-amx-int8
-description: "Use when the accuracy budget allows lower precision to raise the compute ceiling on Intel Xeon. Covers INT8 AMX (2x the BF16 tile throughput), weight-only vs full INT8, per-channel scales, and the correctness gate. Apply last, after the BF16 path is tuned, when you need to move the compute ceiling itself."
+description: "Use when the accuracy budget allows lower precision to raise the compute ceiling on Intel Xeon, OR to SHRINK the resident footprint so a model fits one NUMA/SNC domain (a CAPACITY lever, applied FIRST — see the capacity section). Covers INT8 AMX (2x the BF16 tile throughput), weight-only vs full INT8, native low-bit STORAGE + in-kernel dequant (fp4/MXFP4/int4 W4A16), per-channel scales, the never-up-convert-a-low-bit-checkpoint rule, and the correctness gate. For the compute-ceiling use, apply last after the BF16 path is tuned; for the capacity/fit and memory-bound-decode uses, apply first."
 ---
 
 # Quantization — INT8 AMX
@@ -24,6 +24,35 @@ Low precision helps in two separate ways; a target may have one without the othe
 So choose by regime: compute-bound → need real low-precision AMX tiles (benefit 1);
 memory-bound decode → low-precision STORAGE + dequant-to-bf16 suffices (benefit 2),
 no low-precision compute required.
+
+## Third benefit: CAPACITY — make a too-big model FIT one NUMA domain (apply FIRST)
+Low-precision STORAGE also **shrinks the resident footprint**, which is often the difference
+between a model that fits ONE SNC domain (→ clean `tp=1`) and one that overflows it (→ the
+whole tp>1 / interleave / mbind swamp; see `sub-numa-clustering`). When a model is only ~1.1–2×
+over one domain's RAM, precision is almost always the fix — and unlike benefits 1–2 (tuning
+levers), this one is a **prerequisite to running at all**, so apply it FIRST, before any
+placement/sharding decision.
+
+**THE RULE: never up-convert a low-bit checkpoint to reach a familiar kernel.** If the
+checkpoint ships fp4 / MXFP4 / int4 and the instinct is to dequant it to fp8/bf16 so an
+existing kernel accepts it, STOP — that *doubles or quadruples* the footprint and can
+manufacture the domain overflow yourself. Instead:
+1. Grep the kernel library for the checkpoint's **native** quant enum (`MXFP4`, `INT4_W4A8`,
+   `NVFP4`, …) and for a matching fused-dequant compute op (e.g. a CPU `fused_experts_cpu`
+   with a `CPUQuantMethod::MXFP4` W4A16 path). The fast W4A16 path usually already exists in
+   the serving stack for GPU/NPU and just needs wiring on CPU.
+2. Keep the weights in their native low-bit form; feed the low-bit kernel (dequant is fused in
+   the GEMM — no bf16 materialization, which is what makes a naive per-token Python dequant
+   ~100× too slow). Mirror the framework's own low-bit method (load-time prepack + scale pack
+   + the fused apply) rather than authoring a kernel.
+3. Validate accuracy vs the higher-precision reference (`accuracy-oracle`).
+
+Real case (DeepSeek-V4-Flash, GNR): the routed experts ship **native MXFP4** (~137 GB). A
+Plan-A dequant to fp8 inflated them to ~275 GB, which exceeds one 258 GB SNC domain and forced
+days of tp>1 / interleave / page-migration dead-ends. Keeping them MXFP4 and routing to the
+existing CPU MXFP4 W4A16 kernel fit one domain → `tp=1` → the entire placement problem
+evaporated. Lesson: **treat a capacity overflow as a footprint/precision problem first, a
+placement problem second** — and question any step that INFLATES a low-bit checkpoint.
 
 ## Trigger
 Either regime, once the model's accuracy budget tolerates lower precision (validate!):

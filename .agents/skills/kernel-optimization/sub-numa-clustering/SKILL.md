@@ -71,17 +71,36 @@ size, and it decides tp vs interleave. Compute up front:
    Rule of thumb: budget **peak ≈ 1.5–2× resident** for a load-time dtype convert + prepack.
 2. **Compare to ONE domain's RAM** (`total_node_RAM / n_SNC`, ~248–258 GB on GNR SNC-on).
    If `per_rank_peak > one_domain_RAM` → you WILL OOM at that domain even with TBs free
-   node-wide (the OOM-killer fires at ~one node's 256 GB, RSS far below total). Pick a path:
-   - **(A) TP-shard (default for prefill / compute-bound):** `tp = #SNC` (or a divisor that
-     also divides head count); per-rank peak ≈ `model/tp` must fit one domain. Natural
-     per-domain memory + bandwidth. BUT TP adds an all-reduce every layer.
-   - **(B) tp=1 + INTERLEAVE across domains (for memory-bound DECODE):** TP does NOT help
-     memory-bound decode — each rank still streams its shard (same total bytes/token) and TP
-     only *adds* all-reduce/coordination (measured: tp=4 decode ~8× SLOWER than tp=1 on the
-     same layers). So for best decode latency keep `tp=1` and spread the model across all
-     domains with an interleave memory policy. Requires: report full-node free memory to the
-     framework's mem sizer, cap the KV pool (`--max-total-tokens`), and — critically — see
-     the interleave-clobber learning below.
+   node-wide (the OOM-killer fires at ~one node's 256 GB, RSS far below total). Pick a path
+   **in this order** — capacity overflow is FIRST a *footprint/precision* problem, only then a
+   *placement* problem:
+   - **(0) SHRINK THE RESIDENT FOOTPRINT to fit one domain — TRY THIS FIRST.** Before any
+     sharding or interleaving, ask: *what is the smallest dtype that still computes correctly,
+     and does a kernel exist to compute in it directly?* Two rules:
+     - **NEVER up-convert a low-bit checkpoint to reach a kernel.** If the checkpoint ships
+       fp4/MXFP4/int4 and your first instinct is to dequant it to fp8/bf16 to hit a familiar
+       kernel, STOP — you just *doubled/quadrupled* the resident footprint and manufactured the
+       overflow yourself. Instead find the **low-bit compute kernel** (e.g. a CPU MXFP4 / W4A16
+       fused-dequant MoE GEMM) and keep the weights in their native low-bit form. Grep the
+       kernel lib for the checkpoint's native quant enum (`MXFP4`, `INT4_W4A8`, …) BEFORE
+       assuming it must be up-converted. (Real case: a 275 GB fp8 model was the *result* of
+       dequanting a 137 GB native-MXFP4 checkpoint — keeping it MXFP4 fit one 258 GB domain and
+       made the whole tp>1/interleave problem evaporate.)
+     - This is the **W4A16 memory-bound-decode win** (see `quantization-amx-int8`): low-bit
+       STORAGE + in-kernel dequant needs NO low-bit matmul HW, cuts both footprint AND streamed
+       bytes, and — crucially here — lets a too-big model become a **single-domain tp=1** model,
+       side-stepping every placement hack below. Precision-to-fit is a CAPACITY lever applied
+       FIRST, not a throughput lever applied last. Validate accuracy against the higher-precision
+       reference (`accuracy-oracle`).
+   - **(A) TP-shard (only if it still won't fit one domain, or you are prefill/compute-bound):**
+     `tp = #SNC` (or a divisor that also divides head count); per-rank peak ≈ `model/tp` must
+     fit one domain. Natural per-domain memory + bandwidth. BUT TP adds an all-reduce every
+     layer, and **tp>1 M=1 decode is a trap on this stack** (the decode thread-cap can't be
+     applied — post-init `set_num_threads` desyncs the shm barriers → ~330× slower or hang).
+   - **(B) tp=1 + INTERLEAVE across domains (last resort — a capacity crutch, NOT a speed win):**
+     memory-bound decode wants FEW threads reading LOCAL memory in one domain, which interleave
+     defeats (remote-scattered reads). And it is hard to even load (see the interleave-clobber /
+     mbind-won't-migrate-THP learnings below). Prefer (0) so you never need this.
 3. Reducing the load PEAK (so a tighter fit works): free intermediates per layer + return
    memory to the OS (`gc.collect()` + glibc `malloc_trim(0)`); note the CPU torch/`malloc`
    allocator does NOT return freed memory to the OS on its own.
