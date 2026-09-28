@@ -46,7 +46,11 @@ The workflow, demonstrated end-to-end:
 
 - **Scope-discovery** surfaced the *true* scope — **two** novel kernel families (DSA sparse
   attention + MHC hash-clustering) **plus** a runtime infra layer — not the "4 DSA kernels" a
-  static op-scan implied → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+  static op-scan implied → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml). It
+  also ran the upfront **data-type audit** — census each weight family's *stored* dtype from the
+  real checkpoint (MXFP4 experts, fp8 projections, bf16 rest) and **map it to the target-HW compute
+  dtype** (→ W4A16 / W8A16 / native bf16), flagging every `stored ≠ compute` dequant bridge (see the
+  precision-hygiene table below).
 - **Enabled:** the CPU infra layer (KV pool, paged allocator, backend guards, metadata routing)
   and the MLA-core + MHC kernels, **authored reference-first** and checked against in-tree oracles
   (`fused_q_norm_rope`, `fused_k_norm_rope`+fp8-pack+paged-write, MHC sinkhorn/combine) —
