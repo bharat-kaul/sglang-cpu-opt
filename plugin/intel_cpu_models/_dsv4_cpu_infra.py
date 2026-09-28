@@ -1671,7 +1671,7 @@ def _install_hidden_debug() -> None:
 
     def _fwd(self, *a, **k):
         lid = getattr(self, "layer_id", getattr(self, "layer_idx", -1))
-        cap = _HID_DBG["n"] < 16
+        cap = _HID_DBG["n"] < 48
         if cap:
             inp = next((x for x in a if torch.is_tensor(x) and x.dim() >= 2 and x.is_floating_point()), None)
             try:
@@ -1692,6 +1692,34 @@ def _install_hidden_debug() -> None:
 
     Layer.forward = _fwd
     Layer._hid_dbg_patched = True
+    # Also capture the final next-token logits (top-5 ids/vals) — a fixed argmax regardless of the
+    # (healthy) hidden state points at the lm_head / final-norm / logits head, not the transformer.
+    try:
+        from sglang.srt.layers.logits_processor import LogitsProcessor
+
+        if not getattr(LogitsProcessor, "_hid_dbg_patched", False):
+            _olp = LogitsProcessor.forward
+
+            def _lp_fwd(self, *a, **k):
+                r = _olp(self, *a, **k)
+                try:
+                    lg = getattr(r, "next_token_logits", None)
+                    if lg is not None and _HID_DBG.get("lp", 0) < 3:
+                        _HID_DBG["lp"] = _HID_DBG.get("lp", 0) + 1
+                        v, i = torch.topk(lg[-1].float(), 5)
+                        with open(_f, "a") as fh:
+                            fh.write(
+                                f"LOGITS top5 ids={i.tolist()} vals={[round(x, 3) for x in v.tolist()]} "
+                                f"lg_mean={lg.float().abs().mean().item():.3e} lg_nan={int(torch.isnan(lg).any())}\n"
+                            )
+                except Exception:  # noqa: BLE001
+                    pass
+                return r
+
+            LogitsProcessor.forward = _lp_fwd
+            LogitsProcessor._hid_dbg_patched = True
+    except Exception:  # noqa: BLE001
+        pass
     logger.info("intel_cpu_models: installed per-layer hidden-state debug hook.")
 
 
