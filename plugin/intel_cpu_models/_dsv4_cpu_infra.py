@@ -1229,6 +1229,11 @@ def _install_fp4_expert_cpu_dequant() -> None:
     # BF16 showcase (large models that don't fit fp8): keep experts fp4 in RAM, dequant to bf16
     # in the MoE forward. fp8 load-dequant doubles experts (~1.58TB > node); fp4 raw ~790GB fits.
     _bf16_moe = os.environ.get("INTEL_CPU_DSV4_FP4_MOE_BF16", "0") == "1"
+    # NATIVE MXFP4: keep experts as packed fp4 + e8m0 scales and run the CPU AMX MXFP4 W4A16 kernel
+    # (fused fp4->bf16 dequant inside the GEMM). Experts stay ~137GB (vs 275GB after fp8 dequant), so
+    # the full model FITS ONE SNC domain -> tp=1 -> the decode thread-cap fast path applies. This
+    # mirrors sglang's Mxfp4MoEMethod CPU branch exactly (the checkpoint is already native MXFP4).
+    _mxfp4_moe = os.environ.get("INTEL_CPU_DSV4_MXFP4_MOE", "0") == "1"
     _orig_pwal = Method.process_weights_after_loading
     _orig_apply = Method.apply
 
@@ -1237,6 +1242,40 @@ def _install_fp4_expert_cpu_dequant() -> None:
             # Keep fp4 raw (skip fp8 dequant + AMX prepack); the apply dequants per expert.
             layer._fp4_bf16_moe = True
             logger.info("intel_cpu_models: FP4 experts kept raw for BF16-in-forward MoE.")
+            return
+        if getattr(self, "is_fp4_expert", False) and _mxfp4_moe:
+            # NATIVE MXFP4 W4A16: VNNI-prepack the packed-fp4 weights + pack the e8m0 scales, then
+            # the apply routes to fused_experts_cpu(MXFP4). Experts stay 4-bit -> fit one domain.
+            import torch as _t
+
+            from sglang.srt.layers.amx_utils import _amx_process_weight_after_loading
+
+            _rss0 = _rss_gb()
+            _amx_process_weight_after_loading(layer, ["w13_weight", "w2_weight"])
+            w13s = getattr(layer, "w13_weight_scale", None)
+            if w13s is None:
+                w13s = layer.w13_weight_scale_inv
+            w2s = getattr(layer, "w2_weight_scale", None)
+            if w2s is None:
+                w2s = layer.w2_weight_scale_inv
+            w13s = w13s.view(_t.uint8) if w13s.dtype != _t.uint8 else w13s
+            w2s = w2s.view(_t.uint8) if w2s.dtype != _t.uint8 else w2s
+            layer.w13_weight_scale = _t.nn.Parameter(
+                _t.ops.sgl_kernel.convert_scale_packed(w13s.contiguous()), requires_grad=False
+            )
+            layer.w2_weight_scale = _t.nn.Parameter(
+                _t.ops.sgl_kernel.convert_scale_packed(w2s.contiguous()), requires_grad=False
+            )
+            layer._mxfp4_moe = True
+            self.is_fp4_expert = False
+            _release_freed_memory()
+            _di = _MOE_DIAG.setdefault("mx_layer", 0)
+            _MOE_DIAG["mx_layer"] = _di + 1
+            logger.info(
+                "intel_cpu_models: MXFP4 MoE layer %d prepacked (W4A16, experts stay 4-bit) "
+                "RSS %.1f->%.1fGB",
+                _di, _rss0, _rss_gb(),
+            )
             return
         if getattr(self, "is_fp4_expert", False):
             for weight_param, scale_param in [
@@ -1345,6 +1384,41 @@ def _install_fp4_expert_cpu_dequant() -> None:
             topk_weights, topk_ids, _ = dispatch_output.topk_output
             out = _torch_fp4_moe_apply(
                 layer, dispatch_output.hidden_states, topk_weights, topk_ids
+            )
+            return StandardCombineInput(hidden_states=out)
+        if getattr(layer, "_mxfp4_moe", False):
+            # Native MXFP4 W4A16 CPU AMX kernel (mirrors sglang Mxfp4MoEMethod CPU apply).
+            import torch as _tt
+
+            from sglang.srt.layers.amx_utils import CPUQuantMethod
+            from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
+            from sglang.srt.layers.moe.topk import apply_topk_weights_cpu
+
+            x = dispatch_output.hidden_states
+            topk_weights, topk_ids, _ = dispatch_output.topk_output
+            rc = layer.moe_runner_config
+            x, topk_weights = apply_topk_weights_cpu(
+                rc.apply_router_weight_on_input, topk_weights, x
+            )
+            out = _tt.ops.sgl_kernel.fused_experts_cpu(
+                x,
+                layer.w13_weight,
+                layer.w2_weight,
+                topk_weights,
+                topk_ids,
+                False,
+                CPUQuantMethod.MXFP4,
+                layer.w13_weight_scale,
+                layer.w2_weight_scale,
+                None,
+                None,
+                None,
+                getattr(layer, "w13_weight_bias", None),
+                getattr(layer, "w2_weight_bias", None),
+                getattr(rc, "gemm1_alpha", None),
+                getattr(rc, "gemm1_clamp_limit", None),
+                True,
+                rc.activation,
             )
             return StandardCombineInput(hidden_states=out)
         # runtime-config fix: cap threads around the native MoE apply (fused_experts scales
