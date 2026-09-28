@@ -999,6 +999,17 @@ def _torch_flash_mla_with_kvcache(
             if m > 0:
                 keep[:m] = pos_kept[t, :m].bool()
             idx = idx[keep]
+        # DENSE FALLBACK: when no sparse selection survives -- a non-indexer layer (indices=None),
+        # or decode where the incremental indexer is not yet wired -- attend CAUSALLY over all
+        # valid KV up to this query's position (else out[t] stays 0 => attention is a no-op and
+        # the model emits garbage). valid slots are written in position order; query t (0-indexed
+        # in the batch of T) is at position base+t with base = n_valid - T, so it sees [0, base+t].
+        if idx.numel() == 0:
+            _valid = _KV_VALID.get(dp)
+            if _valid is not None:
+                _vslots = _valid.nonzero(as_tuple=False).reshape(-1)
+                _clen = max(0, min(_vslots.numel(), _vslots.numel() - (T - 1) + t))
+                idx = _vslots[:_clen]
         if _TIMEIT_ON:
             _tacc("dsa.mla.select", _t0, "framework")
             _t0 = time.perf_counter()

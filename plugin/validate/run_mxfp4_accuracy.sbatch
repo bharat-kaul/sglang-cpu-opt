@@ -16,6 +16,8 @@ export INTEL_CPU_DSV4_MXFP4_MOE=1
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
 export INTEL_CPU_DSV4_DECODE_THREADS=8
+export ACC_QUICK=1
+export ACC_MAX_NEW=20
 cd /data/nfs_home/bkaul
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/accuracy_generate.py
 echo "[exit=$?]"
