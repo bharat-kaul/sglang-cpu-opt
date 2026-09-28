@@ -18,6 +18,11 @@ PROMPTS = [
 
 
 def main():
+    if os.environ.get("ACC_QUICK") == "1":
+        prompts = PROMPTS[:1]
+    else:
+        prompts = PROMPTS
+    max_new = int(os.environ.get("ACC_MAX_NEW", "32"))
     engine = sgl.Engine(
         model_path="/scratch/bkaul/models/DeepSeek-V4-Flash",
         device="cpu",
@@ -28,9 +33,14 @@ def main():
         max_total_tokens=8192,
         swa_full_tokens_ratio=0.8,
     )
-    sampling = {"temperature": 0.0, "max_new_tokens": 32}
-    tag = "MXFP4" if os.environ.get("INTEL_CPU_DSV4_MXFP4_MOE") == "1" else "FP8-ref"
-    for p in PROMPTS:
+    sampling = {"temperature": 0.0, "max_new_tokens": max_new}
+    if os.environ.get("INTEL_CPU_DSV4_MXFP4_MOE") == "1":
+        tag = "MXFP4"
+    elif os.environ.get("INTEL_CPU_DSV4_FP4_MOE_BF16") == "1":
+        tag = "FP4RAW-ref"
+    else:
+        tag = "FP8-ref"
+    for p in prompts:
         out = engine.generate(p, sampling)
         txt = out["text"] if isinstance(out, dict) else out[0]["text"]
         print(f"=== [{tag}] PROMPT: {p!r}\n=== [{tag}] COMPLETION: {txt!r}\n", flush=True)
