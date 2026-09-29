@@ -443,6 +443,7 @@ def install() -> None:
     _install_cpu_interleave_mem()
     _install_cpu_gloo_allreduce()
     _install_hidden_debug()
+    _install_fp8_proj_parity()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
 
@@ -1644,6 +1645,80 @@ def _install_dsv4_attention_cpu() -> None:
         sys.modules["sgl_kernel.flash_mla"] = _fm
     _fm.flash_mla_with_kvcache = _timed("dsa.mla_attention", "parent")(_torch_flash_mla_with_kvcache)
     logger.info("intel_cpu_models: installed CPU torch flash-MLA attention (dense KV stash).")
+
+
+def _install_fp8_proj_parity() -> None:
+    # In-situ parity probe for the fp8 W8A16 dense projections (q_a/q_b/kv_a/kv_b/o) — the last
+    # unverified op in the Q/K content path. Stash the FIRST layer's raw fp8 weight + block scale
+    # before the CPU prepack, then on the first apply compare the kernel output to a torch
+    # block-dequant (fp8->bf16, block-128) matmul. Gated + one-shot, file-based.
+    if _os.environ.get("INTEL_CPU_DSV4_FP8_PARITY") != "1":
+        return
+    try:
+        from sglang.srt.layers.quantization.fp8 import Fp8LinearMethod
+    except Exception:  # noqa: BLE001
+        return
+    if getattr(Fp8LinearMethod, "_fp8_parity_patched", False):
+        return
+    import torch
+
+    _f = _os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_fp8_parity.txt")
+    _st: dict = {"ref": None, "done": False}
+    _orig_pwal = Fp8LinearMethod.process_weights_after_loading
+    _orig_apply = Fp8LinearMethod.apply
+
+    def _pwal(self, layer):
+        if _st["ref"] is None:
+            w = getattr(layer, "weight", None)
+            s = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
+            if w is not None and s is not None and w.dtype in (torch.float8_e4m3fn, torch.int8, torch.uint8):
+                _st["ref"] = {"w": w.detach().clone(), "s": s.detach().clone()}
+        return _orig_pwal(self, layer)
+
+    def _blk_dequant(w_fp8, s):
+        wf = w_fp8.float()
+        O, I = wf.shape
+        sf = s.float()
+        if sf.dim() == 2 and sf.shape[0] > 0 and sf.shape[1] > 0:
+            bo = max(1, O // sf.shape[0])
+            bi = max(1, I // sf.shape[1])
+            sfull = sf.repeat_interleave(bo, 0).repeat_interleave(bi, 1)[:O, :I]
+            return wf * sfull
+        return wf * sf
+
+    def _apply(self, layer, x, bias=None):
+        out = _orig_apply(self, layer, x, bias)
+        if not _st["done"] and _st["ref"] is not None:
+            _st["done"] = True
+            try:
+                ref = _st["ref"]
+                w = _blk_dequant(ref["w"], ref["s"])
+                y = x.detach().float() @ w.t()
+                if bias is not None:
+                    y = y + bias.float()
+                g = out.detach().float()
+                if g.shape == y.shape:
+                    d = (g - y).abs()
+                    rel = (d.max() / y.abs().max().clamp_min(1e-6)).item()
+                    cos = torch.nn.functional.cosine_similarity(g.reshape(1, -1), y.reshape(1, -1)).item()
+                    verdict = "PASS" if (cos >= 0.99 and rel <= 0.1) else "FAIL"
+                    with open(_f, "a") as fh:
+                        fh.write(f"[FP8 PARITY] {verdict} cos={cos:.6f} rel={rel:.3e} shape={tuple(g.shape)} w={tuple(ref['w'].shape)}\n")
+                else:
+                    with open(_f, "a") as fh:
+                        fh.write(f"[FP8 PARITY] SHAPE-MISMATCH out={tuple(g.shape)} ref={tuple(y.shape)}\n")
+            except Exception as _e:  # noqa: BLE001
+                try:
+                    with open(_f, "a") as fh:
+                        fh.write(f"[FP8 PARITY] probe failed: {_e}\n")
+                except Exception:  # noqa: BLE001
+                    pass
+        return out
+
+    Fp8LinearMethod.process_weights_after_loading = _pwal
+    Fp8LinearMethod.apply = _apply
+    Fp8LinearMethod._fp8_parity_patched = True
+    logger.info("intel_cpu_models: installed fp8 projection in-situ parity probe.")
 
 
 def _install_hidden_debug() -> None:
