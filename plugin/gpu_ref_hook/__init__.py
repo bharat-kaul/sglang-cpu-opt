@@ -38,9 +38,12 @@ def _install():
 
     def _fwd(self, *a, **k):
         lid = getattr(self, "layer_id", getattr(self, "layer_idx", -1))
+        inp = _find_hid(a, k)
+        # Only capture the small real prompt-0 prefill (skip 256-tok warmup/padding passes).
+        if inp is not None and inp.shape[0] >= 32:
+            return _orig(self, *a, **k)
         cap = _HID["n"] < 48
         if cap:
-            inp = _find_hid(a, k)
             try:
                 with open(f, "a") as fh:
                     fh.write(f"L{lid} IN  {_stat(inp) if inp is not None else 'NA'}\n")
