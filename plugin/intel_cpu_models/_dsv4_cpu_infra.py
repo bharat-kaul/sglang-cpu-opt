@@ -1794,7 +1794,13 @@ def _install_hidden_debug() -> None:
                     try:
                         y = r[0] if isinstance(r, (tuple, list)) else r
                         with open(_f, "a") as fh:
-                            fh.write(f"{tag}#{_HID_DBG[key]} {_stat(y)}\n")
+                            fh.write(f"{tag}#{_HID_DBG[key]} out {_stat(y)}\n")
+                            if tag == "HCPOST":
+                                # hc_post(self, x_branch, residual, post, comb)
+                                names = ("x", "resid", "post", "comb")
+                                for idx, nm in enumerate(names):
+                                    if idx < len(a) and torch.is_tensor(a[idx]):
+                                        fh.write(f"{tag}#{_HID_DBG[key]} in.{nm} {_stat(a[idx])}\n")
                     except Exception:  # noqa: BLE001
                         pass
                 return r
