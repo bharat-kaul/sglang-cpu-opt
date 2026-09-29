@@ -75,6 +75,13 @@ def _install():
 
             def _w(self, *a, **k):
                 r = orig(self, *a, **k)
+                # Skip CUDA-graph warmup passes (huge dummy activations) for HCPOST.
+                if tag == "HCPOST" and len(a) > 1 and torch.is_tensor(a[1]):
+                    try:
+                        if a[1].float().abs().mean().item() > 5.0:
+                            return r
+                    except Exception:  # noqa: BLE001
+                        pass
                 if _HID.get(key, 0) < 4:
                     _HID[key] = _HID.get(key, 0) + 1
                     try:
@@ -95,6 +102,45 @@ def _install():
 
         setattr(Layer, meth, _mk(orig, tag))
         setattr(Layer, "_" + meth + "_hooked", True)
+
+    try:
+        import sglang.kernels.ops.layernorm.mhc as _mhc
+
+        if not getattr(_mhc, "_sink_dbg_gpu", False):
+            _osink = _mhc.hc_split_sinkhorn
+
+            def _sink(mixes, *a, **k):
+                r = _osink(mixes, *a, **k)
+                if _HID.get("sink", 0) < 3:
+                    _HID["sink"] = _HID.get("sink", 0) + 1
+                    try:
+                        last = mixes.shape[-1]
+                        hc = last // 6
+                        flat = mixes.reshape(-1, last)
+                        post_slice = flat[:, hc : 2 * hc]
+                        pre_o, post_o, comb_o = r
+                        scale = a[0] if len(a) > 0 else k.get("hc_scale")
+                        base = a[1] if len(a) > 1 else k.get("hc_base")
+                        with open(f, "a") as fh:
+                            fh.write(f"SINK#{_HID['sink']} mixes {_stat(mixes)}\n")
+                            fh.write(f"SINK#{_HID['sink']} mix_postslice {_stat(post_slice)}\n")
+                            fh.write(f"SINK#{_HID['sink']} post_out {_stat(post_o)}\n")
+                            if torch.is_tensor(scale):
+                                fh.write(f"SINK#{_HID['sink']} scale {[round(x,4) for x in scale.float().reshape(-1).tolist()]}\n")
+                            if torch.is_tensor(base):
+                                fh.write(f"SINK#{_HID['sink']} base8 {[round(x,4) for x in base.float().reshape(-1).tolist()[:8]]}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return r
+
+            _mhc.hc_split_sinkhorn = _sink
+            _mhc._sink_dbg_gpu = True
+            try:
+                _dv4._get_mhc_ops.cache_clear()
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001
+        pass
 
     try:
         from sglang.srt.layers.logits_processor import LogitsProcessor
