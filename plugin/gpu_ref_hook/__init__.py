@@ -75,6 +75,16 @@ def _install():
 
             def _w(self, *a, **k):
                 r = orig(self, *a, **k)
+                if tag == "HCPRE" and _HID.get("wdump", 0) < 2:
+                    _HID["wdump"] = _HID.get("wdump", 0) + 1
+                    try:
+                        with open(f, "a") as fh:
+                            for wn in ("hc_attn_fn", "hc_ffn_fn", "hc_attn_scale", "hc_attn_base"):
+                                w = getattr(self, wn, None)
+                                if torch.is_tensor(w):
+                                    fh.write(f"WDUMP {wn} shape={tuple(w.shape)} dtype={w.dtype} {_stat(w)}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
                 # Skip CUDA-graph warmup passes (huge dummy activations) for HCPOST.
                 if tag == "HCPOST" and len(a) > 1 and torch.is_tensor(a[1]):
                     try:

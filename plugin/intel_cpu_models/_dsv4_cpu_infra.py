@@ -1789,6 +1789,16 @@ def _install_hidden_debug() -> None:
 
             def _w(self, *a, **k):
                 r = orig(self, *a, **k)
+                if tag == "HCPRE" and _HID_DBG.get("wdump", 0) < 2:
+                    _HID_DBG["wdump"] = _HID_DBG.get("wdump", 0) + 1
+                    try:
+                        with open(_f, "a") as fh:
+                            for wn in ("hc_attn_fn", "hc_ffn_fn", "hc_attn_scale", "hc_attn_base"):
+                                w = getattr(self, wn, None)
+                                if torch.is_tensor(w):
+                                    fh.write(f"WDUMP {wn} shape={tuple(w.shape)} dtype={w.dtype} {_stat(w)}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
                 if _HID_DBG.get(key, 0) < 4:
                     _HID_DBG[key] = _HID_DBG.get(key, 0) + 1
                     try:
