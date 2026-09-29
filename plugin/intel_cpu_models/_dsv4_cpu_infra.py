@@ -1849,6 +1849,36 @@ def _install_hidden_debug() -> None:
         _Attn.forward = _attw
         _Attn._hid_attn_hooked = True
 
+        # Split attention internals: final q (post norm+rope) and the pre-norm compressed kv (wkv).
+        if hasattr(_Attn, "_compute_q_b") and hasattr(_Attn, "_compute_kv_to_cache"):
+            _oqb = _Attn._compute_q_b
+            _okv = _Attn._compute_kv_to_cache
+
+            def _qbw(self, q, positions, q_out=None):
+                r = _oqb(self, q, positions, q_out)
+                if torch.is_tensor(r) and r.shape[0] < 32 and _HID_DBG.get("qb", 0) < 3:
+                    _HID_DBG["qb"] = _HID_DBG.get("qb", 0) + 1
+                    try:
+                        with open(_f, "a") as fh:
+                            fh.write(f"QB#{_HID_DBG['qb']} q_final {_stat(r)}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return r
+
+            def _kvw(self, x, positions, forward_batch, attn_backend, qkv_a=None):
+                if torch.is_tensor(x) and x.shape[0] < 32 and _HID_DBG.get("kv", 0) < 3:
+                    _HID_DBG["kv"] = _HID_DBG.get("kv", 0) + 1
+                    try:
+                        kv = qkv_a[..., self.q_lora_rank :] if qkv_a is not None else self.wkv(x)[0]
+                        with open(_f, "a") as fh:
+                            fh.write(f"KV#{_HID_DBG['kv']} wkv_out {_stat(kv)}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _okv(self, x, positions, forward_batch, attn_backend, qkv_a)
+
+            _Attn._compute_q_b = _qbw
+            _Attn._compute_kv_to_cache = _kvw
+
     try:
         import sglang.kernels.ops.layernorm.mhc as _mhc_dbg
 
