@@ -22,6 +22,14 @@ def _install():
     f = os.environ.get("HID_DBG_FILE", "/scratch/bkaul/dsv4_gpu_hid.txt")
     _orig = Layer.forward
 
+    def _rank():
+        try:
+            from sglang.srt.distributed import get_tensor_model_parallel_rank
+
+            return get_tensor_model_parallel_rank()
+        except Exception:  # noqa: BLE001
+            return -1
+
     def _stat(t):
         try:
             tf = t.float()
@@ -163,11 +171,11 @@ def _install():
 
             def _qbw(self, q, positions, q_out=None):
                 r = _oqb(self, q, positions, q_out)
-                if torch.is_tensor(r) and r.shape[0] < 32 and _HID.get("qb", 0) < 3:
+                if torch.is_tensor(r) and r.shape[0] < 32 and _HID.get("qb", 0) < 6:
                     _HID["qb"] = _HID.get("qb", 0) + 1
                     try:
                         with open(f, "a") as fh:
-                            fh.write(f"QB#{_HID['qb']} q_final {_stat(r)}\n")
+                            fh.write(f"QB#{_HID['qb']} rank{_rank()} q_final {_stat(r)}\n")
                     except Exception:  # noqa: BLE001
                         pass
                 return r
