@@ -192,6 +192,7 @@ def _install():
                     _HID["qb"] = _HID.get("qb", 0) + 1
                     try:
                         with open(f, "a") as fh:
+                            fh.write(f"QB#{_HID['qb']} rank{_rank()} qlora {_stat(q)}\n")
                             fh.write(f"QB#{_HID['qb']} rank{_rank()} q_final {_stat(r)}\n")
                     except Exception:  # noqa: BLE001
                         pass
@@ -226,9 +227,9 @@ def _install():
                         fh.write(
                             f"FQR#{_HID['fqr']} rank{_rank()} "
                             f"in_nope={[round(v,4) for v in qif[0,:4].float().tolist()]} "
-                            f"in_rope={[round(v,4) for v in qif[0,-4:].float().tolist()]} "
+                            f"in_rope={[round(v,4) for v in qif[0,448:452].float().tolist()]} "
                             f"out_nope={[round(v,4) for v in qof[0,:4].float().tolist()]} "
-                            f"out_rope={[round(v,4) for v in qof[0,-4:].float().tolist()]}\n"
+                            f"out_rope={[round(v,4) for v in qof[0,448:452].float().tolist()]}\n"
                         )
             except Exception:  # noqa: BLE001
                 pass
