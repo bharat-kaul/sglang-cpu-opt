@@ -27,11 +27,11 @@ def main():
     max_new = int(os.environ.get("ACC_MAX_NEW", "32"))
     engine = sgl.Engine(
         model_path="/scratch/bkaul/models/DeepSeek-V4-Flash",
-        device="cpu",
-        tp_size=1,
+        device=os.environ.get("ACC_DEVICE", "cpu"),
+        tp_size=int(os.environ.get("ACC_TP", "1")),
         trust_remote_code=True,
         disable_cuda_graph=True,
-        mem_fraction_static=0.85,
+        mem_fraction_static=float(os.environ.get("ACC_MEM_FRAC", "0.85")),
         max_total_tokens=8192,
         swa_full_tokens_ratio=0.8,
         watchdog_timeout=100000,  # fp4-raw ref is ~100s/tok -> don't let the watchdog abort it
