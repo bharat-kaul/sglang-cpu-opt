@@ -19,9 +19,11 @@ DEVARGS=""; N=0
 for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVARGS --device nvidia.com/gpu=$u"; N=$((N+1)); done
 echo "=== exposing $N GPUs by UUID, tp=$N ==="
 podman run --rm $DEVARGS \
+  --ipc=host --network=host --shm-size=32g \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e ACC_DEVICE=cuda -e ACC_TP=$N -e ACC_QUICK=0 -e ACC_MAX_NEW=10 \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+  -e NCCL_DEBUG=WARN -e NCCL_CUMEM_ENABLE=0 \
   "$IMG" \
   python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/accuracy_generate.py 2>&1 | tail -60
 echo "[exit=$?]"
