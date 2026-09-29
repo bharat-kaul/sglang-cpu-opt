@@ -25,15 +25,22 @@ def _install():
     def _stat(t):
         try:
             tf = t.float()
-            return f"mean={tf.abs().mean().item():.3e} max={tf.abs().max().item():.3e} nan={int(torch.isnan(tf).any())}"
+            fp = tf.reshape(-1)[:4].tolist()
+            return f"mean={tf.abs().mean().item():.3e} max={tf.abs().max().item():.3e} nan={int(torch.isnan(tf).any())} fp={[round(x,4) for x in fp]}"
         except Exception:  # noqa: BLE001
             return "NA"
+
+    def _find_hid(a, k):
+        for x in list(a) + list(k.values()):
+            if torch.is_tensor(x) and x.is_floating_point() and x.dim() >= 2 and x.shape[-1] in (4096, 7168):
+                return x
+        return None
 
     def _fwd(self, *a, **k):
         lid = getattr(self, "layer_id", getattr(self, "layer_idx", -1))
         cap = _HID["n"] < 48
         if cap:
-            inp = next((x for x in a if torch.is_tensor(x) and x.dim() >= 2 and x.is_floating_point()), None)
+            inp = _find_hid(a, k)
             try:
                 with open(f, "a") as fh:
                     fh.write(f"L{lid} IN  {_stat(inp) if inp is not None else 'NA'}\n")
@@ -41,10 +48,14 @@ def _install():
                 pass
         out = _orig(self, *a, **k)
         if cap:
-            hs = out[0] if isinstance(out, (tuple, list)) else out
             try:
                 with open(f, "a") as fh:
-                    fh.write(f"L{lid} OUT {_stat(hs)}\n")
+                    if isinstance(out, (tuple, list)):
+                        for j, o in enumerate(out[:2]):
+                            if torch.is_tensor(o):
+                                fh.write(f"L{lid} OUT{j} {_stat(o)}\n")
+                    else:
+                        fh.write(f"L{lid} OUT0 {_stat(out)}\n")
             except Exception:  # noqa: BLE001
                 pass
             _HID["n"] += 1
