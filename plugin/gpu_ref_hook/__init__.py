@@ -131,6 +131,31 @@ def _install():
         setattr(Layer, meth, _mk(orig, tag))
         setattr(Layer, "_" + meth + "_hooked", True)
 
+    # Capture self_attn (MQALayer) input x + output to localize attention-internal divergence.
+    Attn = getattr(_dv4, "MQALayer", None)
+    if Attn is not None and not getattr(Attn, "_gpu_ref_attn_hooked", False):
+        _oatt = Attn.forward
+
+        def _attw(self, *a, **k):
+            xin = k.get("x")
+            if xin is None and len(a) > 0 and torch.is_tensor(a[0]):
+                xin = a[0]
+            out = _oatt(self, *a, **k)
+            if xin is not None and torch.is_tensor(xin) and xin.shape[0] < 32 and _HID.get("attn", 0) < 4:
+                _HID["attn"] = _HID.get("attn", 0) + 1
+                try:
+                    o = out[0] if isinstance(out, (tuple, list)) else out
+                    with open(f, "a") as fh:
+                        fh.write(f"ATTN#{_HID['attn']} in {_stat(xin)}\n")
+                        if torch.is_tensor(o):
+                            fh.write(f"ATTN#{_HID['attn']} out {_stat(o)}\n")
+                except Exception:  # noqa: BLE001
+                    pass
+            return out
+
+        Attn.forward = _attw
+        Attn._gpu_ref_attn_hooked = True
+
     try:
         import sglang.kernels.ops.layernorm.mhc as _mhc
 
