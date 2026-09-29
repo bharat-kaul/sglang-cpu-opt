@@ -21,7 +21,7 @@ for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVA
 podman run --rm $DEVARGS \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
-  -e ACC_DEVICE=cuda -e ACC_TP=$N -e ACC_QUICK=1 -e ACC_MAX_NEW=1 \
+  -e ACC_DEVICE=cuda -e ACC_TP=$N -e ACC_QUICK=1 -e ACC_MAX_NEW=1 -e ACC_PROMPT_IDX=0 \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
   -e NCCL_DEBUG=WARN -e NCCL_CUMEM_ENABLE=0 \
   -e PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin \

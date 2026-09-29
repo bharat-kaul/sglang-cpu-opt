@@ -75,6 +75,14 @@ def _install():
 
             def _w(self, *a, **k):
                 r = orig(self, *a, **k)
+                # Only capture the small real prompt-0 prefill (skip 256-tok warmup/padding passes).
+                _sz = None
+                if tag == "HCPRE" and len(a) > 0 and torch.is_tensor(a[0]):
+                    _sz = a[0].shape[0]
+                elif tag == "HCPOST" and len(a) > 1 and torch.is_tensor(a[1]):
+                    _sz = a[1].shape[0]
+                if _sz is not None and _sz >= 32:
+                    return r
                 if tag == "HCPRE" and _HID.get("wdump", 0) < 2:
                     # Skip CUDA-graph warmup (dummy/zero or huge activations).
                     xin = a[0] if len(a) > 0 and torch.is_tensor(a[0]) else None

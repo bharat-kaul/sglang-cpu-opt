@@ -20,6 +20,7 @@ export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
 export INTEL_CPU_DSV4_DECODE_THREADS=8
 export ACC_QUICK=1
 export ACC_MAX_NEW=1
+export ACC_PROMPT_IDX=0
 cd /data/nfs_home/bkaul
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/accuracy_generate.py
 echo "=== HIDDEN-STATE DEBUG FILE ==="
