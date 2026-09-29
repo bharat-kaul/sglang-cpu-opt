@@ -1792,7 +1792,11 @@ def _install_hidden_debug() -> None:
                 if tag == "HCPRE" and _HID_DBG.get("wdump", 0) < 2:
                     _HID_DBG["wdump"] = _HID_DBG.get("wdump", 0) + 1
                     try:
+                        if len(a) > 0 and torch.is_tensor(a[0]) and _HID_DBG["wdump"] == 1:
+                            torch.save(a[0].detach().float().cpu(), _f + ".x0.pt")
                         with open(_f, "a") as fh:
+                            if len(a) > 0 and torch.is_tensor(a[0]):
+                                fh.write(f"XIN shape={tuple(a[0].shape)} {_stat(a[0])}\n")
                             for wn in ("hc_attn_fn", "hc_ffn_fn", "hc_attn_scale", "hc_attn_base"):
                                 w = getattr(self, wn, None)
                                 if torch.is_tensor(w):
