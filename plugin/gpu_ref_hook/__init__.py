@@ -64,6 +64,32 @@ def _install():
     Layer.forward = _fwd
     Layer._gpu_ref_hooked = True
 
+    # Also capture the MHC boundary intermediates: hc_pre output y + hc_post output (residual).
+    for meth, tag in (("hc_pre", "HCPRE"), ("hc_post", "HCPOST")):
+        orig = getattr(Layer, meth, None)
+        if orig is None or getattr(Layer, "_" + meth + "_hooked", False):
+            continue
+
+        def _mk(orig, tag):
+            key = tag.lower()
+
+            def _w(self, *a, **k):
+                r = orig(self, *a, **k)
+                if _HID.get(key, 0) < 4:
+                    _HID[key] = _HID.get(key, 0) + 1
+                    try:
+                        y = r[0] if isinstance(r, (tuple, list)) else r
+                        with open(f, "a") as fh:
+                            fh.write(f"{tag}#{_HID[key]} {_stat(y)}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return r
+
+            return _w
+
+        setattr(Layer, meth, _mk(orig, tag))
+        setattr(Layer, "_" + meth + "_hooked", True)
+
     try:
         from sglang.srt.layers.logits_processor import LogitsProcessor
 

@@ -1778,6 +1778,31 @@ def _install_hidden_debug() -> None:
 
     Layer.forward = _fwd
     Layer._hid_dbg_patched = True
+    # Also capture the MHC boundary intermediates: hc_pre output y + hc_post output (residual).
+    for _meth, _tag in (("hc_pre", "HCPRE"), ("hc_post", "HCPOST")):
+        _orig_m = getattr(Layer, _meth, None)
+        if _orig_m is None or getattr(Layer, "_" + _meth + "_hid_hooked", False):
+            continue
+
+        def _mk(orig, tag):
+            key = tag.lower()
+
+            def _w(self, *a, **k):
+                r = orig(self, *a, **k)
+                if _HID_DBG.get(key, 0) < 4:
+                    _HID_DBG[key] = _HID_DBG.get(key, 0) + 1
+                    try:
+                        y = r[0] if isinstance(r, (tuple, list)) else r
+                        with open(_f, "a") as fh:
+                            fh.write(f"{tag}#{_HID_DBG[key]} {_stat(y)}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return r
+
+            return _w
+
+        setattr(Layer, _meth, _mk(_orig_m, _tag))
+        setattr(Layer, "_" + _meth + "_hid_hooked", True)
     # Also capture the final next-token logits (top-5 ids/vals) — a fixed argmax regardless of the
     # (healthy) hidden state points at the lm_head / final-norm / logits head, not the transformer.
     try:
