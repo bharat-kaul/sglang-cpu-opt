@@ -1067,6 +1067,18 @@ def _torch_flash_mla_with_kvcache(
         else:
             p = s.softmax(dim=-1)
         out[t] = p @ K[:, :head_dim_v]
+        if _dbg and _ATTN_DBG["n"] < 2 and t < 2:
+            try:
+                with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_attn_debug.txt"), "a") as _f:
+                    _f.write(
+                        f"TOK t={t} nkeys={K.shape[0]} idx={idx[:6].tolist()} scale={float(softmax_scale):.5f} "
+                        f"K0={[round(v,4) for v in K[0,:4].tolist()]} "
+                        f"qK0={[round(v,4) for v in s[0,:min(4,s.shape[1])].tolist()]} "
+                        f"p0={[round(v,4) for v in p[0,:min(4,p.shape[1])].tolist()]} "
+                        f"out={[round(v,4) for v in out[t,0,:4].tolist()]}\n"
+                    )
+            except Exception:  # noqa: BLE001
+                pass
         if _TIMEIT_ON:
             _tacc("dsa.mla.attend", _t0, "torch")
     if _dbg and _ATTN_DBG["n"] < 8:
