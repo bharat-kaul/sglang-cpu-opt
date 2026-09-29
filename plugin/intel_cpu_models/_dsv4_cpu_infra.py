@@ -1908,6 +1908,32 @@ def _install_hidden_debug() -> None:
             _Attn._compute_q_b = _qbw
             _Attn._compute_kv_to_cache = _kvw
 
+    # Tap fused_q_norm_rope: input (wq_b out) + output, nope[0:4] AND rope[-4:] dims.
+    _ofqr = getattr(_dv4, "fused_q_norm_rope", None)
+    if _ofqr is not None and not getattr(_dv4, "_fqr_cpu_tapped", False):
+
+        def _fqr(qi, qo, *aa, **kk):
+            r = _ofqr(qi, qo, *aa, **kk)
+            try:
+                if torch.is_tensor(qi) and qi.shape[0] < 32 and _HID_DBG.get("fqr", 0) < 6:
+                    _HID_DBG["fqr"] = _HID_DBG.get("fqr", 0) + 1
+                    qif = qi.reshape(qi.shape[0], -1)
+                    qof = qo.reshape(qo.shape[0], -1)
+                    with open(_f, "a") as fh:
+                        fh.write(
+                            f"FQR#{_HID_DBG['fqr']} "
+                            f"in_nope={[round(v,4) for v in qif[0,:4].float().tolist()]} "
+                            f"in_rope={[round(v,4) for v in qif[0,-4:].float().tolist()]} "
+                            f"out_nope={[round(v,4) for v in qof[0,:4].float().tolist()]} "
+                            f"out_rope={[round(v,4) for v in qof[0,-4:].float().tolist()]}\n"
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+            return r
+
+        _dv4.fused_q_norm_rope = _fqr
+        _dv4._fqr_cpu_tapped = True
+
     try:
         import sglang.kernels.ops.layernorm.mhc as _mhc_dbg
 
