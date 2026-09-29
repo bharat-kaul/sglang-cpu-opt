@@ -148,6 +148,23 @@ def _install():
             xin = k.get("x")
             if xin is None and len(a) > 0 and torch.is_tensor(a[0]):
                 xin = a[0]
+            # One-time tap of wo_a input = the pre-o_proj MLA attention-core output.
+            _woa = getattr(self, "wo_a", None)
+            if _woa is not None and not getattr(_woa, "_gpu_ref_woa_tapped", False):
+                _owoa = _woa.forward
+
+                def _woaw(x, *aa, **kk):
+                    if torch.is_tensor(x) and x.shape[0] < 32 and _HID.get("woa", 0) < 6:
+                        _HID["woa"] = _HID.get("woa", 0) + 1
+                        try:
+                            with open(f, "a") as fh:
+                                fh.write(f"WOA#{_HID['woa']} rank{_rank()} preO {_stat(x)}\n")
+                        except Exception:  # noqa: BLE001
+                            pass
+                    return _owoa(x, *aa, **kk)
+
+                _woa.forward = _woaw
+                _woa._gpu_ref_woa_tapped = True
             out = _oatt(self, *a, **k)
             if xin is not None and torch.is_tensor(xin) and xin.shape[0] < 32 and _HID.get("attn", 0) < 4:
                 _HID["attn"] = _HID.get("attn", 0) + 1

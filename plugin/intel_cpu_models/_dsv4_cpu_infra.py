@@ -1845,6 +1845,23 @@ def _install_hidden_debug() -> None:
             xin = k.get("x")
             if xin is None and len(a) > 0 and torch.is_tensor(a[0]):
                 xin = a[0]
+            # One-time tap of wo_a input = the pre-o_proj MLA attention-core output.
+            _woa = getattr(self, "wo_a", None)
+            if _woa is not None and not getattr(_woa, "_hid_woa_tapped", False):
+                _owoa = _woa.forward
+
+                def _woaw(x, *aa, **kk):
+                    if torch.is_tensor(x) and x.shape[0] < 32 and _HID_DBG.get("woa", 0) < 6:
+                        _HID_DBG["woa"] = _HID_DBG.get("woa", 0) + 1
+                        try:
+                            with open(_f, "a") as fh:
+                                fh.write(f"WOA#{_HID_DBG['woa']} preO {_stat(x)}\n")
+                        except Exception:  # noqa: BLE001
+                            pass
+                    return _owoa(x, *aa, **kk)
+
+                _woa.forward = _woaw
+                _woa._hid_woa_tapped = True
             out = _oatt(self, *a, **k)
             if xin is not None and torch.is_tensor(xin) and xin.shape[0] < 32 and _HID_DBG.get("attn", 0) < 4:
                 _HID_DBG["attn"] = _HID_DBG.get("attn", 0) + 1
