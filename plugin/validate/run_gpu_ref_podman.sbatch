@@ -11,12 +11,16 @@
 set -x
 export XDG_RUNTIME_DIR=/tmp/xdg-$(id -u); mkdir -p "$XDG_RUNTIME_DIR" /tmp/podman-runroot; chmod 700 "$XDG_RUNTIME_DIR"
 export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
+nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
 IMG=docker.io/lmsysorg/sglang:latest
 echo "=== GPUs visible to the job (cgroup) ==="; nvidia-smi -L
-podman run --rm --device nvidia.com/gpu=all \
-  -e CUDA_VISIBLE_DEVICES \
+# Expose exactly the ALLOCATED GPUs by UUID (cgroup-limited) so they map to cuda:0..N-1 in-container.
+DEVARGS=""; N=0
+for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVARGS --device nvidia.com/gpu=$u"; N=$((N+1)); done
+echo "=== exposing $N GPUs by UUID, tp=$N ==="
+podman run --rm $DEVARGS \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
-  -e ACC_DEVICE=cuda -e ACC_TP=4 -e ACC_QUICK=0 -e ACC_MAX_NEW=10 \
+  -e ACC_DEVICE=cuda -e ACC_TP=$N -e ACC_QUICK=0 -e ACC_MAX_NEW=10 \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
   "$IMG" \
   python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/accuracy_generate.py 2>&1 | tail -60
