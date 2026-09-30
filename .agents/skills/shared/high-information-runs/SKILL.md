@@ -72,6 +72,13 @@ launch, no reflex `--partition=` default:**
    `sinfo -p emr,gnrap -h -o "%P %t %D"` + `squeue -p gnrap -h` (is the single fast node busy/queued?).
 3. **Pick by (task-class × availability × wave-count)**, then launch. Catching yourself send a portable
    capture to the scarce fast node — or waiting in its queue behind others — is the bug.
+4. **GPU-centric rule (when the plan needs BOTH CPU and GPU runs):** they sit on different partitions, so
+   ALWAYS co-run them in parallel (CPU job + GPU job at once), never CPU-then-GPU. Before firing the GPU
+   side: (a) SIZE it to the FEWEST GPUs that fit the need (a capture/oracle only needs enough to LOAD;
+   `tp` must divide the head count; fit by memory/GB-per-GPU — don't grab the whole box out of habit);
+   (b) check the free GPU count and request only that many (by UUID); (c) fewer GPUs/job ⇒ more concurrent
+   GPU jobs fit ⇒ parallel GPU waves; (d) serialize only jobs sharing mutable global state (e.g. a shared
+   CDI spec). Net: assess need → size GPUs minimally → check free → fire CPU + GPU (and GPU waves) at once.
 Route by run shape:
 - **Independent hypotheses (bisection, a variant sweep that can't be merged into one load) → fan out a
   WAVE across the many-node partition** (e.g. EMR/SPR with 7-8 idle nodes): N runs finish in ~1 run of
