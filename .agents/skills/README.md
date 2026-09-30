@@ -4,6 +4,26 @@ Two legs share one plugin. Skills are grouped so it is obvious which belong to t
 **throughput thesis** (enable a new model from EXISTING kernels) versus the
 **new-kernel leg** (write/optimize a kernel). `shared/` skills are used by both.
 
+## Operating principles (the skills are framework- AND hardware-agnostic)
+- **The METHOD is the skill; the framework/HW/scheduler are the current concrete INSTANCE.**
+  Today the instance is SGLang + x86 CPU (AMX) + Slurm (EMR/GNR/H200). The methods —
+  op-decomposition, reference-oracle parity, multi-vector differential debugging, roofline
+  validation, high-information runs, node-to-run-shape matching — transfer unchanged to vLLM /
+  TensorRT-LLM / a new accelerator. When porting, **swap the instance, keep the method**: names
+  like `Fp8LinearMethod`, `bench_one_batch`, `sinfo`, `gnrap` are examples, not dependencies.
+  Read framework/HW specifics as "the equivalent in your stack," and keep new skill prose
+  instance-neutral (state the principle, cite the current tool in parentheses).
+- **Step 0 of any session = DISCOVER the compute inventory, before planning any runs.** Probe
+  what the scheduler/cloud actually offers RIGHT NOW and classify it by run shape:
+  (a) a **parallel farm** (many idle nodes) for independent bisection waves,
+  (b) the **fastest single node** for one decisive run,
+  (c) the **reference-oracle node class** (e.g. GPU box) for ground truth.
+  Concretely: enumerate partitions/queues and idle counts (`sinfo`/cloud API), accelerator
+  availability and how to request partial devices, per-node-class load time and ISA. This
+  inventory determines the run strategy (`high-information-runs`: wave vs single, where the
+  oracle lives) and the portability gate (correctness runs anywhere idle; perf only on target HW).
+  Record it once at session start; re-check availability before each submit (queue wait is run_cost).
+
 ## `throughput-enablement/` — THE THROUGHPUT THESIS
 Enable a new all-known-kernels model on CPU, no fork. Load in this order:
 1. `model-enablement-playbook` — orchestrator index (load first)
