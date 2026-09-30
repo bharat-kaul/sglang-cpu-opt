@@ -575,6 +575,29 @@ def _install_full_capture() -> None:
             _B._fullcap_patched = True
     except Exception:  # noqa: BLE001
         pass
+    # Post-inverse-RoPE o[...,-64:] per layer (both CPU+GPU call fused_rope_inplace inverse=True).
+    _ofr = getattr(_dv4, "fused_rope_inplace", None)
+    if _ofr is not None and not getattr(_ofr, "_fullcap_wrapped", False):
+        _irc = {"pf": 0, "dc0": 0}
+
+        def _frw(q, k=None, *a, **kw):
+            r = _ofr(q, k, *a, **kw)
+            try:
+                if kw.get("inverse", False) and torch.is_tensor(q):
+                    T = q.shape[0]
+                    tag = "pf" if 2 <= T <= 16 else ("dc0" if T == 1 and _ST["seen_pf"] else None)
+                    if tag is not None:
+                        lid = _irc[tag]
+                        _irc[tag] += 1
+                        key = f"{tag}.invrope.L{lid}.r{_rk()}"
+                        if key not in _CAP:
+                            _CAP[key] = q.detach().float().cpu()
+            except Exception:  # noqa: BLE001
+                pass
+            return r
+
+        _frw._fullcap_wrapped = True
+        _dv4.fused_rope_inplace = _frw
     try:
         from sglang.srt.layers.logits_processor import LogitsProcessor
 
