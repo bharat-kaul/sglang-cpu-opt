@@ -63,8 +63,16 @@ answer one yes/no question, STOP and widen it.
    and instrumentation must never pollute a clean measurement (guarded timers/sweeps).
 
 ## Match the node to the run SHAPE (infra awareness cuts wall-time as much as instrumentation)
-`num_runs × run_cost` also depends on WHERE you run. Know the cluster inventory and route by run
-shape, checking `sinfo`/`squeue` availability BEFORE submitting:
+`num_runs × run_cost` also depends on WHERE you run. **MANDATORY PRE-LAUNCH GATE — execute every single
+launch, no reflex `--partition=` default:**
+1. **Classify the task:** correctness / weight-dump / capture / bisection = ISA-PORTABLE (any idle node,
+   prefer the farm); perf/roofline FINAL = target HW only; GPU oracle = GPU box. A dump/capture is NEVER
+   a reason to take the scarce fast single node.
+2. **Check availability across ALL candidate partitions in one shot** before deciding:
+   `sinfo -p emr,gnrap -h -o "%P %t %D"` + `squeue -p gnrap -h` (is the single fast node busy/queued?).
+3. **Pick by (task-class × availability × wave-count)**, then launch. Catching yourself send a portable
+   capture to the scarce fast node — or waiting in its queue behind others — is the bug.
+Route by run shape:
 - **Independent hypotheses (bisection, a variant sweep that can't be merged into one load) → fan out a
   WAVE across the many-node partition** (e.g. EMR/SPR with 7-8 idle nodes): N runs finish in ~1 run of
   wall-time instead of N. This is the parallel dual of a high-information run — when you CAN'T collapse
