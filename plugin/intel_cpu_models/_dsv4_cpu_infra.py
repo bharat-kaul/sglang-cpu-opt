@@ -1888,6 +1888,8 @@ def _install_hidden_debug() -> None:
                         fh.write(f"WOAFN#{_HID_DBG['woafn']} o={tuple(o.shape)} wo_a={tuple(wo_a.shape)} out={tuple(r.shape)}\n")
                         for t in range(nt):
                             fh.write(f"WOAFN#{_HID_DBG['woafn']} o[t{t},g0,:4]={[round(v,4) for v in o[t,0,:4].float().tolist()]}\n")
+                        for g in range(o.shape[1]):
+                            fh.write(f"WOAFN#{_HID_DBG['woafn']} o[t0,g{g},:4]={[round(v,4) for v in o[0,g,:4].float().tolist()]}\n")
                 except Exception:  # noqa: BLE001
                     pass
             return r

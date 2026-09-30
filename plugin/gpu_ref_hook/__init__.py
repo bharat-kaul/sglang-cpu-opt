@@ -254,6 +254,8 @@ def _install():
                             fh.write(f"WOAFN#{_HID['woafn']} rank{_rank()} o={tuple(o.shape)}\n")
                             for t in range(nt):
                                 fh.write(f"WOAFN#{_HID['woafn']} rank{_rank()} o[t{t},g0,:4]={[round(v,4) for v in o[t,0,:4].float().tolist()]}\n")
+                            for g in range(o.shape[1]):
+                                fh.write(f"WOAFN#{_HID['woafn']} rank{_rank()} o[t0,g{g},:4]={[round(v,4) for v in o[0,g,:4].float().tolist()]}\n")
                     except Exception:  # noqa: BLE001
                         pass
                 return r
