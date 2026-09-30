@@ -444,6 +444,7 @@ def install() -> None:
     _install_cpu_gloo_allreduce()
     _install_hidden_debug()
     _install_fp8_proj_parity()
+    _install_fp8_force_bf16()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
 
@@ -1730,6 +1731,57 @@ def _install_fp8_proj_parity() -> None:
     Fp8LinearMethod.process_weights_after_loading = _pwal
     Fp8LinearMethod.apply = _apply
     Fp8LinearMethod._fp8_parity_patched = True
+
+
+def _install_fp8_force_bf16() -> None:
+    # Decisive precision test: replace every fp8 W8A16 dense projection with a bf16 block-dequant
+    # matmul (fp8->bf16, block-128). Coherent output => the CPU fp8 path's accumulated precision
+    # drift (vs GPU native fp8) is the garbage cause; still garbage => a logic bug remains.
+    if _os.environ.get("INTEL_CPU_DSV4_FP8_BF16") != "1":
+        return
+    try:
+        from sglang.srt.layers.quantization.fp8 import Fp8LinearMethod
+    except Exception:  # noqa: BLE001
+        return
+    if getattr(Fp8LinearMethod, "_fp8_bf16_patched", False):
+        return
+    import torch
+
+    _store: dict = {}
+    _orig_pwal = Fp8LinearMethod.process_weights_after_loading
+    _orig_apply = Fp8LinearMethod.apply
+
+    def _blk_dequant(w_fp8, s):
+        wf = w_fp8.float()
+        O, I = wf.shape
+        sf = s.float()
+        if sf.dim() == 2 and sf.shape[0] > 0 and sf.shape[1] > 0:
+            bo = max(1, O // sf.shape[0])
+            bi = max(1, I // sf.shape[1])
+            sfull = sf.repeat_interleave(bo, 0).repeat_interleave(bi, 1)[:O, :I]
+            return wf * sfull
+        return wf * sf
+
+    def _pwal(self, layer):
+        w = getattr(layer, "weight", None)
+        s = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
+        if w is not None and s is not None and w.dtype == torch.float8_e4m3fn:
+            _store[id(layer)] = _blk_dequant(w, s).to(torch.bfloat16)
+        return _orig_pwal(self, layer)
+
+    def _apply(self, layer, x, bias=None):
+        wbf = _store.get(id(layer))
+        if wbf is not None:
+            y = x.float() @ wbf.float().t()
+            if bias is not None:
+                y = y + bias.float()
+            return y.to(x.dtype)
+        return _orig_apply(self, layer, x, bias)
+
+    Fp8LinearMethod.process_weights_after_loading = _pwal
+    Fp8LinearMethod.apply = _apply
+    Fp8LinearMethod._fp8_bf16_patched = True
+    logger.info("intel_cpu_models: FORCED fp8 dense projections to bf16 block-dequant (precision test).")
     logger.info("intel_cpu_models: installed fp8 projection in-situ parity probe.")
 
 
