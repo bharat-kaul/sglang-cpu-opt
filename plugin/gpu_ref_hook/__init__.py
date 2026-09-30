@@ -332,5 +332,78 @@ def _install():
         pass
 
 
+def _install_fullcap():
+    # Comprehensive full-tensor per-layer capture (prefill AND decode) on the GPU oracle, matching the
+    # CPU plugin, for offline cosine-per-layer diff. Saves each layer OUTPUT hidden + logits (fp32) to FULLCAP_FILE.
+    try:
+        import torch
+        import sglang.srt.models.deepseek_v4 as _dv4
+    except Exception:  # noqa: BLE001
+        return
+    Layer = getattr(_dv4, "DeepseekV4DecoderLayer", None)
+    if Layer is None or getattr(Layer, "_fullcap_patched", False):
+        return
+    _F = os.environ.get("FULLCAP_FILE", "/scratch/bkaul/dsv4_gpu_fullcap.pt")
+    _CAP = {}
+    _ST = {"seen_pf": False, "dc": 0}
+
+    def _rk():
+        try:
+            from sglang.srt.distributed import get_tensor_model_parallel_rank as _g
+            return _g()
+        except Exception:  # noqa: BLE001
+            return -1
+
+    _ofwd = Layer.forward
+
+    def _fwd(self, *a, **k):
+        lid = getattr(self, "layer_id", getattr(self, "layer_idx", -1))
+        out = _ofwd(self, *a, **k)
+        try:
+            h = out[0] if isinstance(out, (tuple, list)) else out
+            if torch.is_tensor(h):
+                T = h.shape[0]
+                if 2 <= T <= 16:
+                    _ST["seen_pf"] = True
+                    key = f"pf.L{lid}.r{_rk()}"
+                    if key not in _CAP:
+                        _CAP[key] = h.detach().float().cpu()
+                elif T == 1 and _ST["seen_pf"]:
+                    key = f"dc{_ST['dc']//64}.L{lid}.r{_rk()}"
+                    if key not in _CAP:
+                        _CAP[key] = h.detach().float().cpu()
+                    _ST["dc"] += 1
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    Layer.forward = _fwd
+    Layer._fullcap_patched = True
+    try:
+        from sglang.srt.layers.logits_processor import LogitsProcessor
+
+        if not getattr(LogitsProcessor, "_fullcap_patched", False):
+            _olp = LogitsProcessor.forward
+
+            def _lp(self, *a, **k):
+                r = _olp(self, *a, **k)
+                try:
+                    lg = getattr(r, "next_token_logits", None)
+                    if lg is not None:
+                        n = sum(1 for kk in _CAP if kk.startswith("logits"))
+                        _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
+                        torch.save(_CAP, _F)
+                except Exception:  # noqa: BLE001
+                    pass
+                return r
+
+            LogitsProcessor.forward = _lp
+            LogitsProcessor._fullcap_patched = True
+    except Exception:  # noqa: BLE001
+        pass
+
+
 if os.environ.get("GPU_REF_HID_DEBUG") == "1":
     _install()
+if os.environ.get("GPU_REF_FULLCAP") == "1":
+    _install_fullcap()

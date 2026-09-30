@@ -445,8 +445,82 @@ def install() -> None:
     _install_hidden_debug()
     _install_fp8_proj_parity()
     _install_fp8_force_bf16()
+    _install_full_capture()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
+
+
+def _install_full_capture() -> None:
+    # Comprehensive full-tensor per-layer capture (prefill AND decode) for offline cosine-per-layer
+    # vs the GPU oracle. Saves each layer's OUTPUT hidden + logits as full fp32 tensors to FULLCAP_FILE.
+    if _os.environ.get("INTEL_CPU_DSV4_FULLCAP") != "1":
+        return
+    import torch
+
+    import sglang.srt.models.deepseek_v4 as _dv4
+
+    Layer = _dv4.DeepseekV4DecoderLayer
+    if getattr(Layer, "_fullcap_patched", False):
+        return
+    _F = _os.environ.get("FULLCAP_FILE", "/scratch/bkaul/dsv4_fullcap.pt")
+    _CAP: dict = {}
+    _ST = {"seen_pf": False, "dc": 0}
+
+    def _rk():
+        try:
+            from sglang.srt.distributed import get_tensor_model_parallel_rank as _g
+            return _g()
+        except Exception:  # noqa: BLE001
+            return -1
+
+    _ofwd = Layer.forward
+
+    def _fwd(self, *a, **k):
+        lid = getattr(self, "layer_id", getattr(self, "layer_idx", -1))
+        out = _ofwd(self, *a, **k)
+        try:
+            h = out[0] if isinstance(out, (tuple, list)) else out
+            if torch.is_tensor(h):
+                T = h.shape[0]
+                # real prompt prefill (T in the prompt-length range) or decode (T==1 after prefill)
+                if 2 <= T <= 16:
+                    _ST["seen_pf"] = True
+                    key = f"pf.L{lid}.r{_rk()}"
+                    if key not in _CAP:
+                        _CAP[key] = h.detach().float().cpu()
+                elif T == 1 and _ST["seen_pf"]:
+                    key = f"dc{_ST['dc']//64}.L{lid}.r{_rk()}"
+                    if key not in _CAP:
+                        _CAP[key] = h.detach().float().cpu()
+                    _ST["dc"] += 1
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    Layer.forward = _fwd
+    Layer._fullcap_patched = True
+    try:
+        from sglang.srt.layers.logits_processor import LogitsProcessor
+
+        if not getattr(LogitsProcessor, "_fullcap_patched", False):
+            _olp = LogitsProcessor.forward
+
+            def _lp(self, *a, **k):
+                r = _olp(self, *a, **k)
+                try:
+                    lg = getattr(r, "next_token_logits", None)
+                    if lg is not None:
+                        n = sum(1 for kk in _CAP if kk.startswith("logits"))
+                        _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
+                        torch.save(_CAP, _F)
+                except Exception:  # noqa: BLE001
+                    pass
+                return r
+
+            LogitsProcessor.forward = _lp
+            LogitsProcessor._fullcap_patched = True
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _install_cpu_gloo_allreduce() -> None:
