@@ -178,6 +178,23 @@ Run the in-repo harnesses on CPU vs reference:
 - Pass if each score is within N points of the reference (default N=1.0 absolute,
   or within run-to-run noise), on a fixed decode config (greedy or fixed seed).
 
+## Fast guardrail for the PERF-OPTIMIZATION loop (re-verify accuracy cheaply after every kernel change)
+During perf work you re-check accuracy constantly — do NOT pay full task generation each time. FIRST
+MEASURE where the wall-time goes (load vs generate): in this repo the model LOAD was ~8 min (149 GB/46
+shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts × 160 tokens on CPU). So:
+- **Regression guardrail = short-prompt cached-golden parity, not the task harness.** Capture a golden
+  greedy-completion set ONCE from the known-good build on a dozen SHORT prompts × a few tokens, then after
+  each perf change compare CPU vs golden (exact-match, no HF reload, no long generation) → seconds of
+  compute. A mis-wired/regressed kernel diverges immediately. (Worked example: `accuracy_parity.py
+  --golden-out`/`--golden-in`, `run_parity_fast.sbatch`.) Keep short prompts under any token-count
+  dispatch threshold so the fast check and the real path agree.
+- **Cut repeat LOAD time:** stage weights to node-local tmpfs (`/dev/shm`, if the box has the RAM — here
+  ~1 TB, model 149 GB fits) once per node and PIN the node (`sbatch -w <node>`) so reloads skip the NFS
+  read (~8 min → ~1–2 min). The dequant/prepack CPU cost still recurs unless you also cache the
+  post-processed weights.
+- **Reserve the full task harness (gsm8k/mmlu) for PERIODIC checks**, not every iteration; raise
+  `watchdog_timeout` (default 300 s kills slow CPU long-prompt forwards) and cap `chunked_prefill_size`.
+
 ## Procedure
 1. Run Layer 1 on a small fixed prompt set; block on the first out-of-tol layer.
 2. Once parity holds, run Layer 2 harnesses; block on any score regression.
