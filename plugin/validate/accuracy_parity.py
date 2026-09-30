@@ -71,6 +71,25 @@ def sglang_next_tokens(model, tp, prompts, tok, dtype="bfloat16", quantization=N
     return out
 
 
+def sglang_completions(model, tp, prompts, max_new, dtype="bfloat16", quantization=None):
+    # Greedy completion text per prompt (short prompts + few tokens => seconds, no HF).
+    import sglang as sgl
+
+    e = sgl.Engine(
+        model_path=model, device="cpu", tp_size=tp, dtype=dtype,
+        quantization=quantization,
+        disable_overlap_schedule=True, trust_remote_code=True,
+        mem_fraction_static=float(os.environ.get("MEM_FRAC", "0.5")),
+        log_level="warning",
+    )
+    out = []
+    for pr in prompts:
+        r = e.generate(pr, {"temperature": 0.0, "max_new_tokens": max_new})
+        out.append((r["text"] if isinstance(r, dict) else r).strip())
+    e.shutdown()
+    return out
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True)
@@ -82,7 +101,39 @@ def main():
                         "to the ORIGINAL unquantized checkpoint (HF can't load w8a8 int8)")
     p.add_argument("--agree-min", type=float, default=0.9)
     p.add_argument("--out", default="")
+    # Fast perf-loop guardrail: capture a golden completion set ONCE from a known-good build,
+    # then --golden-in on every perf iteration compares CPU vs golden (no HF reload, no long gen).
+    p.add_argument("--golden-out", default="", help="capture CPU completions to this file (skip HF)")
+    p.add_argument("--golden-in", default="", help="compare CPU completions to this golden (skip HF)")
+    p.add_argument("--max-new", type=int, default=8, help="tokens per prompt in golden mode")
     args = p.parse_args()
+
+    if args.golden_out or args.golden_in:
+        comps = sglang_completions(args.model, args.tp, PROMPTS, args.max_new,
+                                   args.dtype, args.quantization)
+        if args.golden_out:
+            with open(args.golden_out, "w") as f:
+                json.dump({"model": args.model, "max_new": args.max_new,
+                           "completions": comps}, f, indent=2)
+            print(json.dumps({"golden_out": args.golden_out, "n": len(comps),
+                              "sample": comps[0][:40]}, indent=2))
+            sys.exit(0)
+        golden = json.load(open(args.golden_in))["completions"]
+        rows, agree = [], 0
+        for pr, g, c in zip(PROMPTS, golden, comps):
+            ok = (g.strip() == c.strip())
+            agree += ok
+            rows.append({"prompt": pr[:36], "golden": g[:16], "cpu": c[:16], "agree": ok})
+        rate = agree / len(PROMPTS)
+        verdict = "PASS" if rate >= args.agree_min else "FAIL"
+        result = {"model": args.model, "mode": "golden", "prompts": len(PROMPTS),
+                  "match_rate": round(rate, 3), "agree_min": args.agree_min,
+                  "rows": rows, "overall_verdict": verdict}
+        print(json.dumps(result, indent=2))
+        if args.out:
+            with open(args.out, "w") as f:
+                json.dump(result, f, indent=2)
+        sys.exit(0 if verdict == "PASS" else 1)
 
     hf, tok = hf_next_tokens(args.ref_model or args.model, PROMPTS)
     sg = sglang_next_tokens(args.model, args.tp, PROMPTS, tok, args.dtype, args.quantization)
