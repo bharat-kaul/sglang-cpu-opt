@@ -238,6 +238,31 @@ def _install():
         _dv4.fused_q_norm_rope = _fqr
         _dv4._fqr_gpu_tapped = True
 
+    # Force bf16 wo_a path on GPU so _apply_wo_a_bf16_matmul runs -> capture attn-core-out (pre o_proj).
+    try:
+        _dv4._FP8_WO_A_GEMM = False
+        _owoa_fn = getattr(_dv4, "_apply_wo_a_bf16_matmul", None)
+        if _owoa_fn is not None and not getattr(_dv4, "_woafn_gpu_tapped", False):
+
+            def _woa_fn(o, wo_a, is_decode):
+                r = _owoa_fn(o, wo_a, is_decode)
+                if torch.is_tensor(o) and o.shape[0] < 32 and _HID.get("woafn", 0) < 2:
+                    _HID["woafn"] = _HID.get("woafn", 0) + 1
+                    try:
+                        nt = min(5, o.shape[0])
+                        with open(f, "a") as fh:
+                            fh.write(f"WOAFN#{_HID['woafn']} rank{_rank()} o={tuple(o.shape)}\n")
+                            for t in range(nt):
+                                fh.write(f"WOAFN#{_HID['woafn']} rank{_rank()} o[t{t},g0,:4]={[round(v,4) for v in o[t,0,:4].float().tolist()]}\n")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return r
+
+            _dv4._apply_wo_a_bf16_matmul = _woa_fn
+            _dv4._woafn_gpu_tapped = True
+    except Exception:  # noqa: BLE001
+        pass
+
     try:
         import sglang.kernels.ops.layernorm.mhc as _mhc
 
