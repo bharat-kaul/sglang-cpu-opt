@@ -1255,6 +1255,68 @@ def _walsh_hadamard(n: int, device) -> "torch.Tensor":
     return _HAD_CACHE[key]
 
 
+def _batched_mla_attend(
+    q, dp, D, head_dim_v, softmax_scale, indices, topk_length, attn_sink, pos_kept, force_dense
+):
+    # Batched bf16 MLA attention: the per-token softmax-attention loop collapsed into two AMX
+    # GEMMs (scores=QK^T, out=PV) over the FULL valid KV plus a per-token key mask. K==V (MLA),
+    # shared across query tokens, so both GEMMs are a single [T*H,*] matmul. Masked keys get
+    # p=0 -> identical to the loop (softmax-weighted sum is order-invariant). Returns out
+    # [T,H,hdv] fp32, or None to fall back to the reference loop.
+    import torch
+
+    T, _, H, _Dq = q.shape
+    valid = _KV_VALID.get(dp)
+    if valid is None:
+        return torch.zeros(T, H, head_dim_v, dtype=torch.float32)
+    vslots = valid.nonzero(as_tuple=False).reshape(-1)
+    n = int(vslots.numel())
+    if n == 0:
+        return torch.zeros(T, H, head_dim_v, dtype=torch.float32)
+    K_all = _stash_kv_gather(dp, vslots)
+    if K_all is None:
+        return None
+    ar = torch.arange(n)
+    if indices is None or topk_length is None or force_dense:
+        # dense causal: query t (position n-T+t) attends to slots [0 .. n-T+t]
+        clen = (n - (T - 1)) + torch.arange(T)
+        mask = ar.unsqueeze(0) < clen.clamp(min=0, max=n).unsqueeze(1)  # [T, n]
+    else:
+        inv = torch.full((int(vslots.max()) + 1,), -1, dtype=torch.long)
+        inv[vslots] = torch.arange(n)
+        mask = torch.zeros(T, n, dtype=torch.bool)
+        for t in range(T):
+            L = int(topk_length[t])
+            idx = indices[t].reshape(-1)[:L].long()
+            idx = idx[idx >= 0]
+            if pos_kept is not None and t < pos_kept.shape[0] and idx.numel() > 0:
+                cov = int(pos_kept.shape[1])
+                m = min(cov, idx.shape[0])
+                keep = torch.ones(idx.shape[0], dtype=torch.bool)
+                if m > 0:
+                    keep[:m] = pos_kept[t, :m].bool()
+                idx = idx[keep]
+            if idx.numel() == 0:
+                cl = max(0, min(n, n - (T - 1) + t))  # dense fallback for this token
+                mask[t, :cl] = True
+            else:
+                pos = inv[idx]
+                mask[t, pos[pos >= 0]] = True
+    qb = q[:, 0].to(torch.bfloat16).reshape(T * H, _Dq)[:, :D]
+    Kb = K_all[:, :D].to(torch.bfloat16)
+    Vb = K_all[:, :head_dim_v].to(torch.bfloat16)
+    scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, n) * softmax_scale
+    scores.masked_fill_(~mask.unsqueeze(1), float("-inf"))
+    if attn_sink is not None:
+        sink = attn_sink.reshape(1, H, 1).float().expand(T, H, 1)
+        p = torch.cat([scores, sink], dim=-1).softmax(dim=-1)[..., :-1]
+    else:
+        p = scores.softmax(dim=-1)
+    p = torch.nan_to_num(p, nan=0.0)  # tokens with no keys -> zero row (matches the loop's out[t]=0)
+    out = torch.matmul(p.reshape(T * H, n).to(torch.bfloat16), Vb).float().reshape(T, H, head_dim_v)
+    return out
+
+
 def _torch_flash_mla_with_kvcache(
     q,
     k_cache,
@@ -1302,6 +1364,26 @@ def _torch_flash_mla_with_kvcache(
                 )
         except Exception:  # noqa: BLE001
             pass
+    # Batched AMX bf16 path (default): 2 GEMMs + key mask instead of the per-token loop.
+    # INTEL_CPU_DSV4_ATTN_LOOP=1 forces the fp8/fp32 reference loop (A/B + extra_k_cache fallback).
+    if extra_k_cache is None and _os.environ.get("INTEL_CPU_DSV4_ATTN_LOOP") != "1":
+        _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
+        _ob = _batched_mla_attend(
+            q, dp, D, head_dim_v, softmax_scale, indices, topk_length, attn_sink, pos_kept, _force_dense
+        )
+        if _ob is not None:
+            if _TIMEIT_ON:
+                _tacc("dsa.mla.attend", _t0, "torch")
+            out = _ob
+            if _dbg and _ATTN_DBG["n"] < 8:
+                try:
+                    _z = int((out.abs().sum(dim=(1, 2)) == 0).sum())
+                    with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_attn_debug.txt"), "a") as _f:
+                        _f.write(f"ATTN#{_ATTN_DBG['n']} OUT[batched]: sum_abs={float(out.abs().sum()):.3e} zero_rows={_z}/{T}\n")
+                    _ATTN_DBG["n"] += 1
+                except Exception:  # noqa: BLE001
+                    pass
+            return (out.unsqueeze(1).to(q.dtype),)
     for t in range(T):
         _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
         if indices is not None and topk_length is not None:
