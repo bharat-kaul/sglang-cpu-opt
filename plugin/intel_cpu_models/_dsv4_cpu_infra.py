@@ -1750,6 +1750,7 @@ def _install_fp8_force_bf16() -> None:
     _store: dict = {}
     _orig_pwal = Fp8LinearMethod.process_weights_after_loading
     _orig_apply = Fp8LinearMethod.apply
+    _dbgf = _os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_fp8bf16_engage.txt")
 
     def _blk_dequant(w_fp8, s):
         wf = w_fp8.float()
@@ -1765,8 +1766,16 @@ def _install_fp8_force_bf16() -> None:
     def _pwal(self, layer):
         w = getattr(layer, "weight", None)
         s = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
-        if w is not None and s is not None and w.dtype == torch.float8_e4m3fn:
-            _store[id(layer)] = _blk_dequant(w, s).to(torch.bfloat16)
+        # Match the parity probe's dtype set: fp8 may be stored as uint8/int8, not only float8_e4m3fn.
+        if w is not None and s is not None and w.dtype in (torch.float8_e4m3fn, torch.int8, torch.uint8):
+            try:
+                wv = w.view(torch.float8_e4m3fn) if w.dtype != torch.float8_e4m3fn else w
+                _store[id(layer)] = _blk_dequant(wv, s).to(torch.bfloat16)
+                with open(_dbgf, "a") as fh:
+                    fh.write(f"[FP8->BF16 ENGAGE] layer#{len(_store)} w={tuple(w.shape)} dt={w.dtype}\n")
+            except Exception as _e:  # noqa: BLE001
+                with open(_dbgf, "a") as fh:
+                    fh.write(f"[FP8->BF16 ENGAGE] SKIP dt={w.dtype}: {_e}\n")
         return _orig_pwal(self, layer)
 
     def _apply(self, layer, x, bias=None):
