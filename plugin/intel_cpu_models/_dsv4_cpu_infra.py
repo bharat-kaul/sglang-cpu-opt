@@ -2055,6 +2055,16 @@ def _install_hidden_debug() -> None:
             r = _owoa_fn(o, wo_a, is_decode)
             if torch.is_tensor(o) and o.shape[0] < 32 and _HID_DBG.get("woafn", 0) < 2:
                 _HID_DBG["woafn"] = _HID_DBG.get("woafn", 0) + 1
+                if _HID_DBG["woafn"] == 1:
+                    try:
+                        torch.save({
+                            "o": o.detach().cpu(),
+                            "wo_a": wo_a.detach().cpu(),
+                            "wo_a_dtype": str(wo_a.dtype),
+                            "out": r.detach().cpu(),
+                        }, _f + ".woa.pt")
+                    except Exception:  # noqa: BLE001
+                        pass
                 try:
                     nt = min(5, o.shape[0])
                     with open(_f, "a") as fh:
