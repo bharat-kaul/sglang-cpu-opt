@@ -419,6 +419,28 @@ def _install_fullcap():
             return r
         Layer._run_moe_ffn_dp_sync = _moew
         Layer._fullcap_moe = True
+    try:
+        from sglang.srt.layers.logits_processor import LogitsProcessor
+
+        if not getattr(LogitsProcessor, "_fullcap_patched", False):
+            _olp = LogitsProcessor.forward
+
+            def _lp(self, *a, **k):
+                r = _olp(self, *a, **k)
+                try:
+                    lg = getattr(r, "next_token_logits", None)
+                    if lg is not None:
+                        n = sum(1 for kk in _CAP if kk.startswith("logits"))
+                        _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
+                        torch.save(_CAP, _F)
+                except Exception:  # noqa: BLE001
+                    pass
+                return r
+
+            LogitsProcessor.forward = _lp
+            LogitsProcessor._fullcap_patched = True
+    except Exception:  # noqa: BLE001
+        pass
 
 
 if os.environ.get("GPU_REF_HID_DEBUG") == "1":
