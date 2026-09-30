@@ -1874,6 +1874,27 @@ def _install_hidden_debug() -> None:
 
     Layer.forward = _fwd
     Layer._hid_dbg_patched = True
+    # Tap the o_proj wo_a grouped matmul: log o.shape (regroup 64 heads -> o_groups) + values.
+    _owoa_fn = getattr(_dv4, "_apply_wo_a_bf16_matmul", None)
+    if _owoa_fn is not None and not getattr(_dv4, "_woa_fn_tapped", False):
+
+        def _woa_fn(o, wo_a, is_decode):
+            r = _owoa_fn(o, wo_a, is_decode)
+            if torch.is_tensor(o) and o.shape[0] < 32 and _HID_DBG.get("woafn", 0) < 3:
+                _HID_DBG["woafn"] = _HID_DBG.get("woafn", 0) + 1
+                try:
+                    with open(_f, "a") as fh:
+                        fh.write(
+                            f"WOAFN#{_HID_DBG['woafn']} o={tuple(o.shape)} wo_a={tuple(wo_a.shape)} "
+                            f"out={tuple(r.shape)} o[0,0,:4]={[round(v,4) for v in o.reshape(o.shape[0],-1)[0,:4].float().tolist()]} "
+                            f"out[0,0,:4]={[round(v,4) for v in r.reshape(r.shape[0],-1)[0,:4].float().tolist()]}\n"
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            return r
+
+        _dv4._apply_wo_a_bf16_matmul = _woa_fn
+        _dv4._woa_fn_tapped = True
     # Also capture the MHC boundary intermediates: hc_pre output y + hc_post output (residual).
     for _meth, _tag in (("hc_pre", "HCPRE"), ("hc_post", "HCPOST")):
         _orig_m = getattr(Layer, _meth, None)
