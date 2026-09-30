@@ -1091,7 +1091,7 @@ def _torch_flash_mla_with_kvcache(
         else:
             p = s.softmax(dim=-1)
         out[t] = p @ K[:, :head_dim_v]
-        if _dbg and _ATTN_DBG["n"] < 2 and t < 2:
+        if _dbg and _ATTN_DBG["n"] < 2 and t < 5:
             try:
                 with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_attn_debug.txt"), "a") as _f:
                     _f.write(
@@ -1880,15 +1880,14 @@ def _install_hidden_debug() -> None:
 
         def _woa_fn(o, wo_a, is_decode):
             r = _owoa_fn(o, wo_a, is_decode)
-            if torch.is_tensor(o) and o.shape[0] < 32 and _HID_DBG.get("woafn", 0) < 3:
+            if torch.is_tensor(o) and o.shape[0] < 32 and _HID_DBG.get("woafn", 0) < 2:
                 _HID_DBG["woafn"] = _HID_DBG.get("woafn", 0) + 1
                 try:
+                    nt = min(5, o.shape[0])
                     with open(_f, "a") as fh:
-                        fh.write(
-                            f"WOAFN#{_HID_DBG['woafn']} o={tuple(o.shape)} wo_a={tuple(wo_a.shape)} "
-                            f"out={tuple(r.shape)} o[0,0,:4]={[round(v,4) for v in o.reshape(o.shape[0],-1)[0,:4].float().tolist()]} "
-                            f"out[0,0,:4]={[round(v,4) for v in r.reshape(r.shape[0],-1)[0,:4].float().tolist()]}\n"
-                        )
+                        fh.write(f"WOAFN#{_HID_DBG['woafn']} o={tuple(o.shape)} wo_a={tuple(wo_a.shape)} out={tuple(r.shape)}\n")
+                        for t in range(nt):
+                            fh.write(f"WOAFN#{_HID_DBG['woafn']} o[t{t},g0,:4]={[round(v,4) for v in o[t,0,:4].float().tolist()]}\n")
                 except Exception:  # noqa: BLE001
                     pass
             return r
