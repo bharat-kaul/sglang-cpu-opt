@@ -2451,6 +2451,10 @@ def _install_mhc_cpu() -> None:
     if not current_platform.is_cpu():
         return
     os.environ.setdefault("SGLANG_OPT_USE_TILELANG_MHC_PRE", "0")
+    # hc_pre dispatches to deep_gemm.tf32_hc_prenorm_gemm (CUDA-only) once x.shape[0] >=
+    # _HC_PRENORM_DEEPGEMM_MIN_TOKENS (1024) -- long prompts crash on CPU with NameError:
+    # deep_gemm. Force the torch hc_pre path regardless of token count (deep_gemm is absent on CPU).
+    os.environ["SGLANG_OPT_DEEPGEMM_HC_PRENORM"] = "0"
     import sglang.kernels.ops.layernorm.mhc as _mhc
 
     _mhc.hc_split_sinkhorn = _mhc._hc_split_sinkhorn_torch
