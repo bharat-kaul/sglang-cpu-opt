@@ -11,6 +11,20 @@ mostly fixed (real weights load + slow decode + queue wait), so the only lever i
 once**, not one. The default trap — one ~35-min run per yes/no question — makes the loop
 serial and slow; a single well-instrumented run can answer five.
 
+## ⛔ MANDATORY PRE-SUBMIT GATE (default behavior — do NOT wait to be told)
+Before launching ANY expensive run, satisfy this checklist. If you catch yourself submitting a run to
+answer one yes/no question, STOP and widen it.
+1. **List EVERY open hypothesis now** (all suspects, not just the top one).
+2. **Instrument ALL of them in this one run** — multi-vector capture of every candidate op boundary on
+   reference + target, keyed by `(layer, op, n_tokens, tp_rank)`.
+3. **Write the disposition matrix** (outcome → rules in/out → next action). If a hypothesis can't be
+   dispositioned as designed, ADD the instrument or don't submit.
+4. **Fold in every "check next" caveat.** If you write "if X looks clean, next check Y", instrument Y in
+   the SAME run. Deferring a follow-up to a later run is THE anti-pattern this skill exists to kill.
+5. **Parallelize by default:** independent hypotheses → a WAVE across idle nodes; CPU + GPU reference →
+   launch CONCURRENTLY (different partitions); one decisive run → the fastest idle single node. Check
+   `sinfo`/`squeue` first. Only serialize jobs that share mutable global state.
+
 ## The method
 1. **Separate the expensive part from the cheap part.** Expensive = model load + a few
    slow steps. Cheap = anything measurable ONCE the model is resident: in-situ config
