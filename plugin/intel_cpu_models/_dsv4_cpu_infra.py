@@ -857,24 +857,17 @@ def _cpu_fused_k_norm_rope_flashmla(
         _KROPE_DBG["n"] += 1
         try:
             fc = freqs_cis[positions.long()]  # complex [T, rope_dim//2]
-            xc = torch.view_as_complex(x[:, nope_dim:].reshape(-1, rope_dim // 2, 2).contiguous())
-            # NOTE: ref applies rope to RAW x rope-part (pre-weight) to isolate the rope math.
-            roped_ref = torch.view_as_real(xc * fc).reshape(-1, rope_dim)
-            # kernel applies norm-weight before rope; strip it for the rope-only compare.
-            w_rope = kv_weight.float()[nope_dim:]
-            rsq = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)
-            kern_rope_preweight = roped.float() / (rsq * w_rope).clamp_min(1e-8)
+            # Compare on the kernel's ACTUAL rope input xn[rope] (normed+weighted): interleaved
+            # stack (kernel `roped`) vs independent complex-multiply. No weight-stripping (invalid:
+            # per-element weight lives inside the rotation). cos<1 => real kernel-rope impl bug.
+            xn_rope = xn[:, nope_dim:].reshape(-1, rope_dim // 2, 2).contiguous()
+            roped_ref = torch.view_as_real(torch.view_as_complex(xn_rope) * fc).reshape(-1, rope_dim)
             cos = torch.nn.functional.cosine_similarity(
-                kern_rope_preweight.reshape(1, -1), roped_ref.reshape(1, -1)
+                roped.float().reshape(1, -1), roped_ref.reshape(1, -1)
             ).item()
-            err = (kern_rope_preweight - roped_ref).abs().max().item()
-            rsq_nope = torch.rsqrt(x[:, :nope_dim].pow(2).mean(-1, keepdim=True) + eps)
-            scope_ratio = (rsq.mean() / rsq_nope.mean()).item()
+            err = (roped.float() - roped_ref).abs().max().item()
             with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_krope.txt"), "a") as fh:
-                fh.write(
-                    f"[KROPE#{_KROPE_DBG['n']}] rope_cos={cos:.6f} rope_maxerr={err:.3e} "
-                    f"full/nope_rsqrt_ratio={scope_ratio:.4f} (==1 iff nope==full RMS)\n"
-                )
+                fh.write(f"[KROPE#{_KROPE_DBG['n']}] rope_cos={cos:.6f} rope_maxerr={err:.3e} (cos<1 => kernel rope impl bug)\n")
         except Exception as _e:  # noqa: BLE001
             try:
                 with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_krope.txt"), "a") as fh:
