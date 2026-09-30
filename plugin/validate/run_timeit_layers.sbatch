@@ -23,13 +23,17 @@ export INTEL_CPU_DSV4_DECODE_THREADS=8
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 LAYERS=${LAYERS:-4}
 INLEN=${INLEN:-256}
+# dummy = random weights at real shapes, NO 149GB checkpoint read (timing only needs shapes, not values).
+# Use LOAD_FORMAT=auto only if a run needs the real weights (it does not for a kernel-timing profile).
+LOAD_FORMAT=${LOAD_FORMAT:-dummy}
 cd /data/nfs_home/bkaul
 python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
   --json-model-override-args "{\"num_hidden_layers\": ${LAYERS}}" \
+  --load-format ${LOAD_FORMAT} \
   --device cpu --tp 1 --batch-size 1 --input-len ${INLEN} --output-len 4 \
   --trust-remote-code --disable-cuda-graph \
   --mem-fraction-static 0.85 --max-total-tokens 8192
-echo "[exit=$?]  layers=${LAYERS} input-len=${INLEN}"
+echo "[exit=$?]  layers=${LAYERS} input-len=${INLEN} load=${LOAD_FORMAT}"
 echo "=== per-op breakdown ==="
 grep "DSV4 TIMEIT" /scratch/bkaul/dsv4_timeit_layers_${SLURM_JOB_ID}.log || true
