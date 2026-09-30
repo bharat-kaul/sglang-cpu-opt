@@ -460,6 +460,8 @@ def _install_wo_a_logical_unpack() -> None:
     # _amx_process_weight_after_loading -- which silently permutes wo_a and makes the einsum return
     # noise (the whole-model garbage-output bug). Mirror the ROCm opt-out on CPU: keep wo_a's weight
     # a plain row-major bf16 block-dequant, skipping the AMX pack (wo_a is only consumed by the einsum).
+    # PERF TODO (roofline): row-major einsum is NOT AMX-accelerated; for perf, route wo_a's grouped
+    # absorb GEMM through the AMX weight_packed_linear (is_vnni) per group instead of un-packing.
     if not current_platform.is_cpu():
         return
     try:
