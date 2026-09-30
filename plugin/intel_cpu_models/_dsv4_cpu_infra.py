@@ -445,9 +445,70 @@ def install() -> None:
     _install_hidden_debug()
     _install_fp8_proj_parity()
     _install_fp8_force_bf16()
+    _install_wo_a_logical_unpack()
     _install_full_capture()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
+
+
+def _install_wo_a_logical_unpack() -> None:
+    # wo_a is a quantized ColumnParallelLinear that is NEVER applied through its quant method:
+    # the o_proj absorb GEMM reads self.wo_a.weight directly and runs a plain batched einsum
+    # (_apply_wo_a_bf16_matmul: "tgd,grd->tgr") that wants the ROW-MAJOR [G, R, D] weight. The
+    # native model opts wo_a out of ROCm's aiter B-preshuffle (skip_aiter_bpreshuffle=True) for
+    # exactly this reason, but the CPU Fp8LinearMethod unconditionally VNNI-packs every weight via
+    # _amx_process_weight_after_loading -- which silently permutes wo_a and makes the einsum return
+    # noise (the whole-model garbage-output bug). Mirror the ROCm opt-out on CPU: keep wo_a's weight
+    # a plain row-major bf16 block-dequant, skipping the AMX pack (wo_a is only consumed by the einsum).
+    if not current_platform.is_cpu():
+        return
+    try:
+        from sglang.srt.layers.quantization.fp8 import Fp8LinearMethod
+    except Exception:  # noqa: BLE001
+        return
+    if getattr(Fp8LinearMethod, "_wo_a_unpack_patched", False):
+        return
+    import torch
+
+    _orig_pwal = Fp8LinearMethod.process_weights_after_loading
+
+    def _blk_dequant(w_fp8, s):
+        wf = w_fp8.float()
+        O, I = wf.shape
+        sf = s.float()
+        if sf.dim() == 2 and sf.shape[0] > 0 and sf.shape[1] > 0:
+            bo = max(1, O // sf.shape[0])
+            bi = max(1, I // sf.shape[1])
+            sfull = sf.repeat_interleave(bo, 0).repeat_interleave(bi, 1)[:O, :I]
+            return wf * sfull
+        return wf * sf
+
+    def _pwal(self, layer):
+        if getattr(layer, "skip_aiter_bpreshuffle", False):
+            w = getattr(layer, "weight", None)
+            s = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
+            if (
+                w is not None
+                and s is not None
+                and w.dtype in (torch.float8_e4m3fn, torch.int8, torch.uint8)
+            ):
+                try:
+                    wv = w.view(torch.float8_e4m3fn) if w.dtype != torch.float8_e4m3fn else w
+                    logical = _blk_dequant(wv, s).to(torch.bfloat16).contiguous()
+                    layer.weight = torch.nn.Parameter(logical, requires_grad=False)
+                    layer.weight_scale_inv = torch.nn.Parameter(s.data, requires_grad=False)
+                    layer._dsv4_wo_a_logical_bf16 = True
+                    logger.info(
+                        "intel_cpu_models: wo_a kept row-major bf16 %s (skipped AMX VNNI pack).",
+                        tuple(logical.shape),
+                    )
+                    return
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning("intel_cpu_models: wo_a logical unpack failed: %s", _e)
+        return _orig_pwal(self, layer)
+
+    Fp8LinearMethod.process_weights_after_loading = _pwal
+    Fp8LinearMethod._wo_a_unpack_patched = True
 
 
 def _install_full_capture() -> None:
