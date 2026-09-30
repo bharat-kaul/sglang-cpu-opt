@@ -852,6 +852,35 @@ def _cpu_fused_k_norm_rope_flashmla(
     else:
         roped = xn[:, nope_dim:]
     kv_out = torch.cat([normed, roped], dim=-1).to(torch.bfloat16)
+    # K-path shadow: independent complex-multiply rope + nope-only-vs-full RMS scope check.
+    if _os.environ.get("INTEL_CPU_DSV4_KROPE_SHADOW") == "1" and kv.shape[0] > 0 and _KROPE_DBG["n"] < 4:
+        _KROPE_DBG["n"] += 1
+        try:
+            fc = freqs_cis[positions.long()]  # complex [T, rope_dim//2]
+            xc = torch.view_as_complex(x[:, nope_dim:].reshape(-1, rope_dim // 2, 2).contiguous())
+            # NOTE: ref applies rope to RAW x rope-part (pre-weight) to isolate the rope math.
+            roped_ref = torch.view_as_real(xc * fc).reshape(-1, rope_dim)
+            # kernel applies norm-weight before rope; strip it for the rope-only compare.
+            w_rope = kv_weight.float()[nope_dim:]
+            rsq = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)
+            kern_rope_preweight = roped.float() / (rsq * w_rope).clamp_min(1e-8)
+            cos = torch.nn.functional.cosine_similarity(
+                kern_rope_preweight.reshape(1, -1), roped_ref.reshape(1, -1)
+            ).item()
+            err = (kern_rope_preweight - roped_ref).abs().max().item()
+            rsq_nope = torch.rsqrt(x[:, :nope_dim].pow(2).mean(-1, keepdim=True) + eps)
+            scope_ratio = (rsq.mean() / rsq_nope.mean()).item()
+            with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_krope.txt"), "a") as fh:
+                fh.write(
+                    f"[KROPE#{_KROPE_DBG['n']}] rope_cos={cos:.6f} rope_maxerr={err:.3e} "
+                    f"full/nope_rsqrt_ratio={scope_ratio:.4f} (==1 iff nope==full RMS)\n"
+                )
+        except Exception as _e:  # noqa: BLE001
+            try:
+                with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_krope.txt"), "a") as fh:
+                    fh.write(f"[KROPE] shadow failed: {_e}\n")
+            except Exception:  # noqa: BLE001
+                pass
     # Stash the exact dense bf16 keys (pre-pack) so the CPU torch MLA attention reads
     # them directly instead of unpacking the paged fp8 layout (numerically exact).
     _stash_kv_write(kvcache.data_ptr(), out_loc, kv_out)
@@ -927,6 +956,7 @@ _SEL_HOLDER: dict = {"pos_kept": None}
 # One-shot attention diagnostic (gated by INTEL_CPU_DSV4_ATTN_DEBUG=1): file-based so it survives
 # the Engine scheduler subprocess whose stdout the sbatch log does not capture.
 _ATTN_DBG: dict = {"n": 0}
+_KROPE_DBG: dict = {"n": 0}
 
 # Per-layer hidden-state diagnostic (gated by INTEL_CPU_DSV4_HID_DEBUG=1): logs each decoder
 # layer's input/output activation stats to a file to localize where the forward goes bad.
