@@ -57,6 +57,10 @@ def main():
     p.add_argument("--dtype", default="bfloat16", help="CPU AMX compute dtype")
     p.add_argument("--quantization", default=None, help="e.g. w8a8_int8")
     p.add_argument("--out", default="")
+    p.add_argument("--watchdog-timeout", type=float, default=3600.0,
+                   help="seconds; raise above the default 300 for slow CPU long-prompt prefills")
+    p.add_argument("--chunked-prefill-size", type=int, default=512,
+                   help="cap per-forward prefill tokens so a long prompt is not one huge batch")
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
@@ -73,6 +77,8 @@ def main():
         quantization=args.quantization,
         disable_overlap_schedule=True, trust_remote_code=True,
         mem_fraction_static=args.mem_fraction, log_level="warning",
+        watchdog_timeout=args.watchdog_timeout,
+        chunked_prefill_size=args.chunked_prefill_size,
     )
     sp = {"temperature": 0.0, "max_new_tokens": args.max_new_tokens,
           "stop": ["Question", "Assistant:", "\n\n"]}
