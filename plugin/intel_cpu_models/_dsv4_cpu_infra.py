@@ -1220,6 +1220,7 @@ _SEL_HOLDER: dict = {"pos_kept": None}
 # the Engine scheduler subprocess whose stdout the sbatch log does not capture.
 _ATTN_DBG: dict = {"n": 0}
 _KROPE_DBG: dict = {"n": 0}
+_MLA_PATH_DBG: dict = {"n": 0}
 
 # Per-layer hidden-state diagnostic (gated by INTEL_CPU_DSV4_HID_DEBUG=1): logs each decoder
 # layer's input/output activation stats to a file to localize where the forward goes bad.
@@ -1366,6 +1367,13 @@ def _torch_flash_mla_with_kvcache(
             pass
     # Batched AMX bf16 path (default): 2 GEMMs + key mask instead of the per-token loop.
     # INTEL_CPU_DSV4_ATTN_LOOP=1 forces the fp8/fp32 reference loop (A/B + extra_k_cache fallback).
+    if _MLA_PATH_DBG["n"] < 4:
+        _MLA_PATH_DBG["n"] += 1
+        logger.info(
+            "intel_cpu_models: MLA attend path probe: T=%d extra_k_cache=%s indices=%s topk=%s loop_env=%s",
+            T, extra_k_cache is not None, indices is not None, topk_length is not None,
+            _os.environ.get("INTEL_CPU_DSV4_ATTN_LOOP"),
+        )
     if extra_k_cache is None and _os.environ.get("INTEL_CPU_DSV4_ATTN_LOOP") != "1":
         _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
         _ob = _batched_mla_attend(
