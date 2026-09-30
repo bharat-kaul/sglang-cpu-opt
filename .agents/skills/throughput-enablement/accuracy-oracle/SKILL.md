@@ -42,6 +42,41 @@ the bug is in the swapped component; still garbage → it's in the SHARED path (
 norm). Raise the framework **watchdog timeout** first (`watchdog_timeout`) — a deliberately slow
 reference otherwise gets killed as a false "hang" (exit 137 with a watchdog stack).
 
+## Multi-vector differential capture (when you have 2-3 suspects, resolve them in ONE run)
+Single-swap isolation needs one run PER suspect. When the model load dominates (~12 min) the
+bottleneck is NUMBER OF RUNS, so instead **capture every candidate op's tensors in ONE pass on both
+the reference and the target, then diff offline** — one run dispositions all suspects. This is the
+correctness analog of `high-information-runs`.
+- **Build an op-level reference bundle.** Run the trusted path (GPU SGLang / HF) once with a hook
+  that saves each op boundary's INPUT and OUTPUT (embedding, each attn sub-op q/k/v/scores/out, MoE
+  out, norms, logits), keyed by `(layer, op, n_tokens, tp_rank)`. This bundle IS the oracle.
+- **Op-level teacher forcing kills cascades.** A wrong op makes every downstream op look wrong. Feed
+  each target op the reference's ground-truth INPUT (not the target's own upstream output), so each
+  op is judged on clean input. First op whose OUTPUT diverges (given matching input) is THE bug — no
+  cascade, no ambiguity.
+- **Instrument all suspects at once with a disposition matrix.** Before submitting, list the 2-3
+  suspects and the tap that distinguishes each; one run collects all. E.g. q-path bug: tap `q_lora`,
+  `wq_b` out (nope+rope), and post-norm+rope out → `qlora` differs ⇒ wq_a/q_norm; `in` differs ⇒
+  wq_b; `out_rope` differs ⇒ rope kernel — three suspects, one run.
+
+### Diff pitfalls that cost real runs (do these or the run is wasted)
+- **COSINE IS MAGNITUDE-BLIND — always pair it with relative max-abs-err / magnitude ratio.** A
+  systematic scale drift (e.g. a CPU fp8 dequant path ~8% hot) passes `cos≈1.0` yet compounds across
+  layers into garbage. Real case: "fp8 proj parity cos=1.0" hid the actual bug for a long time.
+- **Coarse fingerprints (mean/max/first-4) hide permutations, direction flips, and scale.** Save full
+  tensors; compare with cosine AND max-abs-err AND magnitude ratio.
+- **Match sequences or the diff is meaningless.** The reference (GPU) does CUDA-graph/warmup passes,
+  padding (e.g. 256-tok), and **TP-shards** head-dim tensors across ranks; the target (CPU tp=1) does
+  not. Filter warmup by token-count/magnitude gates, key by `n_tokens`, and **rank-tag head-sharded
+  tensors** (q, attn-core-out) so rank0=head0 lines up with the target's head 0. Unsharded quantities
+  (MLA `wkv` latent, the final all-reduced attn output) compare directly.
+- **Validate your tap indexing.** `x[0, -4:]` on a `[T, H, D]`-flattened tensor grabs the LAST head,
+  not head 0 (and under TP that's a different head on each side) — a silent wrong-head compare wastes
+  a whole run. Print shapes; assert the slice hits the head/dim you mean.
+- **A self-check reference shares your blind spot.** A naive-torch twin only catches bugs the twin
+  doesn't ALSO make (a from-scratch port checked against another from-scratch port passes while both
+  are wrong). The independent GPU/HF oracle is the spec.
+
 ## Layer 0.5 — low-bit kernel parity gate (per dtype bridge)
 **Every `dtype_bridge` from the dtype audit (`model-op-decomposition` §2b) gets its own numeric
 gate — coverage ("a bf16/fp8 kernel exists") is NOT correctness.** When a kernel consumes weights
