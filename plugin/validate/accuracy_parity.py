@@ -59,6 +59,7 @@ def sglang_next_tokens(model, tp, prompts, tok, dtype="bfloat16", quantization=N
         quantization=quantization,
         disable_overlap_schedule=True, trust_remote_code=True,
         mem_fraction_static=float(os.environ.get("MEM_FRAC", "0.5")),
+        watchdog_timeout=float(os.environ.get("WATCHDOG", "3600")),
         log_level="warning",
     )
     out = []
@@ -80,6 +81,7 @@ def sglang_completions(model, tp, prompts, max_new, dtype="bfloat16", quantizati
         quantization=quantization,
         disable_overlap_schedule=True, trust_remote_code=True,
         mem_fraction_static=float(os.environ.get("MEM_FRAC", "0.5")),
+        watchdog_timeout=float(os.environ.get("WATCHDOG", "3600")),
         log_level="warning",
     )
     out = []

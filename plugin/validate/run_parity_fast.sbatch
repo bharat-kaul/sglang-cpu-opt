@@ -4,9 +4,9 @@
 # change to confirm accuracy did not regress. First invocation (no golden yet) CAPTURES the golden
 # from the current known-good build; subsequent invocations CHECK against it (exact-match, agree-min 1.0).
 #
-# Speed levers: (1) golden mode uses short prompts + few tokens => generation is seconds; (2) weights
-# are staged to node-local tmpfs (/dev/shm, RAM) so repeated loads on the SAME node skip the NFS read.
-# Pin to one node with `sbatch -w <node>` (or --nodelist) so the tmpfs copy is reused across iterations.
+# NOTE: do NOT stage this 149GB model to /dev/shm (tmpfs is RAM-backed) — it competes with the model's
+# own loaded/dequantized footprint + KV reservation and OOM-kills the forward. Load from NFS directly
+# (~8 min). The real speedup here is SHORT prompts (seconds of gen), not load. lower MEM_FRAC to be safe.
 #SBATCH --partition=emr
 #SBATCH --nodes=1
 #SBATCH --exclusive
@@ -22,15 +22,10 @@ export INTEL_CPU_DSV4_MXFP4_MOE=1
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
 export INTEL_CPU_DSV4_DECODE_THREADS=8
+export MEM_FRAC=0.5
+export WATCHDOG=3600
 
-SRC=/scratch/bkaul/models/DeepSeek-V4-Flash
-DST=/dev/shm/$USER/DeepSeek-V4-Flash
-# Stage to tmpfs once per node (149GB fits in the ~485GB /dev/shm); NFS read only on first use.
-if [ ! -f "$DST/model.safetensors.index.json" ]; then
-    mkdir -p "$DST"
-    time cp -r "$SRC/." "$DST/"
-fi
-MODEL="$DST"
+MODEL=/scratch/bkaul/models/DeepSeek-V4-Flash
 GOLDEN=/scratch/bkaul/dsv4_parity_golden.json
 
 cd /data/nfs_home/bkaul

@@ -188,10 +188,12 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
   compute. A mis-wired/regressed kernel diverges immediately. (Worked example: `accuracy_parity.py
   --golden-out`/`--golden-in`, `run_parity_fast.sbatch`.) Keep short prompts under any token-count
   dispatch threshold so the fast check and the real path agree.
-- **Cut repeat LOAD time:** stage weights to node-local tmpfs (`/dev/shm`, if the box has the RAM — here
-  ~1 TB, model 149 GB fits) once per node and PIN the node (`sbatch -w <node>`) so reloads skip the NFS
-  read (~8 min → ~1–2 min). The dequant/prepack CPU cost still recurs unless you also cache the
-  post-processed weights.
+- **Cut repeat LOAD time — but NOT via tmpfs for a big model.** Staging weights to `/dev/shm` is RAM-backed,
+  so for a model that is a large fraction of node RAM (149 GB on a 1 TB box) the tmpfs copy competes with
+  the model's own loaded/dequantized footprint + KV reservation and OOM-kills the forward (learned the hard
+  way). Only tmpfs-stage when the model is a SMALL fraction of RAM. Otherwise load from NFS directly (~8 min)
+  and cut the recurring cost elsewhere: cache the post-dequant/prepack weights, or keep a warm engine for a
+  fixed build. Also give the guardrail a raised `watchdog_timeout` (default 300 s kills a slow first forward).
 - **Reserve the full task harness (gsm8k/mmlu) for PERIODIC checks**, not every iteration; raise
   `watchdog_timeout` (default 300 s kills slow CPU long-prompt forwards) and cap `chunked_prefill_size`.
 
