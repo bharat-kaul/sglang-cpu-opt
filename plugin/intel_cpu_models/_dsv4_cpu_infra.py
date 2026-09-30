@@ -1914,6 +1914,21 @@ def _install_hidden_debug() -> None:
                             _HID_DBG["wob"] = _HID_DBG.get("wob", 0) + 1
                             w = getattr(layer, "weight", None)
                             xf = x.reshape(-1, x.shape[-1]); rf = r.reshape(-1, r.shape[-1])
+                            # Save full x/weight/scale/out once so the wo_b GEMM (x@w.T?) can be
+                            # verified offline vs a torch dequant+matmul reference.
+                            if _HID_DBG["wob"] == 1:
+                                try:
+                                    _sc = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
+                                    torch.save({
+                                        "x": x.detach().cpu(),
+                                        "w": w.detach().cpu() if torch.is_tensor(w) else None,
+                                        "w_dtype": str(w.dtype) if torch.is_tensor(w) else None,
+                                        "scale": _sc.detach().cpu() if torch.is_tensor(_sc) else None,
+                                        "scale_dtype": str(_sc.dtype) if torch.is_tensor(_sc) else None,
+                                        "out": r.detach().cpu(),
+                                    }, _f + ".wob.pt")
+                                except Exception:  # noqa: BLE001
+                                    pass
                             with open(_f, "a") as fh:
                                 fh.write(
                                     f"WOB#{_HID_DBG['wob']} x={tuple(x.shape)} w={tuple(w.shape) if torch.is_tensor(w) else None} "
