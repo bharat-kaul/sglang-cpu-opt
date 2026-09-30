@@ -420,6 +420,40 @@ def _install_fullcap():
         Layer._run_moe_ffn_dp_sync = _moew
         Layer._fullcap_moe = True
     try:
+        from sglang.srt.layers.attention.deepseek_v4_backend import (
+            DeepseekV4AttnBackend as _B,
+        )
+
+        if not getattr(_B, "_fullcap_patched", False):
+            _obf = _B.forward
+
+            def _bf(self, *a, **k):
+                o = _obf(self, *a, **k)
+                try:
+                    q = k.get("q", a[0] if a else None)
+                    layer = k.get("layer", a[3] if len(a) > 3 else None)
+                    lid = getattr(layer, "layer_id", -1)
+                    oo = o[0] if isinstance(o, (tuple, list)) else o
+                    if torch.is_tensor(oo):
+                        T = oo.shape[0]
+                        tag = "pf" if 2 <= T <= 16 else ("dc0" if T == 1 and _ST["seen_pf"] else None)
+                        if tag:
+                            key = f"{tag}.acore.L{lid}.r{_rk()}"
+                            if key not in _CAP:
+                                _CAP[key] = oo.detach().float().cpu()
+                            if torch.is_tensor(q):
+                                kq = f"{tag}.qcore.L{lid}.r{_rk()}"
+                                if kq not in _CAP:
+                                    _CAP[kq] = q.detach().float().cpu()
+                except Exception:  # noqa: BLE001
+                    pass
+                return o
+
+            _B.forward = _bf
+            _B._fullcap_patched = True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         from sglang.srt.layers.logits_processor import LogitsProcessor
 
         if not getattr(LogitsProcessor, "_fullcap_patched", False):
