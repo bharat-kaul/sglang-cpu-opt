@@ -499,28 +499,47 @@ def _install_full_capture() -> None:
 
     Layer.forward = _fwd
     Layer._fullcap_patched = True
-    try:
-        from sglang.srt.layers.logits_processor import LogitsProcessor
+    # Also capture the attention-block output (MQALayer) + MoE output per layer to split attn vs FFN/MHC.
+    _Attn = getattr(_dv4, "MQALayer", None)
+    if _Attn is not None and not getattr(_Attn, "_fullcap_patched", False):
+        _oatt = _Attn.forward
 
-        if not getattr(LogitsProcessor, "_fullcap_patched", False):
-            _olp = LogitsProcessor.forward
+        def _attw(self, *a, **k):
+            r = _oatt(self, *a, **k)
+            try:
+                o = r[0] if isinstance(r, (tuple, list)) else r
+                if torch.is_tensor(o):
+                    T = o.shape[0]
+                    tag = "pf" if 2 <= T <= 16 else ("dc0" if T == 1 and _ST["seen_pf"] else None)
+                    if tag:
+                        lid = getattr(self, "layer_id", -1)
+                        key = f"{tag}.attn.L{lid}.r{_rk()}"
+                        if key not in _CAP:
+                            _CAP[key] = o.detach().float().cpu()
+            except Exception:  # noqa: BLE001
+                pass
+            return r
 
-            def _lp(self, *a, **k):
-                r = _olp(self, *a, **k)
-                try:
-                    lg = getattr(r, "next_token_logits", None)
-                    if lg is not None:
-                        n = sum(1 for kk in _CAP if kk.startswith("logits"))
-                        _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
-                        torch.save(_CAP, _F)
-                except Exception:  # noqa: BLE001
-                    pass
-                return r
-
-            LogitsProcessor.forward = _lp
-            LogitsProcessor._fullcap_patched = True
-    except Exception:  # noqa: BLE001
-        pass
+        _Attn.forward = _attw
+        _Attn._fullcap_patched = True
+    _mrun = getattr(Layer, "_run_moe_ffn_dp_sync", None)
+    if _mrun is not None and not getattr(Layer, "_fullcap_moe", False):
+        def _moew(self, hidden_states, *a, **k):
+            r = _mrun(self, hidden_states, *a, **k)
+            try:
+                if torch.is_tensor(r):
+                    T = r.shape[0]
+                    tag = "pf" if 2 <= T <= 16 else ("dc0" if T == 1 and _ST["seen_pf"] else None)
+                    if tag:
+                        lid = getattr(self, "layer_id", -1)
+                        key = f"{tag}.moe.L{lid}.r{_rk()}"
+                        if key not in _CAP:
+                            _CAP[key] = r.detach().float().cpu()
+            except Exception:  # noqa: BLE001
+                pass
+            return r
+        Layer._run_moe_ffn_dp_sync = _moew
+        Layer._fullcap_moe = True
 
 
 def _install_cpu_gloo_allreduce() -> None:
