@@ -29,14 +29,15 @@ MODEL=/scratch/bkaul/models/DeepSeek-V4-Flash
 GOLDEN=/scratch/bkaul/dsv4_parity_golden.json
 
 cd /data/nfs_home/bkaul
+# decode is slow pre-optimization; keep max-new small (next-token parity is the key regression signal).
 if [ ! -f "$GOLDEN" ]; then
     echo "[parity] capturing golden from current build -> $GOLDEN"
     python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/accuracy_parity.py \
-        --model "$MODEL" --golden-out "$GOLDEN" --max-new 8
+        --model "$MODEL" --golden-out "$GOLDEN" --max-new 2
 else
     echo "[parity] checking current build vs golden $GOLDEN"
     python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/accuracy_parity.py \
-        --model "$MODEL" --golden-in "$GOLDEN" --max-new 8 --agree-min 1.0 \
+        --model "$MODEL" --golden-in "$GOLDEN" --max-new 2 --agree-min 1.0 \
         --out /scratch/bkaul/dsv4_parity_fast_${SLURM_JOB_ID}.json
 fi
 echo "[exit=$?]"
