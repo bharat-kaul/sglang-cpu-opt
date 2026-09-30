@@ -191,6 +191,9 @@ def _install():
                 if torch.is_tensor(r) and r.shape[0] < 32 and _HID.get("qb", 0) < 6:
                     _HID["qb"] = _HID.get("qb", 0) + 1
                     try:
+                        if _rank() == 0 and _HID.get("qcmp", 0) == 0:
+                            _HID["qcmp"] = 1
+                            torch.save({"q_final": r.detach().cpu(), "q_lora": q.detach().cpu()}, f + ".qcmp.pt")
                         with open(f, "a") as fh:
                             fh.write(f"QB#{_HID['qb']} rank{_rank()} qlora {_stat(q)}\n")
                             fh.write(f"QB#{_HID['qb']} rank{_rank()} q_final {_stat(r)}\n")

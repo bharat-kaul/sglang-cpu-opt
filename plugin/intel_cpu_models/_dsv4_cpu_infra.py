@@ -2043,6 +2043,8 @@ def _install_hidden_debug() -> None:
                 if torch.is_tensor(r) and r.shape[0] < 32 and _HID_DBG.get("qb", 0) < 3:
                     _HID_DBG["qb"] = _HID_DBG.get("qb", 0) + 1
                     try:
+                        if _HID_DBG["qb"] == 1:
+                            torch.save({"q_final": r.detach().cpu(), "q_lora": q.detach().cpu()}, _f + ".qcmp.pt")
                         with open(_f, "a") as fh:
                             fh.write(f"QB#{_HID_DBG['qb']} qlora {_stat(q)}\n")
                             fh.write(f"QB#{_HID_DBG['qb']} q_final {_stat(r)}\n")
