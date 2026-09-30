@@ -456,23 +456,36 @@ def _install_wo_a_logical_unpack() -> None:
     # the o_proj absorb GEMM reads self.wo_a.weight directly and runs a plain batched einsum
     # (_apply_wo_a_bf16_matmul: "tgd,grd->tgr") that wants the ROW-MAJOR [G, R, D] weight. The
     # native model opts wo_a out of ROCm's aiter B-preshuffle (skip_aiter_bpreshuffle=True) for
-    # exactly this reason, but the CPU Fp8LinearMethod unconditionally VNNI-packs every weight via
+    # exactly this reason, but the CPU path unconditionally VNNI-packs every weight via
     # _amx_process_weight_after_loading -- which silently permutes wo_a and makes the einsum return
     # noise (the whole-model garbage-output bug). Mirror the ROCm opt-out on CPU: keep wo_a's weight
-    # a plain row-major bf16 block-dequant, skipping the AMX pack (wo_a is only consumed by the einsum).
+    # a plain row-major bf16, skipping the AMX pack (wo_a is only consumed by the einsum). On CPU
+    # _FP8_WO_A_GEMM is forced False, so wo_a is an UNQUANTIZED bf16 linear (already dequantized by
+    # _prepare_deepseek_v4_weights) -> the pack happens in UnquantizedLinearMethod, not Fp8LinearMethod.
     # PERF TODO (roofline): row-major einsum is NOT AMX-accelerated; for perf, route wo_a's grouped
     # absorb GEMM through the AMX weight_packed_linear (is_vnni) per group instead of un-packing.
     if not current_platform.is_cpu():
         return
-    try:
-        from sglang.srt.layers.quantization.fp8 import Fp8LinearMethod
-    except Exception:  # noqa: BLE001
-        return
-    if getattr(Fp8LinearMethod, "_wo_a_unpack_patched", False):
-        return
     import torch
 
-    _orig_pwal = Fp8LinearMethod.process_weights_after_loading
+    import sglang.srt.models.deepseek_v4 as _dv4
+
+    # Tag wo_a at construction so the weight processor can identify it (it carries no quant marker
+    # on CPU because it is created unquantized bf16).
+    _Attn = getattr(_dv4, "MQALayer", None)
+    if _Attn is not None and not getattr(_Attn, "_wo_a_tag_patched", False):
+        _oinit = _Attn.__init__
+
+        def _init(self, *a, **k):
+            _oinit(self, *a, **k)
+            try:
+                if getattr(self, "wo_a", None) is not None:
+                    self.wo_a._dsv4_is_wo_a = True
+            except Exception:  # noqa: BLE001
+                pass
+
+        _Attn.__init__ = _init
+        _Attn._wo_a_tag_patched = True
 
     def _blk_dequant(w_fp8, s):
         wf = w_fp8.float()
@@ -485,32 +498,53 @@ def _install_wo_a_logical_unpack() -> None:
             return wf * sfull
         return wf * sf
 
-    def _pwal(self, layer):
-        if getattr(layer, "skip_aiter_bpreshuffle", False):
-            w = getattr(layer, "weight", None)
-            s = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
-            if (
-                w is not None
-                and s is not None
-                and w.dtype in (torch.float8_e4m3fn, torch.int8, torch.uint8)
-            ):
-                try:
-                    wv = w.view(torch.float8_e4m3fn) if w.dtype != torch.float8_e4m3fn else w
-                    logical = _blk_dequant(wv, s).to(torch.bfloat16).contiguous()
-                    layer.weight = torch.nn.Parameter(logical, requires_grad=False)
-                    layer.weight_scale_inv = torch.nn.Parameter(s.data, requires_grad=False)
-                    layer._dsv4_wo_a_logical_bf16 = True
-                    logger.info(
-                        "intel_cpu_models: wo_a kept row-major bf16 %s (skipped AMX VNNI pack).",
-                        tuple(logical.shape),
-                    )
-                    return
-                except Exception as _e:  # noqa: BLE001
-                    logger.warning("intel_cpu_models: wo_a logical unpack failed: %s", _e)
-        return _orig_pwal(self, layer)
+    def _keep_wo_a_rowmajor(layer):
+        # Return True if we handled wo_a (skip the caller's AMX pack).
+        if not getattr(layer, "_dsv4_is_wo_a", False):
+            return False
+        w = getattr(layer, "weight", None)
+        s = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
+        try:
+            if w is not None and w.dtype in (torch.float8_e4m3fn, torch.int8, torch.uint8) and s is not None:
+                wv = w.view(torch.float8_e4m3fn) if w.dtype != torch.float8_e4m3fn else w
+                logical = _blk_dequant(wv, s).to(torch.bfloat16).contiguous()
+                layer.weight = torch.nn.Parameter(logical, requires_grad=False)
+            elif torch.is_tensor(w):
+                # Already bf16-logical (dequantized by _prepare_deepseek_v4_weights); just don't pack.
+                layer.weight = torch.nn.Parameter(w.detach().to(torch.bfloat16).contiguous(), requires_grad=False)
+            layer._dsv4_wo_a_logical_bf16 = True
+            logger.info(
+                "intel_cpu_models: wo_a kept row-major bf16 %s (skipped AMX VNNI pack).",
+                tuple(layer.weight.shape),
+            )
+            return True
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("intel_cpu_models: wo_a logical unpack failed: %s", _e)
+            return False
 
-    Fp8LinearMethod.process_weights_after_loading = _pwal
-    Fp8LinearMethod._wo_a_unpack_patched = True
+    def _wrap(Method):
+        if getattr(Method, "_wo_a_unpack_patched", False):
+            return
+        _orig = Method.process_weights_after_loading
+
+        def _pwal(self, layer):
+            if _keep_wo_a_rowmajor(layer):
+                return
+            return _orig(self, layer)
+
+        Method.process_weights_after_loading = _pwal
+        Method._wo_a_unpack_patched = True
+
+    try:
+        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
+        _wrap(UnquantizedLinearMethod)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from sglang.srt.layers.quantization.fp8 import Fp8LinearMethod
+        _wrap(Fp8LinearMethod)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _install_full_capture() -> None:
