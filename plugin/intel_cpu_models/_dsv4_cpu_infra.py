@@ -1894,6 +1894,40 @@ def _install_hidden_debug() -> None:
 
         _dv4._apply_wo_a_bf16_matmul = _woa_fn
         _dv4._woa_fn_tapped = True
+    # Tap wo_b (final o_proj RowParallel): input dim = n_groups*o_lora_rank (8192 tp1 / 2048 tp4).
+    try:
+        from sglang.srt.layers.quantization.fp8 import Fp8LinearMethod as _Fp8LM
+        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod as _UnqLM
+
+        for _lm in (_Fp8LM, _UnqLM):
+            if getattr(_lm, "_wob_dbg_tapped", False):
+                continue
+            _oap = _lm.apply
+
+            def _mk_ap(oap):
+                def _ap(self, layer, x, bias=None):
+                    r = oap(self, layer, x, bias)
+                    try:
+                        if torch.is_tensor(x) and x.shape[-1] in (2048, 8192) and x.shape[0] < 64 and _HID_DBG.get("wob", 0) < 3:
+                            _HID_DBG["wob"] = _HID_DBG.get("wob", 0) + 1
+                            w = getattr(layer, "weight", None)
+                            xf = x.reshape(-1, x.shape[-1]); rf = r.reshape(-1, r.shape[-1])
+                            with open(_f, "a") as fh:
+                                fh.write(
+                                    f"WOB#{_HID_DBG['wob']} x={tuple(x.shape)} w={tuple(w.shape) if torch.is_tensor(w) else None} "
+                                    f"wdt={w.dtype if torch.is_tensor(w) else None} out={tuple(r.shape)} "
+                                    f"x[0,:4]={[round(v,4) for v in xf[0,:4].float().tolist()]} "
+                                    f"out[0,:4]={[round(v,4) for v in rf[0,:4].float().tolist()]}\n"
+                                )
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return r
+                return _ap
+
+            _lm.apply = _mk_ap(_oap)
+            _lm._wob_dbg_tapped = True
+    except Exception:  # noqa: BLE001
+        pass
     # Also capture the MHC boundary intermediates: hc_pre output y + hc_post output (residual).
     for _meth, _tag in (("hc_pre", "HCPRE"), ("hc_post", "HCPOST")):
         _orig_m = getattr(Layer, _meth, None)
