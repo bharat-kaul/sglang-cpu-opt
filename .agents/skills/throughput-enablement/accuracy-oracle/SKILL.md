@@ -77,6 +77,55 @@ correctness analog of `high-information-runs`.
   doesn't ALSO make (a from-scratch port checked against another from-scratch port passes while both
   are wrong). The independent GPU/HF oracle is the spec.
 
+### Fine-grained full-tensor GPU-oracle localization (the fast path — build this FIRST, it collapses days to hours)
+Proven end-to-end on DeepSeek-V4 CPU. When output is garbage and op-by-op elimination is slow, stand up
+a **full-tensor per-layer diff against the GPU oracle** and drill hierarchically. This is the single
+highest-leverage tool; reach for it before hand-bisecting.
+1. **Reusable capture hook on BOTH sides, env-gated, saving FULL fp32 tensors (never fp[:4]).** One hook
+   file per side (CPU plugin + a GPU-reference hook) that, when its env flag is set, wraps the decoder
+   layer + key sub-ops and `torch.save`s a dict keyed `{pass}.{op}.L{layer}.r{rank}` where pass ∈
+   {prefill `pf`, first-decode `dc0`}, op ∈ {layer-output, attn-block, moe, attn-core, inverse-rope, …}.
+   Trigger the save in the LogitsProcessor wrapper (also captures logits). Gate prefill vs decode by
+   token-count (T in prompt-range vs T==1 after prefill). Keep the GPU hook a PURE capture (no
+   forward-altering A/B in the same run — that contaminates the oracle).
+2. **Cosine + magnitude PER LAYER, CPU vs GPU.** Find the FIRST layer whose output cosine drops. A
+   severe drop AT layer 0 (not a slow compounding decay) means one op in that layer is grossly wrong —
+   not precision. (Compounding ~0.99→lower across many layers ⇒ a scale/precision drift instead.)
+3. **Drill into the first diverging layer by sub-op, same run's taps.** Split attention-block vs MoE
+   vs MHC-residual; then within the bad block split the core (q-in, attn-core-out) vs the projection
+   (inverse-rope, wo_a/o_proj). The first sub-op whose OUTPUT diverges given a MATCHING input is THE op.
+   Real result: q cos 1.000 → attn-core-out cos 1.000 → inverse-rope cos 1.000 → o_proj cos 0.02 ⇒ the
+   bug is wo_a alone.
+4. **GPU-TP alignment gotchas (or the diff lies):** the oracle runs TP>1 and (a) pads per-rank heads to
+   64 with `new_empty` GARBAGE (nonzero → breaks norm-threshold "valid head" detection; use the known
+   n_local_heads, not a magnitude test); (b) each rank fills heads `0:n_local` with its GLOBAL block
+   `r*n_local:(r+1)*n_local` → compare CPU[r*n_local:(r+1)*n_local] vs GPU[0:n_local]; (c) the single
+   saved file is written by whichever rank runs logits LAST (varies run-to-run) → strip the `.rN`
+   suffix and read the rank off the key. Replicated tensors (MLA latent, post-all-reduce block output)
+   compare directly regardless of rank.
+
+### Bug class: a weight consumed by a HAND-WRITTEN einsum/matmul that bypasses the linear method `.apply`
+The most-likely gross bug once the *math* checks out. On CPU (and ROCm) the linear method's
+`process_weights_after_loading` **VNNI/AMX-prepacks** (or B-preshuffles) every weight so its own AMX
+GEMM (`.apply`, `weight_packed_linear`, is_vnni) can read it. But some ops read `self.W.weight`
+DIRECTLY and run a bespoke batched GEMM/einsum that expects the **plain row-major logical** layout
+(e.g. DeepSeek-V4 `wo_a` absorb: `einsum("tgd,grd->tgr")`). The prepack silently permutes the weight →
+that op reads packed bytes as logical → output is **orthogonal to truth (cos≈0) with ~preserved
+magnitude** (permutation keeps the norm) → whole-model garbage.
+- **Diagnostic (nails it in one dump):** save the RUNTIME weight the op actually consumes; compare to
+  `dequant(checkpoint weight, scale)` in logical layout. `abs-mean matches` (scale/dequant correct) +
+  `cosine≈0` + `sorted-values match (pure permutation)` ⇒ prepack/layout, NOT scale. If magnitude were
+  also off ⇒ a missing/!wrong scale instead.
+- **Find all such sites up front:** grep the wired forward for weights used outside `.apply` — bespoke
+  `einsum`/`bmm`/`torch.matmul(x, layer.weight...)`, grouped/absorb GEMMs, MoE hand-kernels.
+- **Correctness fix:** keep that weight row-major (skip the prepack) — mirror any existing opt-out the
+  model already has for another backend (DeepSeek-V4 sets `skip_aiter_bpreshuffle=True` on `wo_a` for
+  ROCm; the CPU path just lacked the equivalent). Identify the weight reliably (tag it in the module
+  `__init__`; do NOT rely on a marker that's only set on a code path your platform doesn't take — on
+  CPU `wo_a` was UNQUANTIZED bf16 so it went through `UnquantizedLinearMethod`, not the fp8 method, and
+  had no fp8-only marker). **Perf caveat:** row-major + generic einsum is NOT AMX-accelerated — leave a
+  roofline-phase TODO to route it through the packed AMX GEMM per group instead of un-packing.
+
 ## Layer 0.5 — low-bit kernel parity gate (per dtype bridge)
 **Every `dtype_bridge` from the dtype audit (`model-op-decomposition` §2b) gets its own numeric
 gate — coverage ("a bf16/fp8 kernel exists") is NOT correctness.** When a kernel consumes weights
