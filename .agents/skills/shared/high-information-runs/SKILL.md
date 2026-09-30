@@ -36,11 +36,33 @@ serial and slow; a single well-instrumented run can answer five.
 7. **Env-gated, inert-by-default probes.** One build must run in many modes without rebuilds,
    and instrumentation must never pollute a clean measurement (guarded timers/sweeps).
 
+## Match the node to the run SHAPE (infra awareness cuts wall-time as much as instrumentation)
+`num_runs × run_cost` also depends on WHERE you run. Know the cluster inventory and route by run
+shape, checking `sinfo`/`squeue` availability BEFORE submitting:
+- **Independent hypotheses (bisection, a variant sweep that can't be merged into one load) → fan out a
+  WAVE across the many-node partition** (e.g. EMR/SPR with 7-8 idle nodes): N runs finish in ~1 run of
+  wall-time instead of N. This is the parallel dual of a high-information run — when you CAN'T collapse
+  to one run, collapse the wall-time instead.
+- **A single decisive run → the FASTEST single node** (e.g. GNR), not the parallel farm. Don't default
+  to the farm out of habit for a one-shot; but if the fast node is `alloc`/busy, a job already RUNNING
+  on a slower node beats a PENDING job on the fast one — queue wait is part of run_cost.
+- **The reference oracle lives on its own node class** (e.g. GPU box). Request only what fits (partial
+  GPUs / `--tp N` by UUID); don't block on the whole node. Serialize jobs that share mutable global
+  state (e.g. concurrent `nvidia-ctk cdi generate` clobber a shared spec → "unresolvable CDI devices").
+- **Portability gates the choice.** CORRECTNESS is ISA-portable → run it anywhere idle (the farm).
+  PERF is NOT → final numbers must be on the target HW, so a perf run can't be parallelized onto the
+  farm; a correctness bisection can.
+- **Pre-flight cheap probes on the login node / a tiny alloc** (shape/dtype/offline math) so the
+  scheduled nodes only carry what needs real scale.
+
 ## Anti-patterns
 - One-question-per-run serial iteration (the default) — each expensive run a single yes/no.
 - Re-loading the model to flip one flag that could have been swept in-process.
 - Gathering data with no disposition plan → a follow-up run just to interpret it.
 - Carrying an already-cheaply-killable hypothesis into the expensive run.
+- Defaulting to the parallel farm for a single decisive run (an idle FASTER single node wins), or
+  blocking on a busy fast node when an idle slower node is already free (queue wait is run_cost).
+- Running independent bisection hypotheses SERIALLY when idle nodes could run them as a parallel wave.
 
 ## Worked example (this repo)
 The decode-slowness diagnosis. Serial version: run 1 "is MoE the cost?", run 2 "is it
