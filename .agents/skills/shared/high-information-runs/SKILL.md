@@ -24,6 +24,18 @@ answer one yes/no question, STOP and widen it.
 5. **Parallelize by default:** independent hypotheses → a WAVE across idle nodes; CPU + GPU reference →
    launch CONCURRENTLY (different partitions); one decisive run → the fastest idle single node. Check
    `sinfo`/`squeue` first. Only serialize jobs that share mutable global state.
+6. **Independence due-diligence BEFORE co-running/parallelizing** (a hidden dependency wastes the run):
+   - **No shared mutable state:** each hypothesis's instrument/variant must not alter state the others
+     read — env flags, weights, KV/caches, global counters, output-file keys, RNG, thread count.
+   - **Capture vs variant:** a read-only CAPTURE (tap) can always be co-run. A VARIANT that changes the
+     forward (e.g. force-bf16 A/B, force-dense) CONTAMINATES any other measurement of the "real" path in
+     that run — allow at most ONE forward-altering variant per run, and only co-run captures that are
+     INVARIANT to that change (e.g. a shadow comparing kernel-vs-reference on the same input).
+   - **No result-dependency:** if designing hypothesis B's test needs A's outcome, they are SEQUENTIAL,
+     not parallel — don't fake-parallelize; carry B once A is known (or instrument B's superset now).
+   - **Distinct output keys:** rank/layer/op/token/file keys so co-captured signals don't collide.
+   - If any fails → ISOLATE (separate runs/nodes) or SEQUENCE. Parallelism only pays when the branches
+     are genuinely independent.
 
 ## The method
 1. **Separate the expensive part from the cheap part.** Expensive = model load + a few
