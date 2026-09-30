@@ -25,6 +25,15 @@ few tokens from a handful of REAL prompts and READ the text:
 - One token repeated (`"Didži Didži…"`), all-same-token, or gibberish → a GROSS bug (a zeroed/
   no-op op, wrong expert routing, a scrambled layout). Stop and localize BEFORE measuring parity.
 
+**SMOKE A LONG PROMPT AND A BATCH, not just a short one — token-count-gated CUDA paths hide otherwise.**
+A short smoke prompt exercises only the small-M path. Many models DISPATCH BY TOKEN COUNT and route
+large-M / long-context inputs to a different kernel — often a CUDA-only one (`deep_gemm`, TF32 prenorm,
+chunked prefill, a big-M GEMM branch) that isn't wired on CPU and crashes with `NameError`/`ImportError`
+ONLY above the threshold. Real case (this repo): MHC `hc_pre` used `deep_gemm.tf32_hc_prenorm_gemm` once
+`x.shape[0] >= 1024`; the short "Paris" prompt passed, gsm8k's ~1200-token 8-shot prompts crashed. So the
+coherence smoke MUST include one prompt LONGER than every dispatch threshold (grep the forward for
+`>= *_MIN_TOKENS`, `deep_gemm`, extend-vs-decode branches) plus a multi-prompt batch — before the task harness.
+
 **Watch for silently no-op'ing / stubbed forward paths — the #1 gross-bug source.** A WIP branch
 that returns EMPTY/ZERO when a feature isn't wired does not error; it silently produces plausible-
 but-wrong output. Real case (this repo): the decode sparse-attention selection was stubbed
