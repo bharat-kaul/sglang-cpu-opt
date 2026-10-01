@@ -1210,8 +1210,13 @@ def _stash_kv_write(dp: int, out_loc, kv_out) -> None:
     _KV_VALID[dp][olv] = True
 
 
-def _stash_kv_gather(dp: int, idx):
+def _stash_kv_gather(dp: int, idx, out_dtype=None):
     # Filter idx to written slots and gather rows in one index_select. Returns None if empty.
+    # out_dtype=bfloat16 keeps the gathered KV in the buffer's native bf16 (the attention GEMMs
+    # consume bf16 anyway) -> skips the bf16->f32 upcast here + the f32->bf16 cvt downstream.
+    # bf16->f32->bf16 is lossless, so bf16 out is bit-exact vs the old .float() path.
+    import torch
+
     buf = _KV_BUF.get(dp)
     if buf is None or idx.numel() == 0:
         return None
@@ -1220,7 +1225,9 @@ def _stash_kv_gather(dp: int, idx):
     idx = idx[valid[idx]]
     if idx.numel() == 0:
         return None
-    return buf.index_select(0, idx).float()
+    g = buf.index_select(0, idx)
+    tgt = torch.float32 if out_dtype is None else out_dtype
+    return g if g.dtype == tgt else g.to(tgt)
 
 # Route-2 DSA: per-layer compressed-KV stash keyed by (layer_id, compress_ratio) -> the
 # RMSNorm'd compressed KV [N_compressed, head_dim]. Written by the CPU compressor forward,
@@ -1300,7 +1307,7 @@ def _batched_mla_attend(
     n = int(vslots.numel())
     if n == 0:
         return torch.zeros(T, H, head_dim_v, dtype=torch.float32)
-    K_main = _stash_kv_gather(dp, vslots)
+    K_main = _stash_kv_gather(dp, vslots, out_dtype=torch.bfloat16)
     if K_main is None:
         return None
     if _TIMEIT_ON:
@@ -1342,7 +1349,7 @@ def _batched_mla_attend(
         cat_e = torch.cat(per_tok) if per_tok else torch.empty(0, dtype=torch.long)
         if cat_e.numel() > 0:
             all_e = torch.unique(cat_e)
-            K_extra = _stash_kv_gather(edp, all_e)
+            K_extra = _stash_kv_gather(edp, all_e, out_dtype=torch.bfloat16)
             if K_extra is not None:
                 ne = int(all_e.numel())
                 inv_e = torch.full((int(all_e.max()) + 1,), -1, dtype=torch.long)
@@ -1361,8 +1368,10 @@ def _batched_mla_attend(
         _ts = time.perf_counter()
     nk = K_all.shape[0]
     qb = q[:, 0].to(torch.bfloat16).reshape(T * H, _Dq)[:, :D]
-    Kb = K_all[:, :D].to(torch.bfloat16)
-    Vb = K_all[:, :head_dim_v].to(torch.bfloat16)
+    # K_all is already bf16 from the gather -> Kb/Vb are plain slices (contiguous for the AMX
+    # GEMMs); the old .to(bfloat16) round-trip is gone.
+    Kb = K_all[:, :D].contiguous()
+    Vb = K_all[:, :head_dim_v].contiguous()
     if _TIMEIT_ON:
         _tacc("mla.b.cvt", _ts, "framework")
         _ts = time.perf_counter()
