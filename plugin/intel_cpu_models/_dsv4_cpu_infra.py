@@ -1294,6 +1294,7 @@ def _batched_mla_attend(
     # p=0 -> identical to the loop (softmax-weighted sum is order-invariant). Two-source KV
     # (main compressed + extra SWA/compressor) is concatenated into one K_all with a joint mask.
     # Returns out [T,H,hdv] fp32, or None to fall back to the reference loop.
+    import os
     import time
 
     import torch
@@ -1372,6 +1373,9 @@ def _batched_mla_attend(
     # GEMMs); the old .to(bfloat16) round-trip is gone.
     Kb = K_all[:, :D].contiguous()
     Vb = K_all[:, :head_dim_v].contiguous()
+    _fused = os.environ.get("INTEL_CPU_DSV4_ATTN_FUSED") == "1"
+    if _fused:
+        qb = qb.contiguous()  # [:, :D] slice is strided -> matmul would copy each call
     if _TIMEIT_ON:
         _tacc("mla.b.cvt", _ts, "framework")
         _ts = time.perf_counter()
@@ -1380,12 +1384,27 @@ def _batched_mla_attend(
         _tacc("mla.b.qk", _ts, "kernel")
         _ts = time.perf_counter()
     scores.masked_fill_(~mask.unsqueeze(1), float("-inf"))
-    if attn_sink is not None:
+    if _fused:
+        # Manual stable softmax: fold the attention sink into the normalizer instead of
+        # cat([scores,sink])+softmax+slice, and drop nan_to_num. Fewer eager passes/materializations
+        # (the 5.8s softmax is dispatch/pass-bound, not exp-bound). Equivalent to the cat path.
+        if attn_sink is not None:
+            sink = attn_sink.reshape(1, H, 1).float()
+            m = torch.maximum(scores.amax(dim=-1, keepdim=True), sink)
+            e = torch.exp(scores - m)
+            # empty row (all keys masked): scores=-inf, m=sink -> e=0, denom=exp(0)=1 -> p=0 (matches loop)
+            p = e / (e.sum(dim=-1, keepdim=True) + torch.exp(sink - m))
+        else:
+            m = scores.amax(dim=-1, keepdim=True)
+            e = torch.exp(scores - m)
+            p = torch.nan_to_num(e / e.sum(dim=-1, keepdim=True), nan=0.0)
+    elif attn_sink is not None:
         sink = attn_sink.reshape(1, H, 1).float().expand(T, H, 1)
         p = torch.cat([scores, sink], dim=-1).softmax(dim=-1)[..., :-1]
+        p = torch.nan_to_num(p, nan=0.0)
     else:
         p = scores.softmax(dim=-1)
-    p = torch.nan_to_num(p, nan=0.0)  # tokens with no keys -> zero row (matches the loop's out[t]=0)
+        p = torch.nan_to_num(p, nan=0.0)  # tokens with no keys -> zero row (matches the loop's out[t]=0)
     if _TIMEIT_ON:
         _tacc("mla.b.softmax", _ts, "kernel")
         _ts = time.perf_counter()
