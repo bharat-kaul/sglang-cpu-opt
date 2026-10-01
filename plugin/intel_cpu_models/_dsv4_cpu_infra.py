@@ -439,6 +439,7 @@ def install() -> None:
     _install_dsa_cpu_wire()
     _install_dsa_profile_bypass()
     _install_gemm_timeit()
+    _install_layer_timeit()
     _install_decode_thread_cap()
     _install_cpu_interleave_mem()
     _install_cpu_gloo_allreduce()
@@ -872,6 +873,26 @@ def _install_decode_thread_cap() -> None:
         "intel_cpu_models: decode thread cap = %s (headroom=%d; tp=1 per-forward, tp>1 permanent)",
         spec, headroom,
     )
+
+
+def _install_layer_timeit() -> None:
+    # TIMEIT-only: quantify the UNTIMED per-layer framework/wiring glue (MHC hc_pre/hc_post, norms,
+    # rope, residual, Python dispatch) that scales ~43x on the full net. layer.total minus the timed
+    # child kernels (moe/attn/dense/mhc) = the glue remainder. Reach for this before extrapolating a
+    # truncated-model profile to 43 layers.
+    if not _TIMEIT_ON or not current_platform.is_cpu():
+        return
+    import sglang.srt.models.deepseek_v4 as _dv4
+
+    Layer = _dv4.DeepseekV4DecoderLayer
+    if getattr(Layer, "_layer_timeit", False):
+        return
+    Layer.forward = _timed("layer.total", "parent")(Layer.forward)
+    for _m, _tag in (("hc_pre", "mhc.hc_pre"), ("hc_post", "mhc.hc_post")):
+        _fn = getattr(Layer, _m, None)
+        if callable(_fn):
+            setattr(Layer, _m, _timed(_tag, "torch")(_fn))
+    Layer._layer_timeit = True
 
 
 def _install_gemm_timeit() -> None:
