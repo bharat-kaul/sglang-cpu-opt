@@ -19,7 +19,11 @@ export INTEL_CPU_DSV4_MXFP4_MOE=1
 export INTEL_CPU_DSV4_TIMEIT=1
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
-export INTEL_CPU_DSV4_DECODE_THREADS=8
+export INTEL_CPU_DSV4_DECODE_THREADS=${DECODE_THREADS:-8}
+# OpenMP idle threads busy-wait by default (KMP_BLOCKTIME=200ms) -> spin contention makes every
+# forward after the first ~63x slower (prefill) / ~10x (decode). Park idle threads instead.
+export OMP_WAIT_POLICY=${OMP_WAIT_POLICY:-passive}
+export KMP_BLOCKTIME=${KMP_BLOCKTIME:-0}
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 LAYERS=${LAYERS:-4}
 INLEN=${INLEN:-256}
@@ -27,7 +31,7 @@ INLEN=${INLEN:-256}
 # Use LOAD_FORMAT=auto only if a run needs the real weights (it does not for a kernel-timing profile).
 LOAD_FORMAT=${LOAD_FORMAT:-dummy}
 cd /data/nfs_home/bkaul
-python -m sglang.bench_one_batch \
+${NUMACTL:-} python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
   --json-model-override-args "{\"num_hidden_layers\": ${LAYERS}}" \
   --load-format ${LOAD_FORMAT} \

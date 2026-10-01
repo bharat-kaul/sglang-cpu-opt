@@ -60,6 +60,12 @@ Driven by the `model-enablement` agent.
   their roofline via thread count/affinity, NUMA/SNC binding, TP-rank→domain map, prepack,
   dtype/ISA dispatch. Cheap, no-code, usually the highest-leverage first fix (a mis-set knob
   inflates the whole run). Triggered by `overhead-attribution` (kernel far from floor, isolated-fast).
+- `compute-from-native-precision` — WHENEVER the checkpoint ships ANY reduced/packed precision
+  (fp4/MXFP4/int4/int8/fp8/AWQ/GPTQ): compute DIRECTLY from the packed form, dequant fused in the
+  GEMM — never materialize a widened (bf16/fp32) copy (not a load-time re-encode, not a per-forward
+  temp). Precision-agnostic rule (generalizes "multiply straight from the MXFP4 nibbles"); fronts
+  `quantization-amx-int8` + `weight-prepacking-brgemm`. Widening costs memory traffic, alloc
+  overhead, and footprint for zero accuracy gain.
 - `high-information-runs` — experiment design when the RUN is the bottleneck: cut NUM_RUNS
   (not run_cost) by making each expensive run a MULTI-ANGLE probe with a disposition matrix
   planned up front (one load → many answers; in-situ A/B + per-op sweeps; pre-screen cheap

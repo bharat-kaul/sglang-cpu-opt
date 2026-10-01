@@ -36,7 +36,8 @@ placement/sharding decision.
 **THE RULE: never up-convert a low-bit checkpoint to reach a familiar kernel.** If the
 checkpoint ships fp4 / MXFP4 / int4 and the instinct is to dequant it to fp8/bf16 so an
 existing kernel accepts it, STOP — that *doubles or quadruples* the footprint and can
-manufacture the domain overflow yourself. Instead:
+manufacture the domain overflow yourself. (This is the precision-agnostic
+`compute-from-native-precision` rule; this skill is its INT8/AMX HW instance.) Instead:
 1. Grep the kernel library for the checkpoint's **native** quant enum (`MXFP4`, `INT4_W4A8`,
    `NVFP4`, …) and for a matching fused-dequant compute op (e.g. a CPU `fused_experts_cpu`
    with a `CPUQuantMethod::MXFP4` W4A16 path). The fast W4A16 path usually already exists in
