@@ -2643,17 +2643,18 @@ def _install_mhc_cpu() -> None:
         import torch
 
         def _mhc_post_cpu(x, residual, post_layer_mix, comb_res_mix):
-            # term2[s,k,h] = sum_j comb[s,j,k]*residual[s,j,h] = bmm(comb^T, residual). The bf16 AMX
-            # bmm is ~11x faster than the fp32 einsum (drops the 1M-element .float() copies) and
-            # equivalent within bf16 tol (cos 0.9999, relerr 4e-3). INTEL_CPU_DSV4_MHC_POST_REF=1
-            # forces the fp32 einsum reference (A/B / T1 shadow).
-            if os.environ.get("INTEL_CPU_DSV4_MHC_POST_REF") == "1":
-                term2 = torch.einsum("sjk,sjh->skh", comb_res_mix.float(), residual.float())
-                return (post_layer_mix * x.unsqueeze(1) + term2).type_as(x)
-            term2 = torch.bmm(
-                comb_res_mix.transpose(1, 2).to(torch.bfloat16), residual.to(torch.bfloat16)
-            )
-            return (post_layer_mix * x.unsqueeze(1) + term2.to(x.dtype)).type_as(x)
+            # term2[s,k,h] = sum_j comb[s,j,k]*residual[s,j,h] = bmm(comb^T, residual).
+            # fp32 einsum is the DEFAULT (exact, matches CPU baseline). The bf16 bmm alt
+            # (INTEL_CPU_DSV4_MHC_POST_BMM=1) microbenched 11x offline but delivered NO in-model
+            # speedup (16.9s vs 15.9s, job 380632) while adding bf16 drift (relerr 4e-3) -> kept
+            # gated-off per the one-at-a-time rule; default stays on the exact reference.
+            if os.environ.get("INTEL_CPU_DSV4_MHC_POST_BMM") == "1":
+                term2 = torch.bmm(
+                    comb_res_mix.transpose(1, 2).to(torch.bfloat16), residual.to(torch.bfloat16)
+                )
+                return (post_layer_mix * x.unsqueeze(1) + term2.to(x.dtype)).type_as(x)
+            term2 = torch.einsum("sjk,sjh->skh", comb_res_mix.float(), residual.float())
+            return (post_layer_mix * x.unsqueeze(1) + term2).type_as(x)
 
         # hc_post passes raw post [s,n]; the mix wants [s,n,1].
         _mhc.mhc_post = _timed("mhc.post", "torch")(
