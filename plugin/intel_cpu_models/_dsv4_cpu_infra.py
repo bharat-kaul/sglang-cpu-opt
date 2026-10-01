@@ -1266,8 +1266,11 @@ def _batched_mla_attend(
     # p=0 -> identical to the loop (softmax-weighted sum is order-invariant). Two-source KV
     # (main compressed + extra SWA/compressor) is concatenated into one K_all with a joint mask.
     # Returns out [T,H,hdv] fp32, or None to fall back to the reference loop.
+    import time
+
     import torch
 
+    _ts = time.perf_counter() if _TIMEIT_ON else 0.0
     T, _, H, _Dq = q.shape
     valid = _KV_VALID.get(dp)
     if valid is None:
@@ -1279,6 +1282,9 @@ def _batched_mla_attend(
     K_main = _stash_kv_gather(dp, vslots)
     if K_main is None:
         return None
+    if _TIMEIT_ON:
+        _tacc("mla.b.gather", _ts, "framework")
+        _ts = time.perf_counter()
     ar = torch.arange(n)
     if indices is None or topk_length is None or force_dense:
         clen = (n - (T - 1)) + torch.arange(T)  # dense causal
@@ -1329,11 +1335,20 @@ def _batched_mla_attend(
                 mask_parts.append(mask_e)
     K_all = torch.cat(K_parts, 0) if len(K_parts) > 1 else K_parts[0]
     mask = torch.cat(mask_parts, 1) if len(mask_parts) > 1 else mask_parts[0]
+    if _TIMEIT_ON:
+        _tacc("mla.b.mask", _ts, "framework")
+        _ts = time.perf_counter()
     nk = K_all.shape[0]
     qb = q[:, 0].to(torch.bfloat16).reshape(T * H, _Dq)[:, :D]
     Kb = K_all[:, :D].to(torch.bfloat16)
     Vb = K_all[:, :head_dim_v].to(torch.bfloat16)
+    if _TIMEIT_ON:
+        _tacc("mla.b.cvt", _ts, "framework")
+        _ts = time.perf_counter()
     scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, nk) * softmax_scale
+    if _TIMEIT_ON:
+        _tacc("mla.b.qk", _ts, "kernel")
+        _ts = time.perf_counter()
     scores.masked_fill_(~mask.unsqueeze(1), float("-inf"))
     if attn_sink is not None:
         sink = attn_sink.reshape(1, H, 1).float().expand(T, H, 1)
@@ -1341,7 +1356,12 @@ def _batched_mla_attend(
     else:
         p = scores.softmax(dim=-1)
     p = torch.nan_to_num(p, nan=0.0)  # tokens with no keys -> zero row (matches the loop's out[t]=0)
+    if _TIMEIT_ON:
+        _tacc("mla.b.softmax", _ts, "kernel")
+        _ts = time.perf_counter()
     out = torch.matmul(p.reshape(T * H, nk).to(torch.bfloat16), Vb).float().reshape(T, H, head_dim_v)
+    if _TIMEIT_ON:
+        _tacc("mla.b.pv", _ts, "kernel")
     return out
 
 
