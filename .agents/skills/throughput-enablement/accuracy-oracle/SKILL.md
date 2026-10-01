@@ -198,6 +198,10 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
   `watchdog_timeout` (default 300 s kills slow CPU long-prompt forwards) and cap `chunked_prefill_size`.
 
 ### Three-tier equivalence validation for the optimize loop (defer task-accuracy to the end)
+**Guiding principle:** if the optimized build is EQUIVALENT to the reference baseline (end-to-end, within
+tolerance), the optimizations are FUNCTIONALLY TRANSPARENT — accuracy is identical to the baseline, so one
+task-accuracy run at the end on the optimized build == the run you'd have done on the baseline. The tiers
+below are just the CHEAP PROOF of equivalence that lets you skip a full accuracy run per optimization.
 When a kernel is REPLACED by an optimized one, you don't need full task accuracy per change — you need to
 prove the optimized kernel is EQUIVALENT to the reference it replaces. Layer the checks by cost:
 - **T1 (every change, fast): in-situ A/B equivalence.** Build each optimization behind an env flag
