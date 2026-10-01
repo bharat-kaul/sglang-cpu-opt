@@ -2626,7 +2626,7 @@ def _install_mhc_cpu() -> None:
     os.environ["SGLANG_OPT_DEEPGEMM_HC_PRENORM"] = "0"
     import sglang.kernels.ops.layernorm.mhc as _mhc
 
-    _mhc.hc_split_sinkhorn = _mhc._hc_split_sinkhorn_torch
+    _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "torch")(_mhc._hc_split_sinkhorn_torch)
 
     def _cpu_hc_combine(x_flat, pre, hc, out_dtype):
         # y[m, h] = sum_k pre[m, k] * x_flat[m, k*H + h]. einsum streams the contraction
@@ -2638,7 +2638,7 @@ def _install_mhc_cpu() -> None:
         xr = x_flat.reshape(m, hc, h).float()
         return torch.einsum("mk,mkh->mh", pre.float(), xr).to(out_dtype)
 
-    _mhc.hc_combine = _cpu_hc_combine
+    _mhc.hc_combine = _timed("mhc.combine", "torch")(_cpu_hc_combine)
     if hasattr(_mhc, "_mhc_post_torch"):
         import torch
 
@@ -2652,8 +2652,8 @@ def _install_mhc_cpu() -> None:
             return (post_layer_mix * x.unsqueeze(1) + term2).type_as(x)
 
         # hc_post passes raw post [s,n]; the mix wants [s,n,1].
-        _mhc.mhc_post = lambda x, residual, post, comb: _mhc_post_cpu(
-            x, residual, post.unsqueeze(-1), comb
+        _mhc.mhc_post = _timed("mhc.post", "torch")(
+            lambda x, residual, post, comb: _mhc_post_cpu(x, residual, post.unsqueeze(-1), comb)
         )
     try:
         import sglang.srt.models.deepseek_v4 as _dv4
