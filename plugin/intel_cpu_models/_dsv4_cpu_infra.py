@@ -1435,13 +1435,16 @@ def _torch_flash_mla_with_kvcache(
             pass
     # Batched AMX bf16 path (default): 2 GEMMs + joint key mask over the two-source KV instead of
     # the per-token loop. INTEL_CPU_DSV4_ATTN_LOOP=1 forces the fp8/fp32 reference loop (A/B).
+    # INTEL_CPU_DSV4_ATTN_SHADOW=1 = T1 equivalence check: run BOTH on the same input, log cos/mag/relerr.
+    _shadow = _os.environ.get("INTEL_CPU_DSV4_ATTN_SHADOW") == "1"
+    _ob = None
     if _os.environ.get("INTEL_CPU_DSV4_ATTN_LOOP") != "1":
         _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
         _ob = _batched_mla_attend(
             q, dp, edp, D, head_dim_v, softmax_scale, indices, topk_length,
             extra_indices_in_kvcache, extra_topk_length, attn_sink, pos_kept, _force_dense,
         )
-        if _ob is not None:
+        if _ob is not None and not _shadow:
             if _TIMEIT_ON:
                 _tacc("dsa.mla.attend", _t0, "torch")
             out = _ob
@@ -1527,6 +1530,20 @@ def _torch_flash_mla_with_kvcache(
                 pass
         if _TIMEIT_ON:
             _tacc("dsa.mla.attend", _t0, "torch")
+    if _shadow and _ob is not None:
+        # T1 in-situ A/B: batched (optimized) vs the reference loop on the SAME input, this forward.
+        try:
+            _a = _ob.reshape(-1).float()
+            _b = out.reshape(-1).float()
+            _cos = torch.nn.functional.cosine_similarity(_a.unsqueeze(0), _b.unsqueeze(0)).item()
+            _mag = (_a.norm() / _b.norm().clamp_min(1e-9)).item()
+            _rel = ((_a - _b).abs().max() / _b.abs().max().clamp_min(1e-9)).item()
+            logger.info(
+                "intel_cpu_models: [ATTN SHADOW] cos=%.6f mag=%.4f relerr=%.3e T=%d (batched vs reference loop)",
+                _cos, _mag, _rel, T,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     if _dbg and _ATTN_DBG["n"] < 8:
         try:
             _z = int((out.abs().sum(dim=(1, 2)) == 0).sum())
