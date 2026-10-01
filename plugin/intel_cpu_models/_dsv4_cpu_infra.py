@@ -2653,7 +2653,7 @@ def _install_mhc_cpu() -> None:
             term2 = torch.bmm(
                 comb_res_mix.transpose(1, 2).to(torch.bfloat16), residual.to(torch.bfloat16)
             )
-            return post_layer_mix * x.unsqueeze(1) + term2.to(x.dtype)
+            return (post_layer_mix * x.unsqueeze(1) + term2.to(x.dtype)).type_as(x)
 
         # hc_post passes raw post [s,n]; the mix wants [s,n,1].
         _mhc.mhc_post = _timed("mhc.post", "torch")(
