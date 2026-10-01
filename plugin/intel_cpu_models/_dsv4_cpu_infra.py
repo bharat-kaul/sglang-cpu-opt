@@ -2643,13 +2643,17 @@ def _install_mhc_cpu() -> None:
         import torch
 
         def _mhc_post_cpu(x, residual, post_layer_mix, comb_res_mix):
-            # Same math as _mhc_post_torch, but einsum('sjk,sjh->skh') replaces the
-            # (comb.unsqueeze(-1) * residual.unsqueeze(2)).sum(dim=1) that materializes a
-            # [s, n, n, h] intermediate (the ~1.1s/call decode hotspot). Parity ~1e-6.
-            # einsum/bmm needs matching operand dtypes; the original broadcast-mul promoted
-            # bf16xfp32 -> fp32, so cast both to fp32 to keep identical numerics.
-            term2 = torch.einsum("sjk,sjh->skh", comb_res_mix.float(), residual.float())
-            return (post_layer_mix * x.unsqueeze(1) + term2).type_as(x)
+            # term2[s,k,h] = sum_j comb[s,j,k]*residual[s,j,h] = bmm(comb^T, residual). The bf16 AMX
+            # bmm is ~11x faster than the fp32 einsum (drops the 1M-element .float() copies) and
+            # equivalent within bf16 tol (cos 0.9999, relerr 4e-3). INTEL_CPU_DSV4_MHC_POST_REF=1
+            # forces the fp32 einsum reference (A/B / T1 shadow).
+            if os.environ.get("INTEL_CPU_DSV4_MHC_POST_REF") == "1":
+                term2 = torch.einsum("sjk,sjh->skh", comb_res_mix.float(), residual.float())
+                return (post_layer_mix * x.unsqueeze(1) + term2).type_as(x)
+            term2 = torch.bmm(
+                comb_res_mix.transpose(1, 2).to(torch.bfloat16), residual.to(torch.bfloat16)
+            )
+            return post_layer_mix * x.unsqueeze(1) + term2.to(x.dtype)
 
         # hc_post passes raw post [s,n]; the mix wants [s,n,1].
         _mhc.mhc_post = _timed("mhc.post", "torch")(
