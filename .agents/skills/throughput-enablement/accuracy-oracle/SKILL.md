@@ -197,6 +197,27 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
 - **Reserve the full task harness (gsm8k/mmlu) for PERIODIC checks**, not every iteration; raise
   `watchdog_timeout` (default 300 s kills slow CPU long-prompt forwards) and cap `chunked_prefill_size`.
 
+### Three-tier equivalence validation for the optimize loop (defer task-accuracy to the end)
+When a kernel is REPLACED by an optimized one, you don't need full task accuracy per change — you need to
+prove the optimized kernel is EQUIVALENT to the reference it replaces. Layer the checks by cost:
+- **T1 (every change, fast): in-situ A/B equivalence.** Build each optimization behind an env flag
+  (reference impl vs optimized). In ONE forward, run both on the SAME real activations and compare
+  **cosine AND magnitude-ratio AND relative-max-abs error, full-tensor** (never cosine-alone — it's
+  magnitude-blind — never `fp[:4]`). This is an exact equivalence test on real data: no second run, no
+  input mismatch. Set a tolerance that separates legitimate low-precision drift (bf16 opt vs fp32 ref →
+  ~cos ≥ 0.999, rel-err ≤ 1e-2) from a bug. Use REAL activations — data-dependent ops (MoE routing,
+  sparse/topk selection) take different paths on random vs real input.
+- **T2 (periodic): full-model per-LAYER cosine vs the reference baseline.** Per-op equivalence does NOT
+  guarantee end-to-end — small drifts COMPOUND across depth (per-op cos 0.999 × L layers can collapse).
+  Re-establish the current known-good baseline's per-layer tensors as the golden, and diff the integrated
+  build against it every few optimizations.
+- **T3 (once, at the end): full task accuracy** (gsm8k/mmlu) + ideally full per-layer cosine vs the
+  INDEPENDENT oracle (GPU/HF), not just the CPU baseline. Critical nuance: a coherence-validated baseline
+  is NOT task-accuracy-validated ("it says Paris" ≠ "it's accurate"); cosine-preserving the baseline only
+  proves "no regression from baseline," so the baseline's own absolute accuracy stays unconfirmed until T3.
+This defers the expensive task-accuracy run to the end and lets you optimize+validate in parallel, while
+T1/T2 still catch regressions immediately. It is the layered oracle (Layers 0.5/1/2) applied to the opt loop.
+
 ## Procedure
 1. Run Layer 1 on a small fixed prompt set; block on the first out-of-tol layer.
 2. Once parity holds, run Layer 2 harnesses; block on any score regression.
