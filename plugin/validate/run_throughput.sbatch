@@ -28,8 +28,9 @@ cd /data/nfs_home/bkaul
 # batch:decode_threads pairs (threads matched to the batch sweet-spot from the MXFP4 roofline sweep)
 for pair in "1:8" "8:8" "16:16" "32:32"; do
   B=${pair%:*}; T=${pair#*:}
-  echo "###### BATCH=$B decode_threads=$T ######"
-  INTEL_CPU_DSV4_DECODE_THREADS=$T python "$BENCH" \
+  DT=${DT:-$T}  # DT=batch -> plugin batch-aware auto-scaling; DT=8 -> static cap; else matched per-batch
+  echo "###### BATCH=$B decode_threads=$DT ######"
+  INTEL_CPU_DSV4_DECODE_THREADS=$DT python "$BENCH" \
     --model "$MODEL" --config "$MODEL/config.json" --tp 1 \
     --batch "$B" --input-len "$INLEN" --output-len "$OUTLEN" \
     --layers "$LAYERS" --load-format dummy --mem-fraction 0.85 \

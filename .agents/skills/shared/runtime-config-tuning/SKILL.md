@@ -33,17 +33,22 @@ descheduled worker threads. Two rules fall out:
 - **Thread settings are PHASE-dependent.** The optimum for decode (barrier-bound, wants
   headroom) ≠ prefill (compute-bound, wants all cores). Cap per-phase (hook the decode
   forward), don't set one global thread count.
-- **Decode thread optimum is also BATCH-dependent — and decode throughput is a BATCHING win
-  first, kernel second (this repo, MXFP4 MoE roofline).** At batch M=1 the decode MoE is
-  latency/BW-bound and wants FEW threads (~8); as the continuous-batch M grows the per-token
-  expert-stream amortizes and the optimum RISES (M≥32 → 32–43 threads). Measured: per-token MoE
-  cost fell 1.39 ms → 0.32 ms (4.4×) and BW efficiency 26% → 75% from M=1 → M=64, purely from
-  batching — NO kernel change. **Corollary: a static decode cap (e.g. 8) is correct only for
-  batch-1; scale it with the running batch. And profile decode at a REALISTIC serving batch, not
-  M=1 — M=1 understates throughput ~4×** (it is the single-stream regime that non-batching
-  engines like Kimi-K3 are stuck in; a continuous-batching server escapes it). Weight-streaming
-  decode is BW-bound at every tier (K3 NVMe-streamed, this repo RAM-resident 4-bit); the lever is
-  amortizing the stream over the batch, not micro-opting the kernel.
+- **Decode throughput is a BATCHING win first, kernel second — but the THREAD-COUNT optimum does
+  NOT simply scale with batch (this repo, measured in-model).** The batching win is real and large:
+  per-token MoE cost fell 1.39 ms → 0.32 ms (4.4×) and BW efficiency 26% → 75% from M=1 → M=64 in the
+  ISOLATED MoE kernel, and aggregate decode throughput rose ~10× (8→81 tok/s) B=1→32 through the real
+  engine — purely from continuous batching, NO kernel change. **So profile decode at a REALISTIC
+  serving batch, not M=1** (M=1 is the single-stream regime non-batching engines like Kimi-K3 are stuck
+  in; a continuous-batching server escapes it). **BUT do not scale the thread cap off the isolated
+  kernel's preference.** The isolated MoE wants MORE threads as M grows (M≥16 → 32); the WHOLE decode
+  forward does not — measured in-model, a static cap of ~8 threads matched or BEAT a batch-aware cap
+  that scaled to 32 at every batch (B=16: 63 vs 57 tok/s; B=32: 85 vs 81). Reason: the MoE is only
+  ~37% of the decode forward; the other ~63% (attention/norms/MHC/dense) is barrier-bound at small
+  batch and prefers FEW threads, and it dominates the composite thread choice. **Tune the decode thread
+  count on the WHOLE forward in-model (it collapses to ~8 here), not on the isolated hot kernel** —
+  the recurring "isolated microbench misleads" trap. Weight-streaming decode is BW-bound at every tier
+  (K3 NVMe-streamed, this repo RAM-resident 4-bit); the throughput lever is amortizing the stream over
+  the batch, not the kernel's thread count.
 - **Isolated microbenches MISLEAD here.** An isolated M=1 GEMM on an idle node is *fastest at
   the full thread count* (0.017 ms @ 42) — the exact opposite of in-model, because idle has no
   framework threads to contend. You MUST measure in-model wall time (a per-op timer like
