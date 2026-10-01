@@ -42,6 +42,17 @@ _MOE_DIAG: dict = {}
 _DECODE_CAP_ACTIVE = False
 # Set once gloo TP all-reduce is installed; makes the per-forward decode cap tp>1-safe.
 _TP_GLOO_ACTIVE = False
+# Phase tag (prefill vs decode) appended to timed op names when INTEL_CPU_DSV4_TIMEIT_PHASE=1.
+# Lets one run separate the prefill (compute-bound) from the decode (BW/overhead-bound) profile.
+_PHASE = ""
+_PHASE_ON = _os.environ.get("INTEL_CPU_DSV4_TIMEIT_PHASE", "0") == "1"
+
+
+def _pkey(name: str) -> str:
+    # Append the current forward phase to an op name when phase-tagging is active.
+    if _PHASE_ON and _PHASE:
+        return f"{name}.{_PHASE}"
+    return name
 
 
 def _release_freed_memory() -> None:
@@ -252,7 +263,10 @@ def _timed(name: str, kind: str = ""):
             try:
                 return fn(*a, **k)
             finally:
-                rec = _TIMES.setdefault(name, [0.0, 0])
+                key = _pkey(name)
+                if key is not name and key not in _TIMES_KIND:
+                    _TIMES_KIND[key] = kind
+                rec = _TIMES.setdefault(key, [0.0, 0])
                 rec[0] += time.perf_counter() - t0
                 rec[1] += 1
 
@@ -288,9 +302,10 @@ def _tacc(name: str, t0: float, kind: str = "") -> None:
     """Accumulate an elapsed interval under `name` (guard with _TIMEIT_ON at call site)."""
     import time
 
-    if kind and name not in _TIMES_KIND:
-        _TIMES_KIND[name] = kind
-    rec = _TIMES.setdefault(name, [0.0, 0])
+    key = _pkey(name)
+    if kind and key not in _TIMES_KIND:
+        _TIMES_KIND[key] = kind
+    rec = _TIMES.setdefault(key, [0.0, 0])
     rec[0] += time.perf_counter() - t0
     rec[1] += 1
 
@@ -343,6 +358,106 @@ def _resolve_moe_thread_cap(orig_apply, self, layer, dispatch_output):
         return best
     return None
 
+
+
+def _install_phase_tag() -> None:
+    # Env-gated (INTEL_CPU_DSV4_TIMEIT_PHASE=1): tag every timed op with the forward phase
+    # (pf/dec) by setting a module global around the model's top-level forward. Unlocks a
+    # separate decode per-op breakdown from the same run. Off by default; no-op otherwise.
+    if not _TIMEIT_ON or not _PHASE_ON or not current_platform.is_cpu():
+        return
+    import sglang.srt.models.deepseek_v4 as _dv4
+
+    cls = _dv4.DeepseekV4ForCausalLM
+    if getattr(cls, "_phase_tagged", False):
+        return
+    _orig_fwd = cls.forward
+
+    def _fwd(self, *a, **k):
+        global _PHASE
+        fb = k.get("forward_batch")
+        if fb is None:
+            for _x in a:
+                if hasattr(_x, "forward_mode"):
+                    fb = _x
+                    break
+        try:
+            _PHASE = "dec" if fb.forward_mode.is_decode_or_idle() else "pf"
+        except Exception:
+            _PHASE = ""
+        try:
+            return _orig_fwd(self, *a, **k)
+        finally:
+            _PHASE = ""
+
+    cls.forward = _fwd
+    cls._phase_tagged = True
+    logger.warning("[DSV4 TIMEIT] phase-tagging ON (prefill/decode split).")
+
+
+def _install_hc_pre_subtimer() -> None:
+    # Env-gated (INTEL_CPU_DSV4_TIMEIT_HCPRE=1): OPT #2c instrument. Sub-times the hc_pre
+    # CPU torch-fallback into its GEMM (F.linear) and its fp32 rmsnorm reduction, so we
+    # MEASURE which dominates before optimizing (don't assume it's the GEMM). Reproduces
+    # ONLY the torch `else` branch of hc_pre with timers; delegates every other path to the
+    # original. Install BEFORE _install_layer_timeit so layer.total still wraps it. Must stay
+    # in lockstep with deepseek_v4.hc_pre; off by default.
+    if not _TIMEIT_ON or _os.environ.get("INTEL_CPU_DSV4_TIMEIT_HCPRE") != "1":
+        return
+    if not current_platform.is_cpu():
+        return
+    import time
+
+    import torch
+    import torch.nn.functional as F
+
+    import sglang.srt.models.deepseek_v4 as _dv4
+
+    Layer = _dv4.DeepseekV4DecoderLayer
+    if getattr(Layer, "_hc_pre_subtimed", False):
+        return
+    _orig_hc_pre = Layer.hc_pre
+
+    def _hc_pre_timed(self, x, hc_fn, hc_scale, hc_base, norm=None, forward_batch=None):
+        cpu_torch = (
+            x.shape[0] > 0
+            and not _dv4._is_npu
+            and not _dv4._is_xpu
+            and not _dv4._is_hip
+            and not _dv4.envs.SGLANG_OPT_USE_FLASHINFER_MHC.get()
+            and not _dv4.envs.SGLANG_OPT_USE_TILELANG_MHC_PRE.get()
+            and not (
+                _dv4.envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.get()
+                and x.shape[0] >= _dv4._HC_PRENORM_DEEPGEMM_MIN_TOKENS
+            )
+        )
+        if not cpu_torch:
+            return _orig_hc_pre(self, x, hc_fn, hc_scale, hc_base, norm, forward_batch)
+        # hc_pre_torch_impl, split into reduction vs GEMM.
+        _t = time.perf_counter()
+        x_flat = x.flatten(1).float()
+        rsqrt = torch.rsqrt(
+            x_flat.square().mean(-1, keepdim=True) + self.rms_norm_eps
+        )
+        _tacc("mhc.hc_pre.rmsnorm", _t, "torch")
+        _t = time.perf_counter()
+        gemm = F.linear(x_flat, hc_fn)
+        _tacc("mhc.hc_pre.gemm", _t, "torch")
+        mixes = (gemm * rsqrt).unsqueeze(1)
+        pre, post, comb = _dv4._get_mhc_ops().hc_split_sinkhorn(
+            mixes, hc_scale, hc_base, self.hc_mult, self.hc_sinkhorn_iters, self.hc_eps
+        )
+        from sglang.kernels.ops.layernorm.mhc import hc_combine
+
+        with _dv4.use_symmetric_memory(
+            _dv4.get_tp_group(), disabled=not _dv4.is_allocation_symmetric()
+        ):
+            y = hc_combine(x_flat, pre.squeeze(1), self.hc_mult, x.dtype)
+        return y, post.squeeze(1), comb.squeeze(1), False
+
+    Layer.hc_pre = _hc_pre_timed
+    Layer._hc_pre_subtimed = True
+    logger.warning("[DSV4 TIMEIT] hc_pre GEMM/rmsnorm sub-timer ON (OPT #2c).")
 
 
 if _TIMEIT_ON:
@@ -438,6 +553,8 @@ def install() -> None:
     _install_fp4_expert_cpu_dequant()
     _install_dsa_cpu_wire()
     _install_dsa_profile_bypass()
+    _install_phase_tag()
+    _install_hc_pre_subtimer()
     _install_gemm_timeit()
     _install_layer_timeit()
     _install_decode_thread_cap()
