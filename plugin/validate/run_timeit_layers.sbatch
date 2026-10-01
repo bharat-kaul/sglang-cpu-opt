@@ -35,7 +35,7 @@ ${NUMACTL:-} python -m sglang.bench_one_batch \
   --model-path "$CKPT" \
   --json-model-override-args "{\"num_hidden_layers\": ${LAYERS}}" \
   --load-format ${LOAD_FORMAT} \
-  --device cpu --tp 1 --batch-size 1 --input-len ${INLEN} --output-len 4 \
+  --device cpu --tp 1 --batch-size ${BATCH:-1} --input-len ${INLEN} --output-len 4 \
   --trust-remote-code --disable-cuda-graph \
   --mem-fraction-static 0.85 --max-total-tokens 8192
 echo "[exit=$?]  layers=${LAYERS} input-len=${INLEN} load=${LOAD_FORMAT}"

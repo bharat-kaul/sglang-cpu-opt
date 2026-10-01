@@ -50,18 +50,27 @@ def main():
     p.add_argument("--mem-fraction", type=float, default=0.5)
     p.add_argument("--dtype", default="bfloat16", help="CPU AMX compute dtype")
     p.add_argument("--quantization", default=None, help="e.g. w8a8_int8")
+    p.add_argument("--layers", type=int, default=0, help="truncate to N decoder layers (perf-proxy); 0 = full model")
+    p.add_argument("--load-format", default="auto", help="'dummy' = random weights at real shapes (skip the checkpoint read)")
     p.add_argument("--out", default="")
     args = p.parse_args()
 
     with open(args.config) as f:
         cfg = json.load(f)
-    flop_tok = linear_flops_per_token(cfg)
+    if args.layers:
+        cfg["num_hidden_layers"] = args.layers  # keep FLOP accounting consistent with the truncation
+    try:
+        flop_tok = linear_flops_per_token(cfg)
+    except Exception:
+        flop_tok = 0  # nested/novel config keys: skip FLOP eff, decode_tok_s is what we need
 
     import sglang as sgl
 
+    override = json.dumps({"num_hidden_layers": args.layers}) if args.layers else None
     engine = sgl.Engine(
         model_path=args.model, device="cpu", tp_size=args.tp, dtype=args.dtype,
-        quantization=args.quantization,
+        quantization=args.quantization, load_format=args.load_format,
+        json_model_override_args=override,
         disable_overlap_schedule=True, trust_remote_code=True,
         mem_fraction_static=args.mem_fraction, log_level="warning",
         disable_radix_cache=True,  # else identical prefills reuse cached KV
