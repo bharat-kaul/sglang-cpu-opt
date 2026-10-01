@@ -1,6 +1,6 @@
 ---
 name: runtime-config-tuning
-description: "The FRAMEWORK/CONFIG lever, separate from kernel authoring: make already-optimal kernels actually run at their roofline by fixing thread count + affinity, NUMA/SNC binding, OMP/env, TP-rank-to-domain mapping, weight prepack, and dtype/ISA dispatch — the settings that decide whether a kernel gets its cores and bandwidth. Use when overhead-attribution tags an op 'kernel far below its roofline floor' (isolated-fast but slow end-to-end), when scaling to tp>1, or when a whole run is uniformly slow (a config problem inflates everything). Cheap, reversible, and usually the highest-leverage first fix — no code. Reads uPP machine_constants.json for the core/BW budget; feeds roofline-validation."
+description: "The FRAMEWORK/CONFIG lever, separate from kernel authoring: make already-optimal kernels actually run at their roofline by fixing thread count + affinity, OpenMP wait policy (idle-thread spin vs park — OMP_WAIT_POLICY/KMP_BLOCKTIME, a frequent root cause of a whole forward being uniformly slow or the 2nd forward collapsing), NUMA/SNC binding, OMP/env, TP-rank-to-domain mapping, weight prepack, and dtype/ISA dispatch — the settings that decide whether a kernel gets its cores and bandwidth. Use when overhead-attribution tags an op 'kernel far below its roofline floor' (isolated-fast but slow end-to-end), when scaling to tp>1, or when a whole run is uniformly slow (a config problem inflates everything). Cheap, reversible, and usually the highest-leverage first fix — no code. Reads uPP machine_constants.json for the core/BW budget; feeds roofline-validation."
 ---
 
 # Runtime Config Tuning (make optimal kernels reach their roofline)
@@ -65,7 +65,39 @@ descheduled worker threads. Two rules fall out:
   tp>1 M=1 decode is ~330× slower than tp=1 here regardless (barrier cliff per rank) — prefer
   tp=1 for memory-bound decode (see `sub-numa-clustering`).
 
+**Origin lesson 3 — OpenMP IDLE-THREAD SPIN-WAIT is the deeper cause; fix it FIRST (this repo).**
+Much of "the decode thread cliff" and a separate "the 2nd forward is ~300× slower than the 1st"
+pathology trace to ONE root cause: by default idle OpenMP workers **busy-wait** between parallel
+regions (`OMP_WAIT_POLICY=active`; Intel/LLVM OMP `KMP_BLOCKTIME`=200 ms). With many threads and
+sequential/nested regions (a transformer forward is thousands of small regions), the idle pool spins
+on every core and **thrashes the next region** — so a forward that follows prior forwards collapses.
+Measured (DSV4, 4-layer proxy, 64 threads): benchmark prefill **167 s** vs warmup 0.57 s (293×), and
+decode **1.5 s/step**. Setting `OMP_WAIT_POLICY=passive` + `KMP_BLOCKTIME=0` (park idle threads) at
+the SAME 64 threads: prefill **2.66 s (63×)**, decode **0.13 s/step (10×)**, reproducible. This is
+scheduling-only → **token-identical** (no accuracy gate needed, just confirm ids).
+- **Diagnosis signature:** a *uniform* ∝-work slowdown of a WHOLE forward (every op inflated by a
+  similar factor), present on the 2nd+ forward but not the 1st, that SURVIVES process pinning
+  (`numactl --physcpubind`) and disappears only at 1 thread → it's spin-wait, not op cost, not NUMA,
+  not allocator, not thread *count*. (A standalone warm microbench of any single op looks fine; the
+  pathology is contention BETWEEN regions, so it only shows in-model across multiple forwards.)
+- **This REFRAMES Origin lesson 2:** the decode "cap threads at bound−2" and "never use the full
+  bound" guidance is largely a WORKAROUND for spin-wait (fewer spinning threads = less thrash). With
+  passive wait, uncapped decode at the full bound is fine (0.21 s, no cliff); the cap then buys only a
+  minor M=1 win (0.21→0.13 s). **Apply the spin-wait fix FIRST (set once at launch, keep full
+  threads); treat per-phase thread-capping as a small secondary lever, not the primary fix** — and it
+  avoids the per-forward `set_num_threads` churn that the tp>1 / don't-nest rules warn against.
+- **Beware the red herring:** `OMP_PROC_BIND=close`/`OMP_PLACES=cores`/`GOMP_CPU_AFFINITY` can
+  *collapse* a framework that sets its own thread count (SGLang `init_cpu_threads_env`) down to 1
+  thread — which "fixes" the cliff trivially by removing parallelism. Verify the thread COUNT held
+  (log `torch.get_num_threads()` per forward) before crediting a pinning env. Prior art converges
+  here: Kimi-K3 on the same Xeon uses `OMP_PROC_BIND=close OMP_PLACES=cores` + one rank/socket, set
+  ONCE at launch, never retuned per-forward.
+
 ## The knobs (in leverage order), each vs a uPP-measured budget
+0. **OpenMP wait policy (set FIRST, at launch).** `OMP_WAIT_POLICY=passive` + `KMP_BLOCKTIME=0`
+   so idle workers park instead of spinning. Highest-leverage, zero-code, token-identical; prevents
+   the inter-region spin-contention that inflates every multi-forward run (Origin lesson 3). Must be
+   set BEFORE the OpenMP pool initializes (launch env / sbatch, not mid-process).
 1. **Thread count + affinity.** Each TP rank must get a disjoint, NUMA-local core set.
    Set `OMP_NUM_THREADS` = cores-per-domain and bind (`SGLANG_CPU_OMP_THREADS_BIND`,
    `numactl --cpunodebind`/`--physcpubind`, `GOMP/KMP_AFFINITY`). Check against uPP
