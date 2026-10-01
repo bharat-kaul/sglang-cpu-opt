@@ -133,6 +133,32 @@ missed, like the DSA issue/conversion bound).
   full model runs and every OTHER op gets measured. The stubbed op shows as ~0 time
   (flag it as "not yet implemented", not "free"); everything else is real signal that
   ranks where to spend kernel effort first.
+
+## Fast iterative profiling loop + scaling traps (HW/model/framework-agnostic)
+Validated end-to-end this way; reuse it to keep the optimize→measure loop at seconds, not an hour.
+- **Dummy weights skip the whole checkpoint read.** Random-weight init (e.g. `--load-format dummy`)
+  allocates at real shapes/dtypes and does NOT read the (possibly 100s-of-GB) checkpoint — a timing
+  profile needs shapes, not values. Pair with **layer truncation** (override `num_hidden_layers=N`):
+  run only the first N decoder layers so each kernel runs at its true shape but the forward is ~L/N
+  cheaper. Truncation alone does NOT cut load (the loader still reads all shards to discover tensors) —
+  so combine truncation WITH dummy weights. Pick the **sweet-spot N = fewest leading layers that cover
+  every op/attention TYPE** (read the per-layer config, e.g. the compress-ratio/layer-type schedule).
+- **Per-layer overhead scales ~L_full/N — a truncated profile UNDER-counts everything per-layer.**
+  Framework/wiring glue, dtype conversions, gather, thread-launch, norms/rope/residual, Python dispatch
+  all recur per layer; multiply by L_full before calling any of it "small." INSTRUMENT the UNTIMED glue:
+  wrap the decoder-layer `forward` with a `layer.total` timer and subtract the timed child kernels — the
+  remainder is the glue that balloons on the full net. In practice the timed kernels were only ~35% of
+  the per-layer wall; the other ~65% was untimed glue that would dominate at full depth.
+- **Roofline is the ARITHMETIC floor; tiny matrices are OVERHEAD-bound, not compute-bound.** At small
+  context/batch the FLOPs are trivial, so fixed per-call costs (OpenMP thread launch, op dispatch, fp32↔
+  low-precision conversions, gather, alloc) dominate — you will NOT reach the arithmetic roofline. Sub-
+  time a "slow" op into GEMM vs conversion vs gather vs mask before assuming it's the math. Re-check the
+  op at a REALISTIC context/batch, where it may become genuinely BW- or compute-bound and the structure
+  you built (batched GEMM) finally pays off.
+- **Verify the optimization actually ENGAGED — re-profile, don't assume.** A gated/branchy fast path can
+  silently fall back (e.g. a conservative guard bypassing it for a common case). A cheap re-profile after
+  each change catches partial/failed engagement (op still shows per-call timing / unchanged share) before
+  you stack more changes or spend an expensive accuracy run.
 - **A stub/bypass only works if a NON-TARGET path exists to fall back to.** Before
   planning "bypass feature X to profile the rest", verify the code has a dense/fallback
   path when X is disabled. A backend or module that IS the novel feature has nothing to
