@@ -395,16 +395,18 @@ def _install_phase_tag() -> None:
     logger.warning("[DSV4 TIMEIT] phase-tagging ON (prefill/decode split).")
 
 
-def _install_hc_pre_subtimer() -> None:
-    # Env-gated (INTEL_CPU_DSV4_TIMEIT_HCPRE=1): OPT #2c instrument. Sub-times the hc_pre
-    # CPU torch-fallback into its GEMM (F.linear) and its fp32 rmsnorm reduction, so we
-    # MEASURE which dominates before optimizing (don't assume it's the GEMM). Reproduces
-    # ONLY the torch `else` branch of hc_pre with timers; delegates every other path to the
-    # original. Install BEFORE _install_layer_timeit so layer.total still wraps it. Must stay
-    # in lockstep with deepseek_v4.hc_pre; off by default.
-    if not _TIMEIT_ON or _os.environ.get("INTEL_CPU_DSV4_TIMEIT_HCPRE") != "1":
-        return
-    if not current_platform.is_cpu():
+def _install_hc_pre_cpu() -> None:
+    # OPT #2e + instrument. Patches the CPU hc_pre torch path (reproduces ONLY the torch
+    # `else` branch; delegates every other path to the original). Two env-gated behaviors:
+    #  - INTEL_CPU_DSV4_HCPRE_FUSED=1: fused no-temp rmsnorm (einsum inner-product) instead of
+    #    x_flat.square().mean(-1). MEASURED win 5.24->2.77s in-model: the per-call [T,K] fp32
+    #    square-temp ALLOCATION dominated, not the math (offline the square/mean is ~0.1ms).
+    #    Lossless (Sigma x^2 / N two ways, fp32, max-err ~5e-6). Applies in real runs too.
+    #  - INTEL_CPU_DSV4_TIMEIT_HCPRE=1 (with TIMEIT): sub-times upcast/rmsnorm/gemm.
+    # Must stay in lockstep with deepseek_v4.hc_pre; off by default.
+    _time_it = _TIMEIT_ON and _os.environ.get("INTEL_CPU_DSV4_TIMEIT_HCPRE") == "1"
+    _fused = _os.environ.get("INTEL_CPU_DSV4_HCPRE_FUSED") == "1"
+    if not (_time_it or _fused) or not current_platform.is_cpu():
         return
     import time
 
@@ -414,11 +416,11 @@ def _install_hc_pre_subtimer() -> None:
     import sglang.srt.models.deepseek_v4 as _dv4
 
     Layer = _dv4.DeepseekV4DecoderLayer
-    if getattr(Layer, "_hc_pre_subtimed", False):
+    if getattr(Layer, "_hc_pre_cpu_patched", False):
         return
     _orig_hc_pre = Layer.hc_pre
 
-    def _hc_pre_timed(self, x, hc_fn, hc_scale, hc_base, norm=None, forward_batch=None):
+    def _hc_pre_cpu(self, x, hc_fn, hc_scale, hc_base, norm=None, forward_batch=None):
         cpu_torch = (
             x.shape[0] > 0
             and not _dv4._is_npu
@@ -433,16 +435,24 @@ def _install_hc_pre_subtimer() -> None:
         )
         if not cpu_torch:
             return _orig_hc_pre(self, x, hc_fn, hc_scale, hc_base, norm, forward_batch)
-        # hc_pre_torch_impl, split into reduction vs GEMM.
-        _t = time.perf_counter()
+        _t = time.perf_counter() if _time_it else 0.0
         x_flat = x.flatten(1).float()
-        rsqrt = torch.rsqrt(
-            x_flat.square().mean(-1, keepdim=True) + self.rms_norm_eps
-        )
-        _tacc("mhc.hc_pre.rmsnorm", _t, "torch")
-        _t = time.perf_counter()
+        if _time_it:
+            _tacc("mhc.hc_pre.upcast", _t, "torch")
+        _t = time.perf_counter() if _time_it else 0.0
+        if _fused:
+            ms = torch.einsum("td,td->t", x_flat, x_flat).div(x_flat.shape[-1])
+            rsqrt = torch.rsqrt(ms.unsqueeze(1) + self.rms_norm_eps)
+        else:
+            rsqrt = torch.rsqrt(
+                x_flat.square().mean(-1, keepdim=True) + self.rms_norm_eps
+            )
+        if _time_it:
+            _tacc("mhc.hc_pre.rmsnorm", _t, "torch")
+        _t = time.perf_counter() if _time_it else 0.0
         gemm = F.linear(x_flat, hc_fn)
-        _tacc("mhc.hc_pre.gemm", _t, "torch")
+        if _time_it:
+            _tacc("mhc.hc_pre.gemm", _t, "torch")
         mixes = (gemm * rsqrt).unsqueeze(1)
         pre, post, comb = _dv4._get_mhc_ops().hc_split_sinkhorn(
             mixes, hc_scale, hc_base, self.hc_mult, self.hc_sinkhorn_iters, self.hc_eps
@@ -455,9 +465,11 @@ def _install_hc_pre_subtimer() -> None:
             y = hc_combine(x_flat, pre.squeeze(1), self.hc_mult, x.dtype)
         return y, post.squeeze(1), comb.squeeze(1), False
 
-    Layer.hc_pre = _hc_pre_timed
-    Layer._hc_pre_subtimed = True
-    logger.warning("[DSV4 TIMEIT] hc_pre GEMM/rmsnorm sub-timer ON (OPT #2c).")
+    Layer.hc_pre = _hc_pre_cpu
+    Layer._hc_pre_cpu_patched = True
+    logger.warning(
+        f"[DSV4] hc_pre CPU patch installed (OPT #2e fused={_fused}, timeit={_time_it})."
+    )
 
 
 if _TIMEIT_ON:
@@ -554,7 +566,7 @@ def install() -> None:
     _install_dsa_cpu_wire()
     _install_dsa_profile_bypass()
     _install_phase_tag()
-    _install_hc_pre_subtimer()
+    _install_hc_pre_cpu()
     _install_gemm_timeit()
     _install_layer_timeit()
     _install_decode_thread_cap()
