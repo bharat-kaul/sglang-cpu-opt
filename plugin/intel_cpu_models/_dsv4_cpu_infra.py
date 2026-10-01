@@ -1257,13 +1257,15 @@ def _walsh_hadamard(n: int, device) -> "torch.Tensor":
 
 
 def _batched_mla_attend(
-    q, dp, D, head_dim_v, softmax_scale, indices, topk_length, attn_sink, pos_kept, force_dense
+    q, dp, edp, D, head_dim_v, softmax_scale, indices, topk_length,
+    extra_indices, extra_topk, attn_sink, pos_kept, force_dense
 ):
     # Batched bf16 MLA attention: the per-token softmax-attention loop collapsed into two AMX
     # GEMMs (scores=QK^T, out=PV) over the FULL valid KV plus a per-token key mask. K==V (MLA),
     # shared across query tokens, so both GEMMs are a single [T*H,*] matmul. Masked keys get
-    # p=0 -> identical to the loop (softmax-weighted sum is order-invariant). Returns out
-    # [T,H,hdv] fp32, or None to fall back to the reference loop.
+    # p=0 -> identical to the loop (softmax-weighted sum is order-invariant). Two-source KV
+    # (main compressed + extra SWA/compressor) is concatenated into one K_all with a joint mask.
+    # Returns out [T,H,hdv] fp32, or None to fall back to the reference loop.
     import torch
 
     T, _, H, _Dq = q.shape
@@ -1274,18 +1276,17 @@ def _batched_mla_attend(
     n = int(vslots.numel())
     if n == 0:
         return torch.zeros(T, H, head_dim_v, dtype=torch.float32)
-    K_all = _stash_kv_gather(dp, vslots)
-    if K_all is None:
+    K_main = _stash_kv_gather(dp, vslots)
+    if K_main is None:
         return None
     ar = torch.arange(n)
     if indices is None or topk_length is None or force_dense:
-        # dense causal: query t (position n-T+t) attends to slots [0 .. n-T+t]
-        clen = (n - (T - 1)) + torch.arange(T)
-        mask = ar.unsqueeze(0) < clen.clamp(min=0, max=n).unsqueeze(1)  # [T, n]
+        clen = (n - (T - 1)) + torch.arange(T)  # dense causal
+        mask_main = ar.unsqueeze(0) < clen.clamp(min=0, max=n).unsqueeze(1)  # [T, n]
     else:
         inv = torch.full((int(vslots.max()) + 1,), -1, dtype=torch.long)
         inv[vslots] = torch.arange(n)
-        mask = torch.zeros(T, n, dtype=torch.bool)
+        mask_main = torch.zeros(T, n, dtype=torch.bool)
         for t in range(T):
             L = int(topk_length[t])
             idx = indices[t].reshape(-1)[:L].long()
@@ -1298,15 +1299,41 @@ def _batched_mla_attend(
                     keep[:m] = pos_kept[t, :m].bool()
                 idx = idx[keep]
             if idx.numel() == 0:
-                cl = max(0, min(n, n - (T - 1) + t))  # dense fallback for this token
-                mask[t, :cl] = True
+                cl = max(0, min(n, n - (T - 1) + t))
+                mask_main[t, :cl] = True
             else:
                 pos = inv[idx]
-                mask[t, pos[pos >= 0]] = True
+                mask_main[t, pos[pos >= 0]] = True
+    K_parts, mask_parts = [K_main], [mask_main]
+    # extra (second-source) KV: per-token explicit indices into the extra cache.
+    if edp is not None and extra_indices is not None and extra_topk is not None:
+        per_tok = []
+        for t in range(T):
+            EL = int(extra_topk[t])
+            e = extra_indices[t].reshape(-1)[:EL].long()
+            per_tok.append(e[e >= 0])
+        cat_e = torch.cat(per_tok) if per_tok else torch.empty(0, dtype=torch.long)
+        if cat_e.numel() > 0:
+            all_e = torch.unique(cat_e)
+            K_extra = _stash_kv_gather(edp, all_e)
+            if K_extra is not None:
+                ne = int(all_e.numel())
+                inv_e = torch.full((int(all_e.max()) + 1,), -1, dtype=torch.long)
+                inv_e[all_e] = torch.arange(ne)
+                mask_e = torch.zeros(T, ne, dtype=torch.bool)
+                for t in range(T):
+                    if per_tok[t].numel() > 0:
+                        pe = inv_e[per_tok[t]]
+                        mask_e[t, pe[pe >= 0]] = True
+                K_parts.append(K_extra)
+                mask_parts.append(mask_e)
+    K_all = torch.cat(K_parts, 0) if len(K_parts) > 1 else K_parts[0]
+    mask = torch.cat(mask_parts, 1) if len(mask_parts) > 1 else mask_parts[0]
+    nk = K_all.shape[0]
     qb = q[:, 0].to(torch.bfloat16).reshape(T * H, _Dq)[:, :D]
     Kb = K_all[:, :D].to(torch.bfloat16)
     Vb = K_all[:, :head_dim_v].to(torch.bfloat16)
-    scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, n) * softmax_scale
+    scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, nk) * softmax_scale
     scores.masked_fill_(~mask.unsqueeze(1), float("-inf"))
     if attn_sink is not None:
         sink = attn_sink.reshape(1, H, 1).float().expand(T, H, 1)
@@ -1314,7 +1341,7 @@ def _batched_mla_attend(
     else:
         p = scores.softmax(dim=-1)
     p = torch.nan_to_num(p, nan=0.0)  # tokens with no keys -> zero row (matches the loop's out[t]=0)
-    out = torch.matmul(p.reshape(T * H, n).to(torch.bfloat16), Vb).float().reshape(T, H, head_dim_v)
+    out = torch.matmul(p.reshape(T * H, nk).to(torch.bfloat16), Vb).float().reshape(T, H, head_dim_v)
     return out
 
 
@@ -1365,19 +1392,13 @@ def _torch_flash_mla_with_kvcache(
                 )
         except Exception:  # noqa: BLE001
             pass
-    # Batched AMX bf16 path (default): 2 GEMMs + key mask instead of the per-token loop.
-    # INTEL_CPU_DSV4_ATTN_LOOP=1 forces the fp8/fp32 reference loop (A/B + extra_k_cache fallback).
-    if _MLA_PATH_DBG["n"] < 4:
-        _MLA_PATH_DBG["n"] += 1
-        logger.info(
-            "intel_cpu_models: MLA attend path probe: T=%d extra_k_cache=%s indices=%s topk=%s loop_env=%s",
-            T, extra_k_cache is not None, indices is not None, topk_length is not None,
-            _os.environ.get("INTEL_CPU_DSV4_ATTN_LOOP"),
-        )
-    if extra_k_cache is None and _os.environ.get("INTEL_CPU_DSV4_ATTN_LOOP") != "1":
+    # Batched AMX bf16 path (default): 2 GEMMs + joint key mask over the two-source KV instead of
+    # the per-token loop. INTEL_CPU_DSV4_ATTN_LOOP=1 forces the fp8/fp32 reference loop (A/B).
+    if _os.environ.get("INTEL_CPU_DSV4_ATTN_LOOP") != "1":
         _t0 = time.perf_counter() if _TIMEIT_ON else 0.0
         _ob = _batched_mla_attend(
-            q, dp, D, head_dim_v, softmax_scale, indices, topk_length, attn_sink, pos_kept, _force_dense
+            q, dp, edp, D, head_dim_v, softmax_scale, indices, topk_length,
+            extra_indices_in_kvcache, extra_topk_length, attn_sink, pos_kept, _force_dense,
         )
         if _ob is not None:
             if _TIMEIT_ON:
