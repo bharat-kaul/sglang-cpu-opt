@@ -227,4 +227,23 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU gated-norm patch not installed: %s", _e)
 
+    # MHC hc_post: GLM passes post_layer_mix already as [s, hc_mult, 1] (3D), but the DSV4
+    # CPU patch's mhc_post lambda does post.unsqueeze(-1) (it assumed DSV4's 2D [s,n] input)
+    # -> 4D -> broadcast error. Re-patch with a SHAPE-ADAPTIVE mhc_post that only unsqueezes a
+    # 2D post, so it is correct for BOTH GLM (3D) and DSV4 (2D). Math is unchanged:
+    #   term2[s,k,h] = sum_j comb[s,j,k]*residual[s,j,h]; out = post*x.unsqueeze(1) + term2.
+    try:
+        import sglang.kernels.ops.layernorm.mhc as _mhc
+
+        def _adaptive_mhc_post(x, residual, post, comb):
+            if post.dim() == 2:
+                post = post.unsqueeze(-1)  # DSV4 convention; GLM already [s,hc,1]
+            term2 = torch.einsum("sjk,sjh->skh", comb.float(), residual.float())
+            return (post * x.unsqueeze(1) + term2).type_as(x)
+
+        _mhc.mhc_post = _adaptive_mhc_post
+        logger.info("GLM5 CPU: MHC mhc_post made shape-adaptive (GLM 3D post_layer_mix).")
+    except Exception as _e:
+        logger.warning("GLM5 CPU mhc_post patch not installed: %s", _e)
+
     _INSTALLED = True
