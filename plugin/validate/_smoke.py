@@ -34,6 +34,12 @@ def main():
         kw["mamba_radix_cache_strategy"] = os.environ["MAMBA_RADIX_STRATEGY"]
     if os.environ.get("PAGE_SIZE"):
         kw["page_size"] = int(os.environ["PAGE_SIZE"])
+    # Hybrid mamba+DSA page_size clash on CPU: mamba no_buffer radix cache needs
+    # page_size=1 but DSA forces 64. Prefix caching of hybrid state is an optimization,
+    # not correctness — disable_radix_cache routes to ChunkCache (no MambaComponent),
+    # keeping DSA's page_size=64 for the MLA/DSA pool.
+    if os.environ.get("DISABLE_RADIX") == "1":
+        kw["disable_radix_cache"] = True
     e = sgl.Engine(**kw)
     for pr in ["The capital of France is", "2 + 2 ="]:
         o = e.generate(pr, {"temperature": 0.0, "max_new_tokens": 8})

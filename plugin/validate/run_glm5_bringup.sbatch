@@ -26,5 +26,7 @@ export LOG_LEVEL=info
 # CPU-valid mamba radix cache (KDA linear-attn): no_buffer (extra_buffer needs GPU-FLA).
 # page_size left to the MLA/DSA resolver (64); the CPU no_buffer assert is relaxed in the plugin.
 export MAMBA_RADIX_STRATEGY=no_buffer
+# Disable radix prefix-caching -> ChunkCache (no MambaComponent page_size=1 clash with DSA's 64).
+export DISABLE_RADIX=1
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
 echo "[exit=$?]"
