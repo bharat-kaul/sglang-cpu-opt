@@ -37,7 +37,7 @@ def shrink(c):
     tc["qk_nope_head_dim"] = 32
     tc["qk_rope_head_dim"] = 0
     tc["v_head_dim"] = 32
-    tc["index_head_dim"] = 16
+    tc["index_head_dim"] = 128  # DSATokenToKVPool hardcodes index_head_dim==128
     tc["index_n_heads"] = 2
     tc["index_topk"] = 8
     tc["index_kpool"] = 2
