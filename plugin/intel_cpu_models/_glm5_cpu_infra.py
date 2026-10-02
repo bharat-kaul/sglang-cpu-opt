@@ -269,22 +269,21 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU silu_and_mul_clamp patch not installed: %s", _e)
 
-    # DSA lightning Indexer (GLM MLA layers) has no CPU kernel (forward_native raises). On CPU
-    # return None -> the MLA attends DENSE over all valid KV. This is EXACT at short context
-    # (seq <= index_topk: top-k selects all = dense == sparse), which covers the make-it-work
-    # bring-up + the short-prefill parity fingerprint. Long-context / incremental-decode sparse
-    # selection is a documented perf/accuracy TODO (mirrors DSV4's incremental-sparse decode).
+    # DSA lightning Indexer (GLM MLA layers) has no CPU kernel. Its call site
+    # forward_dsa_indexer_for_mha fills the index-K cache (topk only used for MTP, which base
+    # decode has none -> seed_buf None). NO-OP it on CPU -> the MLA attends DENSE over all valid
+    # KV. EXACT at short context (seq <= index_topk: top-k selects all = dense == sparse) -> covers
+    # the make-it-work bring-up + short-prefill parity fingerprint. Long-context / incremental-decode
+    # sparse selection is a documented perf/accuracy TODO (mirrors DSV4's incremental-sparse decode).
     try:
-        from sglang.srt.layers.attention.dsa.dsa_indexer import Indexer
+        import sglang.srt.models.deepseek_common.attention_forward_methods.forward_mha as _fmha
 
-        def _cpu_indexer_forward_native(
-            self, x, q_lora, positions, forward_batch, layer_id, return_indices=True
-        ):
-            return None  # dense fallback; sparse selection is a perf-phase TODO
+        def _cpu_noop_dsa_indexer_for_mha(indexer, **kwargs):
+            return None  # skip the CUDA-only indexer; MLA falls back to dense
 
-        Indexer.forward_native = _cpu_indexer_forward_native
-        logger.info("GLM5 CPU: DSA Indexer -> dense fallback (None); sparse selection = perf TODO.")
+        _fmha.forward_dsa_indexer_for_mha = _cpu_noop_dsa_indexer_for_mha
+        logger.info("GLM5 CPU: DSA indexer call-site no-op'd (MLA dense fallback); sparse = perf TODO.")
     except Exception as _e:
-        logger.warning("GLM5 CPU DSA Indexer fallback not installed: %s", _e)
+        logger.warning("GLM5 CPU DSA indexer-for-mha bypass not installed: %s", _e)
 
     _INSTALLED = True
