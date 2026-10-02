@@ -131,7 +131,9 @@ def _cpu_forward_decode(self, layer, forward_batch, mixed_qkv, a, b, **kwargs):
         conv_states=conv_states, ssm_states=ssm_states,
         cache_indices=cache_indices, params=_layer_params(layer),
     )
-    return out.unsqueeze(0)  # [1, B, H, V] (model squeezes dim 0 after o_norm)
+    # recurrence runs in fp32; cast back to the model dtype so the downstream
+    # o_proj AMX weight_packed_linear gets bf16 activations (not Float).
+    return out.to(mixed_qkv.dtype).unsqueeze(0)  # [1, B, H, V]
 
 
 def _cpu_forward_extend(self, layer, forward_batch, mixed_qkv, a, b, **kwargs):
@@ -164,7 +166,8 @@ def _cpu_forward_extend(self, layer, forward_batch, mixed_qkv, a, b, **kwargs):
     if logical < physical:
         pad = out.new_zeros(physical - logical, H, V)
         out = torch.cat([out, pad], 0)
-    return out.unsqueeze(0)  # [1, N, H, V]
+    # recurrence runs in fp32; cast to model dtype for the downstream o_proj AMX GEMM.
+    return out.to(mixed_qkv.dtype).unsqueeze(0)  # [1, N, H, V]
 
 
 def _cpu_kda_init(self, model_runner):
