@@ -2,7 +2,9 @@
 # GLM-5.3 Flash CPU bring-up ladder: tiny arch-faithful config + DUMMY (bf16) weights.
 # Shakes out the KDA/MHC/MLA/DSA/MoE wiring + the mamba dual-cache + MLA paged-pool infra
 # WITHOUT the big node or the fp8 bridge. Each break -> fix in the plugin -> re-run.
-#SBATCH --partition=emr
+# Portable dummy-weight correctness run -> submit to WHICHEVER of emr/gnrap frees first
+# (Slurm picks the partition that can start it soonest). GNR is fine for a tiny bring-up.
+#SBATCH --partition=emr,gnrap
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --time=00:25:00
