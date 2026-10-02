@@ -22,6 +22,8 @@ export INTEL_CPU_DSV4_MXFP4_MOE=1
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
 export INTEL_CPU_DSV4_DECODE_THREADS=8
+export OMP_WAIT_POLICY=${OMP_WAIT_POLICY:-passive}
+export KMP_BLOCKTIME=${KMP_BLOCKTIME:-0}
 export MEM_FRAC=0.5
 export WATCHDOG=3600
 

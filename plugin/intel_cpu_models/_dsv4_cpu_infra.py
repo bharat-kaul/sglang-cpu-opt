@@ -396,17 +396,13 @@ def _install_phase_tag() -> None:
 
 
 def _install_hc_pre_cpu() -> None:
-    # OPT #2e + instrument. Patches the CPU hc_pre torch path (reproduces ONLY the torch
-    # `else` branch; delegates every other path to the original). Two env-gated behaviors:
-    #  - INTEL_CPU_DSV4_HCPRE_FUSED=1: fused no-temp rmsnorm (einsum inner-product) instead of
-    #    x_flat.square().mean(-1). MEASURED win 5.24->2.77s in-model: the per-call [T,K] fp32
-    #    square-temp ALLOCATION dominated, not the math (offline the square/mean is ~0.1ms).
-    #    Lossless (Sigma x^2 / N two ways, fp32, max-err ~5e-6). Applies in real runs too.
-    #  - INTEL_CPU_DSV4_TIMEIT_HCPRE=1 (with TIMEIT): sub-times upcast/rmsnorm/gemm.
-    # Must stay in lockstep with deepseek_v4.hc_pre; off by default.
+    # TIMEIT sub-timer only. (OPT #2e, the fused no-temp einsum rmsnorm, was measured a NON-WIN on
+    # the clean passive-wait path -- fused 0.115s vs default 0.043s -- and removed; hc_pre is ~1.5%,
+    # a non-target.) Reproduces ONLY the CPU torch `else` branch of deepseek_v4.hc_pre to sub-time
+    # upcast/rmsnorm/gemm when INTEL_CPU_DSV4_TIMEIT_HCPRE=1 (with TIMEIT); delegates every other
+    # path to the original. Off by default; must stay in lockstep with deepseek_v4.hc_pre.
     _time_it = _TIMEIT_ON and _os.environ.get("INTEL_CPU_DSV4_TIMEIT_HCPRE") == "1"
-    _fused = _os.environ.get("INTEL_CPU_DSV4_HCPRE_FUSED") == "1"
-    if not (_time_it or _fused) or not current_platform.is_cpu():
+    if not _time_it or not current_platform.is_cpu():
         return
     import time
 
@@ -435,24 +431,15 @@ def _install_hc_pre_cpu() -> None:
         )
         if not cpu_torch:
             return _orig_hc_pre(self, x, hc_fn, hc_scale, hc_base, norm, forward_batch)
-        _t = time.perf_counter() if _time_it else 0.0
+        _t = time.perf_counter()
         x_flat = x.flatten(1).float()
-        if _time_it:
-            _tacc("mhc.hc_pre.upcast", _t, "torch")
-        _t = time.perf_counter() if _time_it else 0.0
-        if _fused:
-            ms = torch.einsum("td,td->t", x_flat, x_flat).div(x_flat.shape[-1])
-            rsqrt = torch.rsqrt(ms.unsqueeze(1) + self.rms_norm_eps)
-        else:
-            rsqrt = torch.rsqrt(
-                x_flat.square().mean(-1, keepdim=True) + self.rms_norm_eps
-            )
-        if _time_it:
-            _tacc("mhc.hc_pre.rmsnorm", _t, "torch")
-        _t = time.perf_counter() if _time_it else 0.0
+        _tacc("mhc.hc_pre.upcast", _t, "torch")
+        _t = time.perf_counter()
+        rsqrt = torch.rsqrt(x_flat.square().mean(-1, keepdim=True) + self.rms_norm_eps)
+        _tacc("mhc.hc_pre.rmsnorm", _t, "torch")
+        _t = time.perf_counter()
         gemm = F.linear(x_flat, hc_fn)
-        if _time_it:
-            _tacc("mhc.hc_pre.gemm", _t, "torch")
+        _tacc("mhc.hc_pre.gemm", _t, "torch")
         mixes = (gemm * rsqrt).unsqueeze(1)
         pre, post, comb = _dv4._get_mhc_ops().hc_split_sinkhorn(
             mixes, hc_scale, hc_base, self.hc_mult, self.hc_sinkhorn_iters, self.hc_eps
@@ -467,9 +454,7 @@ def _install_hc_pre_cpu() -> None:
 
     Layer.hc_pre = _hc_pre_cpu
     Layer._hc_pre_cpu_patched = True
-    logger.warning(
-        f"[DSV4] hc_pre CPU patch installed (OPT #2e fused={_fused}, timeit={_time_it})."
-    )
+    logger.warning("[DSV4] hc_pre CPU sub-timer installed (TIMEIT_HCPRE).")
 
 
 if _TIMEIT_ON:
@@ -547,11 +532,29 @@ def _patched_configure(self, *, pre_model_load_memory):
     return _orig_configure(self, pre_model_load_memory=pre_model_load_memory)
 
 
+def _check_omp_wait_policy() -> None:
+    """libgomp (torch's OpenMP) reads OMP_WAIT_POLICY once at LOAD -- before this plugin imports --
+    so it CANNOT be fixed in-process. Warn loudly if idle threads will busy-wait: that inter-region
+    spin contention inflates every forward after the first ~63x (prefill) / ~10x (decode), measured.
+    The only fix is the LAUNCH env."""
+    if not current_platform.is_cpu():
+        return
+    if _os.environ.get("OMP_WAIT_POLICY", "").lower() != "passive":
+        logger.warning(
+            "[DSV4 PERF] OMP_WAIT_POLICY=%r (expected 'passive'): OpenMP idle threads will SPIN and "
+            "thrash each forward after the first (~63x prefill / ~10x decode slowdown, measured). "
+            "libgomp reads this at load so it CANNOT be set in-process -- export it in the LAUNCH env "
+            "BEFORE starting the server/engine:  export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0",
+            _os.environ.get("OMP_WAIT_POLICY", "<unset>"),
+        )
+
+
 def install() -> None:
     """Idempotently install the DSV4 CPU KV-pool configurator patch."""
     global _INSTALLED
     if _INSTALLED:
         return
+    _check_omp_wait_policy()
     kcc.KVCacheConfigurator.configure = _patched_configure
     _install_mla_cpu_tp_config_fix()
     _install_dsv4_rope_cpu_fix()
