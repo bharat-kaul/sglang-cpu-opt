@@ -49,6 +49,14 @@ descheduled worker threads. Two rules fall out:
   the recurring "isolated microbench misleads" trap. Weight-streaming decode is BW-bound at every tier
   (K3 NVMe-streamed, this repo RAM-resident 4-bit); the throughput lever is amortizing the stream over
   the batch, not the kernel's thread count.
+- **Confirmed dead-end: giving the hot kernel MORE threads than the rest of the (capped) forward does
+  NOT help when the kernel is FRAMEWORK-bound in-model.** Tried raise-only MoE-decode-threads (MoE@32/64
+  while the decode forward stays at 8) under passive wait — no change (B=32 84.9→85.5, noise). Reason:
+  in-model the decode MoE sits ~4.5× above its isolated-kernel time (expert_apply 6.3 ms vs 1.39 ms at
+  M=1) — it is dominated by the per-call dispatch/gather FRAMEWORK overhead, not the kernel's bandwidth,
+  so the kernel's thread preference is moot in-model. Lesson: before chasing a kernel's thread/BW optimum,
+  check the in-model-vs-isolated gap (`overhead-attribution`) — if the op is framework-bound, NO thread
+  knob moves it; attack the dispatch/gather glue instead.
 - **Isolated microbenches MISLEAD here.** An isolated M=1 GEMM on an idle node is *fastest at
   the full thread count* (0.017 ms @ 42) — the exact opposite of in-model, because idle has no
   framework threads to contend. You MUST measure in-model wall time (a per-op timer like
