@@ -25,8 +25,11 @@ def shrink(c):
     tc["hidden_size"] = 256
     tc["intermediate_size"] = 128
     tc["moe_intermediate_size"] = 64
-    tc["n_routed_experts"] = 8
-    tc["num_experts_per_tok"] = 2
+    # Keep the REAL top-8 (num_experts_per_tok): the CPU biased_grouped_topk kernel only
+    # supports the real models' top-k values ("Unexpected topk: 2"). 16 experts so top-8 is
+    # non-degenerate.
+    tc["n_routed_experts"] = 16
+    tc["num_experts_per_tok"] = 8
     tc["n_shared_experts"] = 1
     tc["n_group"] = 1
     tc["topk_group"] = 1
