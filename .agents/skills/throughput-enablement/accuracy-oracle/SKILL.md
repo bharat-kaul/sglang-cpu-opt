@@ -178,6 +178,28 @@ Run the in-repo harnesses on CPU vs reference:
 - Pass if each score is within N points of the reference (default N=1.0 absolute,
   or within run-to-run noise), on a fixed decode config (greedy or fixed seed).
 
+### Certify against a trusted reference — a bare task number certifies NOTHING
+A standalone score (e.g. "61%") proves nothing alone; it must be tallied against a TRUSTED reference,
+APPLES-TO-APPLES. Reference hierarchy + the two checks it enables:
+- **Published number at the SAME setting** (model card / tech report). MATCH THE PROTOCOL EXACTLY — shots,
+  prompt style (CoT vs short-answer), `max_new_tokens`, stop strings, answer extraction. A protocol mismatch
+  ALONE can cost ~30 points and masquerade as a correctness bug: here DSV4-Flash-**Base** scored ~61% under
+  our 256-token / `"\n\n"`-stop harness vs the card's **90.8% gsm8k 8-shot**, because the short cap + `\n\n`
+  stop TRUNCATED the chain-of-thought before the final answer (gsm8k 8-shot is conventionally CoT → needs
+  ~512 tok, stop only on `"Question"`). Replicate the published protocol before concluding anything.
+- **GPU oracle running YOUR harness** = the tightest certification; it separates two questions:
+  - **CPU vs GPU, same harness** → certifies the CPU IMPLEMENTATION (greedy → expect near-identical; strongest
+    form = TOKEN-LEVEL parity on the task prompts, which also catches the long-context / long-generation
+    divergence that short-prompt per-token parity misses).
+  - **GPU vs published** → certifies the HARNESS PROTOCOL is faithful.
+  So if CPU==GPU but both < published → the gap is YOUR harness (fixable, not a bug); if GPU==published but
+  CPU<GPU → a real CPU bug.
+- **Diagnose a gap CHEAPLY first (measure-first):** dump a few real generations (gold vs full text vs
+  extracted) to distinguish TRUNCATION vs PARSE vs WRONG-REASONING before building a GPU env — only reach for
+  the GPU oracle if the dump implicates the CPU forward. Worked example: `diag_gsm8k_dump.py`.
+- Do NOT publish a task number as "certified" (into README / enablement-certificate) until it is tied to a
+  reference this way.
+
 ## Fast guardrail for the PERF-OPTIMIZATION loop (re-verify accuracy cheaply after every kernel change)
 During perf work you re-check accuracy constantly — do NOT pay full task generation each time. FIRST
 MEASURE where the wall-time goes (load vs generate): in this repo the model LOAD was ~8 min (149 GB/46
