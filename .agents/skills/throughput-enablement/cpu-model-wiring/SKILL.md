@@ -112,6 +112,18 @@ core edits) so `enablement-certificate` can attach it for PR review.
 - Forgetting the prepack hook → correct output but stock repack-every-call GEMM →
   the perf gate will fail peer-relative even though accuracy passes. This is the
   most common wiring bug; check prepack first when peer-relative underperforms.
+- **Arg-RESOLUTION device probes crash on CPU BEFORE any model module imports.** A model
+  whose arch name is in an sglang family list (e.g. the DSA family — `is_deepseek_dsa()`
+  true for DeepSeek-3.2 AND GLM-5) can route `resolve_once()` into a CUDA/ROCm branch that
+  calls `torch.cuda.get_device_capability()` / `get_device_properties()` — which RAISES on a
+  CPU-only torch build. This fires during `Engine.__init__ → _launch_subprocesses →
+  resolve_once`, i.e. BEFORE the external model package's model modules (and their
+  `install()` hooks) import — so a fix placed in the model subclass is TOO LATE. Fix pattern:
+  install the CPU device-probe guard at **plugin-PACKAGE import** (`intel_cpu_models/__init__.py`)
+  and ALSO pre-import the plugin in the launcher before `Engine(...)`; shim the probe to a sane
+  default (e.g. capability (9,0)) only when `not torch.cuda.is_available()` (inert on GPU). Note a
+  sibling arch may NOT be in the list (DeepSeek-V4 is not → never hit this), so "the last DSA model
+  worked on CPU" does not mean the next one will — check the arch's membership in every such list.
 - Editing `sglang/` "just to get it running" breaks the no-fork guarantee and the
   PR story — always subclass in the plugin.
 - Divisibility pad must match what the packing kernel expects, or AMX silently
