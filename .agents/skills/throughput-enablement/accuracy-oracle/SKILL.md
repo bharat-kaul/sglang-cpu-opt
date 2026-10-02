@@ -90,6 +90,18 @@ correctness analog of `high-information-runs`.
 Proven end-to-end on DeepSeek-V4 CPU. When output is garbage and op-by-op elimination is slow, stand up
 a **full-tensor per-layer diff against the GPU oracle** and drill hierarchically. This is the single
 highest-leverage tool; reach for it before hand-bisecting.
+
+**⛔ LAUNCH THE GPU REFERENCE CAPTURE IN PARALLEL AT BRING-UP START — day-0, not after you get stuck.**
+The GPU reference side is INDEPENDENT of the CPU port: it only needs the real checkpoint + the capture
+hook on the native-GPU path. So the moment CPU bring-up begins, retarget the capture hook to the new
+model's decoder layer and FIRE the GPU reference-forward job on the GPU partition (real weights, tp sized
+to fit), co-running with the CPU bring-up on the farm. It saves the frozen per-(pass,op,layer,rank)
+fingerprint to disk so it's ALREADY WAITING when the CPU build first produces a forward on real weights —
+turning the parity diff into an offline step with zero extra wall-time. Do NOT defer it as "blocked on the
+CPU running first" (a mistake made on GLM-5.3): only the DIFF needs both sides; the GPU DUMP does not need
+the CPU at all. The reference must be on the REAL checkpoint (dummy weights differ run-to-run → useless for
+parity); the tiny-dummy bring-up config is for make-it-work only. Retargeting the hook to a new arch
+(swap the decoder-layer class + sub-op taps) is a cheap per-model step — budget it as part of bring-up setup.
 1. **Reusable capture hook on BOTH sides, env-gated, saving FULL fp32 tensors (never fp[:4]).** One hook
    file per side (CPU plugin + a GPU-reference hook) that, when its env flag is set, wraps the decoder
    layer + key sub-ops and `torch.save`s a dict keyed `{pass}.{op}.L{layer}.r{rank}` where pass ∈
