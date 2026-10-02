@@ -37,6 +37,7 @@ __all__ = [
     "causal_conv1d",
     "causal_conv1d_update",
     "kda_recurrent",
+    "kda_layer_forward",
 ]
 
 
@@ -196,6 +197,83 @@ def kda_recurrent(
     return out, h
 
 
+def kda_layer_forward(
+    mixed_qkv: torch.Tensor,
+    a: torch.Tensor,
+    b: torch.Tensor,
+    *,
+    conv_weight: torch.Tensor,
+    conv_bias: Optional[torch.Tensor],
+    A_log: torch.Tensor,
+    dt_bias: torch.Tensor,
+    num_heads: int,
+    head_dim: int,
+    lower_bound: float,
+    scale: Optional[float] = None,
+    conv_state: Optional[torch.Tensor] = None,
+    ssm_state: Optional[torch.Tensor] = None,
+    is_decode: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Full single-request KDA layer op on CPU — the compute core a CpuKDABackend
+    wraps (reading layer_cache.conv[0] / .temporal, indexed by cache_indices).
+
+    Pipeline (mirrors Glm5NextLinearAttention + the GPU KDA backend):
+      mixed_qkv --causal conv1d(+silu)--> split q,k,v --reshape heads-->
+      gate g = kda_sigmoid_gate(a, dt_bias, A_log, lb) ; beta = sigmoid(b) -->
+      kda_recurrent(carrying ssm_state) --> core_attn_out [T,H,V].
+
+    Shapes (single request, T tokens):
+      mixed_qkv  [T, 3*H*head_dim]        packed q|k|v BEFORE conv
+      a          [T, H*head_dim]          per-key forget-gate input (f_b_proj out)
+      b          [T, H]                   per-head beta input (b_proj out)
+      conv_weight[3*H*head_dim, K]        depthwise conv kernel (K=4)
+      A_log      [H] or [...,H,1]         per-head log-decay base
+      dt_bias    [H*head_dim]             per-key bias
+      conv_state [3*H*head_dim, K-1]      rolling conv history (decode); None -> zeros
+      ssm_state  [H, head_dim, head_dim]  recurrent matrix carry; None -> zeros
+    Returns (core_attn_out [T,H,V], new_conv_state, new_ssm_state).
+    """
+    T = mixed_qkv.shape[0]
+    C = mixed_qkv.shape[1]
+    proj = num_heads * head_dim
+    assert C == 3 * proj, f"mixed_qkv width {C} != 3*{proj}"
+    K = conv_weight.shape[-1]
+
+    # 1) short causal conv1d (+silu), threading conv_state for decode continuity.
+    if is_decode:
+        assert T == 1, "decode path is one token per call"
+        if conv_state is None:
+            conv_state = torch.zeros(C, K - 1, dtype=torch.float32)
+        conv_out, new_conv_state = causal_conv1d_update(
+            mixed_qkv[0], conv_state, conv_weight, conv_bias, activation="silu"
+        )
+        conv_out = conv_out.unsqueeze(0)  # [1, C]
+    else:
+        conv_out = causal_conv1d(mixed_qkv, conv_weight, conv_bias, activation="silu")
+        # new conv_state = the last K-1 raw inputs (what decode would resume from)
+        pad = torch.nn.functional.pad(mixed_qkv.float().transpose(0, 1), (K - 1, 0))
+        new_conv_state = pad[:, -(K - 1) :].contiguous()
+
+    # 2) split q|k|v and reshape to heads.
+    q, k, v = conv_out.split(proj, dim=-1)
+    q = q.reshape(T, num_heads, head_dim)
+    k = k.reshape(T, num_heads, head_dim)
+    v = v.reshape(T, num_heads, head_dim)
+
+    # 3) gate + beta.
+    a_hk = a.reshape(T, num_heads, head_dim)
+    dt_hk = dt_bias.reshape(num_heads, head_dim).unsqueeze(0)
+    A_log_h = A_log.reshape(num_heads, 1).unsqueeze(0)
+    g = kda_sigmoid_gate(a_hk, dt_hk, A_log_h, lower_bound)   # [T,H,K]
+    beta = torch.sigmoid(b.float())                           # [T,H]
+
+    # 4) recurrence (carrying the SSM matrix state).
+    out, new_ssm_state = kda_recurrent(
+        q, k, v, g, beta, scale=scale, initial_state=ssm_state
+    )
+    return out, new_conv_state, new_ssm_state
+
+
 # --------------------------------------------------------------------------------
 # Weight-free, ISA-portable self-consistency parity gates (accuracy-oracle Layer 0.5).
 # These prove the recurrence + decode-cache carry WITHOUT the checkpoint or a GPU.
@@ -262,9 +340,45 @@ def _selftest() -> None:
     y = rms_norm_gated(xo, gate, wn, eps=1e-5, activation="sigmoid")
     assert y.shape == xo.shape
 
+    # (5) FULL LAYER OP: prefill (whole-seq conv + scan) vs decode (per-token, with
+    #     conv_state + ssm_state threaded) must match — proves the conv-state ring +
+    #     SSM carry wiring a CpuKDABackend relies on, end to end, weight-free.
+    proj = H * Kd
+    mixed = torch.randn(T, 3 * proj)
+    aa = torch.randn(T, proj)
+    bb = torch.randn(T, H)
+    Kc2 = 4
+    cw = torch.randn(3 * proj, Kc2)
+    cb = torch.randn(3 * proj)
+    A_log2 = torch.randn(H) * 0.1
+    dt2 = torch.randn(proj) * 0.1
+    o_pf, cs_pf, ss_pf = kda_layer_forward(
+        mixed, aa, bb, conv_weight=cw, conv_bias=cb, A_log=A_log2, dt_bias=dt2,
+        num_heads=H, head_dim=Kd, lower_bound=lb, is_decode=False,
+    )
+    o_dc = torch.empty_like(o_pf)
+    cs, ss = None, None
+    for t in range(T):
+        o_t, cs, ss = kda_layer_forward(
+            mixed[t : t + 1], aa[t : t + 1], bb[t : t + 1],
+            conv_weight=cw, conv_bias=cb, A_log=A_log2, dt_bias=dt2,
+            num_heads=H, head_dim=Kd, lower_bound=lb,
+            conv_state=cs, ssm_state=ss, is_decode=True,
+        )
+        o_dc[t] = o_t[0]
+    cos_layer = torch.nn.functional.cosine_similarity(
+        o_pf.flatten(), o_dc.flatten(), dim=0
+    ).item()
+    max_layer = (o_pf - o_dc).abs().max().item()
+    assert cos_layer > 1 - 1e-6 and max_layer < 1e-4, (
+        f"layer prefill!=decode cos={cos_layer} max={max_layer}"
+    )
+    assert (ss_pf - ss).abs().max().item() < 1e-4, "layer final SSM-state mismatch"
+
     print(
         f"KDA CPU reference self-consistency PASS | prefill==decode cos={cos_pd:.7f} "
-        f"max={max_pd:.2e} | split-carry cos={cos_sp:.7f} | conv seq==update OK | gated-norm OK"
+        f"max={max_pd:.2e} | split-carry cos={cos_sp:.7f} | conv seq==update OK | "
+        f"gated-norm OK | FULL-LAYER prefill==decode cos={cos_layer:.7f} max={max_layer:.2e}"
     )
 
 
