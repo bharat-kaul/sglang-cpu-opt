@@ -38,6 +38,10 @@ def main():
     p.add_argument("--max-new-tokens", type=int, default=256)
     p.add_argument("--chunk-size", type=int, default=64,
                    help="questions per generate() call; a partial json is written after each")
+    p.add_argument("--shard-index", type=int, default=0,
+                   help="this shard's index in [0, num-shards); for parallel multi-node runs")
+    p.add_argument("--num-shards", type=int, default=1,
+                   help="split the question set into this many disjoint shards (one per node)")
     p.add_argument("--acc-min", type=float, default=0.0)
     p.add_argument("--mem-fraction", type=float, default=0.5)
     p.add_argument("--dtype", default="bfloat16")
@@ -50,6 +54,12 @@ def main():
     lines = read_jsonl(args.data)
     shots = "".join(one_example(lines[i], True) + "\n\n" for i in range(args.num_shots))
     eval_lines = lines[args.num_shots:args.num_shots + args.num_questions]
+    # disjoint contiguous shard for parallel multi-node runs (combine sums correct/done)
+    if args.num_shards > 1:
+        n = len(eval_lines)
+        per = (n + args.num_shards - 1) // args.num_shards
+        s = args.shard_index * per
+        eval_lines = eval_lines[s:min(s + per, n)]
     prompts = [shots + one_example(x, False) for x in eval_lines]
     labels = [answer_value(x["answer"]) for x in eval_lines]
     total = len(labels)
@@ -81,6 +91,7 @@ def main():
         acc = correct / done
         result = {
             "model": args.model, "num_shots": args.num_shots,
+            "shard_index": args.shard_index, "num_shards": args.num_shards,
             "done": done, "total": total, "partial": done < total,
             "accuracy": round(acc, 4), "correct": correct, "invalid": invalid,
             "elapsed_s": round(dt, 1), "acc_min": args.acc_min,
