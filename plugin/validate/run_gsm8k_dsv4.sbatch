@@ -16,11 +16,13 @@ export INTEL_CPU_DSV4_MXFP4_MOE=1
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
 export INTEL_CPU_DSV4_DECODE_THREADS=8
+export OMP_WAIT_POLICY=${OMP_WAIT_POLICY:-passive}
+export KMP_BLOCKTIME=${KMP_BLOCKTIME:-0}
 cd /data/nfs_home/bkaul
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/task_gsm8k.py \
     --model /scratch/bkaul/models/DeepSeek-V4-Flash \
     --data /scratch/bkaul/gsm8k_test.jsonl \
-    --num-questions 12 --num-shots 8 --max-new-tokens 160 \
-    --watchdog-timeout 3600 --chunked-prefill-size 512 \
+    --num-questions ${NQ:-1319} --num-shots 8 --max-new-tokens ${MAXNEW:-256} \
+    --watchdog-timeout 7200 --chunked-prefill-size 512 \
     --out /scratch/bkaul/dsv4_gsm8k_${SLURM_JOB_ID}.json
 echo "[exit=$?]"
