@@ -43,7 +43,7 @@ model on the same silicon and kernel. **Precision matrix:** BF16 and INT8 were b
 automatically from the same donor kernels (INT8 via a calibration-free RTN quantizer),
 INT8 giving ~1.5× throughput at preserved accuracy.
 
-## Thesis 2 — RUNNING END-TO-END on CPU (DeepSeek-V4-Flash, tp=1, native MXFP4) — accuracy validation in flight
+## Thesis 2 — RUNNING END-TO-END on CPU (DeepSeek-V4-Flash, tp=1, native MXFP4) — correctness validated, task-accuracy in flight
 
 **Scope (same-day coverage-gate).** The model is **mostly covered** by the DeepSeek-V2 CPU
 kernels (MLA core, dense GEMM, MoE, norm, rope, top-k); the only new family is **DeepSeek Sparse
@@ -86,18 +86,24 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
   (dequant→bf16 AMX), bf16→native AMX. Each `stored ≠ compute` bridge carries a required parity gate.
 - ✅ **Decode thread-cap** tuned on the **real** model (the heavy MoE dominates → whole-forward
   optimum ~8 threads, not the dummy-weight proxy's ~40).
-- 🔧 **Correctness gate in progress.** A real-prompt coherence check (the accuracy oracle's Layer 0)
-  caught that the decode path emitted garbage: the DSA sparse selection is stubbed at decode, and
+- ✅ **Correctness validated.** A real-prompt coherence check (the accuracy oracle's Layer 0)
+  caught that the decode path emitted garbage: the DSA sparse selection was stubbed at decode, and
   the MLA attention had **no dense fallback**, so it gathered nothing → zero attention. Fixed with a
-  **causal dense fallback** (attend over all valid KV up to the query position); full parity + task
-  accuracy re-run is queued. *Perf/tok-s numbers are held as UNVALIDATED until this passes — the
-  earlier fast decode was measured on the pre-fix (attention-off) model.*
-- ⏭ **Next:** incremental-sparse DSA decode (O(context²)→O(context·topk) for long context) + the
-  published roofline target-vs-measured.
+  **causal dense fallback** (attend over all valid KV up to the query position); **per-token parity
+  now PASSES** (coherent, correct generations). gsm8k task-accuracy run is **in flight** (captured
+  on landing).
+- ✅ **Performance measured** (post-fix, scheduling-only / token-identical). EMR, tp=1 + decode-cap=8,
+  full 43 layers, batch 32: **prefill 69.6 / decode 9.3 tok/s**. Two systemic levers dominated — both
+  now reusable skills: the **OpenMP spin-wait fix** (`OMP_WAIT_POLICY=passive`) = **63× prefill / 10×
+  decode** (the whole first per-op profile was a busy-wait artifact), and **continuous batching** =
+  **10× aggregate decode** (B=1→32, amortizing weight streaming). tp=1+cap beats TP for decode
+  (tp=2 = 2.8× slower → TP is a capacity/prefill lever only).
+- ⏭ **Next:** incremental-sparse DSA decode (O(context²)→O(context·topk) for long context), finish
+  the gsm8k run, then the real **806 GB Pro** run; publish the full roofline target-vs-measured.
 
 *This is the worked Thesis-2 flagship: the coverage-gate routed it, the plugin wired native MXFP4
-+ the DSA CPU path, and the accuracy oracle is now doing exactly its job — blocking on correctness
-before any performance claim.*
++ the DSA CPU path, and the accuracy oracle did exactly its job — it blocked on a real decode bug
+until correctness passed, and only then were performance numbers published.*
 
 ---
 

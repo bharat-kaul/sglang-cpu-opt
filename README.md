@@ -42,48 +42,63 @@ identical AMX kernel): `eff_rel` 0.94–1.26 — all PASS. Both BF16 and INT8 we
 automatically from the same donor kernels (capability inheritance).
 
 ### Thesis 2 — new-kernel leg (DeepSeek Flash v4.1)
-The workflow, demonstrated end-to-end:
 
-- **Scope-discovery** surfaced the *true* scope — **two** novel kernel families (DSA sparse
-  attention + MHC hash-clustering) **plus** a runtime infra layer — not the "4 DSA kernels" a
-  static op-scan implied → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml). It
-  also ran the upfront **data-type audit** — census each weight family's *stored* dtype from the
-  real checkpoint (MXFP4 experts, fp8 projections, bf16 rest) and **map it to the target-HW compute
-  dtype** (→ W4A16 / W8A16 / native bf16), flagging every `stored ≠ compute` dequant bridge (see the
-  precision-hygiene table below).
-- **Enabled:** the CPU infra layer (KV pool, paged allocator, backend guards, metadata routing)
-  and the MLA-core + MHC kernels, **authored reference-first** and checked against in-tree oracles
-  (`fused_q_norm_rope`, `fused_k_norm_rope`+fp8-pack+paged-write, MHC sinkhorn/combine) —
-  [plugin/intel_cpu_models/_dsv4_cpu_infra.py](plugin/intel_cpu_models/_dsv4_cpu_infra.py).
-- **Feasibility gate** demonstrated on `index_gemm(M16)` (GNR+EMR microbench → data-driven DEFER).
-- **Novel DSA compute kernels authored + parity-validated on CPU** (reference-first, the ops the
-  scan flagged as GAP): compressor softmax-pool, lightning-indexer (logits+top-k), sparse-prefill
-  attention — [dsa_compressor_cpu.py](plugin/intel_cpu_models/dsa_compressor_cpu.py),
-  [dsa_indexer_cpu.py](plugin/intel_cpu_models/dsa_indexer_cpu.py),
-  [dsa_sparse_attention_cpu.py](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py) (parity gates PASS).
-- **Composed DSA attention validated in isolation on CPU** — index→select→attend
-  ([dsa_attention_cpu.py](plugin/intel_cpu_models/dsa_attention_cpu.py)): at top-k=all it reduces
-  **exactly to dense attention** (err 1.8e-7), proving the sparse-attention math is numerically
-  correct (standalone; wiring it into the in-model *incremental* decode path is in Remaining).
-- **Runs end-to-end on CPU at tp=1 via native MXFP4** — the routed experts stay 4-bit and run the
-  CPU **MXFP4 W4A16** MoE kernel (fused fp4→bf16), so the full model holds **~200 GB → fits ONE
-  NUMA/SNC domain → clean tp=1**, sidestepping the tp>1 / NUMA-interleave swamp that an fp4→fp8
-  up-convert forced. Loads ~135 s; prefill + multi-token decode complete →
-  [run](plugin/validate/run_deepseekv4_flash_mxfp4_tp1.sbatch).
-- **FP4→bf16 dtype bridge is parity-checked, not assumed** — the standalone kernel-vs-torch-oracle
-  test **PASSES** (cosine 0.999992, rel 5.9e-3 vs an fp32 dequant oracle), verifying the MXFP4
-  dequant + VNNI pack + GEMM math; the in-situ real-checkpoint probe (`INTEL_CPU_DSV4_MOE_PARITY`)
-  is still queued → [test_mxfp4_moe_cpu.py](plugin/validate/test_mxfp4_moe_cpu.py),
-  [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
-- **Accuracy oracle caught a real decode bug** — the real-prompt coherence check found garbage
-  output (DSA sparse selection stubbed at decode → MLA gathered nothing → zero attention); fixed
-  with a causal **dense fallback**. Full parity + task-accuracy re-run is queued; **decode perf/tok-s
-  held UNVALIDATED** until it passes (the earlier fast number was on the pre-fix, attention-off model).
-- **Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
-  (O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime (compress-plan byte-layout +
-  state-pool ring gather/scatter + paged fp8 cache dequant in the backend forward); finish the
-  accuracy validation; then the real **806 GB Pro** run (weights ready) for perf + accuracy. This is
-  backend plumbing + tuning, not novel-kernel authoring — the novel DSA math is authored + proven in isolation.
+**DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) is a
+Thesis-2 model because of **two genuinely novel op families** — DeepSeek Sparse Attention (DSA:
+lightning-indexer + KV-compressor + top-k sparse-MLA) and MHC hash-clustering — while everything else
+is covered by the DeepSeek-V2 CPU donors. The agentic workflow, demonstrated end-to-end:
+
+**1 · Scope — coverage-gate + up-front data-type audit.** Scope-discovery surfaced the *true* scope —
+two novel kernel families **plus** a runtime infra layer, not the "4 DSA kernels" a static op-scan
+implied. The data-type audit censused each weight family's *stored* dtype from the real checkpoint
+(MXFP4 experts, fp8 projections, bf16 rest) and mapped it to the target-HW *compute* dtype
+(→ W4A16 / W8A16 / native bf16), flagging every `stored ≠ compute` dequant bridge →
+[coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+
+**2 · Author the novel kernels, reference-first, parity-gated.** CPU infra layer (KV pool, paged
+allocator, backend guards) + MLA-core/MHC kernels checked against in-tree oracles
+([_dsv4_cpu_infra.py](plugin/intel_cpu_models/_dsv4_cpu_infra.py)); the novel DSA compute kernels —
+compressor softmax-pool, lightning-indexer, sparse-prefill attention — authored and parity-validated
+([dsa_compressor_cpu.py](plugin/intel_cpu_models/dsa_compressor_cpu.py),
+[dsa_indexer_cpu.py](plugin/intel_cpu_models/dsa_indexer_cpu.py),
+[dsa_sparse_attention_cpu.py](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py)). The **composed**
+DSA attention reduces **exactly to dense at top-k=all** (err 1.8e-7), proving the sparse-attention
+math ([dsa_attention_cpu.py](plugin/intel_cpu_models/dsa_attention_cpu.py)). A `index_gemm(M16)`
+feasibility gate (GNR+EMR microbench) returned a data-driven DEFER — no wrong kernel built.
+
+**3 · Run end-to-end at tp=1 — by keeping the MXFP4 nibbles.** The routed experts stay **native
+4-bit** and run the CPU **MXFP4 W4A16** MoE kernel (fused fp4→bf16 in the AMX GEMM), so the whole
+model holds **~200 GB → fits ONE NUMA/SNC domain → clean tp=1**. Loads ~135 s; prefill + multi-token
+decode complete → [run](plugin/validate/run_deepseekv4_flash_mxfp4_tp1.sbatch).
+
+**4 · Correctness — accuracy oracle.** The real-prompt coherence check caught a real decode bug (DSA
+sparse selection stubbed at decode → MLA gathered nothing → zero attention); fixed with a causal
+**dense fallback**. **Per-token parity now PASSES** (coherent, correct generations); the MXFP4
+bridge is parity-checked both standalone (cos 0.999992) and in-situ on the real checkpoint
+(cos 0.999995). gsm8k task-accuracy run **in flight** — captured on landing.
+
+**5 · Performance — measured post-fix (scheduling-only, token-identical).** EMR, tp=1 + decode-cap=8,
+full 43 layers, batch 32: **prefill 69.6 / decode 9.3 tok/s** →
+[roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md).
+
+**Key learnings (each distilled into a reusable skill):**
+1. **Compute from the native precision — keep the MXFP4 nibbles, never up-convert.** Feeding packed
+   fp4 straight to the W4A16 kernel is both a *capacity* win (~200 GB vs ~275 GB → fits one domain →
+   tp=1) and *lossless* (fp4·2^k is exact in bf16). Up-converting fp4→fp8 doubled the footprint and
+   forced a tp>1 / NUMA-interleave swamp that ran M=1 decode ~330× slower.
+2. **Validate the measurement before optimizing.** The entire first per-op profile was an artifact —
+   idle OpenMP threads busy-wait by default and thrash each forward. `OMP_WAIT_POLICY=passive
+   KMP_BLOCKTIME=0` gave **63× prefill / 10× decode**, bigger than every per-op tweak combined.
+3. **Batching is the decode lever.** Continuous batching amortizes weight streaming: **10× aggregate
+   decode** (B=1→32); per-token MoE 1.39→0.32 ms (BW efficiency 26%→75%).
+4. **tp=1 + thread-cap beats TP for decode.** The model fits one socket, so TP only adds barrier/comm
+   cost at decode (tp=2 = 2.8× slower) — TP is a capacity/prefill lever. Authoritative decode config:
+   **tp=1 + decode-cap=8**.
+
+**Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
+(O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime; finish the gsm8k task-accuracy
+run; then the real **806 GB Pro** run (weights ready). This is backend plumbing + tuning, not
+novel-kernel authoring — the DSA math is authored + proven in isolation.
 
 **Precision & compute-type hygiene (checked up front, before any kernel is chosen).** GNR AMX has
 native matmul tiles for **bf16 / fp16 / int8 only — no fp8 or fp4**. So model discovery audits every
