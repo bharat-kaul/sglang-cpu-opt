@@ -58,7 +58,7 @@ def extract_final_answer(s):
             return ast.literal_eval(m.group(1).replace(",", ""))
         except (SyntaxError, ValueError):
             return INVALID
-    return answer_value(s.split("\n\n")[0])
+    return answer_value("\n\n".join(s.split("\n\n")[:2]))
 
 
 def main():

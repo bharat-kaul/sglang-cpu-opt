@@ -18,7 +18,7 @@ import json
 import os
 import time
 
-from task_gsm8k import INVALID, answer_value, one_example, read_jsonl
+from task_gsm8k import INVALID, extract_final_answer, one_example, read_jsonl
 
 
 def _atomic_write(path, obj):
@@ -77,7 +77,7 @@ def main():
         chunked_prefill_size=args.chunked_prefill_size,
     )
     sp = {"temperature": 0.0, "max_new_tokens": args.max_new_tokens,
-          "stop": ["Question", "Assistant:", "\n\n"]}
+          "stop": ["Question", "Assistant:"]}
 
     correct = invalid = done = 0
     gens = []
@@ -87,7 +87,7 @@ def main():
         chunk_l = labels[start:start + args.chunk_size]
         outs = engine.generate(chunk_p, sp)
         texts = [o["text"] if isinstance(o, dict) else o for o in outs]
-        preds = [answer_value(t) for t in texts]
+        preds = [extract_final_answer(t) for t in texts]
         correct += sum(int(pr == l) for pr, l in zip(preds, chunk_l))
         invalid += sum(int(pr == INVALID) for pr in preds)
         done += len(chunk_l)

@@ -38,5 +38,6 @@ python task_gsm8k_chunked.py \
     --num-shards ${SLURM_ARRAY_TASK_COUNT} --shard-index ${SLURM_ARRAY_TASK_ID} \
     --chunk-size ${CHUNK:-32} --num-shots 8 --max-new-tokens ${MAXNEW:-256} \
     --watchdog-timeout 7000 --chunked-prefill-size 512 \
-    --out /scratch/bkaul/dsv4_gsm8k_sh_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.json
+    --out /scratch/bkaul/dsv4_gsm8k_sh_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.json \
+    --gens-out /scratch/bkaul/dsv4_gsm8k_sh_gens_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.json
 echo "[exit=$?]"
