@@ -22,12 +22,13 @@ export INTEL_CPU_DSV4_DECODE_THREADS=8
 export OMP_WAIT_POLICY=passive
 export KMP_BLOCKTIME=0
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
-cd /data/nfs_home/bkaul
-python -m sglang.bench_one_batch \
-  --model-path "$CKPT" \
-  --device cpu --tp 1 --batch-size ${BS:-32} --input-len ${ILEN:-512} --output-len ${OLEN:-32} \
-  --trust-remote-code --disable-cuda-graph \
-  --mem-fraction-static 0.85 --max-total-tokens 32768
-echo "[exit=$?]"
-echo "=== per-op TIMEIT (pf/dec split) ==="
-grep -E "DSV4 TIMEIT|[0-9]+\.[0-9]+s" /scratch/bkaul/dsv4_pivot_${SLURM_JOB_ID}.log || true
+# Engine path (bench_one_batch hits an sglang TreeCache 'evict_for_alloc' bug at batch>1 on CPU).
+# One batch-BS chunk = batch-BS prefill (long 8-shot) + OLEN decode steps; the per-op TIMEIT dump
+# (pf/dec split) is emitted at process exit via atexit -> lands in THIS log.
+cd /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate
+python task_gsm8k_chunked.py \
+  --model "$CKPT" \
+  --data /scratch/bkaul/gsm8k_test.jsonl \
+  --num-questions ${BS:-32} --chunk-size ${BS:-32} --num-shots 8 \
+  --max-new-tokens ${OLEN:-16} --watchdog-timeout 2000 --chunked-prefill-size 512
+echo "[exit=$?]  (TIMEIT per-op pf/dec dump emitted above at process exit)"
