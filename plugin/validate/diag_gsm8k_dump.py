@@ -31,7 +31,7 @@ def run(engine, prompts, labels, sp, tag, dumps):
             print("  GEN:", repr(txt[:600]))
     n = len(labels)
     print(f"\n=== {tag}: old(last-num)={old}/{n}={old/n:.3f}  "
-          f"new(first-answer)={new}/{n}={new/n:.3f} ===")
+          f"new(first-answer)={new}/{n}={new/n:.3f} ===", flush=True)
 
 
 def main():
@@ -45,6 +45,8 @@ def main():
     p.add_argument("--chunked-prefill-size", type=int, default=512)
     p.add_argument("--gens-out", default="", help="save all generations here for offline extractor tuning")
     args = p.parse_args()
+    import sys
+    sys.stdout.reconfigure(line_buffering=True)  # flush to the sbatch log immediately
 
     lines = read_jsonl(args.data)
     shots = "".join(one_example(lines[i], True) + "\n\n" for i in range(args.num_shots))
@@ -63,12 +65,21 @@ def main():
     )
     base = {"temperature": 0.0}
     dumps = []
+
+    def save():
+        if args.gens_out:
+            with open(args.gens_out, "w") as f:
+                json.dump(dumps, f)
+            print(f"saved {len(dumps)} generations to {args.gens_out}", flush=True)
+
     run(engine, prompts, labels,
         {**base, "max_new_tokens": 256, "stop": ["Question", "Assistant:", "\n\n"]},
         "A current(256,\\n\\n)", dumps)
+    save()
     run(engine, prompts, labels,
         {**base, "max_new_tokens": 512, "stop": ["Question"]},
         "B matched(512,Question)", dumps)
+    save()
     engine.shutdown()
     if args.gens_out:
         with open(args.gens_out, "w") as f:
