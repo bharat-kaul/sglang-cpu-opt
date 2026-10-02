@@ -97,8 +97,11 @@ a final confirm. **Never pay the full-weight load to answer a PERF question.**
      one domain, decode falls off roofline at full depth), fix it BEFORE paying the load.
    Load stays cheap (dummy skips the checkpoint read); only the resident allocation is full-size.
 3. **FULL depth + FULL weights** (final — once rung 2 perf is satisfactory and the accuracy gate
-   is ready). The ONLY rung needing the real checkpoint, and only for: (a) ACCURACY (task / per-
-   layer parity — `accuracy-oracle`); (b) a final confirm that real values don't change perf
+   is ready). The ONLY rung needing the real checkpoint, and only for: (a) TASK accuracy (gsm8k/
+   mmlu — `accuracy-oracle`). The per-layer PARITY correctness gate is NOT deferred to here — it ran
+   UP FRONT (vs the GPU/HF oracle on a short prefill) and guarded every optimization; a final
+   full-depth parity-vs-reference confirm on the real weights is cheap and worth doing, but TASK
+   accuracy is the only thing that REQUIRES this rung. (b) a final confirm that real values don't change perf
    (they must not — identical shapes/dtypes/code paths; only load time differs, so a perf delta
    here is a BUG). Expensive load → done LAST, ideally once.
 

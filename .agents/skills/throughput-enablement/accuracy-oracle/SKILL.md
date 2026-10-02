@@ -24,9 +24,14 @@ prefill + slow decode, neither of which a tiny-prefill capture incurs). Sequence
    section). First divergent layer = the bug. This proves the KERNELS/wiring are right.
 3. **THEN optimize** kernels + framework overhead (the perf ladder). Nothing slow runs before
    correctness is established this cheap way.
-4. **Regression guard THROUGH optimization = the SAME fast parity**, not a slow full run: the
-   per-layer fingerprint re-diff (T1/T2 below) + a short-prompt cached-golden next-token parity —
-   seconds each. An optimized kernel is validated against the reference it replaces, cheaply.
+4. **Regression guard THROUGH optimization = the SAME fast parity**, not a slow full run — and it
+   RUNS ON THE DUMMY-WEIGHT PERF PROXY: an optimized kernel is A/B'd against the reference impl it
+   replaces on the SAME input (full-tensor cos+mag), which is VALID on dummy weights because it tests
+   the KERNEL TRANSFORM, not accuracy. Plus a periodic per-layer re-diff vs the frozen reference
+   (T1/T2 below) + a short-prompt cached-golden next-token parity — seconds each. Net flow: parity is
+   established FIRST (vs GPU, real weights, short prefill = the correct CPU reference baseline), then
+   CARRIED through the entire dummy-proxy optimization campaign, then RE-CONFIRMED per-layer on the
+   full OPTIMIZED model — and only THEN does a full-weight TASK-accuracy run make sense.
 5. **Full-model coherence (Layer 0 generation) + task accuracy (Layer 2, gsm8k) come LAST**, once
    the model is fast enough for generation to be feasible — they are the final end-to-end proof,
    NOT the per-change correctness loop. Report any perf number as UNVALIDATED until Layer 1 passes.

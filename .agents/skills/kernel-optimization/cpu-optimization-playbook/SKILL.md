@@ -21,9 +21,10 @@ condition is met and gating every step against the measured roofline.
 > run-efficiency skills (apply to EVERY model, both legs):** `high-information-runs` (make each
 > expensive run a multi-angle probe; and ALWAYS launch `scripts/await_job.sh` in the async terminal
 > after submitting a long job so completion AUTO-WAKES the agent — never fire-and-forget then wait
-> for a human to ask "is it done?"); `perf-proxy` (depth-reduced proxy; generate-once then score
-> OFFLINE). For TASK ACCURACY specifically, `accuracy-oracle` carries the node-parallel + chunked +
-> checkpointed harness and the certify-vs-trusted-reference rule (a bare score certifies nothing).
+> for a human to ask "is it done?"); `perf-proxy` (depth-reduced, full-width, DUMMY-weight perf
+> ladder — perf iteration only, never accuracy). For TASK ACCURACY specifically, `accuracy-oracle`
+> carries the node-parallel + chunked + checkpointed harness, the generate-once → score-OFFLINE
+> decouple, and the certify-vs-trusted-reference rule (a bare score certifies nothing).
 
 > **Reference-wiring-FIRST.** Before optimizing, wire the full serving path with
 > fallback/reference kernels and make it RUN + CORRECT on a **tiny architecturally-faithful
@@ -31,6 +32,13 @@ condition is met and gating every step against the measured roofline.
 > This front-loads the wiring/infra breaks (TP/NUMA, config, allocator, metadata) that static
 > analysis misses and gives a running reference to A/B every later optimization against.
 > Correctness backbone first, speed on top. See `cpu-serving-integration`.
+>
+> **ORDERING (correctness → perf → task).** Per-layer PARITY vs the reference baseline is the
+> correctness gate FIRST (vs the GPU/HF oracle, real weights, one short prefill — cheap), then it
+> GUARDS every optimization: on the dummy-weight `perf-proxy` the guard is the optimized-vs-reference
+> A/B on the same input (valid on dummy — it tests the kernel transform, not accuracy), re-confirmed
+> per-layer on the full OPTIMIZED model. TASK accuracy (real weights, full generation) is LAST. See
+> `accuracy-oracle` CORRECTNESS ORDERING + the `perf-proxy` ladder.
 
 > Two legs, one plugin. This playbook is the **new-kernel** leg (write/optimize a
 > kernel). `model-enablement-playbook` is the **throughput** leg (wire a new model
