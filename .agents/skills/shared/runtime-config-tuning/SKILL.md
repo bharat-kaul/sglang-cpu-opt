@@ -88,6 +88,14 @@ descheduled worker threads. Two rules fall out:
   to its domain cores MINUS ~2) so the count is fixed once and the barriers size correctly. Note
   tp>1 M=1 decode is ~330× slower than tp=1 here regardless (barrier cliff per rank) — prefer
   tp=1 for memory-bound decode (see `sub-numa-clustering`).
+- **TP HURTS a cap-needing decode when the model fits one domain — tp=1+cap beats tp>1 (measured).**
+  Because the decode cap can't apply at tp>1 (deadlock), a barrier-bound M=1 decode is stuck at the full
+  per-rank bind count. DSV4 full-43 dummy: GNR tp=2 (per-socket, 128 thr/rank, cap self-skipped) decode
+  = 3.3 tok/s vs EMR tp=1+cap=8 = 9.3 (**2.8× WORSE**); prefill +11% (compute shards). So TP is a
+  CAPACITY / prefill lever — for decode on a model that FITS one NUMA/SNC domain, tp=1 with the cap wins;
+  extra domains buy nothing for decode. Shard (tp>1) only when the model does NOT fit one domain, and
+  accept the decode-thread penalty then. (Cheap full-dummy GNR run killed the GNR-tp-for-decode idea
+  before any full-weight bring-up — the perf-proxy ladder working.)
 
 **Origin lesson 3 — OpenMP IDLE-THREAD SPIN-WAIT is the deeper cause; fix it FIRST (this repo).**
 Much of "the decode thread cliff" and a separate "the 2nd forward is ~300× slower than the 1st"
