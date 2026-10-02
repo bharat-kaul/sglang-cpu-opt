@@ -56,6 +56,28 @@ def install_cpu_resolution_guards() -> None:
     torch.cuda.get_device_capability = _cpu_safe_capability
     logger.info("GLM5 CPU resolution guard: torch.cuda.get_device_capability shimmed (CPU).")
 
+    # Hybrid-cache resolution clash (GLM is mamba/KDA + MLA/DSA): the mamba path forces
+    # no_buffer (requires page_size=1) while the MLA backends force page_size=64. On CPU
+    # the GPU-FLA extra_buffer strategy is unavailable, so no_buffer is correct; relax its
+    # page_size==1 resolution assert on CPU (the page geometry is handled by the CPU KV/
+    # mamba pools, not this FLA guard). Keeps the non-CPU assert intact.
+    try:
+        from sglang.srt.arg_groups import mamba_hook as _mh
+
+        _orig_no_buffer = _mh.validate_mamba_no_buffer
+
+        def _cpu_validate_mamba_no_buffer(view, model_arch, *a, **k):
+            from sglang.srt.utils import is_cpu as _is_cpu
+
+            if _is_cpu():
+                return  # CPU mamba/KV pools own the page geometry; skip FLA-oriented asserts
+            return _orig_no_buffer(view, model_arch, *a, **k)
+
+        _mh.validate_mamba_no_buffer = _cpu_validate_mamba_no_buffer
+        logger.info("GLM5 CPU resolution guard: mamba no_buffer page_size assert relaxed (CPU).")
+    except Exception as _e:
+        logger.warning("GLM5 CPU mamba no_buffer guard not installed: %s", _e)
+
 
 def _layer_params(layer) -> dict:
     """Build the kda_layer_forward param bag from a RadixLinearAttention layer."""

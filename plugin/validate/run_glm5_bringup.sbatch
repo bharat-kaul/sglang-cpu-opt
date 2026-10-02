@@ -23,8 +23,8 @@ export MODEL_PATH=/scratch/bkaul/models/glm5-tiny
 export LOAD_FORMAT=dummy
 export MEM_FRAC=0.30
 export LOG_LEVEL=info
-# CPU-valid mamba radix cache (KDA linear-attn): no_buffer + page_size=1 (extra_buffer needs GPU-FLA).
+# CPU-valid mamba radix cache (KDA linear-attn): no_buffer (extra_buffer needs GPU-FLA).
+# page_size left to the MLA/DSA resolver (64); the CPU no_buffer assert is relaxed in the plugin.
 export MAMBA_RADIX_STRATEGY=no_buffer
-export PAGE_SIZE=1
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
 echo "[exit=$?]"
