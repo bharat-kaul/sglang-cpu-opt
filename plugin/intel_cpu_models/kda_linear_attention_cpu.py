@@ -38,6 +38,8 @@ __all__ = [
     "causal_conv1d_update",
     "kda_recurrent",
     "kda_layer_forward",
+    "cpu_kda_extend",
+    "cpu_kda_decode",
 ]
 
 
@@ -249,7 +251,14 @@ def kda_layer_forward(
         )
         conv_out = conv_out.unsqueeze(0)  # [1, C]
     else:
-        conv_out = causal_conv1d(mixed_qkv, conv_weight, conv_bias, activation="silu")
+        if conv_state is not None:
+            # Seed the causal window from the carried history WITHOUT adding
+            # recurrence steps: prepend the K-1 raw inputs, conv, drop the first
+            # K-1 outputs. Recurrence still runs over the real tokens only.
+            seq_in = torch.cat([conv_state.float().transpose(0, 1), mixed_qkv.float()], 0)
+            conv_out = causal_conv1d(seq_in, conv_weight, conv_bias, activation="silu")[K - 1 :]
+        else:
+            conv_out = causal_conv1d(mixed_qkv, conv_weight, conv_bias, activation="silu")
         # new conv_state = the last K-1 raw inputs (what decode would resume from)
         pad = torch.nn.functional.pad(mixed_qkv.float().transpose(0, 1), (K - 1, 0))
         new_conv_state = pad[:, -(K - 1) :].contiguous()
@@ -272,6 +281,93 @@ def kda_layer_forward(
         q, k, v, g, beta, scale=scale, initial_state=ssm_state
     )
     return out, new_conv_state, new_ssm_state
+
+
+# --------------------------------------------------------------------------------
+# Batched varlen glue the CpuKDABackend methods call: gather the per-request slot
+# from the mamba pool, run the layer op, scatter the updated conv+SSM state back.
+# Free functions on plain tensors so they are unit-testable without a ModelRunner.
+# Per-slot layout here: conv_states[slot] = [C, K-1]; ssm_states[slot] = [H, Kd, Kd].
+# --------------------------------------------------------------------------------
+def _slice_gate(a: torch.Tensor, s: int, e: int) -> torch.Tensor:
+    return a[s:e] if a.ndim == 2 else a[0, s:e]
+
+
+def _slice_beta(b: torch.Tensor, s: int, e: int) -> torch.Tensor:
+    return b[s:e] if b.ndim == 2 else b[0, s:e]
+
+
+def cpu_kda_decode(
+    mixed_qkv: torch.Tensor,
+    a: torch.Tensor,
+    b: torch.Tensor,
+    *,
+    conv_states: torch.Tensor,
+    ssm_states: torch.Tensor,
+    cache_indices: torch.Tensor,
+    params: dict,
+) -> torch.Tensor:
+    """One-token-per-request decode. Updates conv_states/ssm_states IN PLACE at the
+    rows named by cache_indices. Returns core_attn_out [B, H, V]."""
+    B = mixed_qkv.shape[0]
+    H, V = params["num_heads"], params["head_dim"]
+    out = torch.empty(B, H, V, dtype=torch.float32)
+    for i in range(B):
+        slot = int(cache_indices[i])
+        o, new_conv, new_ssm = kda_layer_forward(
+            mixed_qkv[i : i + 1], _slice_gate(a, i, i + 1), _slice_beta(b, i, i + 1),
+            conv_weight=params["conv_weight"], conv_bias=params["conv_bias"],
+            A_log=params["A_log"], dt_bias=params["dt_bias"],
+            num_heads=H, head_dim=V, lower_bound=params["lower_bound"],
+            scale=params.get("scale"),
+            conv_state=conv_states[slot], ssm_state=ssm_states[slot], is_decode=True,
+        )
+        conv_states[slot] = new_conv.to(conv_states.dtype)
+        ssm_states[slot] = new_ssm.to(ssm_states.dtype)
+        out[i] = o[0]
+    return out
+
+
+def cpu_kda_extend(
+    mixed_qkv: torch.Tensor,
+    a: torch.Tensor,
+    b: torch.Tensor,
+    *,
+    conv_states: torch.Tensor,
+    ssm_states: torch.Tensor,
+    cache_indices: torch.Tensor,
+    query_start_loc: torch.Tensor,
+    has_initial_state: torch.Tensor,
+    params: dict,
+) -> torch.Tensor:
+    """Varlen prefill/extend. For request i over tokens
+    [query_start_loc[i]:query_start_loc[i+1]] runs the sequence conv + recurrence,
+    seeded from the pool slot when has_initial_state[i], then writes the updated
+    conv+SSM state back. Returns core_attn_out [N, H, V] over the packed tokens."""
+    B = cache_indices.shape[0]
+    H, V = params["num_heads"], params["head_dim"]
+    N = mixed_qkv.shape[0]
+    out = torch.empty(N, H, V, dtype=torch.float32)
+    for i in range(B):
+        s, e = int(query_start_loc[i]), int(query_start_loc[i + 1])
+        if e <= s:
+            continue
+        slot = int(cache_indices[i])
+        seeded = bool(has_initial_state[i])
+        o, new_conv, new_ssm = kda_layer_forward(
+            mixed_qkv[s:e], _slice_gate(a, s, e), _slice_beta(b, s, e),
+            conv_weight=params["conv_weight"], conv_bias=params["conv_bias"],
+            A_log=params["A_log"], dt_bias=params["dt_bias"],
+            num_heads=H, head_dim=V, lower_bound=params["lower_bound"],
+            scale=params.get("scale"),
+            conv_state=conv_states[slot] if seeded else None,
+            ssm_state=ssm_states[slot] if seeded else None,
+            is_decode=False,
+        )
+        conv_states[slot] = new_conv.to(conv_states.dtype)
+        ssm_states[slot] = new_ssm.to(ssm_states.dtype)
+        out[s:e] = o
+    return out
 
 
 # --------------------------------------------------------------------------------
@@ -375,10 +471,66 @@ def _selftest() -> None:
     )
     assert (ss_pf - ss).abs().max().item() < 1e-4, "layer final SSM-state mismatch"
 
+    # (6) BACKEND GLUE: a 2-request varlen batch through cpu_kda_extend (prefill) then
+    #     cpu_kda_decode (one more token each, seeded from the written pool slots) must
+    #     equal a per-request full-sequence reference. Proves gather/scatter by
+    #     cache_indices + query_start_loc + per-slot conv/SSM seeding, weight-free.
+    lens = [3, 5]
+    Np = sum(lens)
+    qsl = torch.tensor([0, lens[0], lens[0] + lens[1]], dtype=torch.long)
+    # requests map to non-trivial, non-identity pool slots to catch index bugs.
+    slots = torch.tensor([2, 0], dtype=torch.long)
+    S = 4
+    params = dict(
+        conv_weight=cw, conv_bias=cb, A_log=A_log2, dt_bias=dt2,
+        num_heads=H, head_dim=Kd, lower_bound=lb, scale=None,
+    )
+    mixed_e = torch.randn(Np, 3 * proj)
+    a_e = torch.randn(Np, proj)
+    b_e = torch.randn(Np, H)
+    conv_pool = torch.zeros(S, 3 * proj, Kc2 - 1)
+    ssm_pool = torch.zeros(S, H, Kd, Kd)
+    o_ext = cpu_kda_extend(
+        mixed_e, a_e, b_e, conv_states=conv_pool, ssm_states=ssm_pool,
+        cache_indices=slots, query_start_loc=qsl,
+        has_initial_state=torch.zeros(2, dtype=torch.bool), params=params,
+    )
+    # one decode token per request
+    mixed_d = torch.randn(2, 3 * proj)
+    a_d = torch.randn(2, proj)
+    b_d = torch.randn(2, H)
+    o_dec2 = cpu_kda_decode(
+        mixed_d, a_d, b_d, conv_states=conv_pool, ssm_states=ssm_pool,
+        cache_indices=slots, params=params,
+    )
+    # per-request full-sequence reference (prefill over prefix+1), compared to the
+    # extend outputs + the decode token.
+    worst_cos, worst_max = 1.0, 0.0
+    for i, L in enumerate(lens):
+        s, e = int(qsl[i]), int(qsl[i + 1])
+        full_mix = torch.cat([mixed_e[s:e], mixed_d[i : i + 1]], 0)
+        full_a = torch.cat([a_e[s:e], a_d[i : i + 1]], 0)
+        full_b = torch.cat([b_e[s:e], b_d[i : i + 1]], 0)
+        o_ref, _, _ = kda_layer_forward(
+            full_mix, full_a, full_b, conv_weight=cw, conv_bias=cb,
+            A_log=A_log2, dt_bias=dt2, num_heads=H, head_dim=Kd, lower_bound=lb,
+            is_decode=False,
+        )
+        got = torch.cat([o_ext[s:e], o_dec2[i : i + 1]], 0)
+        c = torch.nn.functional.cosine_similarity(
+            o_ref.flatten(), got.flatten(), dim=0
+        ).item()
+        m = (o_ref - got).abs().max().item()
+        worst_cos, worst_max = min(worst_cos, c), max(worst_max, m)
+    assert worst_cos > 1 - 1e-6 and worst_max < 1e-4, (
+        f"backend-glue mismatch cos={worst_cos} max={worst_max}"
+    )
+
     print(
         f"KDA CPU reference self-consistency PASS | prefill==decode cos={cos_pd:.7f} "
         f"max={max_pd:.2e} | split-carry cos={cos_sp:.7f} | conv seq==update OK | "
-        f"gated-norm OK | FULL-LAYER prefill==decode cos={cos_layer:.7f} max={max_layer:.2e}"
+        f"gated-norm OK | FULL-LAYER prefill==decode cos={cos_layer:.7f} max={max_layer:.2e} | "
+        f"BACKEND-GLUE varlen cos={worst_cos:.7f} max={worst_max:.2e}"
     )
 
 
