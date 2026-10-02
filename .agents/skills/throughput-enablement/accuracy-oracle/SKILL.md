@@ -206,6 +206,22 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
   live run and a deadlock look identical. Also run a smaller SUBSET first (~300–330 Q is statistically fine
   for a certificate) so it finishes inside the wall. Worked example: `task_gsm8k_chunked.py` +
   `run_gsm8k_dsv4_fallback.sbatch`.
+- **Parallelize the task run across NODES — eval questions are INDEPENDENT (embarrassingly parallel).**
+  Shard the question set across M nodes with a slurm JOB ARRAY (`--array=0-(M-1)`, each task takes
+  `--shard-index $SLURM_ARRAY_TASK_ID --num-shards $SLURM_ARRAY_TASK_COUNT`), run each shard
+  chunked+checkpointed, then SUM correct/done across the shard jsons (`combine_gsm8k_shards.py`) ->
+  ~M× faster wall-clock, and partial shards still count. Generation (not load) is the long pole on CPU
+  (measured: 1319-Q single-node gen ran 3h+ and still walled; the same split 8 ways finishes in minutes),
+  so node-parallelism is the real lever. Worked example: `run_gsm8k_dsv4_sharded.sbatch` +
+  `combine_gsm8k_shards.py`.
+- **MEASURE load contention before "fixing" it — don't pre-optimize the fan-out.** The obvious worry is
+  M nodes each reading the big model (149 GB) over NFS at once = thundering herd. MEASURE it first: here
+  8× concurrent load was **~2.5 min/node — FASTER than the 7 min cold single-node load**, because the NFS
+  server's page cache was WARM from a prior load (reads served from cache, not disk). So staggering would
+  only have ADDED a start-time tail (shard k waits k·GAP) to fix a problem that wasn't there. Only stagger
+  (`sleep $((SLURM_ARRAY_TASK_ID * GAP))`, env-gated, default 0) or pre-warm the cache (one read before the
+  array) if a COLD or genuinely bandwidth-limited load actually shows up — confirm from the shard logs'
+  "loading shards" timing before reaching for it.
 
 ### Three-tier equivalence validation for the optimize loop (defer task-accuracy to the end)
 **Guiding principle:** if the optimized build is EQUIVALENT to the reference baseline (end-to-end, within

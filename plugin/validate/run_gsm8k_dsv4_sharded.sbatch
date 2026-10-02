@@ -24,6 +24,11 @@ export INTEL_CPU_DSV4_DECODE_THREADS=8
 export OMP_WAIT_POLICY=${OMP_WAIT_POLICY:-passive}
 export KMP_BLOCKTIME=${KMP_BLOCKTIME:-0}
 cd /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate
+# Cold-cache mitigation (default OFF): stagger shard starts so the 149 GB loads pipeline
+# through NFS instead of a thundering herd. MEASURED unnecessary when the NFS server cache
+# is warm (8x concurrent load ~2.5 min/node < 7 min cold single). Set STAGGER=300 (s) only
+# if the shard logs show a COLD/contended load.
+sleep $(( SLURM_ARRAY_TASK_ID * ${STAGGER:-0} ))
 python task_gsm8k_chunked.py \
     --model /scratch/bkaul/models/DeepSeek-V4-Flash \
     --data /scratch/bkaul/gsm8k_test.jsonl \
