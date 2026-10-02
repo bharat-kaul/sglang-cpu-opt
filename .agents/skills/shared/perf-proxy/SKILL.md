@@ -61,6 +61,15 @@ DeepSeek-V4-Flash 4-layer proxy on the login node (no queue):
   depth×width), cross-layer cache eviction, inter-layer pipeline/overlap, KV-cache growth.
 - **Absolute end-to-end tok/s** — extrapolate `× depth-ratio` but VALIDATE once on full depth.
 - **Accuracy** — by design (dummy weights); accuracy uses the real-weight full model separately.
+- **Tensor-parallel / multi-rank UPSIDE** — the proxy validates TP *viability* (does the plugin run at
+  tp>1 without hang/crash — the biggest risk), *divisibility* (sglang asserts `dim % tp == 0`; a 2-min
+  fail-fast rules out bad tp values — e.g. DSV4's 2^15 dims reject tp=6), and *correctness* (tp=1 vs
+  tpN tokens), ALL cheaply on the free farm. But it CANNOT show the TP *speedup*: on a depth-reduced
+  model the weight-stream is negligible, so the per-layer all-reduce comm tax DOMINATES and tp>1 reads
+  SLOWER than tp=1 (measured: 4-layer tp=2 decode 65 vs tp=1 85). TP's benefit is capacity (fit) +
+  full-depth weight-stream sharding = depth-aggregate; only the full-DUMMY rung (on the target node)
+  shows it. So use the proxy to DE-RISK TP (viability/divisibility/correctness) before the one scarce-
+  node run, but never to decide TP upside.
 
 ## The validation ladder — DUMMY for perf, FULL WEIGHTS only for accuracy (run in this order)
 Three rungs, cheapest first; each DE-RISKS the next. Dummy weights are VALID for perf (shapes,

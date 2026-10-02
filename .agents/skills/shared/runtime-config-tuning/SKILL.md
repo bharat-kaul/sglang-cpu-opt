@@ -131,7 +131,11 @@ scheduling-only → **token-identical** (no accuracy gate needed, just confirm i
    first-touched on the owning domain. Remote access costs the uPP `remote_bw_penalty`
    (~0.6 on GNR). Aggregate BW = `domains_used × per_domain_bw` only if sharded NUMA-local.
 3. **TP-rank ↔ domain mapping.** #ranks should divide the domain count and shard heads/experts
-   evenly; a bad map leaves domains idle (see `sub-numa-clustering`).
+   evenly; a bad map leaves domains idle (see `sub-numa-clustering`). **sglang asserts `dim % tp == 0`
+   (QKV/MoE projection sizes, heads) — so valid tp is constrained by the MODEL, not the hardware domain
+   count.** A model with 2^k dims (e.g. DSV4 proj=32768, 64 heads) accepts only power-of-2 tp {2,4,8,..},
+   NEVER tp=6 — so a 6-SNC-domain node can't do one-rank-per-domain for it; fall back to tp=2 (per socket).
+   Fail-fast cheaply on the perf-proxy before committing a scarce-node run.
 4. **Weight prepack / layout.** Confirm the kernel's VNNI/packed layout is actually applied
    (`is_vnni=True` reaching a *packed* weight), else it falls off the fast path.
 5. **Dtype / ISA dispatch.** Verify the intended ISA fired (`ONEDNN_VERBOSE=1`, kernel
