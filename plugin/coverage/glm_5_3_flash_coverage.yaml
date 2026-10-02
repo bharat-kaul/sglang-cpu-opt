@@ -129,7 +129,8 @@ scaffolding_tasks:
 
 # ---- Velocity instrument (clean-test vs DeepSeek-V4-Flash) ----
 velocity:
-  t0: "2026-10-01T23:16:48-07:00"
+  t0: "2026-10-01T23:10:41-07:00"        # anchored to the config-probe (first metadata fetch of config.json)
+  t0_basis: "mtime of the cached config.json from the metadata-only probe — the first byte of enablement work"
   scope_method: "metadata-only fetch (0 weight bytes) completed full dtype audit + coverage/scope"
   vs_dsv4: "DSV4 scope took multiple reactive bring-up breaks to discover MHC + infra; GLM scope
     (incl. the 2nd family = KDA + dual cache) enumerated UP FRONT from source before any run.
