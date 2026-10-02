@@ -71,6 +71,30 @@ reuse them unmodified, and new capabilities are added as new skill folders.
 7. enablement-certificate            -> machine-checkable pass/fail + reviewable diff
 ```
 
+## Parallelize the long pole (artifact acquisition ∥ weight-independent work)
+
+Downloading the real checkpoint (often ~TB) is the longest single wait, but ALMOST
+NOTHING on the critical path needs the weight BYTES — so never idle on it. The moment
+a model is named, FORK two tracks:
+- **Background:** kick off the full weight pull (resumable) and let it run unattended.
+- **Foreground (weight-independent, start immediately):** steps 1–4 above —
+  op-decomposition, fusion/roofline analysis, scope-discovery, coverage-gate — plus the
+  reference-wiring bring-up on a TINY arch-faithful config with DUMMY weights
+  (`cpu-model-wiring`) and reference-first authoring of any GAP op. All of these read the
+  model CLASS + CONFIG, not the trained weights.
+- **Metadata-first unblocks the dtype audit WITHOUT the full download OR a token-gated
+  full pull.** Fetch ONLY the small files first — `config.json` + the safetensors INDEX
+  (`model.safetensors.index.json`) and, if needed, a single shard's HEADER (the leading
+  JSON length-prefix). That is enough to (a) census every weight family's stored dtype +
+  shape → run `model-op-decomposition` §2b in full, (b) finalize the scope/coverage, and
+  (c) confirm repo access/gating early — all before a byte of tensor data lands. Real case
+  (GLM-5.3 Flash): a metadata-only fetch completed the entire dtype audit + scope and
+  proved the repo ungated, so the weeks-of-bytes download never blocked design work.
+Only the FINAL accuracy/perf-with-real-weights runs (accuracy-oracle Layer 1–2, perf
+ladder stage 3) actually consume the downloaded bytes; by the time they're reached the
+download has long finished in the background. Weights are a dependency of VALIDATION, not
+of DESIGN — serialize nothing behind them.
+
 ## Composition rule
 
 Run gates in order; a red gate blocks the next. Coverage is the fork: a genuine

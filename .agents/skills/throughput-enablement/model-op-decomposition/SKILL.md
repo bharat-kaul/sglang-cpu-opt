@@ -32,8 +32,17 @@ not from assumptions about the family.
    safetensors `__metadata__`/dtype per tensor), grouped by op role — do NOT trust
    the top-level `quantization_config` (it often describes only the dense/attention
    blocks; MoE experts, indexer, shared experts, embeddings, norms frequently
-   differ). Then map each op's stored dtype → the **best compute dtype the target
-   HW actually supports** and flag three things:
+   differ). **FETCH METADATA-ONLY FIRST — do NOT wait for the full (often ~TB)
+   download.** The audit needs only `config.json` + the safetensors INDEX
+   (`model.safetensors.index.json`), optionally one shard's leading JSON HEADER — a few
+   KB that carry every tensor's dtype + shape. Pull those while the full weight download
+   runs in the BACKGROUND (`model-enablement-playbook` §"Parallelize the long pole"), so
+   the whole audit + scope/coverage completes before any tensor bytes land, and the
+   small-file fetch also confirms repo access/gating early. Real case (GLM-5.3 Flash):
+   metadata-only fetch finished the dtype audit — fp8 e4m3 128×128 block-quant
+   experts/proj + bf16 rest → one W8A16 bridge — with zero weight bytes downloaded. Then
+   map each op's stored dtype → the **best compute dtype the target HW actually
+   supports** and flag three things:
    - **Missing native compute → dequant path.** GNR AMX has bf16/int8/fp16 only —
      no native fp8 or fp4 matmul. So fp8 weights → W8A16 (dequant→bf16 AMX), fp4/
      MXFP4 → W4A16 (fused dequant→bf16). Confirm a kernel exists for each (grep the

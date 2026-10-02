@@ -1,0 +1,136 @@
+# Coverage-Gate Report — GLM-5.3 Flash (Glm5Next arch) on Intel Xeon
+# Produced by the model-enablement workflow (coverage-gate + enablement-scope-discovery),
+# 2026-10-01. Scope derived STATICALLY from the sglang model/config source + a METADATA-ONLY
+# checkpoint fetch (config.json + safetensors index) — ZERO weight bytes downloaded (the full
+# weight pull runs in the background; see model-enablement-playbook §"Parallelize the long pole").
+#
+# Verdict legend:
+#   COVERED  - an existing CPU/AMX kernel satisfies the op's contract
+#   REUSE*   - COVERED specifically by a kernel/port WE authored for DeepSeek-V4 (MHC, DSA, fp8)
+#   PARTIAL  - runs on CPU but only via an AVX-512 fallback; AMX kernel missing (perf gate risk)
+#   PORT     - mechanical torch/index port, no novel compute (cheap)
+#   GAP      - no CPU kernel; needs a net-new kernel (new-kernel leg)
+
+model: GLM-5.3-Flash
+arch: Glm5NextForConditionalGeneration            # text path; vision tower (GlmOcr*) skipped
+hf_repo: zai-org/GLM-5.3-Flash                     # UNGATED (confirmed via metadata fetch)
+node_profile: gnr_6980p
+overall_verdict: GAP                               # one genuine authoring family (KDA linear attn)
+summary: "A HYBRID model: 34 of 45 layers are KDA (Kimi Delta / gated-delta-rule) LINEAR
+  ATTENTION (the one true authoring GAP + a new mamba-style recurrent/conv cache substrate);
+  the other 11 are MLA full-attention WITH a DSA indexer. MHC hash-clustering (norm path),
+  MoE grouped-GEMM, dense SwiGLU, RMSNorm, fp8 block-quant GEMM, and the DSA indexer family
+  are ALL covered by our DeepSeek-V4 CPU work (REUSE). Precision is a SINGLE fp8-e4m3 128x128
+  block-quant bridge -> bf16 AMX (W8A16) — simpler than DSV4 (no MXFP4). Net new work = the KDA
+  linear-attention kernel (recurrent decode + chunked prefill + short causal conv1d + gated
+  output norm) and its dual cache; FusedRMSNormGated is a small PORT."
+
+# ---- Architecture facts (sglang/srt/configs/glm5_next.py + metadata) ----
+config_facts:
+  layers: 45
+  hidden_size: 4096
+  num_attention_heads: 64
+  vocab_size: 154880
+  rope_theta: 800000.0
+  hybrid_attention:
+    rule: "config.is_kda_layer(layer_id); full-attn at idx%4==3 -> [3,7,11,...,43] (11 MLA);
+           the other 34 layers are KDA linear attention"
+    kda_layers: 34
+    mla_layers: 11
+  mla: {q_lora_rank: 1536, kv_lora_rank: 512, qk_nope_head_dim: 256, qk_rope_head_dim: 0, v_head_dim: 256, skip_rope: true}  # qk_rope=0 => NoPE main attention
+  dsa_indexer: {index_topk: 2048, index_n_heads: 32}          # on the MLA layers (weights self_attn.indexer.*)
+  kda: {num_heads: 64, head_dim: 128, short_conv_kernel_size: 4, gate_lower_bound: -5.0, activation: silu, o_norm: FusedRMSNormGated(sigmoid)}
+  mhc: {enabled: true, hc_mult: 4, hc_sinkhorn_iters: 20, hc_eps: 1.0e-6}  # same family as DSV4
+  moe: {n_routed_experts: 288, num_experts_per_tok: 8, n_shared_experts: 1, scoring_func: sigmoid, topk_method: noaux_tc, routed_scaling_factor: 2.5, first_k_dense_replace: 3, moe_intermediate_size: 2048}
+  nextn: {num_nextn_predict_layers: 1}                        # layer 45 MTP draft — skip for base enablement
+
+# ---- Up-front dtype audit (metadata-only; model-op-decomposition §2b) ----
+dtype_audit:
+  method: "config.json quantization_config + safetensors index; NO weight bytes"
+  bridges:
+    - {family: "MoE experts + MLA/KDA/shared proj linears", stored: fp8_e4m3, block_quant: [128, 128], compute: bf16, bridge: W8A16_dequant_fp8_to_bf16, kernel: amx_brgemm_fp8 (deepseek_v2 donor), parity_gate: required}
+    - {family: "norms / router / gates / indexer / embed / lm_head / KDA conv+A_log+dt_bias", stored: bf16_or_fp32, compute: native, bridge: none}
+  inflation_traps: none          # single fp8->bf16 bridge; no fp4, no up-convert. Simpler than DSV4.
+  note: "quantization_config ignore-list keeps norms/gates/indexer/visual in bf16 — confirmed, not assumed."
+
+# ---- Op decomposition + per-op CPU coverage ----
+ops:
+  - {op: dense_gemm (q_a/q_b/kv_a/kv_b/o_proj, gate/up/down, kda qkv/f/b/g/o proj), verdict: COVERED,
+     kernel: amx_brgemm_bf16/fp8, donor: deepseek_v2, note: "PackWeightMethod VNNI prepack; fp8 W8A16 bridge"}
+  - {op: mla_attention_core (absorbed, NoPE qk_rope=0), verdict: REUSE,
+     kernel: fused_mla_rope_cpu + flash_attn, donor: deepseek_v2/deepseek_v4}
+  - {op: dsa_indexer (top-2048, 32 heads) on MLA layers, verdict: REUSE,
+     kernel: "our DSV4 DSA CPU port (dsa_indexer_cpu/dsa_sparse_attention_cpu)", note: "index_topk path; validate shapes vs GLM indexer"}
+  - {op: moe_grouped_gemm (sigmoid noaux_tc, 288 experts top-8, +shared), verdict: COVERED,
+     kernel: fused_moe_cpu_amx (fp8), donor: deepseek_v2/qwen2_moe}
+  - {op: dense_mlp (SwiGLU, first_k_dense_replace=3, swiglu_limit), verdict: COVERED, kernel: silu_and_mul + amx_gemm, donor: deepseek_v2}
+  - {op: mhc_hash_clustering (hc_attn_pre/hc_ffn_pre/hc_post, sinkhorn), verdict: REUSE,
+     kernel: "our DSV4 CPU MHC port (hc_pre/hc_post/sinkhorn) + the wo_a logical-unpack lesson", donor: deepseek_v4}
+  - {op: rms_norm, verdict: COVERED, kernel: cpu_rms_norm, donor: llama/deepseek_v2}
+  - {op: rope (MLA rope dims only), verdict: COVERED, kernel: cpu_rotary, donor: llama/deepseek_v2}
+  - {op: topk_selection (router + indexer), verdict: COVERED, kernel: cpu_topk, donor: deepseek_v2}
+  - {op: embedding + lm_head, verdict: COVERED, kernel: vocab_parallel_embedding, donor: llama}
+
+  # ---- The GLM-specific NEW work: KDA linear attention family ----
+  - op: kda_linear_attention (34/45 layers — DOMINANT compute + the authoring gap)
+    verdict: GAP
+    reason: "RadixLinearAttention dispatches to a dedicated linear-attn backend (kda_backend.py)
+      whose kernels (chunk_kda prefill, fused_recurrent_kda decode) are Triton/CuTe/FlashInfer
+      ONLY — no CPU path. The recurrent gated-delta-rule + short causal conv1d + L2-norm(k) +
+      sigmoid gating + FusedRMSNormGated output must be authored for CPU, reference-first."
+    math_reference:
+      recurrence: "S_t = S_{t-1}·Diag(a_t) + beta_t·(v_t - (S_{t-1}·Diag(a_t))·k_t) ⊗ k_t ; out_t = S_t·q_t"
+      gate: "a (per-key log-decay) = lower_bound + (1-lower_bound)*sigmoid(exp(A_log)*x) style (fused_sigmoid_gating_recurrent.py); dt_bias/softplus"
+      source: "kernels/ops/attention/fla/{kda.py (chunk_kda, fused_recurrent_kda), fused_recurrent.py,
+        fused_sigmoid_gating_recurrent.py, fused_norm_gate.py, l2norm.py}; comment fused_recurrent_linear_replayssm.py:27"
+    cache:
+      type: "mamba-style dual state (NOT paged KV) — KimiLinearStateShape / KimiLinearCacheParams"
+      conv_state: "[K-1=3, proj_q + 2*proj_k]  (short causal conv1d history)"
+      temporal_state: "[num_heads, head_dim, head_dim]  (recurrent delta-rule matrix S per req)"
+      source: "sglang/srt/configs/mamba_utils.py:252 KimiLinearStateShape; hybrid_linear_attn_backend MambaAttnBackendBase"
+  - op: fused_rms_norm_gated (KDA o_norm, sigmoid-gated)
+    verdict: PORT
+    reason: "small elementwise gated RMSNorm (layer_norm_gated_fwd) — mechanical torch port"
+    source: "kernels/ops/attention/fla/fused_norm_gate.py"
+  - op: short_causal_conv1d (KDA qkv depthwise conv, kernel=4 + silu)
+    verdict: PORT
+    reason: "depthwise causal conv over the conv-state ring; pure index/mac math -> torch port (part of the KDA backend)"
+
+# ---- Runtime substrate (invisible to op-decomposition; enablement-scope-discovery) ----
+infra:
+  - {item: "HYBRID cache manager (mamba linear-state pool for 34 KDA layers + paged MLA KV pool for 11 layers in ONE model)", classification: PORT, note: "NEW vs DSV4 (pure MLA). Biggest infra item. MambaAttnBackendBase + the DSV4 paged MLA pool coexisting."}
+  - {item: "CPU linear-attention backend registration (RadixLinearAttention -> get_attn_backend().forward)", classification: PORT, note: "author a CpuKDABackend implementing extend+decode against the dual cache"}
+  - {item: "attention-backend selection / hybrid layer_types routing on CPU", classification: routing, note: "ensure is_kda_layer -> CpuKDABackend; MLA layers -> intel_amx + DSA"}
+  - {item: "fp8 block-quant plumbing (weight_block_size 128x128)", classification: REUSE, note: "DSV4 fp8 CPU path"}
+  - {item: "device gate SGLANG_USE_CPU_ENGINE + framework-native config schema", classification: routing, donor: deepseek_v4}
+
+# ---- Scaffolding tasks handed to the cpu-optimizer (new-kernel leg) ----
+scaffolding_tasks:
+  - id: kda-cpu-reference                # PRIMARY, unblocks end-to-end run (correctness-first)
+    op: kda_linear_attention
+    goal: "reference-first torch CPU KDA: fused-recurrent gated-delta-rule (decode, O(1)/token exact)
+      + chunked/sequential prefill + short causal conv1d(+silu) + L2-norm(k) + sigmoid gating +
+      FusedRMSNormGated output, operating on the dual (conv + temporal) cache."
+    parity_oracle: "GPU chunk_kda / fused_recurrent_kda (Triton) on H200 — full-tensor per-(layer,op) diff;
+      plus internal recurrent-vs-chunk self-consistency (top-k=all reduces exactly, like DSA)."
+    donor_to_adapt: "FLA fla/kda.py + fused_recurrent.py + fused_sigmoid_gating_recurrent.py + fused_norm_gate.py"
+    skills: [cpu-serving-integration, kernel-authoring, accuracy-oracle]
+    gate: "per-op parity cosine>=0.999 + mag; then whole-model coherence (short + >1024-tok + batch)"
+  - id: kda-cpu-cache-substrate
+    op: hybrid_cache_manager
+    goal: "mamba-style KDA state pool (conv + temporal) coexisting with the paged MLA KV pool; per-layer dispatch"
+    donor_to_adapt: "MambaAttnBackendBase + KimiLinearCacheParams + DSV4 paged MLA pool"
+    skills: [cpu-serving-integration]
+  - id: kda-amx-perf                     # DEFERRED to roofline phase
+    op: kda_linear_attention
+    goal: "AMX-accelerate the KDA decode recurrence + prefill chunk GEMMs once correctness passes"
+    note: "decode is per-step recurrent (memory-bound, state-streaming); prefill chunk is GEMM-shaped (AMX bf16)"
+    skills: [amx-vectorization, cache-blocking-tiling, weight-prepacking-brgemm, roofline-validation]
+
+# ---- Velocity instrument (clean-test vs DeepSeek-V4-Flash) ----
+velocity:
+  t0: "2026-10-01T23:16:48-07:00"
+  scope_method: "metadata-only fetch (0 weight bytes) completed full dtype audit + coverage/scope"
+  vs_dsv4: "DSV4 scope took multiple reactive bring-up breaks to discover MHC + infra; GLM scope
+    (incl. the 2nd family = KDA + dual cache) enumerated UP FRONT from source before any run.
+    GLM is SIMPLER on precision (1 fp8 bridge vs fp4+fp8) but adds a mamba-style hybrid cache."
