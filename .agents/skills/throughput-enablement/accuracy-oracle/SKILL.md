@@ -1,6 +1,6 @@
 ---
 name: accuracy-oracle
-description: "Use after cpu-model-wiring to prove the CPU-enabled model is numerically correct. LAYERED checks so a failure localizes: (0) a cheap real-prompt COHERENCE smoke test first ('it ran' on random/dummy inputs is NOT 'it's correct'; catches gross zeroed/no-op/routing/layout bugs and silently-stubbed forward paths), (0.5) a per-kernel LOW-BIT PARITY gate for every dtype bridge (fp4/mxfp4/fp8/int4 weights on a bf16/fp8 kernel) — kernel output vs an independent torch dequant oracle from the same packed bytes, because 'a bf16/fp8 kernel exists' is coverage, not correctness, (1) per-layer / logits parity vs a trusted reference (HF or the GPU SGLang path) under tolerance, and (2) end-to-end task accuracy via the in-repo harnesses (gsm8k, mmlu, hellaswag) within N points. Includes a correct-by-construction ISOLATION technique to bisect MoE vs shared-path bugs. Blocks enablement on any regression; a per-layer diff pinpoints the offending op for the wiring step to fix."
+description: "Use after cpu-model-wiring to prove the CPU-enabled model is numerically correct. ORDERING (critical): on UNOPTIMIZED code do NOT gate correctness on full-model generation or a task harness (too slow — watchdog); the feasible correctness gate is the per-layer fingerprint parity vs the GPU/HF baseline on ONE short prefill. Optimize AFTER correctness; regression-guard with the SAME fast parity; full generation + task accuracy come LAST once fast. LAYERED checks so a failure localizes: (0) a cheap real-prompt COHERENCE smoke test first ('it ran' on random/dummy inputs is NOT 'it's correct'; catches gross zeroed/no-op/routing/layout bugs and silently-stubbed forward paths), (0.5) a per-kernel LOW-BIT PARITY gate for every dtype bridge (fp4/mxfp4/fp8/int4 weights on a bf16/fp8 kernel) — kernel output vs an independent torch dequant oracle from the same packed bytes, because 'a bf16/fp8 kernel exists' is coverage, not correctness, (1) per-layer / logits parity vs a trusted reference (HF or the GPU SGLang path) under tolerance, and (2) end-to-end task accuracy via the in-repo harnesses (gsm8k, mmlu, hellaswag) within N points. Includes a correct-by-construction ISOLATION technique to bisect MoE vs shared-path bugs. Blocks enablement on any regression; a per-layer diff pinpoints the offending op for the wiring step to fix."
 ---
 
 # Accuracy Oracle
@@ -8,6 +8,30 @@ description: "Use after cpu-model-wiring to prove the CPU-enabled model is numer
 Correctness is the non-negotiable gate. A plausible-but-wrong model is worse than
 an unenabled one, so prove parity numerically AND on task, and make failures
 localizable.
+
+## ⛔ CORRECTNESS ORDERING (read FIRST — do not gate correctness on a full unoptimized run)
+On freshly-wired, UNOPTIMIZED code the forward is SLOW (unfused torch refs, no AMX/kernel path,
+no batching) — a 512+-token prefill can take >14 min and full generation / a task harness (gsm8k)
+will blow the watchdog. So **do NOT use full-model generation or task accuracy as the first
+correctness check.** The feasible, decisive correctness gate on unoptimized code is the **per-layer
+fingerprint parity against the GPU/HF baseline (Layer 1), which needs only ONE short-prompt
+PREFILL** (e.g. 8 tokens × all layers — minutes, not hours; the pathological cost is long-context
+prefill + slow decode, neither of which a tiny-prefill capture incurs). Sequence it:
+1. **Bring-up** (`cpu-model-wiring`) → the model completes ONE forward (make-it-work).
+2. **CORRECTNESS = per-layer fingerprint diff (Layer 1), NOW, on unoptimized code.** Capture CPU
+   per-`(pass,op,layer,rank)` tensors on a single short prefill and cosine+magnitude-diff them
+   against the pre-frozen GPU fingerprint (stood up in parallel at day-0 — see the GPU-oracle
+   section). First divergent layer = the bug. This proves the KERNELS/wiring are right.
+3. **THEN optimize** kernels + framework overhead (the perf ladder). Nothing slow runs before
+   correctness is established this cheap way.
+4. **Regression guard THROUGH optimization = the SAME fast parity**, not a slow full run: the
+   per-layer fingerprint re-diff (T1/T2 below) + a short-prompt cached-golden next-token parity —
+   seconds each. An optimized kernel is validated against the reference it replaces, cheaply.
+5. **Full-model coherence (Layer 0 generation) + task accuracy (Layer 2, gsm8k) come LAST**, once
+   the model is fast enough for generation to be feasible — they are the final end-to-end proof,
+   NOT the per-change correctness loop. Report any perf number as UNVALIDATED until Layer 1 passes.
+The anti-pattern this kills: "load full weights + run gsm8k to check correctness" on unoptimized
+code — infeasible (watchdog) AND unnecessary (the fingerprint already localized correctness to the op).
 
 ## Reference
 - Primary: the HF `modeling_*` forward in fp32/bf16 on the same inputs.
