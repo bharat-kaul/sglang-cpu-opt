@@ -22,5 +22,6 @@ cd /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate
 python diag_gsm8k_dump.py \
     --model /scratch/bkaul/models/DeepSeek-V4-Flash \
     --data /scratch/bkaul/gsm8k_test.jsonl \
-    --n ${N:-16} --num-shots 8 --chunked-prefill-size 512
+    --n ${N:-16} --num-shots 8 --chunked-prefill-size 512 \
+    --gens-out /scratch/bkaul/dsv4_gsm8k_diag_gens_${SLURM_JOB_ID}.json
 echo "[exit=$?]"

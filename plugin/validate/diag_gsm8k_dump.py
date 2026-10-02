@@ -12,22 +12,26 @@ parity). Settings:
 import argparse
 import json
 
-from task_gsm8k import INVALID, answer_value, one_example, read_jsonl
+from task_gsm8k import answer_value, extract_final_answer, one_example, read_jsonl
 
 
-def run(engine, prompts, labels, sp, tag):
+def run(engine, prompts, labels, sp, tag, dumps):
     outs = engine.generate(prompts, sp)
-    correct = 0
+    old = new = 0
     for i, (o, gold) in enumerate(zip(outs, labels)):
         txt = o["text"] if isinstance(o, dict) else o
-        pred = answer_value(txt)
-        ok = pred == gold
-        correct += int(ok)
-        if i < 4:  # dump first few verbatim
-            print(f"\n[{tag} Q{i}] gold={gold} pred={pred} {'OK' if ok else 'X'} "
-                  f"invalid={pred == INVALID} gen_len~{len(txt)}")
-            print("  GEN:", repr(txt[:800]))
-    print(f"\n=== {tag}: {correct}/{len(labels)} = {correct/len(labels):.3f} ===")
+        p_old = answer_value(txt)
+        p_new = extract_final_answer(txt)
+        old += int(p_old == gold)
+        new += int(p_new == gold)
+        dumps.append({"tag": tag, "q": i, "gold": gold, "pred_old": p_old,
+                      "pred_new": p_new, "text": txt})
+        if i < 4:
+            print(f"\n[{tag} Q{i}] gold={gold} old={p_old} new={p_new} gen_len~{len(txt)}")
+            print("  GEN:", repr(txt[:600]))
+    n = len(labels)
+    print(f"\n=== {tag}: old(last-num)={old}/{n}={old/n:.3f}  "
+          f"new(first-answer)={new}/{n}={new/n:.3f} ===")
 
 
 def main():
@@ -39,6 +43,7 @@ def main():
     p.add_argument("--mem-fraction", type=float, default=0.5)
     p.add_argument("--watchdog-timeout", type=float, default=7000.0)
     p.add_argument("--chunked-prefill-size", type=int, default=512)
+    p.add_argument("--gens-out", default="", help="save all generations here for offline extractor tuning")
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
@@ -57,13 +62,18 @@ def main():
         chunked_prefill_size=args.chunked_prefill_size,
     )
     base = {"temperature": 0.0}
+    dumps = []
     run(engine, prompts, labels,
         {**base, "max_new_tokens": 256, "stop": ["Question", "Assistant:", "\n\n"]},
-        "A current(256,\\n\\n)")
+        "A current(256,\\n\\n)", dumps)
     run(engine, prompts, labels,
         {**base, "max_new_tokens": 512, "stop": ["Question"]},
-        "B CoT-matched(512,Question)")
+        "B matched(512,Question)", dumps)
     engine.shutdown()
+    if args.gens_out:
+        with open(args.gens_out, "w") as f:
+            json.dump(dumps, f)
+        print("saved", len(dumps), "generations to", args.gens_out)
 
 
 if __name__ == "__main__":

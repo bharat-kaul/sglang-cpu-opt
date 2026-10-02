@@ -44,6 +44,23 @@ def answer_value(s):
         return INVALID
 
 
+_ANSWER_MARKER = re.compile(
+    r"(?:####|answer\s*is|answer\s*:|\\boxed\{)\s*\$?(-?\d[\d,]*(?:\.\d+)?)", re.IGNORECASE)
+
+
+def extract_final_answer(s):
+    """First EXPLICITLY-stated answer (#### / 'the answer is' / \\boxed{}), robust to a base
+    model rambling past its answer (where last-number extraction grabs a trailing wrong number).
+    Falls back to the last number in the pre-ramble paragraph."""
+    m = _ANSWER_MARKER.search(s)
+    if m:
+        try:
+            return ast.literal_eval(m.group(1).replace(",", ""))
+        except (SyntaxError, ValueError):
+            return INVALID
+    return answer_value(s.split("\n\n")[0])
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True)
