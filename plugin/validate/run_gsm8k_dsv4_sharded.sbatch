@@ -5,6 +5,8 @@
 # and (NFS caveat) N nodes each read the 149 GB model, so keep N moderate.
 # Submit:  sbatch run_gsm8k_dsv4_sharded.sbatch            # 8 shards, full 1319 Q
 # Combine: python combine_gsm8k_shards.py --glob "/scratch/bkaul/dsv4_gsm8k_sh_<ARRAYJOBID>_*.json"
+# CO-RUNNING SESSION? Leave 1-2 EMR nodes free: submit fewer shards (sbatch --array=0-5)
+# or throttle concurrency (sbatch --array=0-7%N). Check `sinfo -p emr -t idle -h -o %D` first.
 #SBATCH --partition=emr
 #SBATCH --array=0-7
 #SBATCH --nodes=1
