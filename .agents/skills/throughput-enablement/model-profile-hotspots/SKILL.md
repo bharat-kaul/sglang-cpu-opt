@@ -48,6 +48,20 @@ Only once the systemic config is fixed is the per-op profile trustworthy. **Regr
 we spent multiple fix cycles on per-op micro-opts before the systemic thread sweep that made them
 irrelevant — do the systemic sweep FIRST.**
 
+**Two nearly-free tells that a profile is an ARTIFACT (check BEFORE trusting any ranking):**
+- **Achievable-gap (self-ceiling).** The harness usually already runs the work fast somewhere —
+  a warmup forward, a best-of-N, a smaller config. If a WARMUP forward is far faster than the
+  MEASURED one at the SAME shape (this repo: warmup prefill 0.57s vs measured 167s, 293×), the
+  measured PATH is pathological, not the ops — fix the path, don't rank per-op. This number is
+  already in your log; read it before building any instrument.
+- **Physics sanity.** If structurally different ops all land at ~the same time, or a memcpy/cast
+  ≈ a matmul (100× the FLOPs), the INSTRUMENT is lying (a uniform blanket), not reporting op cost.
+  Distrust it before acting.
+- **Add OpenMP spin-wait to the systemic sweep:** idle OMP threads busy-wait by default
+  (`OMP_WAIT_POLICY=active`, `KMP_BLOCKTIME`=200ms) → inter-region contention inflates every
+  forward-after-the-first ~63× prefill / 10× decode here. `OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0`
+  at launch; it was THE systemic pathology this repo's whole per-op profile was measuring.
+
 ## Procedure
 1. **Run the real model, random weights OK.** Accuracy is irrelevant here — only
    timing. Launch with dummy/random weights so no checkpoint is needed
