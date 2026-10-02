@@ -78,6 +78,29 @@ def install_cpu_resolution_guards() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU mamba no_buffer guard not installed: %s", _e)
 
+    # KDA conv1d weight is fp32 and consumed LOGICALLY by our torch causal_conv1d
+    # (cpu_kda_*), NOT sglang's AMX causal_conv1d kernel. The stock loader routes conv
+    # weights to causal_conv1d_weight_pack, which (a) is unimplemented for Float and
+    # (b) would scramble the weight our backend reads row-major (same bug class as the
+    # DSV4 wo_a VNNI-pack-vs-einsum mismatch). Skip the pack for fp32 conv weights on CPU
+    # -> keep them logical. bf16 conv weights (other mamba models) still pack normally.
+    try:
+        from sglang.srt.layers import amx_utils as _au
+
+        _orig_pack = _au.amx_process_weight_after_loading
+
+        def _cpu_skip_fp32_conv_pack(weight, is_conv=False):
+            if is_conv and weight.dtype == torch.float32:
+                # Return the LOGICAL conv weight as 2D [C, K] (what both the loader's
+                # in-place copy and our torch cpu_kda conv expect), skipping the pack.
+                return weight.view(-1, weight.size(-1))
+            return _orig_pack(weight, is_conv)
+
+        _au.amx_process_weight_after_loading = _cpu_skip_fp32_conv_pack
+        logger.info("GLM5 CPU guard: fp32 KDA conv1d weight kept logical (skip AMX conv pack).")
+    except Exception as _e:
+        logger.warning("GLM5 CPU conv-pack guard not installed: %s", _e)
+
 
 def _layer_params(layer) -> dict:
     """Build the kda_layer_forward param bag from a RadixLinearAttention layer."""
