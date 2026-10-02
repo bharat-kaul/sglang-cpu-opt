@@ -26,14 +26,14 @@ OUTLEN=${OUTLEN:-32}
 BENCH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/throughput_bench.py
 cd /data/nfs_home/bkaul
 # batch:decode_threads pairs (threads matched to the batch sweet-spot from the MXFP4 roofline sweep)
-for pair in "1:8" "8:8" "16:16" "32:32"; do
+for pair in ${PAIRS:-1:8 8:8 16:16 32:32}; do
   B=${pair%:*}; T=${pair#*:}
   DT=${DT:-$T}  # DT=batch -> plugin batch-aware auto-scaling; DT=8 -> static cap; else matched per-batch
   echo "###### BATCH=$B decode_threads=$DT ######"
   INTEL_CPU_DSV4_DECODE_THREADS=$DT python "$BENCH" \
     --model "$MODEL" --config "$MODEL/config.json" --tp 1 \
     --batch "$B" --input-len "$INLEN" --output-len "$OUTLEN" \
-    --layers "$LAYERS" --load-format dummy --mem-fraction 0.85 \
+    --layers "$LAYERS" --load-format dummy --mem-fraction ${MEMFRAC:-0.85} \
     --out /scratch/bkaul/dsv4_throughput_${SLURM_JOB_ID}_b${B}.json
 done
 echo "[exit=$?] layers=$LAYERS inlen=$INLEN outlen=$OUTLEN"
