@@ -1,0 +1,17 @@
+# KDA GPU-oracle parity — GLM-5.3 Flash (the sole authoring gap)
+#
+# CPU reference recurrence (plugin/intel_cpu_models/kda_linear_attention_cpu.py:kda_recurrent)
+# vs the REAL Triton kernel (sglang .../fla/kda.py:fused_recurrent_kda), identical inputs.
+# Independent-spec validation (accuracy-oracle). Job 381045, H200, podman lmsysorg/sglang:latest,
+# torch 2.13.0+cu130. Harness: plugin/validate/test_kda_gpu_oracle.py.
+#
+# shape (T,H,K,V)        dtype     cosine      rel-max-err   mag-ratio
+24,4,64,64               float32   1.000000    2.48e-07      1.00000
+31,8,128,128             float32   1.000000    2.24e-07      1.00000
+64,64,128,128  (GLM dims) float32  1.000020    1.83e-07      1.00000
+24,4,64,64               bfloat16  0.999998    3.02e-03      0.99960
+31,8,128,128             bfloat16  0.999998    2.74e-03      1.00010
+64,64,128,128  (GLM dims) bfloat16 1.000000    3.01e-03      1.00000
+#
+# VERDICT: fp32 gate PASS (cos>0.999, rel<1e-2). CPU KDA recurrence is spec-locked to the
+# Triton kernel at the real GLM head dims. bf16 within expected accumulation tolerance.
