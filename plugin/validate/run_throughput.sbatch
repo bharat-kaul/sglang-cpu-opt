@@ -31,7 +31,7 @@ for pair in ${PAIRS:-1:8 8:8 16:16 32:32}; do
   DT=${DT:-$T}  # DT=batch -> plugin batch-aware auto-scaling; DT=8 -> static cap; else matched per-batch
   echo "###### BATCH=$B decode_threads=$DT ######"
   INTEL_CPU_DSV4_DECODE_THREADS=$DT python "$BENCH" \
-    --model "$MODEL" --config "$MODEL/config.json" --tp 1 \
+    --model "$MODEL" --config "$MODEL/config.json" --tp ${TP:-1} \
     --batch "$B" --input-len "$INLEN" --output-len "$OUTLEN" \
     --layers "$LAYERS" --load-format dummy --mem-fraction ${MEMFRAC:-0.85} \
     --out /scratch/bkaul/dsv4_throughput_${SLURM_JOB_ID}_b${B}.json
