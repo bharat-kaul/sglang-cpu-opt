@@ -18,10 +18,11 @@ def main():
 
     model = os.environ["MODEL_PATH"]
     tp = int(os.environ.get("TP", "1"))
+    device = os.environ.get("DEVICE", "cpu")
     load_format = os.environ.get("LOAD_FORMAT")  # e.g. "dummy" for bring-up
-    print(f"[smoke] launching CPU engine: {model} tp={tp} load_format={load_format}", flush=True)
+    print(f"[smoke] launching {device} engine: {model} tp={tp} load_format={load_format}", flush=True)
     kw = dict(
-        model_path=model, device="cpu", tp_size=tp,
+        model_path=model, device=device, tp_size=tp,
         disable_overlap_schedule=True, trust_remote_code=True,
         mem_fraction_static=float(os.environ.get("MEM_FRAC", "0.5")),
         log_level=os.environ.get("LOG_LEVEL", "warning"),
@@ -41,8 +42,11 @@ def main():
     if os.environ.get("DISABLE_RADIX") == "1":
         kw["disable_radix_cache"] = True
     e = sgl.Engine(**kw)
-    for pr in ["The capital of France is", "2 + 2 ="]:
-        o = e.generate(pr, {"temperature": 0.0, "max_new_tokens": 8})
+    # Prompts/max-new via env so GPU reference and CPU runs use IDENTICAL inputs (fingerprint align).
+    prompts = os.environ.get("SMOKE_PROMPTS", "The capital of France is|2 + 2 =").split("|")
+    max_new = int(os.environ.get("MAX_NEW", "8"))
+    for pr in prompts:
+        o = e.generate(pr, {"temperature": 0.0, "max_new_tokens": max_new})
         txt = o["text"] if isinstance(o, dict) else o
         print("PROMPT:", repr(pr), "-> OUT:", repr(txt), flush=True)
     e.shutdown()

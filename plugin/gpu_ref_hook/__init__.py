@@ -500,7 +500,109 @@ def _install_fullcap():
         pass
 
 
+def _install_fullcap_glm():
+    # Full-tensor per-(pass,op,layer,rank) capture on the native-GPU GLM-5.3 reference, for an
+    # offline cosine-per-layer diff vs the CPU build. Saves each decoder-layer OUTPUT hidden, the
+    # MHC hc_post output (the DSV4-port break class), and the final logits (all fp32) to FULLCAP_FILE.
+    try:
+        import torch
+        import sglang.srt.models.glm5_next as _glm
+    except Exception:  # noqa: BLE001
+        return
+    Layer = getattr(_glm, "Glm5NextDecoderLayer", None)
+    if Layer is None or getattr(Layer, "_fullcap_glm_patched", False):
+        return
+    _F = os.environ.get("FULLCAP_FILE", "/scratch/bkaul/glm5_gpu_fullcap.pt")
+    _CAP = {}
+    _ST = {"seen_pf": False, "dc": 0}
+
+    def _rk():
+        try:
+            from sglang.srt.distributed import get_tensor_model_parallel_rank as _g
+
+            return _g()
+        except Exception:  # noqa: BLE001
+            return -1
+
+    def _tag(T):
+        if 2 <= T <= 16:
+            _ST["seen_pf"] = True
+            return "pf"
+        if T == 1 and _ST["seen_pf"]:
+            return f"dc{_ST['dc'] // 64}"
+        return None
+
+    _ofwd = Layer.forward
+
+    def _fwd(self, *a, **k):
+        out = _ofwd(self, *a, **k)
+        try:
+            h = out[0] if isinstance(out, (tuple, list)) else out
+            if torch.is_tensor(h) and h.dim() >= 2:
+                tg = _tag(h.shape[0])
+                if tg:
+                    lid = getattr(self, "layer_id", -1)
+                    key = f"{tg}.L{lid}.r{_rk()}"
+                    if key not in _CAP:
+                        _CAP[key] = h.detach().float().cpu()
+                    if tg.startswith("dc"):
+                        _ST["dc"] += 1
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    Layer.forward = _fwd
+    Layer._fullcap_glm_patched = True
+
+    # MHC hc_post output (localizes the DSV4-port vs GLM shape/layout break directly).
+    _ohcp = getattr(Layer, "hc_post", None)
+    if _ohcp is not None and not getattr(Layer, "_fullcap_glm_hcpost", False):
+
+        def _hcp(self, *a, **k):
+            r = _ohcp(self, *a, **k)
+            try:
+                o = r[0] if isinstance(r, (tuple, list)) else r
+                if torch.is_tensor(o):
+                    tg = _tag(o.shape[0])
+                    if tg:
+                        lid = getattr(self, "layer_id", -1)
+                        key = f"{tg}.hcpost.L{lid}.r{_rk()}"
+                        if key not in _CAP:
+                            _CAP[key] = o.detach().float().cpu()
+            except Exception:  # noqa: BLE001
+                pass
+            return r
+
+        Layer.hc_post = _hcp
+        Layer._fullcap_glm_hcpost = True
+
+    try:
+        from sglang.srt.layers.logits_processor import LogitsProcessor
+
+        if not getattr(LogitsProcessor, "_fullcap_glm_patched", False):
+            _olp = LogitsProcessor.forward
+
+            def _lp(self, *a, **k):
+                r = _olp(self, *a, **k)
+                try:
+                    lg = getattr(r, "next_token_logits", None)
+                    if lg is not None:
+                        n = sum(1 for kk in _CAP if kk.startswith("logits"))
+                        _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
+                        torch.save(_CAP, _F)
+                except Exception:  # noqa: BLE001
+                    pass
+                return r
+
+            LogitsProcessor.forward = _lp
+            LogitsProcessor._fullcap_glm_patched = True
+    except Exception:  # noqa: BLE001
+        pass
+
+
 if os.environ.get("GPU_REF_HID_DEBUG") == "1":
     _install()
 if os.environ.get("GPU_REF_FULLCAP") == "1":
     _install_fullcap()
+if os.environ.get("GLM_GPU_FULLCAP") == "1":
+    _install_fullcap_glm()
