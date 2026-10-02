@@ -41,7 +41,9 @@ def shrink(c):
     tc["index_n_heads"] = 2
     tc["index_topk"] = 8
     tc["index_kpool"] = 2
-    tc["vocab_size"] = 512
+    # Keep the REAL vocab_size — we copy the real tokenizer, so a shrunk vocab makes
+    # token ids exceed the embedding table (IndexError). Embedding/lm_head stay cheap
+    # with dummy weights at hidden_size=256.
     tc["first_k_dense_replace"] = 3
     tc["num_nextn_predict_layers"] = 0  # skip MTP draft for base bring-up
     la = tc["linear_attn_config"]
