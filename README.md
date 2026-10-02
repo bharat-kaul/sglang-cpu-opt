@@ -139,8 +139,8 @@ leg (Thesis 2)** measured = *our authored* kernel; in the **reuse leg (Thesis 1)
 headroom (an RoI even when no new kernel was written).
 - **Thesis 1 — donor-kernel optimization** (OLMo-2-7B, BF16, GNR): [report](plugin/validate/results/olmo2_7b_donor_roofline.md)
   · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.png) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom. Backend is oneDNN/LIBXSMM BRGEMM (best-in-class inner loop), so the gap is **composition/memory-traffic**, not tile-loop quality.
-- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (decode, fp8, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
-  · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.png) — measured = *our authored* DSA/MoE CPU kernels; the gap to the ceiling is the remaining co-design RoI.
+- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (routed-expert MoE kernel = 68% of decode, MXFP4 W4A16, EMR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
+  · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.png) — **measured**: prefill and *batched* decode hit **75% of the DRAM-BW roofline**; unbatched M=1 decode only **26%** → batching is the decode lever. Model-level (tp=1+cap, full 43 layers, batch 32): prefill 69.6 / decode 9.3 tok/s.
 - **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Pro (decode, bf16/fp4-storage, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_pro_roofline.md)
   · ![chart](plugin/validate/results/deepseek_v4_pro_roofline.png) — measured = *our authored* kernels on the 1.6T model.
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
