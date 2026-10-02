@@ -17,6 +17,14 @@ condition is met and gating every step against the measured roofline.
 > accurate, perf-vs-roofline model in the enablement-certificate. `cpu-serving-integration`
 > is the step that turns authored kernels into that running model.
 
+> **When the RUN is the bottleneck (long load / slow decode / cluster queue) — load the
+> run-efficiency skills (apply to EVERY model, both legs):** `high-information-runs` (make each
+> expensive run a multi-angle probe; and ALWAYS launch `scripts/await_job.sh` in the async terminal
+> after submitting a long job so completion AUTO-WAKES the agent — never fire-and-forget then wait
+> for a human to ask "is it done?"); `perf-proxy` (depth-reduced proxy; generate-once then score
+> OFFLINE). For TASK ACCURACY specifically, `accuracy-oracle` carries the node-parallel + chunked +
+> checkpointed harness and the certify-vs-trusted-reference rule (a bare score certifies nothing).
+
 > **Reference-wiring-FIRST.** Before optimizing, wire the full serving path with
 > fallback/reference kernels and make it RUN + CORRECT on a **tiny architecturally-faithful
 > config** (real arch switches, tiny dims, dummy weights — runs in seconds, same code paths).
