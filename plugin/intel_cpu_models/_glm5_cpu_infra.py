@@ -269,4 +269,22 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU silu_and_mul_clamp patch not installed: %s", _e)
 
+    # DSA lightning Indexer (GLM MLA layers) has no CPU kernel (forward_native raises). On CPU
+    # return None -> the MLA attends DENSE over all valid KV. This is EXACT at short context
+    # (seq <= index_topk: top-k selects all = dense == sparse), which covers the make-it-work
+    # bring-up + the short-prefill parity fingerprint. Long-context / incremental-decode sparse
+    # selection is a documented perf/accuracy TODO (mirrors DSV4's incremental-sparse decode).
+    try:
+        from sglang.srt.layers.attention.dsa.dsa_indexer import Indexer
+
+        def _cpu_indexer_forward_native(
+            self, x, q_lora, positions, forward_batch, layer_id, return_indices=True
+        ):
+            return None  # dense fallback; sparse selection is a perf-phase TODO
+
+        Indexer.forward_native = _cpu_indexer_forward_native
+        logger.info("GLM5 CPU: DSA Indexer -> dense fallback (None); sparse selection = perf TODO.")
+    except Exception as _e:
+        logger.warning("GLM5 CPU DSA Indexer fallback not installed: %s", _e)
+
     _INSTALLED = True
