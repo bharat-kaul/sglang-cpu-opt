@@ -18,7 +18,7 @@ import json
 import os
 import time
 
-from task_gsm8k import INVALID, extract_final_answer, one_example, read_jsonl
+from task_gsm8k import INVALID, answer_value, extract_final_answer, one_example, read_jsonl
 
 
 def _atomic_write(path, obj):
