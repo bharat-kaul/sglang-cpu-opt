@@ -246,4 +246,27 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU mhc_post patch not installed: %s", _e)
 
+    # SwiGLU clamp (GLM swiglu_limit): silu_and_mul_clamp is CUDA-JIT only (nvcc absent on CPU);
+    # DSV4 had no swiglu_limit so never hit it. Route to torch on CPU. Math (per the NPU ref
+    # _apply_swiglu_limit_npu): gate=first half clamp(max=L); up=second half clamp(-L,L); out=silu(gate)*up.
+    try:
+        import torch.nn.functional as _Fn
+
+        def _cpu_silu_and_mul_clamp(inp, output, swiglu_limit):
+            gate, up = inp.chunk(2, dim=-1)
+            gate = gate.clamp(max=swiglu_limit)
+            up = up.clamp(min=-swiglu_limit, max=swiglu_limit)
+            output.copy_((_Fn.silu(gate.float()) * up.float()).to(output.dtype))
+
+        import sglang.kernels.ops.attention.dsv4.moe as _dmoe
+
+        _dmoe.silu_and_mul_clamp = _cpu_silu_and_mul_clamp
+        import sglang.srt.models.deepseek_v2 as _dv2
+
+        if hasattr(_dv2, "silu_and_mul_clamp"):
+            _dv2.silu_and_mul_clamp = _cpu_silu_and_mul_clamp
+        logger.info("GLM5 CPU: silu_and_mul_clamp routed to torch (swiglu_limit).")
+    except Exception as _e:
+        logger.warning("GLM5 CPU silu_and_mul_clamp patch not installed: %s", _e)
+
     _INSTALLED = True
