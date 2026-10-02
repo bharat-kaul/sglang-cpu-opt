@@ -200,4 +200,28 @@ def install() -> None:
     _kb.KDAAttnBackend.forward_decode = _cpu_forward_decode
     _kb.KDAAttnBackend.forward_extend = _cpu_forward_extend
     logger.info("GLM5 CPU KDA backend installed (CPU recurrence + dual cache).")
+
+    # KDA o_norm is FusedRMSNormGated(activation="sigmoid"), but the CPU sgl_kernel
+    # fused_rmsnorm_gated_cpu only implements silu. Route sigmoid through our
+    # parity-tested torch rms_norm_gated (the GPU uses the same torch path for sigmoid).
+    try:
+        from sglang.kernels.ops.attention.fla.fused_norm_gate import FusedRMSNormGated
+
+        _orig_norm_fwd = FusedRMSNormGated.forward
+
+        def _cpu_gated_norm_forward(self, x, g, residual=None, prenorm=False, residual_in_fp32=False):
+            if is_cpu() and self.activation == "sigmoid":
+                from intel_cpu_models.kda_linear_attention_cpu import rms_norm_gated as _rng
+
+                assert residual is None and not prenorm, (
+                    "CPU sigmoid gated-norm: residual/prenorm not supported"
+                )
+                return _rng(x, g, self.weight, eps=self.eps, activation="sigmoid").to(x.dtype)
+            return _orig_norm_fwd(self, x, g, residual, prenorm, residual_in_fp32)
+
+        FusedRMSNormGated.forward = _cpu_gated_norm_forward
+        logger.info("GLM5 CPU: FusedRMSNormGated sigmoid routed through torch rms_norm_gated.")
+    except Exception as _e:
+        logger.warning("GLM5 CPU gated-norm patch not installed: %s", _e)
+
     _INSTALLED = True
