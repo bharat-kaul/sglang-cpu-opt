@@ -5,6 +5,22 @@ description: "Experiment-design discipline for when the RUN is the bottleneck (l
 
 # High-Information Runs (maximize dispositions per expensive run)
 
+## ⛔ ASYNC-HEARTBEAT — never fire-and-forget a job then wait for a human to ask "is it done?"
+A recurring velocity leak: submit an sbatch (or a long download/decode), then STOP and idle until the
+operator prompts a status check. The submit→detach→human-prompt round-trip serializes the whole loop on
+human attention. Kill it by making completion AUTO-WAKE the agent:
+1. **Immediately after submitting any long job, launch a BLOCKING WAITER in the agent's ASYNC terminal**
+   (`scripts/await_job.sh <jobid> [log] [hb_secs]`, or `sbatch --wait <script>`). The async terminal
+   notifies the agent on completion → it wakes and dispositions the result with NO human prompt. The
+   waiter also emits periodic HEARTBEAT lines (elapsed + last log line) for liveness and a DONE summary.
+2. **Keep a WATCHLIST LEDGER** (one row per in-flight job: id, purpose, node, log, expected PASS signal,
+   disposition-per-outcome); update at submit and at completion.
+3. **Re-orient from the watchlist FIRST on every wake** — what's pending, did it land — before new work.
+4. **Parallel jobs → one waiter each** (or one over the array); each completion wakes the agent. Don't
+   serialize behind a single manual check.
+This is the control-flow dual of the disposition matrix: the matrix says what each outcome means; the
+async-heartbeat guarantees the agent is actually there to read the outcome the instant it exists.
+
 When the run is the bottleneck, **loop wall-time = num_runs × run_cost**. `run_cost` is
 mostly fixed (real weights load + slow decode + queue wait), so the only lever is
 `num_runs`. Cut it by designing each expensive run to **disposition several hypotheses at
