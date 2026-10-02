@@ -35,6 +35,22 @@ every per-kernel technique then operates inside one domain and replicates across
 - Cache blocking (L2/L1) and AMX (per-core TMUL) are themselves domain-agnostic, but the
   memory that **feeds** them is domain-local — so the domain still must be fixed first.
 
+## CONSTRAINT: `tp` must divide the MODEL, not just match the domain count (check this FIRST)
+"`tp` = #SNC domains, one rank per domain" is the *aspirational* max-BW mapping — but the serving
+framework asserts **`dim % tp == 0`** (QKV/MoE-projection sizes, attention heads). So the **valid `tp`
+is set by the MODEL's dims, not the hardware's domain count**, and the two often don't match:
+- A model with **2^k dims** (e.g. DSV4: proj=32768, 64 heads) accepts only **power-of-2 tp {2,4,8,…}**
+  — so a **6-SNC-domain** node (GNR: 2 sockets × 3 SNC) **cannot** do one-rank-per-SNC (tp=6 is rejected).
+  Fall back to **one rank per SOCKET** (tp=2): clean divisibility, both sockets' BW, each rank's shard
+  spread across its socket's SNC domains (a minor intra-socket remote vs the ideal per-SNC locality).
+- **Fail-fast cheaply on the perf-proxy** (4-layer dummy, free farm): a tp=N Engine init either runs or
+  throws `AssertionError: <dim> is not divisible by N` in seconds — settle the valid-tp set BEFORE any
+  scarce-node or real-weight run. (Measured: EMR tp=2 ran clean; tp=6 rejected on 32768%6.)
+- So the domain decision is a **negotiation** between hardware domains and model divisibility: pick the
+  largest valid `tp` that (a) divides the dims and (b) makes each rank's shard FIT its domain(s). For a
+  model that fits one socket, **per-socket tp (one rank/socket)** is usually the sweet spot when per-SNC
+  is divisibility-blocked.
+
 ## Two facets
 1. **Topology / placement (decide once, up front).** SNC on/off; nodes per socket
    (`numa_nodes / sockets`); how many domains to use; whether a lone op stays in one domain
