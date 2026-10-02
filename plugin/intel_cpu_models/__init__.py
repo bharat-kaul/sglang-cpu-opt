@@ -21,3 +21,12 @@ logger.info(
     "intel_cpu_models plugin loaded — CPU-optimized model overrides active "
     "(SGLANG_EXTERNAL_MODEL_PACKAGE)."
 )
+
+# Install CPU arg-resolution guards at package-import time — BEFORE sglang's
+# resolve_once() runs the DSA-family device probes (GLM-5.3 Flash routes there).
+try:
+    from intel_cpu_models._glm5_cpu_infra import install_cpu_resolution_guards
+
+    install_cpu_resolution_guards()
+except Exception as _e:  # never block loading other models on this guard
+    logger.warning("intel_cpu_models: CPU resolution guard not installed: %s", _e)

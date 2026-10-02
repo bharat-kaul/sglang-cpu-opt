@@ -30,6 +30,33 @@ logger = logging.getLogger(__name__)
 _INSTALLED = False
 
 
+def install_cpu_resolution_guards() -> None:
+    """Make CPU-unsafe device probes in sglang's arg-resolution survive on CPU-only torch.
+
+    GLM-5.3 Flash is in sglang's DSA-family list (arg_groups/model_hook.py), so
+    ``is_deepseek_dsa(cfg)`` routes it into a CUDA/ROCm branch that calls
+    ``torch.cuda.get_device_capability()`` during ``resolve_once()`` — which raises on a
+    CPU-only torch build (DeepSeek-V4 never hit this: it is NOT in that arch list). This
+    runs BEFORE the external model package's model modules import, so the guard must install
+    at plugin-package import. Inert on any CUDA build (guarded by is_available)."""
+    import torch
+
+    if torch.cuda.is_available():
+        return
+    cap = torch.cuda.get_device_capability
+    if getattr(cap, "_glm5_cpu_shim", False):
+        return
+
+    def _cpu_safe_capability(device=None):
+        # Report a Hopper-class capability so DSA resolution picks sane defaults; the
+        # actual CPU attention/KV wiring overrides execution downstream.
+        return (9, 0)
+
+    _cpu_safe_capability._glm5_cpu_shim = True
+    torch.cuda.get_device_capability = _cpu_safe_capability
+    logger.info("GLM5 CPU resolution guard: torch.cuda.get_device_capability shimmed (CPU).")
+
+
 def _layer_params(layer) -> dict:
     """Build the kda_layer_forward param bag from a RadixLinearAttention layer."""
     return dict(
