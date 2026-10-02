@@ -28,6 +28,12 @@ def main():
     )
     if load_format:
         kw["load_format"] = load_format
+    # Mamba/linear-attention models (GLM-5 KDA): the default extra_buffer radix-cache
+    # strategy needs GPU-FLA; force the CPU-valid no_buffer (page_size=1) via env.
+    if os.environ.get("MAMBA_RADIX_STRATEGY"):
+        kw["mamba_radix_cache_strategy"] = os.environ["MAMBA_RADIX_STRATEGY"]
+    if os.environ.get("PAGE_SIZE"):
+        kw["page_size"] = int(os.environ["PAGE_SIZE"])
     e = sgl.Engine(**kw)
     for pr in ["The capital of France is", "2 + 2 ="]:
         o = e.generate(pr, {"temperature": 0.0, "max_new_tokens": 8})
