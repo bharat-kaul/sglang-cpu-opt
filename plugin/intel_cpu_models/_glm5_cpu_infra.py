@@ -94,6 +94,11 @@ def install_cpu_resolution_guards() -> None:
                 # Return the LOGICAL conv weight as 2D [C, K] (what both the loader's
                 # in-place copy and our torch cpu_kda conv expect), skipping the pack.
                 return weight.view(-1, weight.size(-1))
+            if is_conv and weight.dim() == 5:
+                # 5D conv3d = the vision patch-embed. Vision is OUT OF SCOPE for the
+                # text "Flash" path (tower built but never run); its AMX pack also
+                # rejects IC%32!=0. Keep it logical so text bring-up proceeds.
+                return weight
             return _orig_pack(weight, is_conv)
 
         _au.amx_process_weight_after_loading = _cpu_skip_fp32_conv_pack
