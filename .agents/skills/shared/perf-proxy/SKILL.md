@@ -1,6 +1,6 @@
 ---
 name: perf-proxy
-description: "Overcome the long-run structural bottleneck: build a DEPTH-reduced, FULL-WIDTH, real-config proxy of the target model and do performance bottleneck-hunting + fix iteration on it (queue-free, ~1/N the time) BEFORE any full-model run. Use EARLY — before model-profile-hotspots and the optimization loop — whenever the real model takes many minutes to load and runs slowly. Accuracy is ignored (dummy weights). The proxy shrinks num_hidden_layers to the minimum set that covers all op families, but keeps every per-layer WIDTH (hidden, experts, intermediate, heads) and the RUNTIME config (tp, threads, NUMA, dtype) REAL — because per-op bottlenecks (framework/kernel, grain-size) are set by width+config, not depth. Confirm depth-aggregate effects + absolute tok/s on the full model at the end."
+description: "Overcome the long-run structural bottleneck: build a DEPTH-reduced, FULL-WIDTH, real-config proxy of the target model and do performance bottleneck-hunting + fix iteration on it (queue-free, ~1/N the time) BEFORE any full-model run. Use EARLY — before model-profile-hotspots and the optimization loop — whenever the real model takes many minutes to load and runs slowly. Accuracy is ignored (dummy weights). The proxy shrinks num_hidden_layers to the minimum set that covers all op families, but keeps every per-layer WIDTH (hidden, experts, intermediate, heads) and the RUNTIME config (tp, threads, NUMA, dtype) REAL — because per-op bottlenecks (framework/kernel, grain-size) are set by width+config, not depth. Progress up a DUMMY-weight ladder — truncated-dummy (iterate) → FULL-dummy (authoritative perf-vs-roofline on the target node, before any real-weight load) → full-weight (ONLY for accuracy + a final no-perf-regression confirm). Dummy is valid for perf (real shapes/dtypes/byte-streaming, random values); never pay the full-weight load to answer a PERF question."
 ---
 
 # Perf Proxy (depth-reduced, full-width — fast, faithful bottleneck iteration)
@@ -62,10 +62,35 @@ DeepSeek-V4-Flash 4-layer proxy on the login node (no queue):
 - **Absolute end-to-end tok/s** — extrapolate `× depth-ratio` but VALIDATE once on full depth.
 - **Accuracy** — by design (dummy weights); accuracy uses the real-weight full model separately.
 
+## The validation ladder — DUMMY for perf, FULL WEIGHTS only for accuracy (run in this order)
+Three rungs, cheapest first; each DE-RISKS the next. Dummy weights are VALID for perf (shapes,
+dtypes, byte-streaming, and kernel code paths are all real — only the VALUES are random) and
+INVALID for accuracy. So run the ENTIRE perf/roofline campaign on dummy and pay the real-weight
+load only at the very end, for accuracy + a final confirm. **Never pay the full-weight load to
+answer a PERF question.**
+1. **Truncated depth + DUMMY** (the proxy above). Bottleneck-hunting, per-op profiling, config/
+   thread tuning, opt A/B. Queue-free, ~1/N time — most iteration lives here.
+2. **FULL depth + DUMMY** (run BEFORE any real-weight load). Real full-model shapes and full
+   resident footprint, still no checkpoint read. Purpose:
+   - the AUTHORITATIVE perf-vs-roofline number, on the TARGET perf node (e.g. GNR, higher BW),
+     at realistic serving batch — the real mission metric, minus accuracy;
+   - confirm the truncated→full extrapolation actually holds — catches the depth-aggregate
+     effects the proxy cannot (total BW/memory-wall pressure, full resident fit vs ONE NUMA
+     domain, allocator/NUMA at full size, KV growth);
+   - DE-RISK the expensive final run: if full-dummy exposes a perf or capacity problem (overflows
+     one domain, decode falls off roofline at full depth), fix it BEFORE paying the load.
+   Load stays cheap (dummy skips the checkpoint read); only the resident allocation is full-size.
+3. **FULL depth + FULL weights** (final — once rung 2 perf is satisfactory and the accuracy gate
+   is ready). The ONLY rung needing the real checkpoint, and only for: (a) ACCURACY (task / per-
+   layer parity — `accuracy-oracle`); (b) a final confirm that real values don't change perf
+   (they must not — identical shapes/dtypes/code paths; only load time differs, so a perf delta
+   here is a BUG). Expensive load → done LAST, ideally once.
+
 ## Where it sits in the workflow (EARLY)
 Run the proxy BEFORE the expensive full-model empirical tier:
 `… → model-roofline-analysis → **perf-proxy (build + iterate here)** → model-profile-hotspots
-(on the proxy) → fixes → confirm ONCE on the full model`.
+(on the proxy) → fixes → **full-dummy perf-vs-roofline (rung 2, target node)** → full-weight
+accuracy + perf-confirm (rung 3)`.
 - Pairs with `high-information-runs`: the proxy makes each run CHEAP; high-information-runs makes
   each run ANSWER MORE → fewer × cheaper runs.
 - The overhead/isolation probes (`overhead-attribution`, kernel-isolation) run ON the proxy.
