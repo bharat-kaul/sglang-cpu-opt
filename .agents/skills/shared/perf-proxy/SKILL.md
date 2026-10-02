@@ -72,11 +72,18 @@ DeepSeek-V4-Flash 4-layer proxy on the login node (no queue):
   node run, but never to decide TP upside.
 
 ## The validation ladder — DUMMY for perf, FULL WEIGHTS only for accuracy (run in this order)
-Three rungs, cheapest first; each DE-RISKS the next. Dummy weights are VALID for perf (shapes,
-dtypes, byte-streaming, and kernel code paths are all real — only the VALUES are random) and
-INVALID for accuracy. So run the ENTIRE perf/roofline campaign on dummy and pay the real-weight
-load only at the very end, for accuracy + a final confirm. **Never pay the full-weight load to
-answer a PERF question.**
+Three dummy rungs, cheapest first (plus a config-sweep rung 0 that precedes them all); each
+DE-RISKS the next. Dummy weights are VALID for perf (shapes, dtypes, byte-streaming, and kernel
+code paths are all real — only the VALUES are random) and INVALID for accuracy. So run the ENTIRE
+perf/roofline campaign on dummy and pay the real-weight load only at the very end, for accuracy +
+a final confirm. **Never pay the full-weight load to answer a PERF question.**
+0. **Systemic-config sweep FIRST — before ANY per-op ranking, on any rung.** A single systemic
+   mis-setting (thread count/cap + the decode M=1 thread cliff, **OpenMP spin-wait**
+   `OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0`, NUMA/membind, prepack, ISA dispatch) inflates *every*
+   op roughly uniformly, so ranking hotspots first optimizes inflated numbers and chases the wrong
+   ops. Sweep it before trusting a profile — here it was worth **63× prefill / 10× decode** on its
+   own, bigger than every per-op tweak combined. See `runtime-config-tuning` + `model-profile-hotspots`
+   Step 0. (This rung is cheap and runs on the truncated proxy too — do it there first.)
 1. **Truncated depth + DUMMY** (the proxy above). Bottleneck-hunting, per-op profiling, config/
    thread tuning, opt A/B. Queue-free, ~1/N time — most iteration lives here.
 2. **FULL depth + DUMMY** (run BEFORE any real-weight load). Real full-model shapes and full

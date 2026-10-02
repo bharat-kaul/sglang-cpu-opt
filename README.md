@@ -43,43 +43,54 @@ automatically from the same donor kernels (capability inheritance).
 
 ### Thesis 2 — new-kernel leg (DeepSeek Flash v4.1)
 
-**DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) is a
-Thesis-2 model because of **two genuinely novel op families** — DeepSeek Sparse Attention (DSA:
-lightning-indexer + KV-compressor + top-k sparse-MLA) and MHC hash-clustering — while everything else
-is covered by the DeepSeek-V2 CPU donors. The agentic workflow, demonstrated end-to-end:
+**DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) is the
+flagship for the **new-architecture** leg — it carries **two genuinely novel op families** (DeepSeek
+Sparse Attention: lightning-indexer + KV-compressor + top-k sparse-MLA; and MHC hash-clustering),
+while everything else is covered by the DeepSeek-V2 CPU donors. This section shows two things: the
+**repeatable approach** our agentic workflow applies to *any* new architecture, and **what it has
+demonstrated** on this model.
 
-**1 · Scope — coverage-gate + up-front data-type audit.** Scope-discovery surfaced the *true* scope —
-two novel kernel families **plus** a runtime infra layer, not the "4 DSA kernels" a static op-scan
-implied. The data-type audit censused each weight family's *stored* dtype from the real checkpoint
-(MXFP4 experts, fp8 projections, bf16 rest) and mapped it to the target-HW *compute* dtype
-(→ W4A16 / W8A16 / native bf16), flagging every `stored ≠ compute` dequant bridge →
-[coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+#### The approach we built (reusable across models)
+- **Coverage-gate routing** — decompose the model, match every op to existing CPU kernels, and route
+  *only* the genuinely novel ops to the author leg (here: DSA + MHC); never dense-approximate a gap.
+- **Up-front precision / data-type hygiene** — census each weight family's *stored* dtype from the
+  **real checkpoint** and map it to a HW-supported *compute* dtype (low-bit **moved**, bf16
+  **computed**); every `stored ≠ compute` dequant bridge is **parity-checked, not assumed**.
+- **Reference-first kernel authoring** — write each novel kernel against an in-tree numeric oracle and
+  gate on parity *before* it enters the serving path. No unverified kernel ships.
+- **Performance methodology — cheapest, highest-signal first (the order matters):**
+  1. **Rule out systemic-config pathology FIRST.** A single mis-setting (thread cliff, OpenMP
+     spin-wait, NUMA bind) inflates *every* op roughly uniformly and dwarfs any per-op tuning — sweep
+     it before ranking hotspots. (Here it was worth **63× prefill / 10× decode** on its own.)
+  2. **Truncated model + dummy weights.** A depth-reduced, full-**WIDTH** proxy reproduces every
+     per-op bottleneck queue-free in ~1/N the time; nearly all fix-iteration lives here.
+  3. **Full model + dummy weights.** The authoritative perf-vs-roofline run at full shapes/footprint on
+     the target node — *before* paying any real-weight load — catching depth-aggregate + capacity
+     effects the proxy can't.
+  4. **Full model + real weights.** Paid **only** for accuracy + a final no-regression confirm.
+- **Accuracy oracle gates before any perf claim** — real-prompt coherence → per-token parity → task
+  accuracy; a failing gate blocks the number (it did here — see below).
 
-**2 · Author the novel kernels, reference-first, parity-gated.** CPU infra layer (KV pool, paged
-allocator, backend guards) + MLA-core/MHC kernels checked against in-tree oracles
-([_dsv4_cpu_infra.py](plugin/intel_cpu_models/_dsv4_cpu_infra.py)); the novel DSA compute kernels —
-compressor softmax-pool, lightning-indexer, sparse-prefill attention — authored and parity-validated
-([dsa_compressor_cpu.py](plugin/intel_cpu_models/dsa_compressor_cpu.py),
-[dsa_indexer_cpu.py](plugin/intel_cpu_models/dsa_indexer_cpu.py),
-[dsa_sparse_attention_cpu.py](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py)). The **composed**
-DSA attention reduces **exactly to dense at top-k=all** (err 1.8e-7), proving the sparse-attention
-math ([dsa_attention_cpu.py](plugin/intel_cpu_models/dsa_attention_cpu.py)). A `index_gemm(M16)`
-feasibility gate (GNR+EMR microbench) returned a data-driven DEFER — no wrong kernel built.
-
-**3 · Run end-to-end at tp=1 — by keeping the MXFP4 nibbles.** The routed experts stay **native
-4-bit** and run the CPU **MXFP4 W4A16** MoE kernel (fused fp4→bf16 in the AMX GEMM), so the whole
-model holds **~200 GB → fits ONE NUMA/SNC domain → clean tp=1**. Loads ~135 s; prefill + multi-token
-decode complete → [run](plugin/validate/run_deepseekv4_flash_mxfp4_tp1.sbatch).
-
-**4 · Correctness — accuracy oracle.** The real-prompt coherence check caught a real decode bug (DSA
-sparse selection stubbed at decode → MLA gathered nothing → zero attention); fixed with a causal
-**dense fallback**. **Per-token parity now PASSES** (coherent, correct generations); the MXFP4
-bridge is parity-checked both standalone (cos 0.999992) and in-situ on the real checkpoint
-(cos 0.999995). gsm8k task-accuracy run **in flight** — captured on landing.
-
-**5 · Performance — measured post-fix (scheduling-only, token-identical).** EMR, tp=1 + decode-cap=8,
-full 43 layers, batch 32: **prefill 69.6 / decode 9.3 tok/s** →
-[roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md).
+#### Demonstrated on DeepSeek-V4-Flash
+- **Scope** — scope-discovery surfaced the *true* scope (DSA + MHC **plus** a runtime infra layer, not
+  the "4 DSA kernels" a static op-scan implied) → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+- **Novel kernels authored + parity-validated on CPU** — DSA compressor softmax-pool, lightning-indexer,
+  sparse-prefill attention ([compressor](plugin/intel_cpu_models/dsa_compressor_cpu.py),
+  [indexer](plugin/intel_cpu_models/dsa_indexer_cpu.py),
+  [sparse-attn](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py)) + the MLA-core/MHC/infra layer
+  ([_dsv4_cpu_infra.py](plugin/intel_cpu_models/_dsv4_cpu_infra.py)); the **composed** DSA attention
+  reduces **exactly to dense at top-k=all** (err 1.8e-7), proving the sparse math
+  ([dsa_attention_cpu.py](plugin/intel_cpu_models/dsa_attention_cpu.py)). A `index_gemm(M16)`
+  feasibility gate returned a data-driven DEFER — no wrong kernel built.
+- **Runs end-to-end at tp=1 by keeping the MXFP4 nibbles** — the routed experts stay **native 4-bit**
+  on the CPU **MXFP4 W4A16** MoE kernel (fused fp4→bf16), so the model holds **~200 GB → fits ONE
+  NUMA/SNC domain → clean tp=1** (loads ~135 s) → [run](plugin/validate/run_deepseekv4_flash_mxfp4_tp1.sbatch).
+- **Correctness PASSES** — the accuracy oracle caught a real decode bug (DSA selection stubbed at
+  decode → MLA gathered nothing → zero attention); fixed with a causal **dense fallback**. Per-token
+  parity now passes (coherent, correct generations); the MXFP4 bridge is parity-checked standalone
+  (cos 0.999992) and in-situ on the real checkpoint (cos 0.999995). gsm8k task accuracy **in flight**.
+- **Performance measured** (EMR, tp=1 + decode-cap=8, full 43 layers, batch 32): **prefill 69.6 /
+  decode 9.3 tok/s** → [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md).
 
 **Key learnings (each distilled into a reusable skill):**
 1. **Compute from the native precision — keep the MXFP4 nibbles, never up-convert.** Feeding packed
