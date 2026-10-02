@@ -25,6 +25,7 @@ podman run --rm $DEVARGS \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e MODEL_PATH=/scratch/bkaul/models/GLM-5.3-Flash -e DEVICE=cuda -e TP=$N \
   -e SMOKE_PROMPTS="The capital of France is|2 + 2 =" -e MAX_NEW=4 \
+  -e MEM_FRAC=0.9 -e MAX_RUNNING=8 \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
   -e NCCL_DEBUG=WARN -e NCCL_CUMEM_ENABLE=0 \
   -e PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin \

@@ -29,6 +29,8 @@ def main():
     )
     if load_format:
         kw["load_format"] = load_format
+    if os.environ.get("MAX_RUNNING"):
+        kw["max_running_requests"] = int(os.environ["MAX_RUNNING"])
     # Mamba/linear-attention models (GLM-5 KDA): the default extra_buffer radix-cache
     # strategy needs GPU-FLA; force the CPU-valid no_buffer (page_size=1) via env.
     if os.environ.get("MAMBA_RADIX_STRATEGY"):
