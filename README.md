@@ -108,8 +108,10 @@ demonstrated** on this model.
 
 **Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
 (O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime; finish the gsm8k task-accuracy
-run; then the real **806 GB Pro** run (weights ready). This is backend plumbing + tuning, not
-novel-kernel authoring — the DSA math is authored + proven in isolation.
+run; then **scale Flash's donor kernels to the 1.6T Pro across a multi-socket EMR cluster**
+(Kimi-K3-style TP/EP/PP) — Pro is too large for one GNR node at tp=1, so its story is *distribution*,
+not new kernels. This is backend plumbing + tuning, not novel-kernel authoring — the DSA math is
+authored + proven in isolation.
 
 **Precision & compute-type hygiene (checked up front, before any kernel is chosen).** GNR AMX has
 native matmul tiles for **bf16 / fp16 / int8 only — no fp8 or fp4**. So model discovery audits every
@@ -141,8 +143,15 @@ headroom (an RoI even when no new kernel was written).
   · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.png) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom. Backend is oneDNN/LIBXSMM BRGEMM (best-in-class inner loop), so the gap is **composition/memory-traffic**, not tile-loop quality.
 - **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (routed-expert MoE kernel = 68% of decode, MXFP4 W4A16, EMR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
   · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.png) — **measured**: prefill and *batched* decode hit **75% of the DRAM-BW roofline**; unbatched M=1 decode only **26%** → batching is the decode lever. Model-level (tp=1+cap, full 43 layers, batch 32): prefill 69.6 / decode 9.3 tok/s.
-- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Pro (decode, bf16/fp4-storage, GNR): [roofline vs measured report](plugin/validate/results/deepseek_v4_pro_roofline.md)
-  · ![chart](plugin/validate/results/deepseek_v4_pro_roofline.png) — measured = *our authored* kernels on the 1.6T model.
+- **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
+  architecture as Flash (DSA + MHC + MLA + native-MXFP4 MoE), so Flash's authored CPU kernels are its
+  **donors** — enabling Pro is Thesis-1-style *wiring + validation*, not new kernels. It is **too large
+  for one GNR node at tp=1**: ~800 GB native MXFP4 exceeds a single 256 GB NUMA domain (and the 768 GB
+  socket), so it can only run **TP≥2** — the decode-hostile config we measured at 2.8× slower. Its
+  realistic home is a **multi-socket EMR cluster** (Kimi-K3-style TP/EP/PP across ~16 sockets) — a
+  *distribution* story, not a kernel story. The [analytical roofline](plugin/validate/results/deepseek_v4_pro_roofline.md)
+  is an earlier GNR-TP4 estimate kept for reference only; the multi-socket roofline is TBD and no
+  single-node Pro run is claimed.
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 
