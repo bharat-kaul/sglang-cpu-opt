@@ -18,6 +18,12 @@ human attention. Kill it by making completion AUTO-WAKE the agent:
 3. **Re-orient from the watchlist FIRST on every wake** — what's pending, did it land — before new work.
 4. **Parallel jobs → one waiter each** (or one over the array); each completion wakes the agent. Don't
    serialize behind a single manual check.
+5. **A waiter must CONFIRM completion, not trust one empty `squeue`.** `squeue -j X` returning empty can be a
+   transient controller blip (or an instant crash) — concluding "done" on the first empty misfires (seen:
+   a blip fired a watcher that then "combined" 0 shards; a crash looked like success). Confirm with `sacct`'s
+   authoritative terminal state (COMPLETED/FAILED/TIMEOUT/…) before dispositioning; treat empty-squeue +
+   non-terminal-sacct as "still running". `scripts/await_job.sh` does this — USE IT instead of hand-rolling a
+   `while squeue … ; do sleep; done` loop.
 This is the control-flow dual of the disposition matrix: the matrix says what each outcome means; the
 async-heartbeat guarantees the agent is actually there to read the outcome the instant it exists.
 

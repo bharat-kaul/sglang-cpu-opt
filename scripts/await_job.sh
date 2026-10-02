@@ -17,11 +17,19 @@ echo "AWAIT jobid=$JID log=$LOG start=$(date -Is) heartbeat=${HB}s"
 while :; do
   ST=$(squeue -j "$JID" -h -o "%T" 2>/dev/null)
   if [ -z "$ST" ]; then
+    # squeue empty can be a TRANSIENT blip (or a crash) — confirm with sacct's
+    # authoritative terminal state before concluding DONE, else keep waiting.
     FINAL=$(sacct -j "$JID" --format=State -nX 2>/dev/null | head -1 | tr -d ' ')
-    EC=$(sacct -j "$JID" --format=ExitCode -nX 2>/dev/null | head -1 | tr -d ' ')
-    echo "DONE jobid=$JID state=${FINAL:-UNKNOWN} exit=${EC:-?} at=$(date -Is)"
-    echo "---- log tail ----"; tail -25 "$LOG" 2>/dev/null || echo "(no log at $LOG)"
-    break
+    case "$FINAL" in
+      COMPLETED|FAILED|CANCELLED*|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL|BOOT_FAIL|DEADLINE|PREEMPTED)
+        EC=$(sacct -j "$JID" --format=ExitCode -nX 2>/dev/null | head -1 | tr -d ' ')
+        echo "DONE jobid=$JID state=${FINAL} exit=${EC:-?} at=$(date -Is)"
+        echo "---- log tail ----"; tail -25 "$LOG" 2>/dev/null || echo "(no log at $LOG)"
+        break ;;
+      *)
+        echo "HEARTBEAT jobid=$JID state=(squeue-empty, sacct=${FINAL:-unknown} -> transient, still waiting)"
+        sleep "$HB"; continue ;;
+    esac
   fi
   EL=$(( $(date +%s) - START ))
   LAST=$(tail -1 "$LOG" 2>/dev/null | cut -c1-80)
