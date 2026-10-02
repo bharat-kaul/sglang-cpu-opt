@@ -200,6 +200,20 @@ APPLES-TO-APPLES. Reference hierarchy + the two checks it enables:
 - Do NOT publish a task number as "certified" (into README / enablement-certificate) until it is tied to a
   reference this way.
 
+### Decouple GENERATE (expensive, model) from SCORE (cheap, pure) — test the diagnosis for free
+The model generation costs minutes/run; **stop-truncation + answer-extraction are pure string ops
+(microseconds)**. So never re-run the engine to test a scoring/protocol idea:
+- **Generate RAW once** on a small sample (long `max_new`, minimal stop e.g. only `["Question"]`) and SAVE
+  `(text, gold)` (`--gens-out`). Then **grid-search `{stop-set} × {extractor}` OFFLINE** to LOCK the protocol
+  (`score_gsm8k.py`) — milliseconds, no cluster. Here each engine diag was ~25 min; the offline grid is instant.
+- **Make the full/sharded run ALSO save generations** (`--gens-out`) so any later extractor/stop improvement
+  **re-scores the saved corpus for FREE** — you never re-generate to answer a *scoring* question; you re-run
+  the model only to answer a *generation* question (different weights/kernel/sampling).
+- This is the accuracy-harness analogue of the perf loop's cached-golden guardrail: pay the expensive step
+  once, iterate the cheap step offline. Lock the protocol on the cheap grid BEFORE the long pipelined run.
+- Worked example (DSV4-Flash): the 61%→? fix (drop `"\n\n"` stop; extract first `####`/"answer is"/`\boxed{}`
+  instead of the last number of a base-model ramble) was unit-tested offline (475→460) before any full re-run.
+
 ## Fast guardrail for the PERF-OPTIMIZATION loop (re-verify accuracy cheaply after every kernel change)
 During perf work you re-check accuracy constantly — do NOT pay full task generation each time. FIRST
 MEASURE where the wall-time goes (load vs generate): in this repo the model LOAD was ~8 min (149 GB/46

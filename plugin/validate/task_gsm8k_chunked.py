@@ -47,6 +47,8 @@ def main():
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--quantization", default=None)
     p.add_argument("--out", default="")
+    p.add_argument("--gens-out", default="",
+                   help="also save per-question {q,gold,text} here for free offline re-scoring")
     p.add_argument("--watchdog-timeout", type=float, default=7200.0)
     p.add_argument("--chunked-prefill-size", type=int, default=512)
     args = p.parse_args()
@@ -78,12 +80,14 @@ def main():
           "stop": ["Question", "Assistant:", "\n\n"]}
 
     correct = invalid = done = 0
+    gens = []
     t0 = time.perf_counter()
     for start in range(0, total, args.chunk_size):
         chunk_p = prompts[start:start + args.chunk_size]
         chunk_l = labels[start:start + args.chunk_size]
         outs = engine.generate(chunk_p, sp)
-        preds = [answer_value(o["text"] if isinstance(o, dict) else o) for o in outs]
+        texts = [o["text"] if isinstance(o, dict) else o for o in outs]
+        preds = [answer_value(t) for t in texts]
         correct += sum(int(pr == l) for pr, l in zip(preds, chunk_l))
         invalid += sum(int(pr == INVALID) for pr in preds)
         done += len(chunk_l)
@@ -101,6 +105,10 @@ def main():
               f"acc={acc:.4f} invalid={invalid} elapsed={dt:.0f}s", flush=True)
         if args.out:
             _atomic_write(args.out, result)
+        if args.gens_out:
+            gens.extend({"q": start + j, "gold": l, "text": t}
+                        for j, (t, l) in enumerate(zip(texts, chunk_l)))
+            _atomic_write(args.gens_out, gens)
 
     engine.shutdown()
     print(json.dumps(result, indent=2))
