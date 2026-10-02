@@ -196,6 +196,16 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
   fixed build. Also give the guardrail a raised `watchdog_timeout` (default 300 s kills a slow first forward).
 - **Reserve the full task harness (gsm8k/mmlu) for PERIODIC checks**, not every iteration; raise
   `watchdog_timeout` (default 300 s kills slow CPU long-prompt forwards) and cap `chunked_prefill_size`.
+- **Run the task harness CHUNKED + CHECKPOINTED (never one blocking generate over all N).** A single
+  `engine.generate(all_prompts)` writes the result ONLY at the end, so a slurm wall / watchdog kill yields
+  NOTHING — and on slow CPU decode a full 1319-Q gsm8k run can exceed the wall (measured: 3h+ with no
+  completion, killed at the 4h limit, zero output). Instead generate in CHUNKS (e.g. 64 Q), accumulate
+  correct/invalid, and write a PARTIAL json after EACH chunk (atomic temp+rename) + print one progress line
+  per chunk. Two payoffs: (1) any kill still leaves a usable running accuracy; (2) you can tell SLOW from
+  HUNG — the engine at `log_level="warning"` is silent during generation, so without per-chunk prints a
+  live run and a deadlock look identical. Also run a smaller SUBSET first (~300–330 Q is statistically fine
+  for a certificate) so it finishes inside the wall. Worked example: `task_gsm8k_chunked.py` +
+  `run_gsm8k_dsv4_fallback.sbatch`.
 
 ### Three-tier equivalence validation for the optimize loop (defer task-accuracy to the end)
 **Guiding principle:** if the optimized build is EQUIVALENT to the reference baseline (end-to-end, within
