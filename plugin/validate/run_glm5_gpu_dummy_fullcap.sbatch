@@ -22,10 +22,15 @@ nvidia-smi -L
 # Single GPU (tiny config) — pick the first free device by UUID.
 U=$(nvidia-smi --query-gpu=uuid --format=csv,noheader | head -1)
 echo "=== GLM GPU DUMMY reference: tp=1 tiny+deterministic-dummy, capture -> $FCAP ==="
-# Force podman's libpod tmp off /run/user (absent on some h200 nodes) via --tmpdir; keep --runroot
-# at the value the shared storage DB was initialized with (/tmp/podman-runroot) to avoid a DB mismatch.
-PDTMP=/tmp/pdtmp-${SLURM_JOB_ID}; mkdir -p /tmp/podman-runroot "$PDTMP"
-podman --runroot=/tmp/podman-runroot --tmpdir="$PDTMP" run --rm --cgroups=disabled --device nvidia.com/gpu=$U \
+# PRIVATE per-job podman store on /scratch (not the shared store): the shared graphroot accumulates
+# stale container locks from --rm runs that fail to clean up on NFS, and some h200 nodes lack a
+# writable /run/user — both broke repeated runs. CLI --root does NOT inherit storage.conf's overlay
+# opts, so pass the subuid-free unpack knobs explicitly; --userns=host maps the container to caller.
+LROOT=/scratch/bkaul/podman-stores/${SLURM_JOB_ID}; LRUN=/tmp/podman-runroot-${SLURM_JOB_ID}; mkdir -p "$LROOT" "$LRUN"
+PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs --storage-driver overlay --storage-opt overlay.mount_program=/usr/bin/fuse-overlayfs --storage-opt overlay.ignore_chown_errors=true"
+trap 'chmod -R u+rwX "$LROOT" 2>/dev/null; rm -rf "$LROOT" "$LRUN" 2>/dev/null' EXIT
+$PODMAN pull "$IMG"
+$PODMAN run --rm --device nvidia.com/gpu=$U --userns=host \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e MODEL_PATH=/scratch/bkaul/models/glm5-tiny -e DEVICE=cuda -e TP=1 \
