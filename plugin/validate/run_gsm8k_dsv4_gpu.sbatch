@@ -20,11 +20,13 @@ nvidia-smi -L
 # graphroot got corrupted when a parallel session ran podman too (missing-module/panic failures).
 # Use a PRIVATE node-local store per job (overlay ignore_chown_errors in storage.conf still applies,
 # so unpack works without an /etc/subuid range); --userns=host maps the container to the caller.
-LROOT=/tmp/podman-root-${SLURM_JOB_ID}; LRUN=/tmp/podman-runroot-${SLURM_JOB_ID}; mkdir -p "$LROOT" "$LRUN"
+LROOT=/scratch/bkaul/podman-stores/${SLURM_JOB_ID}; LRUN=/tmp/podman-runroot-${SLURM_JOB_ID}; mkdir -p "$LROOT" "$LRUN"
 # CLI --root does NOT inherit storage.conf's [storage.options.overlay] options, so the subuid-free
 # unpack knobs must be passed explicitly here (else lchown EPERM returns on /etc/gshadow etc.).
+# Store lives on /scratch (192TB) not /tmp (a 36GB image overflows node-local /tmp). Unique per job
+# so it is isolated from any concurrent session's podman store (shared store got corrupted before).
 PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs --storage-driver overlay --storage-opt overlay.mount_program=/usr/bin/fuse-overlayfs --storage-opt overlay.ignore_chown_errors=true"
-trap 'rm -rf "$LROOT" "$LRUN"' EXIT
+trap 'chmod -R u+rwX "$LROOT" 2>/dev/null; rm -rf "$LROOT" "$LRUN" 2>/dev/null' EXIT
 $PODMAN pull "$IMG"
 $PODMAN \
   run --rm --device nvidia.com/gpu=all --userns=host \
