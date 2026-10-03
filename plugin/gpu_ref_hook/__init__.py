@@ -507,14 +507,36 @@ def _install_fullcap_glm():
     try:
         import torch
         import sglang.srt.models.glm5_next as _glm
-    except Exception:  # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
+        print(f"[fullcap_glm] import failed: {_e}", flush=True)
         return
     Layer = getattr(_glm, "Glm5NextDecoderLayer", None)
-    if Layer is None or getattr(Layer, "_fullcap_glm_patched", False):
+    if Layer is None:
+        cands = [n for n in dir(_glm) if "Layer" in n or "Decoder" in n]
+        print(f"[fullcap_glm] WARN Glm5NextDecoderLayer NOT in {_glm.__name__}; candidates={cands}", flush=True)
+        return
+    if getattr(Layer, "_fullcap_glm_patched", False):
         return
     _F = os.environ.get("FULLCAP_FILE", "/scratch/bkaul/glm5_gpu_fullcap.pt")
     _CAP = {}
     _ST = {"seen_pf": False, "dc": 0}
+
+    # Save fallback: persist whatever was captured at process exit, so a missing/renamed
+    # LogitsProcessor save-trigger can't silently drop the fingerprint. Logs the outcome.
+    import atexit
+
+    def _save_atexit():
+        try:
+            if _CAP:
+                torch.save(_CAP, _F)
+                print(f"[fullcap_glm] atexit saved {len(_CAP)} tensors -> {_F}", flush=True)
+            else:
+                print("[fullcap_glm] atexit: _CAP EMPTY (decoder-layer forward hook never tagged a pass)", flush=True)
+        except Exception as _e:  # noqa: BLE001
+            print(f"[fullcap_glm] atexit save FAILED: {_e}", flush=True)
+
+    atexit.register(_save_atexit)
+    print(f"[fullcap_glm] installed on {Layer.__name__} -> {_F}", flush=True)
 
     def _rk():
         try:
