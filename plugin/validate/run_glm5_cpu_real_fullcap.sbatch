@@ -34,6 +34,14 @@ export MEM_FRAC=${MEM_FRAC:-0.5}
 # across ALL domains so the model spans the full node. Cross-domain BW is irrelevant for a
 # correctness CAPTURE (not a perf run). NUMACTL overridable (set empty to disable).
 export NUMACTL=${NUMACTL:-"numactl --interleave=all"}
+# ROOT FIX (source-confirmed): sglang CPU is one-rank-per-NUMA-domain. (1) get_available_gpu_memory
+# divides free RAM by n_numa_node (6) -> tp=1 budgets only ~250GB; (2) init_threads_binding pins each
+# rank's OMP threads to ONE domain's cores (default SGLANG_CPU_OMP_THREADS_BIND="all") -> first-touch
+# on node0 -> 600GB model OOM-kills (and this pin OVERRODE the external numactl). Setting
+# SGLANG_CPU_OMP_THREADS_BIND to custom cores makes get_cpu_memory_capacity stop dividing (returns
+# None=full RAM) AND threads span the listed cores instead of one domain. Bind tp=1 to ALL 256
+# physical cores (0-255) so the whole model spreads across the full 1.5TB node.
+export SGLANG_CPU_OMP_THREADS_BIND=${SGLANG_CPU_OMP_THREADS_BIND:-0-255}
 export MAX_RUNNING=${MAX_RUNNING:-1}
 # Cap context so the DSA/MLA KV pool + KDA mamba cache stay small (native 1M context over-reserves
 # and either starves the mamba cache at low mem_frac or OOMs at high); 8192 is ample for a 5-tok capture.
