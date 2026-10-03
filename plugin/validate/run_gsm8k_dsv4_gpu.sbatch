@@ -16,7 +16,10 @@ export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
 nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
 IMG=docker.io/lmsysorg/sglang:latest
 nvidia-smi -L
-podman --cgroup-manager=cgroupfs --root /tmp/podman-root-$(id -u) --runroot /tmp/podman-runroot \
+# Reuse the shared pre-pulled image in the storage.conf graphroot (/scratch). The subuid blocker
+# (no /etc/subuid range) is bypassed by overlay ignore_chown_errors=true in ~/.config/containers/
+# storage.conf; --userns=host maps the container to the invoking user at run time.
+podman --cgroup-manager=cgroupfs \
   run --rm --device nvidia.com/gpu=all --userns=host \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
