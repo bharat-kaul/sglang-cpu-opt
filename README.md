@@ -57,6 +57,18 @@ by both; each model then has its own section.
   **computed**); every `stored ≠ compute` dequant bridge is **parity-checked, not assumed**.
 - **Reference-first kernel authoring** — write each novel kernel against an in-tree numeric oracle and
   gate on parity *before* it enters the serving path. No unverified kernel ships.
+- **Autonomous debugging loop (skill-driven) — test cheaply, learn the most per run, fail fast.** The
+  agent drives bring-up and bug-localization itself through a set of workflow skills:
+  **cheap iteration** on a *tiny arch-faithful* config (seconds, not minutes on a scarce big-memory
+  node) plus a **deterministic-dummy CPU↔GPU parity** harness that localizes correctness **per-layer
+  without a real-weight load** (bit-identical dummy weights across the CPU engine and the GPU
+  container); **high-information runs** that disposition *several* hypotheses in one expensive run (a
+  pre-submit disposition matrix + multi-vector capture, never a one yes/no run); **async-heartbeat
+  auto-wake** so the loop runs *submit → wait → auto-wake → fix → resubmit* with no human polling; and
+  **sneak-preview + early-abort** on any long run — chunk-checkpoint a usable partial, read it against
+  an expected floor, and `scancel`+fix the moment it is clearly off instead of paying the full wall.
+  See [`.agents/skills`](.agents/skills) — `shared/high-information-runs`,
+  `throughput-enablement/accuracy-oracle`, `throughput-enablement/cpu-model-wiring`.
 - **Performance methodology — cheapest, highest-signal first (the order matters):**
   1. **Rule out systemic-config pathology FIRST.** A single mis-setting (thread cliff, OpenMP
      spin-wait, NUMA bind) inflates *every* op roughly uniformly and dwarfs any per-op tuning — sweep
