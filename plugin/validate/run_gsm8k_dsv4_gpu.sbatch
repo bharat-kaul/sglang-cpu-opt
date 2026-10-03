@@ -31,6 +31,7 @@ podman --cgroup-manager=cgroupfs \
     --model /scratch/bkaul/models/DeepSeek-V4-Flash \
     --data /scratch/bkaul/gsm8k_test.jsonl \
     --device cuda --tp 2 \
+    --mem-fraction ${MEMFRAC:-0.9} \
     --num-questions ${NQ:-64} --chunk-size ${CHUNK:-16} --num-shots 8 \
     --max-new-tokens ${OLEN:-512} --watchdog-timeout 3000 --chunked-prefill-size 512 \
     --out /scratch/bkaul/dsv4_gsm8k_gpu_${SLURM_JOB_ID}.json \
