@@ -576,6 +576,13 @@ def _install_fullcap_glm():
                     key = f"{tg}.L{lid}.r{_rk()}"
                     if key not in _CAP:
                         _CAP[key] = h.detach().float().reshape(-1, h.shape[-1]).cpu()
+                        # Save HERE (scheduler process, during forward): atexit runs in the
+                        # wrong process / is skipped on hard shutdown, and LogitsProcessor may
+                        # not fire — an in-forward save is the only reliable persistence.
+                        try:
+                            torch.save(_CAP, _F)
+                        except Exception:  # noqa: BLE001
+                            pass
                     if tg.startswith("dc"):
                         _ST["dc"] += 1
         except Exception:  # noqa: BLE001
@@ -600,6 +607,10 @@ def _install_fullcap_glm():
                         key = f"{tg}.hcpost.L{lid}.r{_rk()}"
                         if key not in _CAP:
                             _CAP[key] = o.detach().float().reshape(-1, o.shape[-1]).cpu()
+                            try:
+                                torch.save(_CAP, _F)
+                            except Exception:  # noqa: BLE001
+                                pass
             except Exception:  # noqa: BLE001
                 pass
             return r
