@@ -57,12 +57,23 @@ def main():
         kw["disable_cuda_graph"] = True
     e = sgl.Engine(**kw)
     # Prompts/max-new via env so GPU reference and CPU runs use IDENTICAL inputs (fingerprint align).
-    prompts = os.environ.get("SMOKE_PROMPTS", "The capital of France is|2 + 2 =").split("|")
+    # TOKEN_IDS (comma-separated) bypasses the tokenizer entirely so BOTH engines prefill byte-identical
+    # token sequences — required for cross-engine per-layer parity when the two tokenizers differ (e.g.
+    # a CPU fallback tokenizer that drops the GLM [gMASK]<sop> prefix the GPU container adds).
     max_new = int(os.environ.get("MAX_NEW", "8"))
-    for pr in prompts:
-        o = e.generate(pr, {"temperature": 0.0, "max_new_tokens": max_new})
-        txt = o["text"] if isinstance(o, dict) else o
-        print("PROMPT:", repr(pr), "-> OUT:", repr(txt), flush=True)
+    token_ids_env = os.environ.get("TOKEN_IDS", "")
+    if token_ids_env:
+        ids = [int(t) for t in token_ids_env.replace("|", ",").split(",") if t.strip() != ""]
+        o = e.generate(input_ids=[ids], sampling_params={"temperature": 0.0, "max_new_tokens": max_new})
+        rec = o[0] if isinstance(o, list) else o
+        txt = rec["text"] if isinstance(rec, dict) else rec
+        print("TOKEN_IDS:", ids, "-> OUT:", repr(txt), flush=True)
+    else:
+        prompts = os.environ.get("SMOKE_PROMPTS", "The capital of France is|2 + 2 =").split("|")
+        for pr in prompts:
+            o = e.generate(pr, {"temperature": 0.0, "max_new_tokens": max_new})
+            txt = o["text"] if isinstance(o, dict) else o
+            print("PROMPT:", repr(pr), "-> OUT:", repr(txt), flush=True)
     e.shutdown()
     print("[smoke] OK", flush=True)
 
