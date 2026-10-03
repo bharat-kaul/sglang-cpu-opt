@@ -29,9 +29,37 @@ prefill + slow decode, neither of which a tiny-prefill capture incurs). Sequence
    replaces on the SAME input (full-tensor cos+mag), which is VALID on dummy weights because it tests
    the KERNEL TRANSFORM, not accuracy. Plus a periodic per-layer re-diff vs the frozen reference
    (T1/T2 below) + a short-prompt cached-golden next-token parity — seconds each. Net flow: parity is
-   established FIRST (vs GPU, real weights, short prefill = the correct CPU reference baseline), then
-   CARRIED through the entire dummy-proxy optimization campaign, then RE-CONFIRMED per-layer on the
-   full OPTIMIZED model — and only THEN does a full-weight TASK-accuracy run make sense.
+   established FIRST (DETERMINISTIC-DUMMY cross-engine diff, short prefill — see the WEIGHT-AXIS note),
+   then CARRIED through the entire dummy-proxy optimization campaign, then RE-CONFIRMED per-layer on the
+   full OPTIMIZED model, and only at the END promoted to a REAL-WEIGHT parity + TASK-accuracy run.
+
+### ⛔ WEIGHT AXIS (dummy vs real) — orthogonal to the optimization axis; get this right or you pay a needless full-weight load
+The correctness ladder has TWO axes. The optimization axis (unoptimized → optimized) is above. The
+WEIGHT axis decides which checkpoint each parity stage runs on, and the DEFAULT for every EARLY and
+OPTIMIZATION-phase correctness check is **DETERMINISTIC DUMMY weights**, NOT the real checkpoint:
+- **Stages 1–4 (bring-up, first parity, optimization regression-guard, re-confirm): DETERMINISTIC-DUMMY.**
+  Run BOTH the CPU build and the GPU/HF reference on the SAME tiny-but-arch-faithful config with the
+  SAME deterministic dummy init, and diff per-layer. This is cheap (no 100s-of-GB load, fits one GPU,
+  seconds-to-minutes), isolates the WIRING + kernel math, and does NOT drag in the dtype bridge. It is
+  the right correctness tool for the entire make-it-work + make-it-fast campaign.
+- **Stage 5 (final): REAL weights.** The real checkpoint is required ONLY for the things dummy cannot
+  prove: the fp4/fp8/mxfp4 **dtype bridge** (dummy drops quant → scales=1.0), the FULL layer depth,
+  and end-to-end TASK accuracy. Capture/freeze the real-weight GPU fingerprint day-0 (it is independent
+  of the CPU port) and ARCHIVE it for this final gate — but do NOT make it the FIRST parity.
+- **DETERMINISM IS THE ENABLER (the trap that makes naive dummy 'useless').** `load_format=dummy`
+  initializes weights with a generator seeded on the PARAM'S DEVICE (`torch.Generator(device=...)`),
+  so CPU and CUDA RNG streams DIFFER and the stream can shift across torch versions (CPU engine vs GPU
+  container) — naive dummy weights are NOT bit-identical across the two engines, which is why an
+  earlier version of this skill wrongly concluded 'dummy is useless for parity'. The FIX, not the
+  avoidance: patch `initialize_dummy_weights` on BOTH sides to fill each param from **numpy**
+  (MT19937, platform/version/device-independent) with a per-param seed derived from the param NAME
+  (both sides tp=1, full params → identical). Then dummy weights ARE bit-identical and dummy parity is
+  valid. Reusable asset: `plugin/_dummy_determinism.py` (gated `DETERMINISTIC_DUMMY=1`), wired into
+  both the CPU plugin and the GPU reference hook. [PENDING VALIDATION: GLM jobs 381441/381442 must diff
+  cos≈1.0 before this is promoted from 'sound principle' to 'proven'.]
+- **Anti-pattern this kills (cost: a needless 300–600GB load):** reflexively standing up the FIRST
+  CPU-vs-GPU parity on the REAL checkpoint because 'dummy differs run-to-run'. Make dummy deterministic
+  and the early parity is cheap; reserve real weights for the dtype-bridge + task-accuracy FINALE.
 5. **Full-model coherence (Layer 0 generation) + task accuracy (Layer 2, gsm8k) come LAST**, once
    the model is fast enough for generation to be feasible — they are the final end-to-end proof,
    NOT the per-change correctness loop. Report any perf number as UNVALIDATED until Layer 1 passes.
@@ -123,14 +151,17 @@ highest-leverage tool; reach for it before hand-bisecting.
 **⛔ LAUNCH THE GPU REFERENCE CAPTURE IN PARALLEL AT BRING-UP START — day-0, not after you get stuck.**
 The GPU reference side is INDEPENDENT of the CPU port: it only needs the real checkpoint + the capture
 hook on the native-GPU path. So the moment CPU bring-up begins, retarget the capture hook to the new
-model's decoder layer and FIRE the GPU reference-forward job on the GPU partition (real weights, tp sized
-to fit), co-running with the CPU bring-up on the farm. It saves the frozen per-(pass,op,layer,rank)
-fingerprint to disk so it's ALREADY WAITING when the CPU build first produces a forward on real weights —
-turning the parity diff into an offline step with zero extra wall-time. Do NOT defer it as "blocked on the
-CPU running first" (a mistake made on GLM-5.3): only the DIFF needs both sides; the GPU DUMP does not need
-the CPU at all. The reference must be on the REAL checkpoint (dummy weights differ run-to-run → useless for
-parity); the tiny-dummy bring-up config is for make-it-work only. Retargeting the hook to a new arch
-(swap the decoder-layer class + sub-op taps) is a cheap per-model step — budget it as part of bring-up setup.
+the model's decoder layer and FIRE the GPU reference-forward job on the GPU partition, co-running with
+the CPU bring-up on the farm. It saves the frozen per-(pass,op,layer,rank) fingerprint to disk so it's
+ALREADY WAITING when the CPU build first produces a matching forward — turning the parity diff into an
+offline step with zero extra wall-time. Do NOT defer it as "blocked on the CPU running first" (a mistake
+made on GLM-5.3): only the DIFF needs both sides; the GPU DUMP does not need the CPU at all.
+**WHICH WEIGHTS for the oracle — follow the WEIGHT AXIS above:** the EARLY parity oracle is a
+DETERMINISTIC-DUMMY capture on the tiny arch-faithful config (cheap, bit-identical to the CPU dummy
+build via `_dummy_determinism.py` — NOT the old 'dummy is useless, must be real' rule); the REAL-weight
+GPU fingerprint is captured + archived day-0 too but is the FINAL-stage gate (dtype bridge + full depth +
+task accuracy), not the first parity. Retargeting the hook to a new arch (swap the decoder-layer class +
+sub-op taps) is a cheap per-model step — budget it as part of bring-up setup.
 1. **Reusable capture hook on BOTH sides, env-gated, saving FULL fp32 tensors (never fp[:4]).** One hook
    file per side (CPU plugin + a GPU-reference hook) that, when its env flag is set, wraps the decoder
    layer + key sub-ops and `torch.save`s a dict keyed `{pass}.{op}.L{layer}.r{rank}` where pass ∈
