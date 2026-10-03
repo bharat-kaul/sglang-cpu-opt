@@ -24,6 +24,14 @@ human attention. Kill it by making completion AUTO-WAKE the agent:
    authoritative terminal state (COMPLETED/FAILED/TIMEOUT/…) before dispositioning; treat empty-squeue +
    non-terminal-sacct as "still running". `scripts/await_job.sh` does this — USE IT instead of hand-rolling a
    `while squeue … ; do sleep; done` loop.
+6. **FAIL-FAST on the first partial — never pay the full wall to learn a run is bad.** Instrument long runs to
+   emit a USABLE partial EARLY (checkpoint per unit of work — per chunk, per shard-chunk), read that partial
+   against an EXPECTED threshold (prior known-good number, a published target, or a sanity floor), and
+   `scancel` + fix if it's clearly off — instead of all-or-nothing. Corollary: the cheap PRE-CHECK that gates
+   an expensive run should ITSELF be incrementally-checkpointed (a per-question/per-unit **sneak preview**),
+   not one blocking call whose only signal is completion — else the gate is as slow to disprove as the thing
+   it gates. (This repo: a chunked gsm8k shard surfaces ~150–300 Q within ~40 min of a 3 h run — enough to
+   abort a regressed harness before burning the wall; a one-shot 16-Q pre-check gave no signal until it finished.)
 This is the control-flow dual of the disposition matrix: the matrix says what each outcome means; the
 async-heartbeat guarantees the agent is actually there to read the outcome the instant it exists.
 
