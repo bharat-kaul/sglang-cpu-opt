@@ -28,8 +28,8 @@ export MEM_FRAC=0.30
 export LOG_LEVEL=info
 export MAMBA_RADIX_STRATEGY=no_buffer
 export DISABLE_RADIX=1
-# PREFILL-ONLY: the per-layer PREFILL fingerprint is the correctness gate; decode NoPE-MLA deferred.
-export MAX_NEW=1
+# PREFILL-ONLY by default; override MAX_NEW>=2 to also capture DECODE (dc0) for decode parity.
+export MAX_NEW=${MAX_NEW:-1}
 export SMOKE_PROMPTS="The capital of France is"
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
 echo "[fullcap] $FULLCAP_FILE"; ls -la "$FULLCAP_FILE" 2>/dev/null

@@ -27,7 +27,7 @@ podman run --rm --device nvidia.com/gpu=$U \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e MODEL_PATH=/scratch/bkaul/models/glm5-tiny -e DEVICE=cuda -e TP=1 \
   -e LOAD_FORMAT=dummy -e DETERMINISTIC_DUMMY=1 \
-  -e SMOKE_PROMPTS="The capital of France is" -e MAX_NEW=1 \
+  -e SMOKE_PROMPTS="The capital of France is" -e MAX_NEW=${MAX_NEW:-1} \
   -e DISABLE_RADIX=1 -e DISABLE_CUDA_GRAPH=1 \
   -e MEM_FRAC=0.9 -e MAX_RUNNING=8 \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
