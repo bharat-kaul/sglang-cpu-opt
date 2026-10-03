@@ -22,11 +22,10 @@ nvidia-smi -L
 # Single GPU (tiny config) — pick the first free device by UUID.
 U=$(nvidia-smi --query-gpu=uuid --format=csv,noheader | head -1)
 echo "=== GLM GPU DUMMY reference: tp=1 tiny+deterministic-dummy, capture -> $FCAP ==="
-# Force podman's runtime state onto local /tmp (per-job): on some h200 nodes /run/user/$UID is
-# absent/unwritable, so podman's default libpod tmp + crun OOM files there fail. Global --runroot
-# --tmpdir move it off /run/user; per-job dirs avoid inheriting stale container locks.
-PDRR=/tmp/pdrr-${SLURM_JOB_ID}; PDTMP=/tmp/pdtmp-${SLURM_JOB_ID}; mkdir -p "$PDRR" "$PDTMP"
-podman --runroot="$PDRR" --tmpdir="$PDTMP" run --rm --cgroups=disabled --device nvidia.com/gpu=$U \
+# Force podman's libpod tmp off /run/user (absent on some h200 nodes) via --tmpdir; keep --runroot
+# at the value the shared storage DB was initialized with (/tmp/podman-runroot) to avoid a DB mismatch.
+PDTMP=/tmp/pdtmp-${SLURM_JOB_ID}; mkdir -p /tmp/podman-runroot "$PDTMP"
+podman --runroot=/tmp/podman-runroot --tmpdir="$PDTMP" run --rm --cgroups=disabled --device nvidia.com/gpu=$U \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e MODEL_PATH=/scratch/bkaul/models/glm5-tiny -e DEVICE=cuda -e TP=1 \
