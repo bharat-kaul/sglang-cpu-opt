@@ -286,4 +286,41 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU DSA indexer-for-mha bypass not installed: %s", _e)
 
+    # MoE router grouped-topk: the CPU sgl_kernel biased_grouped_topk_cpu is hardcoded for the
+    # donor models' expert counts and REJECTS GLM's 288 ("Unexpected num_experts: 288") — a real
+    # gap, not a tiny-config artifact. Fall back to the pure-torch biased_grouped_topk_impl (handles
+    # any num_experts) when the kernel raises. Perf-phase TODO: a CPU kernel covering 288 experts.
+    try:
+        import sglang.srt.layers.moe.topk as _topk
+
+        _orig_bgt = _topk.biased_grouped_topk_cpu
+
+        def _bgt_cpu_fallback(
+            hidden_states, gating_output, correction_bias, topk, renormalize,
+            num_expert_group=None, topk_group=None, compiled=True,
+            num_fused_shared_experts=0, routed_scaling_factor=None,
+            apply_routed_scaling_factor_on_output=False,
+        ):
+            try:
+                return _orig_bgt(
+                    hidden_states, gating_output, correction_bias, topk, renormalize,
+                    num_expert_group, topk_group, compiled, num_fused_shared_experts,
+                    routed_scaling_factor, apply_routed_scaling_factor_on_output,
+                )
+            except (RuntimeError, NotImplementedError):
+                return _topk.biased_grouped_topk_impl(
+                    hidden_states, gating_output, correction_bias, topk, renormalize,
+                    num_expert_group, topk_group,
+                    num_fused_shared_experts=num_fused_shared_experts,
+                    routed_scaling_factor=routed_scaling_factor,
+                    apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
+                )
+
+        _topk.biased_grouped_topk_cpu = _bgt_cpu_fallback
+        if getattr(_topk, "biased_grouped_topk", None) is _orig_bgt:
+            _topk.biased_grouped_topk = _bgt_cpu_fallback  # the CPU alias select_experts calls
+        logger.info("GLM5 CPU: biased_grouped_topk -> torch impl fallback for unsupported num_experts.")
+    except Exception as _e:
+        logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
+
     _INSTALLED = True
