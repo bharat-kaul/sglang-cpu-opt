@@ -36,7 +36,9 @@ def shrink(c):
     tc["num_attention_heads"] = 4
     tc["num_key_value_heads"] = 4
     tc["q_lora_rank"] = 64
-    tc["kv_lora_rank"] = 64
+    # GPU MLA decode flash-attn asserts hdim_v>=256 (the absorbed kv_lora latent is the value dim);
+    # tiny kv_lora=64 failed "q_v only supported for hdim_v>=256". Use real 512 (CPU bmm handles any).
+    tc["kv_lora_rank"] = 512
     tc["qk_nope_head_dim"] = 32
     tc["qk_rope_head_dim"] = 0
     tc["v_head_dim"] = 32
