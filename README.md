@@ -41,14 +41,13 @@ Results on Intel Xeon 6980P / Granite Rapids, **single socket**:
 identical AMX kernel): `eff_rel` 0.94–1.26 — all PASS. Both BF16 and INT8 were produced
 automatically from the same donor kernels (capability inheritance).
 
-### Thesis 2 — new-kernel leg (DeepSeek Flash v4.1)
+### Thesis 2 — new-kernel leg
 
-**DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) is the
-flagship for the **new-architecture** leg — it carries **two genuinely novel op families** (DeepSeek
-Sparse Attention: lightning-indexer + KV-compressor + top-k sparse-MLA; and MHC hash-clustering),
-while everything else is covered by the DeepSeek-V2 CPU donors. This section shows two things: the
-**repeatable approach** our agentic workflow applies to *any* new architecture, and **what it has
-demonstrated** on this model.
+The new-architecture leg now has **two worked models**, each its own section below:
+**(1) DeepSeek-V4-Flash** — the flagship, where the genuinely novel kernels were authored and validated;
+**(2) GLM-5.3 Flash** — a clean, mostly-autonomous end-to-end run of the *same* playbook on a
+**structurally different** architecture, used to demonstrate **velocity**. The **approach** is shared
+by both; each model then has its own section.
 
 #### The approach we built (reusable across models)
 - **Coverage-gate routing** — decompose the model, match every op to existing CPU kernels, and route
@@ -71,7 +70,10 @@ demonstrated** on this model.
 - **Accuracy oracle gates before any perf claim** — real-prompt coherence → per-token parity → task
   accuracy; a failing gate blocks the number (it did here — see below).
 
-#### Demonstrated on DeepSeek-V4-Flash
+#### 1 · DeepSeek-V4-Flash — flagship (novel kernels authored + validated)
+**DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) carries
+**two genuinely novel op families** — DeepSeek Sparse Attention (lightning-indexer + KV-compressor +
+top-k sparse-MLA) and MHC hash-clustering — while everything else is covered by the DeepSeek-V2 CPU donors.
 - **Scope** — scope-discovery surfaced the *true* scope (DSA + MHC **plus** a runtime infra layer, not
   the "4 DSA kernels" a static op-scan implied) → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
 - **Novel kernels authored + parity-validated on CPU** — DSA compressor softmax-pool, lightning-indexer,
@@ -130,6 +132,44 @@ int8 is the only low-precision AMX *compute* tile; fp4/fp8 route through **bf16*
 to stay lossless — the low precision is spent purely on movement/footprint. Keeping the experts
 **native 4-bit** (instead of up-converting fp4→fp8, which doubles the footprint) is what lets the
 whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+
+#### 2 · GLM-5.3 Flash — autonomous playbook (velocity demonstration)
+
+**GLM-5.3 Flash** (`glm5_next`; 45 layers, hidden 4096, 288-expert MoE top-8) is a deliberate clean test
+of whether the *same* skills + plugin carry a **structurally different** architecture **with minimal human
+steering** — the metric here is **velocity**, not new kernels. It is a hybrid: **34 KDA linear-attention
+layers** (Kimi Delta / gated-delta-rule), **11 NoPE MLA + DSA** full-attention layers, an **MHC
+hash-clustering** residual, and an **fp8 e4m3 128×128 block-quant** checkpoint (one fp8→bf16 W8A16 bridge).
+Delivered as the same external plugin (`intel_cpu_models`) — no fork.
+
+**What the autonomous run has demonstrated so far:**
+- **Bring-up ladder cleared autonomously — ~18 sequential breaks** across prefill **and** decode, each
+  diagnosed → fixed-in-plugin → re-run on a tiny arch-faithful config (seconds per iteration): DSA
+  device-probe guard, mamba/KDA dual-cache + page-size, MHC `hc_post` shape, SwiGLU-clamp, the 288-expert
+  grouped-topk fallback, then the decode ladder (NoPE-MLA dispatch, DSA-indexer→dense, NoPE-MLA `w_kc`
+  keep-logical). Prefill and decode each had their **own** break ladder — decode hides behind prefill.
+- **CPU↔GPU parity-test infrastructure built** — a deterministic-dummy harness that makes
+  `load_format=dummy` **bit-identical across the CPU engine (torch-CPU) and the native-GPU sglang
+  container** (numpy name-seeded init → same weights regardless of device / RNG / torch version), plus
+  matched full-tensor per-`(pass,op,layer)` capture hooks on both sides and an offline cosine+magnitude
+  diff ([_dummy_determinism.py](plugin/_dummy_determinism.py), [diff_fullcap.py](plugin/validate/diff_fullcap.py)).
+  This **decouples wiring/kernel correctness from the fp8 bridge** so it is proven **cheaply, on one GPU,
+  without a ~300 GB real-weight load**.
+- **Per-layer correctness PROVEN on dummy weights (so far)** — GPU-reference vs CPU-build, tiny config:
+  **prefill all layers + first-decode L0–2 BIT-EXACT** (cos 1.000001, rel-max-err 0.0 on every per-layer
+  hidden + MHC residual), logits cos 0.999996. Both passes (prefill `pf` + decode `dc0`) verified from a
+  single fingerprint diff.
+- **New CPU authoring** — a reference-first **KDA linear-attention** CPU path (gated-delta recurrence +
+  dual cache, [kda_linear_attention_cpu.py](plugin/intel_cpu_models/kda_linear_attention_cpu.py)), and
+  the fix for a genuine sglang gap: **NoPE MLA on CPU** (the fused-rope kernel divides by
+  `qk_rope_head_dim=0` → SIGFPE; keep `w_kc`/`w_vc` logical + route to the generic absorb path).
+
+**Remaining (scoped):** the **real-weight finale** — exercise the fp8→bf16 bridge on the full 45-layer
+checkpoint, confirm per-layer parity against the frozen real-weight GPU fingerprint, run gsm8k task
+accuracy, then the roofline. Perf TODOs noted (288-expert CPU top-k kernel, logical-`w_kc` AMX path,
+incremental-sparse DSA decode, AMX KDA kernel). *The point of this section is the **velocity**: a
+structurally different architecture carried to proven per-layer correctness by the same playbook, with
+only the genuinely novel op (KDA) hand-authored.*
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
