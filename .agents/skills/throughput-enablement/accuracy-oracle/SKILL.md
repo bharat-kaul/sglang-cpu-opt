@@ -163,6 +163,30 @@ build via `_dummy_determinism.py` — NOT the old 'dummy is useless, must be rea
 GPU fingerprint is captured + archived day-0 too but is the FINAL-stage gate (dtype bridge + full depth +
 task accuracy), not the first parity. Retargeting the hook to a new arch (swap the decoder-layer class +
 sub-op taps) is a cheap per-model step — budget it as part of bring-up setup.
+
+**⛔ GPU-ORACLE INFRA IS A RECURRING TIME SINK — use the proven recipe, and keep it OFF the CPU-correctness
+critical path.** Most GPU-reference breaks are *plumbing*, not CPU bugs (podman store, image pull,
+cuda-graph capture asserts, DSA kpool constraints, KV OOM, dtype checks) — the CPU build was already
+parity-proven, so don't read GPU-ref churn as a CPU regression. Standardize ONCE:
+- **Podman store (HPC):** a PERSISTENT per-model store on /scratch pulled once + reused (`podman --root
+  /scratch/.../podman-<model>-store --runroot /tmp/rr-$JOBID --cgroup-manager=cgroupfs --storage-driver
+  overlay --storage-opt overlay.mount_program=/usr/bin/fuse-overlayfs --storage-opt
+  overlay.ignore_chown_errors=true`), `image exists || pull` (**pre-warm** it on the login node in the
+  background — the pull is ~7-9 min fuse-overlayfs/NFS unpack), `--userns=host`, per-job runroot on local
+  /tmp, clean ONLY the runroot on EXIT. A *shared* store accumulates stale container locks from --rm runs
+  that can't delete busy NFS `.nfs` files; some nodes have no writable `/run/user/$UID`; a CLI `--root`
+  does NOT inherit storage.conf overlay opts. Run GPU-ref jobs serially against the per-model store.
+- **Save INSIDE the forward**, not at exit: sglang runs the model in a scheduler subprocess that is
+  hard-killed on shutdown → atexit/LogitsProcessor saves there never fire and the driver's buffer is
+  empty. `torch.save` per capture in the forward hook (self-diagnosing: log class-found + hidden shape +
+  pid). Key off the SEQUENCE dim `shape[-2]` (GPU hidden is 3D `[B,T,H]`, CPU 2D `[T,H]`); normalize to
+  `[T,H]`. Verify the fingerprint where torch EXISTS (offline / in-container), not on the torch-less host.
+- **Tiny-config vs GPU-kernel constraints:** shrinking a config for cheap CPU bring-up can VIOLATE GPU
+  kernel asserts the CPU path no-ops (GLM DSA: `index_n_heads` H%4==0 & N%8==0; decode kpool
+  `group_topk=index_topk//index_kpool ∈ {128,160,192,224,256,512,2048}`; 1M `context_len` + high
+  mem_fraction OOMs the decode flash-attn transient). For params the CPU ignores but the GPU constrains,
+  keep real(ish) values and LOWER mem_fraction for the GPU run; at tiny ctx top-k=all=dense so parity
+  holds. Jump to a known-good value — don't bump one divisibility step per GPU round-trip.
 1. **Reusable capture hook on BOTH sides, env-gated, saving FULL fp32 tensors (never fp[:4]).** One hook
    file per side (CPU plugin + a GPU-reference hook) that, when its env flag is set, wraps the decoder
    layer + key sub-ops and `torch.save`s a dict keyed `{pass}.{op}.L{layer}.r{rank}` where pass ∈
