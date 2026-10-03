@@ -579,14 +579,12 @@ def _install_fullcap_glm():
                         # Save HERE (scheduler process, during forward): atexit runs in the
                         # wrong process / is skipped on hard shutdown, and LogitsProcessor may
                         # not fire — an in-forward save is the only reliable persistence.
-                        try:
-                            torch.save(_CAP, _F)
-                        except Exception:  # noqa: BLE001
-                            pass
+                        torch.save(_CAP, _F)
+                        print(f"[fullcap_glm] SAVED {len(_CAP)} -> {_F} pid={os.getpid()} key={key}", flush=True)
                     if tg.startswith("dc"):
                         _ST["dc"] += 1
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _e:  # noqa: BLE001
+            print(f"[fullcap_glm] _fwd EXC pid={os.getpid()}: {type(_e).__name__}: {_e}", flush=True)
         return out
 
     Layer.forward = _fwd
