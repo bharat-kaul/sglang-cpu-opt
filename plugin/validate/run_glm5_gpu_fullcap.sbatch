@@ -21,6 +21,7 @@ DEVARGS=""; N=0
 for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVARGS --device nvidia.com/gpu=$u"; N=$((N+1)); done
 echo "=== GLM GPU reference: tp=$N real weights, capture -> $FCAP ==="
 podman run --rm $DEVARGS \
+  --events-backend=none \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e MODEL_PATH=/scratch/bkaul/models/GLM-5.3-Flash -e DEVICE=cuda -e TP=$N \
