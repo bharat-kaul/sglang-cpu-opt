@@ -58,6 +58,33 @@ OPTIMIZATION-phase correctness check is **DETERMINISTIC DUMMY weights**, NOT the
   both the CPU plugin and the GPU reference hook. [PROVEN on GLM-5.3 Flash: GPU-dummy vs CPU-dummy
   8-layer prefill diff = cos 1.000001 / rel_maxerr 0.0 (BIT-EXACT) on every per-layer hidden +
   MHC residual, logits cos 0.999996 — deterministic-dummy cross-engine parity works and is cheap.]
+
+### ⛔ CONFIG AXIS (tiny-faithful → full-model dummy → real) — a THIRD axis; the tiny config is a BRING-UP proxy, NOT the final correctness gate
+Shrinking the config is the parity analog of the truncated-model perf proxy, and it has the SAME ladder:
+- **TINY ARCH-FAITHFUL config (bring-up proxy).** A depth- AND width-reduced config that keeps ONE of
+  every op TYPE (each attention kind, dense + MoE, norm/rope/residual variants) + the real tokenizer.
+  Purpose: clear the wiring-break ladder in SECONDS, not minutes on a scarce big-mem node (GLM: ~18
+  breaks). tp=1 both sides so the deterministic dummy is trivially bit-identical. It proves each op TYPE
+  executes + matches — it is NOT proof that ALL layers / REAL shapes are correct (shrunk hidden/heads
+  hide tile-size, real-expert-routing, and depth-interaction bugs).
+- **FULL-MODEL DUMMY (the AUTHORITATIVE all-layer correctness gate — do this BEFORE optimizing).** Run
+  the REAL config (all layers, real hidden/heads/experts, real shapes) with DETERMINISTIC DUMMY weights
+  on BOTH sides and diff EVERY layer. No real-weight load, no dtype bridge — just the full wiring+kernels
+  at real shape and depth. THIS is the gate that says "every layer is correct" before the optimization
+  campaign, and the SAME fast parity then regression-guards each optimization (optimize → per-layer
+  re-diff → integrate). Mirrors the DSV4 methodology.
+  - **The one extra requirement: the GPU reference needs MULTI-GPU (the full model >> one GPU), so the
+    deterministic dummy must be TP-CONSISTENT** — each GPU rank's weight SHARD must equal the matching
+    slice of the CPU's (tp=1) full name-seeded weight. `_dummy_determinism.py` currently fills the LOCAL
+    `param.shape` (correct only at tp=1). To go full-model: either (a) make the fill TP-aware (generate
+    the GLOBAL name-seeded array per param, copy the rank's shard using the param's sharding metadata —
+    output_dim/input_dim, tp_rank, tp_size), or (b) generate a deterministic dummy CHECKPOINT once and
+    load it on both sides (the real loader shards it identically — sidesteps TP-aware fill). Do NOT
+    default to a single-GPU tiny run when multi-GPU (e.g. H200 ×8) is available — that under-scopes the
+    gate to op-type coverage instead of all-layer correctness.
+- **REAL weights (final):** the dtype bridge + task accuracy, per the WEIGHT AXIS above.
+Net: tiny-dummy (bring-up, op-type) → full-model-dummy (all-layer correctness gate + opt regression
+guard, multi-GPU ref) → real (bridge + task). The middle rung is the one that proves the whole model.
 - **Anti-pattern this kills (cost: a needless 300–600GB load):** reflexively standing up the FIRST
   CPU-vs-GPU parity on the REAL checkpoint because 'dummy differs run-to-run'. Make dummy deterministic
   and the early parity is cheap; reserve real weights for the dtype-bridge + task-accuracy FINALE.
