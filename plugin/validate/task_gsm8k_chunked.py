@@ -57,11 +57,12 @@ def main():
     shots = "".join(one_example(lines[i], True) + "\n\n" for i in range(args.num_shots))
     eval_lines = lines[args.num_shots:args.num_shots + args.num_questions]
     # disjoint contiguous shard for parallel multi-node runs (combine sums correct/done)
+    shard_offset = 0
     if args.num_shards > 1:
         n = len(eval_lines)
         per = (n + args.num_shards - 1) // args.num_shards
-        s = args.shard_index * per
-        eval_lines = eval_lines[s:min(s + per, n)]
+        shard_offset = args.shard_index * per
+        eval_lines = eval_lines[shard_offset:min(shard_offset + per, n)]
     prompts = [shots + one_example(x, False) for x in eval_lines]
     labels = [answer_value(x["answer"]) for x in eval_lines]
     total = len(labels)
@@ -106,7 +107,7 @@ def main():
         if args.out:
             _atomic_write(args.out, result)
         if args.gens_out:
-            gens.extend({"q": start + j, "gold": l, "text": t}
+            gens.extend({"q": shard_offset + start + j, "gold": l, "text": t}
                         for j, (t, l) in enumerate(zip(texts, chunk_l)))
             _atomic_write(args.gens_out, gens)
 
