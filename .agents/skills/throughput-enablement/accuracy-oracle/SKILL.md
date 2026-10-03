@@ -228,6 +228,13 @@ APPLES-TO-APPLES. Reference hierarchy + the two checks it enables:
   our 256-token / `"\n\n"`-stop harness vs the card's **90.8% gsm8k 8-shot**, because the short cap + `\n\n`
   stop TRUNCATED the chain-of-thought before the final answer (gsm8k 8-shot is conventionally CoT → needs
   ~512 tok, stop only on `"Question"`). Replicate the published protocol before concluding anything.
+- **Base models need CLEAN CoT exemplars, not raw dataset answers (applies to ANY model on the task).**
+  Feeding the raw gsm8k `answer` field (with `<<calc>>` annotations + a bare `#### N`) made this base model
+  DEGENERATE after answering — unrelated math, repeated `</s>`, "Confidence: 100" — which both deflates the
+  score AND corrupts last-number parsing (measured ~78% full-run vs the clean-exemplar protocol that produces
+  the published number). Strip dataset-specific markup and end every exemplar with an explicit marker the
+  model will imitate ("The answer is N."), then extract THAT marker. `task_gsm8k._clean_answer` +
+  `extract_final_answer` do this generically — reuse them for any model, don't re-hand-roll parsing.
 - **GPU oracle running YOUR harness** = the tightest certification; it separates two questions:
   - **CPU vs GPU, same harness** → certifies the CPU IMPLEMENTATION (greedy → expect near-identical; strongest
     form = TOKEN-LEVEL parity on the task prompts, which also catches the long-context / long-generation
