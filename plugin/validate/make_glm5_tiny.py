@@ -41,7 +41,7 @@ def shrink(c):
     tc["qk_rope_head_dim"] = 0
     tc["v_head_dim"] = 32
     tc["index_head_dim"] = 128  # DSATokenToKVPool hardcodes index_head_dim==128
-    tc["index_n_heads"] = 4  # GPU DSA tilelang kernel asserts H%4==0 (CPU no-ops the indexer)
+    tc["index_n_heads"] = 32  # GPU DSA tilelang kernel needs H%4==0 AND N%8==0; use real 32 (CPU no-ops indexer)
     tc["index_topk"] = 8
     tc["index_kpool"] = 2
     # Keep the REAL vocab_size — we copy the real tokenizer, so a shrunk vocab makes
