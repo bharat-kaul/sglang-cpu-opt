@@ -7,7 +7,7 @@
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --mem=0
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --job-name=dsv4_lmeval
 #SBATCH --output=/scratch/bkaul/dsv4_lmeval_%j.log
 set -x
