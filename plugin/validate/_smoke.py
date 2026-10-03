@@ -45,6 +45,11 @@ def main():
     # keeping DSA's page_size=64 for the MLA/DSA pool.
     if os.environ.get("DISABLE_RADIX") == "1":
         kw["disable_radix_cache"] = True
+    # Prefill-only fingerprint capture doesn't need decode CUDA graphs; disabling them
+    # sidesteps the whole class of decode-graph capture asserts (e.g. DSA index_kpool
+    # group_topk constraints) that a shrunk tiny config otherwise trips on GPU.
+    if os.environ.get("DISABLE_CUDA_GRAPH") == "1":
+        kw["disable_cuda_graph"] = True
     e = sgl.Engine(**kw)
     # Prompts/max-new via env so GPU reference and CPU runs use IDENTICAL inputs (fingerprint align).
     prompts = os.environ.get("SMOKE_PROMPTS", "The capital of France is|2 + 2 =").split("|")

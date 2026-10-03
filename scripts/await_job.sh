@@ -13,6 +13,7 @@ LOG="${2:-}"
 HB="${3:-60}"
 [ -z "$LOG" ] && LOG=$(scontrol show job "$JID" 2>/dev/null | sed -n 's/^.*StdOut=//p' | head -1)
 START=$(date +%s)
+EMPTY=0
 echo "AWAIT jobid=$JID log=$LOG start=$(date -Is) heartbeat=${HB}s"
 while :; do
   ST=$(squeue -j "$JID" -h -o "%T" 2>/dev/null)
@@ -27,10 +28,25 @@ while :; do
         echo "---- log tail ----"; tail -25 "$LOG" 2>/dev/null || echo "(no log at $LOG)"
         break ;;
       *)
-        echo "HEARTBEAT jobid=$JID state=(squeue-empty, sacct=${FINAL:-unknown} -> transient, still waiting)"
+        # sacct has NO terminal record on some clusters (podman jobs / allocations are not
+        # accounted) -> the original code waited FOREVER here. Fall back: a job gone from
+        # squeue whose LOG shows a completion marker, OR gone for K consecutive polls, is DONE.
+        EMPTY=$((EMPTY+1))
+        if tail -6 "$LOG" 2>/dev/null | grep -qE "\[exit=|\[smoke\] OK|no fingerprint saved|^DONE"; then
+          echo "DONE jobid=$JID state=${FINAL:-gone} (log-marker) at=$(date -Is)"
+          echo "---- log tail ----"; tail -25 "$LOG" 2>/dev/null
+          break
+        fi
+        if [ "$EMPTY" -ge 2 ]; then
+          echo "DONE jobid=$JID state=${FINAL:-gone} (squeue-empty x$EMPTY, sacct-unknown) at=$(date -Is)"
+          echo "---- log tail ----"; tail -25 "$LOG" 2>/dev/null
+          break
+        fi
+        echo "HEARTBEAT jobid=$JID state=(squeue-empty#$EMPTY, sacct=${FINAL:-unknown} -> confirming done)"
         sleep "$HB"; continue ;;
     esac
   fi
+  EMPTY=0
   EL=$(( $(date +%s) - START ))
   LAST=$(tail -1 "$LOG" 2>/dev/null | cut -c1-80)
   echo "HEARTBEAT jobid=$JID state=$ST elapsed=${EL}s last='${LAST}'"
