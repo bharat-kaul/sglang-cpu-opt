@@ -323,6 +323,29 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
 
+    # DECODE MLA dispatch: GLM MLA is NoPE (qk_rope_head_dim=0 -> self.rotary_emb is None), but the CPU
+    # dispatcher routes any fused-qkv MLA on AMX to MLA_FUSED_ROPE_CPU, whose kernel dereferences
+    # self.rotary_emb.cos_sin_cache -> AttributeError at decode. Route NoPE MLA to the generic MLA
+    # (forward_absorb) path, which already handles `rotary_emb is None`. DSV4 (has rope) is unaffected
+    # (rotary_emb present -> original dispatch), so this is safe even though DSV4 imports this module.
+    try:
+        import sglang.srt.models.deepseek_common.attention_backend_handler as _abh
+        from sglang.srt.models.deepseek_common.attention_forward_methods.forward_methods import (
+            AttnForwardMethod as _AFM,
+        )
+
+        _orig_mla_dispatch = _abh._dispatch_mla_subtype
+
+        def _cpu_nope_aware_mla_dispatch(attn, forward_batch):
+            if getattr(attn, "rotary_emb", None) is None:
+                return _AFM.MLA  # NoPE MLA -> generic absorb path (no fused-rope kernel)
+            return _orig_mla_dispatch(attn, forward_batch)
+
+        _abh._dispatch_mla_subtype = _cpu_nope_aware_mla_dispatch
+        logger.info("GLM5 CPU: NoPE MLA (rotary_emb None) routed to generic MLA, not fused-rope-cpu.")
+    except Exception as _e:
+        logger.warning("GLM5 CPU NoPE-MLA dispatch guard not installed: %s", _e)
+
     _install_fullcap_glm_cpu()
     _INSTALLED = True
 
