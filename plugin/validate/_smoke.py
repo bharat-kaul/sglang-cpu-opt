@@ -11,10 +11,12 @@ import os
 def main():
     import sglang as sgl
 
-    # Pre-import the external plugin so its CPU arg-resolution guards install BEFORE
-    # the engine's resolve_once() runs device probes (GLM-5.3 DSA path needs this).
-    if os.environ.get("SGLANG_EXTERNAL_MODEL_PACKAGE") == "intel_cpu_models":
-        import intel_cpu_models  # noqa: F401
+    # Pre-import the external plugin so its import-time patches (CPU arg-resolution
+    # guards for intel_cpu_models; deterministic-dummy + capture hooks for either
+    # package) install BEFORE the engine's resolve_once()/load_model runs.
+    _pkg = os.environ.get("SGLANG_EXTERNAL_MODEL_PACKAGE")
+    if _pkg:
+        __import__(_pkg)
 
     model = os.environ["MODEL_PATH"]
     tp = int(os.environ.get("TP", "1"))

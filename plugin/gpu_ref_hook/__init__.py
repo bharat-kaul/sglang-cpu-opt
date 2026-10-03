@@ -600,6 +600,15 @@ def _install_fullcap_glm():
         pass
 
 
+# Deterministic dummy weights (gated DETERMINISTIC_DUMMY=1) so the GPU dummy
+# reference is bit-identical to the CPU dummy build -> valid per-layer parity diff.
+try:
+    from _dummy_determinism import install_deterministic_dummy
+
+    install_deterministic_dummy()
+except Exception:  # noqa: BLE001
+    pass
+
 if os.environ.get("GPU_REF_HID_DEBUG") == "1":
     _install()
 if os.environ.get("GPU_REF_FULLCAP") == "1":

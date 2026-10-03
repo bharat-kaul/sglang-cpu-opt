@@ -323,4 +323,111 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
 
+    _install_fullcap_glm_cpu()
     _INSTALLED = True
+
+
+def _install_fullcap_glm_cpu() -> None:
+    """CPU-side full-tensor per-(pass,op,layer,rank) capture for the prefill parity fingerprint.
+
+    Mirrors gpu_ref_hook._install_fullcap_glm KEY-FOR-KEY (pf.L{lid}.r{rank},
+    pf.hcpost.L{lid}.r{rank}, logits.{n}.r{rank}) so the CPU build diffs apples-to-apples
+    against glm5_gpu_fullcap_381095.pt. Gated by INTEL_CPU_GLM_FULLCAP=1; no-op otherwise."""
+    import os as _os
+
+    if _os.environ.get("INTEL_CPU_GLM_FULLCAP") != "1":
+        return
+    try:
+        import sglang.srt.models.glm5_next as _glm
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 CPU fullcap not installed (import): %s", _e)
+        return
+    Layer = getattr(_glm, "Glm5NextDecoderLayer", None)
+    if Layer is None or getattr(Layer, "_fullcap_glm_cpu_patched", False):
+        return
+    _F = _os.environ.get("FULLCAP_FILE", "/scratch/bkaul/glm5_cpu_fullcap.pt")
+    _CAP: dict = {}
+    _ST = {"seen_pf": False, "dc": 0}
+
+    def _rk():
+        try:
+            from sglang.srt.distributed import get_tensor_model_parallel_rank as _g
+
+            return _g()
+        except Exception:  # noqa: BLE001
+            return -1
+
+    def _tag(T):
+        if 2 <= T <= 16:
+            _ST["seen_pf"] = True
+            return "pf"
+        if T == 1 and _ST["seen_pf"]:
+            return f"dc{_ST['dc'] // 64}"
+        return None
+
+    _ofwd = Layer.forward
+
+    def _fwd(self, *a, **k):
+        out = _ofwd(self, *a, **k)
+        try:
+            h = out[0] if isinstance(out, (tuple, list)) else out
+            if torch.is_tensor(h) and h.dim() >= 2:
+                tg = _tag(h.shape[0])
+                if tg:
+                    lid = getattr(self, "layer_id", -1)
+                    key = f"{tg}.L{lid}.r{_rk()}"
+                    if key not in _CAP:
+                        _CAP[key] = h.detach().float().cpu()
+                    if tg.startswith("dc"):
+                        _ST["dc"] += 1
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    Layer.forward = _fwd
+    Layer._fullcap_glm_cpu_patched = True
+
+    _ohcp = getattr(Layer, "hc_post", None)
+    if _ohcp is not None and not getattr(Layer, "_fullcap_glm_cpu_hcpost", False):
+
+        def _hcp(self, *a, **k):
+            r = _ohcp(self, *a, **k)
+            try:
+                o = r[0] if isinstance(r, (tuple, list)) else r
+                if torch.is_tensor(o):
+                    tg = _tag(o.shape[0])
+                    if tg:
+                        lid = getattr(self, "layer_id", -1)
+                        key = f"{tg}.hcpost.L{lid}.r{_rk()}"
+                        if key not in _CAP:
+                            _CAP[key] = o.detach().float().cpu()
+            except Exception:  # noqa: BLE001
+                pass
+            return r
+
+        Layer.hc_post = _hcp
+        Layer._fullcap_glm_cpu_hcpost = True
+
+    try:
+        from sglang.srt.layers.logits_processor import LogitsProcessor
+
+        if not getattr(LogitsProcessor, "_fullcap_glm_cpu_patched", False):
+            _olp = LogitsProcessor.forward
+
+            def _lp(self, *a, **k):
+                r = _olp(self, *a, **k)
+                try:
+                    lg = getattr(r, "next_token_logits", None)
+                    if lg is not None:
+                        n = sum(1 for kk in _CAP if kk.startswith("logits"))
+                        _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
+                        torch.save(_CAP, _F)
+                except Exception:  # noqa: BLE001
+                    pass
+                return r
+
+            LogitsProcessor.forward = _lp
+            LogitsProcessor._fullcap_glm_cpu_patched = True
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 CPU fullcap logits hook not installed: %s", _e)
+    logger.info("GLM5 CPU: full-tensor prefill capture installed -> %s", _F)

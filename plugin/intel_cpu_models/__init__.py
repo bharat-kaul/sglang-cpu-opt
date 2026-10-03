@@ -30,3 +30,12 @@ try:
     install_cpu_resolution_guards()
 except Exception as _e:  # never block loading other models on this guard
     logger.warning("intel_cpu_models: CPU resolution guard not installed: %s", _e)
+
+# Deterministic dummy weights (gated DETERMINISTIC_DUMMY=1) so a CPU dummy run is
+# bit-identical to the GPU dummy reference -> the per-layer parity diff is valid.
+try:
+    from _dummy_determinism import install_deterministic_dummy
+
+    install_deterministic_dummy()
+except Exception as _e:  # noqa: BLE001
+    logger.warning("intel_cpu_models: deterministic dummy not installed: %s", _e)
