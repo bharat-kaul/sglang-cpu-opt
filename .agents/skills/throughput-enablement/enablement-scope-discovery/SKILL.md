@@ -78,6 +78,19 @@ infra: [{item, classification, cpu_lever}], estimate: {routing_n, port_n, author
 Feeds `coverage-gate` (the authoring/port leaves are the real GAPs) and sets
 expectations for `cpu-model-wiring`'s bring-up ladder.
 
+## Capacity budget (size it UP FRONT, as part of infra scope — not via load-to-OOM)
+The runtime-substrate scope MUST include a **memory footprint estimate** for the full-model
+parity/profile runs and a fit-check against the planned node(s). The GLM real-weight capture burned
+3 load-to-failure round-trips that an upfront budget would have avoided. Estimate: **weights** resident
+(a low-bit ckpt dequanted to bf16 at load ≈ 2×, + an AMX-prepack transient → load PEAK ~2–3× the
+on-disk low-bit bytes; divide by TP + check PER-GPU) + **KV pool** (`context_length × max_total_tokens
+× per-token-KV` — a native ~1M context over-reserves) + **state cache** (mamba/linear-attn =
+`max_running × per-req-state`, LARGE) + activations. If it does not fit the planned node: apply the
+reduction levers (cap `context_length`, `max_running=1`, correct `mem_fraction` — CPU = total engine
+budget, not GPU-style KV-only — bigger node, or more-TP), and if it STILL doesn't fit, FLAG A ROADBLOCK
+with options (keep weights low-bit in-memory, stream/checkpoint the capture, reduce depth, acquire
+nodes). Full detail + the levers: `accuracy-oracle` CAPACITY BUDGET block.
+
 ## Gate
 The manifest must be grounded in code paths (file:line per leaf), cover every
 subsystem AND the substrate, and recurse to leaves — not stop at outer ops. A leaf

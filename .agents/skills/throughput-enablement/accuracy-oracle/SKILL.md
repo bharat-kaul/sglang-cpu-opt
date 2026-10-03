@@ -85,6 +85,29 @@ Shrinking the config is the parity analog of the truncated-model perf proxy, and
 - **REAL weights (final):** the dtype bridge + task accuracy, per the WEIGHT AXIS above.
 Net: tiny-dummy (bring-up, op-type) → full-model-dummy (all-layer correctness gate + opt regression
 guard, multi-GPU ref) → real (bridge + task). The middle rung is the one that proves the whole model.
+
+### ⛔ CAPACITY BUDGET — size the FULL memory footprint BEFORE launching ANY full-model parity/capture run
+Do this UP FRONT (part of scope/infra planning), not via load-to-OOM. A wrong guess costs a chain of
+~15-min load-to-failure round-trips (GLM real-weight capture burned 3: mem_frac 0.15 → state-cache
+NEGATIVE, 0.9 → OOM-killed, then context-cap 8192 + mem_frac 0.5 fit). Before the run, COMPUTE
+resident + load-PEAK memory and confirm it fits the planned node(s):
+- **Weights (and the dtype bridge DOUBLES or more).** fp8/fp4 ckpt dequanted to bf16 at load ≈ 2× the
+  on-disk size; add an AMX-prepack transient copy → load PEAK can be ~2–3× the on-disk low-bit bytes
+  (GLM: 306 GB fp8 → ~600 GB bf16 resident, higher peak). Multi-GPU: divide by TP and check PER-GPU.
+- **KV pool (attention)** = `context_length × max_total_tokens × per-token-KV`. A model's NATIVE context
+  (GLM ~1M) over-reserves massively — this is usually the biggest single pool.
+- **State cache (mamba / linear-attn, e.g. KDA)** = `max_running_requests × per-req-state` — LARGE for
+  linear-attention; a capture needs only `max_running=1`.
+- **Activations** for the prefill (small for a short capture prompt).
+- **REDUCTION LEVERS (apply before flagging a roadblock):** cap `context_length` (shrinks the KV pool —
+  the biggest lever for long-context models), `MAX_RUNNING=1` (shrinks the state cache), set
+  `mem_fraction` correctly (**CPU `mem_fraction_static` = TOTAL engine budget model+pools, NOT a
+  GPU-style KV-only fraction** — too low starves the state cache, too high OOMs; GPU side it IS KV-only),
+  pick a bigger-RAM node, or TP-shard across MORE GPUs and size per-GPU.
+- **If it STILL doesn't fit after all levers → FLAG A ROADBLOCK with options:** keep weights low-bit
+  in-memory (skip the bf16-bridge doubling — W8A16/W4A16 dequant-in-GEMM), stream/checkpoint the capture
+  layer-by-layer, reduce depth for a first pass, or acquire more/bigger nodes. Surface the number + the
+  options; do NOT just launch and hope.
 - **Anti-pattern this kills (cost: a needless 300–600GB load):** reflexively standing up the FIRST
   CPU-vs-GPU parity on the REAL checkpoint because 'dummy differs run-to-run'. Make dummy deterministic
   and the early parity is cheap; reserve real weights for the dtype-bridge + task-accuracy FINALE.
