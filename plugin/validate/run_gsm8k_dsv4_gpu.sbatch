@@ -21,7 +21,9 @@ nvidia-smi -L
 # Use a PRIVATE node-local store per job (overlay ignore_chown_errors in storage.conf still applies,
 # so unpack works without an /etc/subuid range); --userns=host maps the container to the caller.
 LROOT=/tmp/podman-root-${SLURM_JOB_ID}; LRUN=/tmp/podman-runroot-${SLURM_JOB_ID}; mkdir -p "$LROOT" "$LRUN"
-PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs"
+# CLI --root does NOT inherit storage.conf's [storage.options.overlay] options, so the subuid-free
+# unpack knobs must be passed explicitly here (else lchown EPERM returns on /etc/gshadow etc.).
+PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs --storage-driver overlay --storage-opt overlay.mount_program=/usr/bin/fuse-overlayfs --storage-opt overlay.ignore_chown_errors=true"
 trap 'rm -rf "$LROOT" "$LRUN"' EXIT
 $PODMAN pull "$IMG"
 $PODMAN \
