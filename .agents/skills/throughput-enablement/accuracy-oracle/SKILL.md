@@ -46,6 +46,33 @@ OPTIMIZATION-phase correctness check is **DETERMINISTIC DUMMY weights**, NOT the
   prove: the fp4/fp8/mxfp4 **dtype bridge** (dummy drops quant → scales=1.0), the FULL layer depth,
   and end-to-end TASK accuracy. Capture/freeze the real-weight GPU fingerprint day-0 (it is independent
   of the CPU port) and ARCHIVE it for this final gate — but do NOT make it the FIRST parity.
+  - **Cross-engine inputs MUST be byte-identical — feed explicit `input_ids`, not prompt text.** The CPU
+    engine and the GPU container can load DIFFERENT tokenizers (a CPU fallback tokenizer may drop the
+    model's special-token prefix, e.g. GLM `[gMASK]<sop>`), so the SAME prompt yields DIFFERENT token
+    counts → the per-layer tensors have mismatched sequence length and are unalignable (every layer
+    reads `SHAPE MISMATCH` even though the model is fine). Fix: drive BOTH engines with explicit
+    `input_ids` (`engine.generate(input_ids=[...])`) — tokenizer-independent, reusable for any model.
+    Also disable CUDA-graph/padding on the GPU reference (`--disable-cuda-graph`, `max_running=1`) so the
+    capture isn't padded to a bucket (padded positions are garbage and inflate the sequence dim).
+  - **The real-fp8 gate is NOT bit-exact — set the tolerance from the dtype reality, and TRIAGE before
+    alarming.** A W8A16 CPU build (dequant weights to bf16, bf16 activations) vs a W8A8 GPU reference
+    (`"activation_scheme":"dynamic"` in `quantization_config` → the GPU re-quantizes ACTIVATIONS to fp8
+    every forward) will show a COMPOUNDING per-layer divergence (residual cos 0.999 early → ~0.92 deep,
+    nonlinear gates like MHC `2·sigmoid(sinkhorn(·))` amplify the fp8-activation noise). This is EXPECTED
+    numerics — the CPU is the MORE-precise path — NOT a bug. Before treating a real-weight divergence as
+    a bug, run the cheap triage ladder: (1) is the bf16-DUMMY gate still bit-exact? → wiring is fine;
+    (2) offline-check the fp8 WEIGHT dequant (block-scale grid = ⌈O/128⌉×⌈I/128⌉, dequant `w·scale`) for
+    MISALIGNMENT (non-128-multiple dims) → scale bug if any; (3) is the degradation SMOOTH/distributed or
+    a sharp per-layer-type JUMP? → jump localizes a real op bug; (4) read `config.json`
+    `quantization_config.activation_scheme` → `dynamic` fp8 activations explain a smooth compounding gap
+    with NO bug. If (1)-(4) all say "numerics", NOTE it for the accuracy run (validate CPU task accuracy
+    on its OWN merits vs published, do NOT require bit-match to the lossier W8A8 GPU) and PROCEED.
+  - **Anchor the optimization guardrail to the CPU's OWN unoptimized fingerprint, NOT the GPU gap.** Once
+    the real-weight gate is dispositioned, freeze the UNOPTIMIZED **CPU** real-weight fingerprint as the
+    opt golden: each optimized kernel/op must reproduce ITS boundary tensor to ~BIT-EXACT (CPU-vs-CPU,
+    SAME precision → tight tolerance), integrate only after it passes ⇒ correct by construction. The
+    CPU-vs-GPU gap (e.g. 0.92) is the W8A16-vs-W8A8 difference and is IRRELEVANT as an opt threshold. Two
+    tiers both must pass: bf16-dummy golden = bit-exact WIRING guard; real-fp8 CPU golden = no-regression.
 - **DETERMINISM IS THE ENABLER (the trap that makes naive dummy 'useless').** `load_format=dummy`
   initializes weights with a generator seeded on the PARAM'S DEVICE (`torch.Generator(device=...)`),
   so CPU and CUDA RNG streams DIFFER and the stream can shift across torch versions (CPU engine vs GPU

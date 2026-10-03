@@ -87,6 +87,23 @@ SGLANG_USE_CPU_ENGINE=1 sglang serve \
 See `sub-numa-clustering` for the capacity-fit + tp rule (per-rank footprint must fit
 one domain's RAM; tp bounded by head/expert divisibility).
 
+### Single-rank FULL-NODE run (correctness capture of a model bigger than one SNC domain)
+For a correctness CAPTURE (not a perf run) of a model that **overflows one SNC/NUMA domain**, you may
+NOT be able to shard: `tp` is bounded by head/expert divisibility (e.g. 64 heads ⇒ tp∈{1,2,4}, never 6),
+so a model too big for one domain at the largest legal tp has no sharded fit. Run it as a **single rank
+spanning the whole node** instead: `--tp 1` + `SGLANG_CPU_OMP_THREADS_BIND=0-<ncores-1>` (ALL physical
+cores across ALL domains). Why this works and plain `numactl --interleave=all` does NOT:
+- sglang's CPU memory accounting (`get_available_gpu_memory`, `srt/utils/common.py`) **divides free RAM
+  by `n_numa_node`** — so a tp=1 rank is budgeted only `total/n_numa` (e.g. 1.5 TB ÷ 6 ≈ 250 GB) and a
+  bigger model is refused / OOM-killed. And `init_threads_binding` **pins the rank's OMP threads to ONE
+  domain's cores** by default (`SGLANG_CPU_OMP_THREADS_BIND="all"`), forcing first-touch onto node 0 —
+  which **overrides an external `numactl`**. Setting `SGLANG_CPU_OMP_THREADS_BIND` to custom cores makes
+  `get_cpu_memory_capacity` stop dividing (returns `None` = full RAM) AND the threads span the listed
+  cores, so allocation spreads across all domains and the whole model fits the node. Cross-domain BW is
+  irrelevant for a capture. Tell-tale you hit the default-pin trap: loader logs `avail mem ≈ total/n_numa`.
+  [GLM-5.3 Flash: 306 GB fp8 real model loaded + ran coherently on a 1.5 TB / 6-SNC node only with
+  `SGLANG_CPU_OMP_THREADS_BIND=0-255`; every prior `mem_fraction`/`numactl` attempt OOM-killed at 250 GB.]
+
 ## Procedure
 1. Subclass the upstream model in the plugin; override only load-time prepack hooks
    and the CPU forward fast paths from the wiring surface.
