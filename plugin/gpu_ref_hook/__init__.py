@@ -546,8 +546,14 @@ def _install_fullcap_glm():
         except Exception:  # noqa: BLE001
             return -1
 
+    _SEEN = set()
+
+    def _toklen(h):
+        # token/sequence dim = 2nd-to-last: works for 2D [T,H] (CPU) and 3D [B,T,H] (GPU).
+        return h.shape[-2] if h.dim() >= 2 else h.shape[0]
+
     def _tag(T):
-        if 2 <= T <= 16:
+        if 2 <= T <= 16:  # real short prefill; excludes the big startup profiling forward
             _ST["seen_pf"] = True
             return "pf"
         if T == 1 and _ST["seen_pf"]:
@@ -561,12 +567,15 @@ def _install_fullcap_glm():
         try:
             h = out[0] if isinstance(out, (tuple, list)) else out
             if torch.is_tensor(h) and h.dim() >= 2:
-                tg = _tag(h.shape[0])
+                if tuple(h.shape) not in _SEEN:
+                    _SEEN.add(tuple(h.shape))
+                    print(f"[fullcap_glm] layer-out shape={tuple(h.shape)} toklen={_toklen(h)}", flush=True)
+                tg = _tag(_toklen(h))
                 if tg:
                     lid = getattr(self, "layer_id", -1)
                     key = f"{tg}.L{lid}.r{_rk()}"
                     if key not in _CAP:
-                        _CAP[key] = h.detach().float().cpu()
+                        _CAP[key] = h.detach().float().reshape(-1, h.shape[-1]).cpu()
                     if tg.startswith("dc"):
                         _ST["dc"] += 1
         except Exception:  # noqa: BLE001
@@ -584,13 +593,13 @@ def _install_fullcap_glm():
             r = _ohcp(self, *a, **k)
             try:
                 o = r[0] if isinstance(r, (tuple, list)) else r
-                if torch.is_tensor(o):
-                    tg = _tag(o.shape[0])
+                if torch.is_tensor(o) and o.dim() >= 2:
+                    tg = _tag(_toklen(o))
                     if tg:
                         lid = getattr(self, "layer_id", -1)
                         key = f"{tg}.hcpost.L{lid}.r{_rk()}"
                         if key not in _CAP:
-                            _CAP[key] = o.detach().float().cpu()
+                            _CAP[key] = o.detach().float().reshape(-1, o.shape[-1]).cpu()
             except Exception:  # noqa: BLE001
                 pass
             return r
