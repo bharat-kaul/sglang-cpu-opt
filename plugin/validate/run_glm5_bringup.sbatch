@@ -28,5 +28,8 @@ export LOG_LEVEL=info
 export MAMBA_RADIX_STRATEGY=no_buffer
 # Disable radix prefix-caching -> ChunkCache (no MambaComponent page_size=1 clash with DSA's 64).
 export DISABLE_RADIX=1
+# PREFILL-ONLY (max_new=1): the correctness gate is the per-layer PREFILL fingerprint; prefill
+# works end-to-end. Decode (NoPE-MLA fused-rope CPU path) is a separate deferred task.
+export MAX_NEW=1
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
 echo "[exit=$?]"
