@@ -33,7 +33,7 @@ done
 # 3. lm-eval (ISOLATED venv) standard gsm8k 8-shot vs the server
 /scratch/bkaul/venvs/lmeval/bin/lm_eval \
   --model local-completions \
-  --model_args "model=dsv4,base_url=http://127.0.0.1:$PORT/v1/completions,num_concurrent=${CONC:-16},max_retries=2,tokenized_requests=False" \
+  --model_args "model=dsv4,base_url=http://127.0.0.1:$PORT/v1/completions,num_concurrent=${CONC:-16},max_retries=2,tokenized_requests=False,tokenizer=/scratch/bkaul/models/DeepSeek-V4-Flash" \
   --tasks gsm8k --num_fewshot 8 --limit ${LIMIT:-40} \
   --output_path "/scratch/bkaul/dsv4_lmeval_${SLURM_JOB_ID}" 2>&1 | tail -50
 echo "[lm_eval exit=$?]"
