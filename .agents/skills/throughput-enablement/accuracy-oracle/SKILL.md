@@ -331,6 +331,44 @@ APPLES-TO-APPLES. Reference hierarchy + the two checks it enables:
 - Do NOT publish a task number as "certified" (into README / enablement-certificate) until it is tied to a
   reference this way.
 
+### Standard-harness-on-CPU (lm-eval) — the GPU-free way to isolate HARNESS vs MODEL
+When the GPU oracle is blocked or you want a cheaper decomposition, run the **community-standard harness**
+(EleutherAI `lm-evaluation-harness`) against your CPU server and compare to published. This moves the only
+variable to the HARNESS: **standard-harness-on-CPU ≈ published → your custom harness was the gap (CPU correct);
+≈ your-harness number → the model genuinely scores that under a standard protocol and the published figure is
+the author's own eval setup.** Recipe (sglang CPU server on a port + `lm_eval --model local-completions`):
+- **PRE-FLIGHT the client glue BEFORE paying the model load** (a server reload here is ~9 min; don't burn it to
+  discover a missing dep). Construct the lm-eval model object with NO server (`create_from_arg_string`) and load
+  the task index — it exercises every import/arg. Glue that bit here, in order: `pip install lm-eval[api]`
+  (tenacity/aiohttp), `transformers` must be installed (api_models imports it even with `tokenized_requests=False`),
+  and pass `tokenizer=<LOCAL model dir>` or it tries to fetch the HF repo named by `model=` and 401s.
+- **Client `timeout` defaults to 300s — far too short for slow CPU decode.** Each gsm8k CoT (~256 tok) can take
+  **~7 min/question** on an unoptimized CPU forward; 16 concurrent long gens blow the 300s client timeout →
+  `aiohttp asyncio.TimeoutError` → **zero results after a full model load.** Set `timeout=3600` and
+  `num_concurrent` LOW (2 — CPU is the bottleneck, high concurrency just thrashes the detokenizer and inflates
+  per-request latency).
+- **Size the sneak preview by the real per-question cost.** At ~7 min/question, `--limit 8` ≈ ~50 min, `--limit 40`
+  is hours. Start with a SMALL `--limit` for the directional answer; only scale up once it's landing.
+- **Make the run OBSERVABLE — never `lm_eval ... | tail -50`.** `tail` buffers to EOF, so the tqdm progress bar
+  AND the results table are invisible until the job exits (you can't tell slow from hung). Stream unbuffered
+  (`stdbuf -oL -eL lm_eval ... 2>&1`, no pipe) and add `--log_samples` for an incremental per-sample dump. Read
+  live progress from the LOG (`tr '\r' '\n' | grep 'Requesting API'` → `X/N`), not from the server.
+- **NEVER probe a saturated CPU server for a "preview".** A `/v1/completions` probe queues behind the eval's
+  own requests, adds contention, and SLOWS the actual run (it also wedged the detokenizer here). `/health` is the
+  only safe poke (instant). For a real partial score, launch a SEPARATE small `--limit` job, don't poke the
+  running one.
+
+### GPU oracle on rootless-podman HPC (when you DO build it) — the infra, not the model, is the long pole
+Standing up the GPU reference via a rootless container is a chain of real blockers (each distinct, they compound):
+no `/etc/subuid` range → image unpack can't lchown (set overlay `ignore_chown_errors=true`); run-time userns
+(`--userns=host --cgroup-manager=cgroupfs`); `--mem-fraction` default may be CPU-tuned (raise for GPU KV); native
+MXFP4/fp8 deep_gemm JIT needs a real-fs `TMPDIR=/dev/shm` (fuse-overlayfs breaks the cicc→ptxas handoff); the
+image store is NOT concurrency-safe (give each job a PRIVATE `--root` on big storage, and CLI `--root` does NOT
+inherit storage.conf overlay opts so repeat them as `--storage-opt`). Full verified recipe lives in repo memory
+(`/memories/repo/dsv4-accuracy-perf-caveats.md`, "GPU ORACLE" section) — reuse it, don't re-derive. KEY JUDGMENT:
+the GPU oracle is COMPLEMENTARY; if per-layer bit-parity already certifies the forward AND the standard-harness-
+on-CPU test isolates the gap, you do NOT need to brute-force the GPU path — stop and use the evidence you have.
+
 ### Decouple GENERATE (expensive, model) from SCORE (cheap, pure) — test the diagnosis for free
 The model generation costs minutes/run; **stop-truncation + answer-extraction are pure string ops
 (microseconds)**. So never re-run the engine to test a scoring/protocol idea:
