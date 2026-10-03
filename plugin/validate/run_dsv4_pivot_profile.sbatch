@@ -1,7 +1,8 @@
 #!/bin/bash
-# TIME-ATTRIBUTION profile for the pivot chart: per-op wall-time split by PHASE (pf/dec) on real
-# DeepSeek-V4-Flash, at realistic serving batch, with the SPIN-WAIT FIX ON (passive) so the split is
-# real and not an OpenMP-contention artifact. Short workload (one prefill + a few decode steps).
+# TIME-ATTRIBUTION profile for the DSV4 pivot chart: per-op wall-time split by PHASE (pf/dec) on the
+# REAL DeepSeek-V4-Flash, SPIN-WAIT FIX ON (passive) so the split is real, not an OpenMP artifact.
+# Uses bench_one_batch at tp=1 (runs the forward IN-PROCESS -> the plugin's atexit TIMEIT dump fires;
+# the sgl.Engine path hard-kills its worker subprocess and swallows the dump = the old blocker).
 #SBATCH --partition=emr
 #SBATCH --nodes=1
 #SBATCH --exclusive
@@ -22,13 +23,19 @@ export INTEL_CPU_DSV4_DECODE_THREADS=8
 export OMP_WAIT_POLICY=passive
 export KMP_BLOCKTIME=0
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
-# Engine path (bench_one_batch hits an sglang TreeCache 'evict_for_alloc' bug at batch>1 on CPU).
-# One batch-BS chunk = batch-BS prefill (long 8-shot) + OLEN decode steps; the per-op TIMEIT dump
-# (pf/dec split) is emitted at process exit via atexit -> lands in THIS log.
-cd /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate
-python task_gsm8k_chunked.py \
-  --model "$CKPT" \
-  --data /scratch/bkaul/gsm8k_test.jsonl \
-  --num-questions ${BS:-32} --chunk-size ${BS:-32} --num-shots 8 \
-  --max-new-tokens ${OLEN:-16} --watchdog-timeout 2000 --chunked-prefill-size 512
-echo "[exit=$?]  (TIMEIT per-op pf/dec dump emitted above at process exit)"
+JSON=/scratch/bkaul/dsv4_pivot_${SLURM_JOB_ID}.json
+export INTEL_CPU_DSV4_TIMEIT_JSON=$JSON
+export TIMEIT_MODEL="DeepSeek-V4-Flash"
+export TIMEIT_NODE="EMR 1-socket (tp=1, decode-cap=8)"
+export TIMEIT_PRECISION="MXFP4 W4A16 experts, bf16 compute"
+export TIMEIT_BATCH=${BS:-1}
+# bench_one_batch at tp=1 runs the forward INLINE in the main process (no worker subprocess), so the
+# plugin's atexit TIMEIT dump fires (the sgl.Engine path hard-kills its worker -> dump swallowed = the
+# old blocker). One prefill of INLEN tokens + OLEN decode steps; the plugin tags each op pf/dec and
+# writes $JSON (pivot schema) on exit, consumed by time_attribution_pivot.py.
+python -m sglang.benchmark.one_batch \
+  --model-path "$CKPT" --device cpu --tp 1 --trust-remote-code \
+  --mem-fraction-static 0.5 \
+  --batch-size ${BS:-1} --input-len ${INLEN:-256} --output-len ${OLEN:-16}
+echo "[exit=$?] pivot JSON -> $JSON"
+if [ -s "$JSON" ]; then echo "JSON WRITTEN"; python3 -c "import json;d=json.load(open('$JSON'));print('phases:',list(d.get('phases',{}).keys()));[print(p,'wall=',d['phases'][p].get('wall_s'),'ops=',len(d['phases'][p]['ops'])) for p in d.get('phases',{})]"; else echo "JSON MISSING (atexit may not have fired)"; fi

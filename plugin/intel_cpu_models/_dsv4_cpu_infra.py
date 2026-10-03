@@ -296,6 +296,46 @@ def _dump_times() -> None:
         for k, t in sorted(cat.items(), key=lambda kv: kv[1], reverse=True):
             lines.append(f"     {t:8.3f}s  {100*t/catsum:5.1f}%  {k}")
     logger.warning("\n".join(lines))
+    # Machine-readable pivot-schema dump for time_attribution_pivot.py (INTEL_CPU_DSV4_TIMEIT_JSON=<path>).
+    _json_path = _os.environ.get("INTEL_CPU_DSV4_TIMEIT_JSON", "")
+    if _json_path:
+        _dump_times_json(_json_path)
+
+
+def _dump_times_json(path: str) -> None:
+    """Emit accumulated TIMEIT counters in the time_attribution_pivot.py schema.
+    Phase from the `.pf`/`.dec` key suffix; `wall_s` = the outermost `parent` op
+    (layer.total) so the chart's OTHER slice = wall − sum(leaf ops) stays honest."""
+    import json as _json
+    _suf2phase = {"pf": "prefill", "dec": "decode"}
+    out = {"prefill": {"wall_s": None, "ops": []}, "decode": {"wall_s": None, "ops": []}}
+    nophase = {"wall_s": None, "ops": []}
+    for key, (t, _n) in _TIMES.items():
+        base, _, suf = key.rpartition(".")
+        ph = out[_suf2phase[suf]] if suf in _suf2phase else nophase
+        opname = base if suf in _suf2phase else key
+        kind = _TIMES_KIND.get(key) or _TIMES_KIND.get(base) or ""
+        if kind == "parent":
+            if ph["wall_s"] is None or t > ph["wall_s"]:
+                ph["wall_s"] = t  # outermost wrapper = phase wall
+            continue
+        if kind in ("kernel", "torch", "framework"):
+            ph["ops"].append({"op": opname, "s": round(t, 4), "bucket": kind})
+    if nophase["ops"] and not out["prefill"]["ops"]:  # phase tagging off -> fold into prefill
+        out["prefill"] = nophase
+    data = {
+        "model": _os.environ.get("TIMEIT_MODEL", "DeepSeek-V4-Flash"),
+        "node": _os.environ.get("TIMEIT_NODE", "EMR"),
+        "precision": _os.environ.get("TIMEIT_PRECISION", "MXFP4 W4A16 experts, bf16 compute"),
+        "batch": int(_os.environ.get("TIMEIT_BATCH", "1")),
+        "phases": {p: out[p] for p in ("prefill", "decode") if out[p]["ops"]},
+    }
+    try:
+        with open(path, "w") as _f:
+            _json.dump(data, _f, indent=2)
+        logger.warning(f"[DSV4 TIMEIT] wrote pivot JSON -> {path}")
+    except Exception as _e:
+        logger.warning(f"[DSV4 TIMEIT] pivot JSON write failed ({path}): {_e}")
 
 
 def _tacc(name: str, t0: float, kind: str = "") -> None:
