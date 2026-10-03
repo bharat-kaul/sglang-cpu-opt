@@ -42,7 +42,9 @@ def shrink(c):
     tc["v_head_dim"] = 32
     tc["index_head_dim"] = 128  # DSATokenToKVPool hardcodes index_head_dim==128
     tc["index_n_heads"] = 32  # GPU DSA tilelang kernel needs H%4==0 AND N%8==0; use real 32 (CPU no-ops indexer)
-    tc["index_topk"] = 8
+    # GPU DSA decode kpool: group_topk = index_topk // index_kpool must be in {128,160,192,224,256,512,2048}.
+    # index_kpool=2 (real config) -> index_topk=256 gives group_topk=128. CPU no-ops indexer; at tiny ctx top-k=all=dense.
+    tc["index_topk"] = 256
     tc["index_kpool"] = 2
     # Keep the REAL vocab_size — we copy the real tokenizer, so a shrunk vocab makes
     # token ids exceed the embedding table (IndexError). Embedding/lm_head stay cheap
