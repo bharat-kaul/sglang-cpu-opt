@@ -343,7 +343,8 @@ def install() -> None:
 
         def _cpu_nope_fused_prepare(self, positions, hidden_states, forward_batch, zero_allocator):
             if getattr(self, "rotary_emb", None) is None:
-                self.rotary_emb = _DummyRope(torch.zeros((163840, 0), dtype=torch.float32))
+                # dtype must match the activations (kernel CHECK_EQ(cos_sin_cache.scalar_type, st)).
+                self.rotary_emb = _DummyRope(torch.zeros((163840, 0), dtype=hidden_states.dtype))
             return _orig_fused_prep(self, positions, hidden_states, forward_batch, zero_allocator)
 
         _MlaCpuMix.forward_absorb_fused_mla_rope_cpu_prepare = _cpu_nope_fused_prepare
