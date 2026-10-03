@@ -36,5 +36,5 @@ podman run --rm --device nvidia.com/gpu=$U \
   -e SGLANG_EXTERNAL_MODEL_PACKAGE=gpu_ref_hook -e GLM_GPU_FULLCAP=1 -e FULLCAP_FILE=$FCAP \
   "$IMG" \
   python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py 2>&1 | tail -50
-echo "=== dummy fingerprint keys ==="; python3 -c "import torch;d=torch.load('$FCAP',map_location='cpu');print(len(d),'tensors');[print(k,tuple(v.shape)) for k,v in list(d.items())[:24]]" 2>/dev/null || echo "no fingerprint saved"
+echo "=== dummy fingerprint (host has no torch; check file exists + size) ==="; ls -la "$FCAP" 2>/dev/null && echo "fingerprint SAVED ($(stat -c%s "$FCAP" 2>/dev/null) bytes) — diff offline with diff_fullcap.py" || echo "NO fingerprint file at $FCAP"
 echo "[exit=$?]"

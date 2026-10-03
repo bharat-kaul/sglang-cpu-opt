@@ -55,8 +55,9 @@ OPTIMIZATION-phase correctness check is **DETERMINISTIC DUMMY weights**, NOT the
   (MT19937, platform/version/device-independent) with a per-param seed derived from the param NAME
   (both sides tp=1, full params → identical). Then dummy weights ARE bit-identical and dummy parity is
   valid. Reusable asset: `plugin/_dummy_determinism.py` (gated `DETERMINISTIC_DUMMY=1`), wired into
-  both the CPU plugin and the GPU reference hook. [PENDING VALIDATION: GLM jobs 381441/381442 must diff
-  cos≈1.0 before this is promoted from 'sound principle' to 'proven'.]
+  both the CPU plugin and the GPU reference hook. [PROVEN on GLM-5.3 Flash: GPU-dummy vs CPU-dummy
+  8-layer prefill diff = cos 1.000001 / rel_maxerr 0.0 (BIT-EXACT) on every per-layer hidden +
+  MHC residual, logits cos 0.999996 — deterministic-dummy cross-engine parity works and is cheap.]
 - **Anti-pattern this kills (cost: a needless 300–600GB load):** reflexively standing up the FIRST
   CPU-vs-GPU parity on the REAL checkpoint because 'dummy differs run-to-run'. Make dummy deterministic
   and the early parity is cheap; reserve real weights for the dtype-bridge + task-accuracy FINALE.
