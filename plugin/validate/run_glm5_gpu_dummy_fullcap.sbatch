@@ -27,9 +27,9 @@ echo "=== GLM GPU DUMMY reference: tp=1 tiny+deterministic-dummy, capture -> $FC
 # dedicated store avoids the shared-store stale-lock races AND the repeat pull. CLI --root does NOT
 # inherit storage.conf's overlay opts, so pass the subuid-free unpack knobs explicitly; runroot is
 # per-job on local /tmp (off the absent /run/user). --userns=host maps the container to the caller.
-LROOT=/scratch/bkaul/podman-glm-store; LRUN=/tmp/podman-runroot-${SLURM_JOB_ID}; mkdir -p "$LROOT" "$LRUN"
+LROOT=/scratch/bkaul/podman-glm-store; LRUN=/tmp/podman-glm-rr; mkdir -p "$LROOT" "$LRUN"
 PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs --storage-driver overlay --storage-opt overlay.mount_program=/usr/bin/fuse-overlayfs --storage-opt overlay.ignore_chown_errors=true"
-trap 'rm -rf "$LRUN" 2>/dev/null' EXIT  # keep the image store; only clean the per-job runroot
+trap 'rm -rf "$LRUN"/* 2>/dev/null' EXIT  # keep the image store AND the fixed runroot dir; wipe only its contents
 $PODMAN image exists "$IMG" || $PODMAN pull "$IMG"
 $PODMAN run --rm --device nvidia.com/gpu=$U --userns=host \
   --ipc=host --network=host \
