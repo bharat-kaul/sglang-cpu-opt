@@ -99,15 +99,26 @@ resident + load-PEAK memory and confirm it fits the planned node(s):
 - **State cache (mamba / linear-attn, e.g. KDA)** = `max_running_requests × per-req-state` — LARGE for
   linear-attention; a capture needs only `max_running=1`.
 - **Activations** for the prefill (small for a short capture prompt).
+- **⚠ PER-NUMA/SNC-DOMAIN, not just total node RAM.** A big CPU node is usually NUMA/SNC-partitioned
+  into domains (e.g. a 1.5 TB node = ~6 × 258 GB SNC domains). A single-process (tp=1) engine
+  FIRST-TOUCHES ONE domain, so resident weights must fit ONE DOMAIN, not the node total — overflow
+  triggers the OOM-killer (SIGKILL -9) while other domains sit free. Tell-tale: the loader logs a
+  "avail mem" ≈ one domain (GLM: "Load weight begin. avail mem=249.78 GB" on a 1.5 TB node = one
+  258 GB SNC domain). FIX for a capture: `numactl --interleave=all` to spread allocation across all
+  domains (cross-domain BW is irrelevant for correctness). Budget against the DOMAIN size up front.
 - **REDUCTION LEVERS (apply before flagging a roadblock):** cap `context_length` (shrinks the KV pool —
   the biggest lever for long-context models), `MAX_RUNNING=1` (shrinks the state cache), set
   `mem_fraction` correctly (**CPU `mem_fraction_static` = TOTAL engine budget model+pools, NOT a
   GPU-style KV-only fraction** — too low starves the state cache, too high OOMs; GPU side it IS KV-only),
-  pick a bigger-RAM node, or TP-shard across MORE GPUs and size per-GPU.
+  `numactl --interleave=all` to use ALL NUMA domains (not just the first-touched one), pick a
+  bigger-RAM node, or TP-shard across MORE GPUs and size per-GPU.
 - **If it STILL doesn't fit after all levers → FLAG A ROADBLOCK with options:** keep weights low-bit
-  in-memory (skip the bf16-bridge doubling — W8A16/W4A16 dequant-in-GEMM), stream/checkpoint the capture
-  layer-by-layer, reduce depth for a first pass, or acquire more/bigger nodes. Surface the number + the
-  options; do NOT just launch and hope.
+  in-memory (skip the bf16-bridge doubling — W8A16/W4A16 dequant-in-GEMM), **STREAM the capture
+  layer-by-layer (load layer i's weights → forward on the captured input → fingerprint → free, prefetch
+  i+1 in a pipeline; peak ≈ 1–2 layers, fits one domain, and naturally TEACHER-FORCES each layer from
+  the GPU's captured input so divergence is isolated not compounded — REUSE the engine's own layer
+  module so it can't drift into false diffs)**, reduce depth for a first pass, or acquire more/bigger
+  nodes. Surface the number + the options; do NOT just launch and hope.
 - **Anti-pattern this kills (cost: a needless 300–600GB load):** reflexively standing up the FIRST
   CPU-vs-GPU parity on the REAL checkpoint because 'dummy differs run-to-run'. Make dummy deterministic
   and the early parity is cheap; reserve real weights for the dtype-bridge + task-accuracy FINALE.
