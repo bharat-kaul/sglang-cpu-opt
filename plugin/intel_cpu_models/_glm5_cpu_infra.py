@@ -346,6 +346,26 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU NoPE-MLA dispatch guard not installed: %s", _e)
 
+    # DSA indexer in the DECODE MLA absorb path: self.indexer(...) has no CPU kernel
+    # (forward_native raises NotImplementedError). Mirror the prefill no-op — skip the indexer on
+    # CPU so topk_indices stays None and the downstream MLA attends DENSE (exact at short ctx: top-k
+    # selects all; sparse decode = perf TODO). Patch should_run_indexer -> False on CPU.
+    try:
+        import sglang.srt.models.deepseek_v2 as _dv2m
+
+        _MLA = _dv2m.DeepseekV2AttentionMLA
+        _orig_sri = _MLA.should_run_indexer
+
+        def _cpu_should_run_indexer(self, prev_topk_indices=None):
+            if is_cpu():
+                return False  # no CPU indexer kernel -> dense fallback
+            return _orig_sri(self, prev_topk_indices)
+
+        _MLA.should_run_indexer = _cpu_should_run_indexer
+        logger.info("GLM5 CPU: DSA indexer skipped in decode MLA (should_run_indexer=False -> dense).")
+    except Exception as _e:
+        logger.warning("GLM5 CPU decode indexer-skip not installed: %s", _e)
+
     _install_fullcap_glm_cpu()
     _INSTALLED = True
 
