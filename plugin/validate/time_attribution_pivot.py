@@ -98,6 +98,7 @@ def build_svg(d: dict) -> str:
             if ly < y + barH + 60:
                 parts.append(f"<rect x='{padL+plotW+14}' y='{ly}' width='10' height='10' fill='{BUCKET_COLOR.get(b,'#888')}'/>"
                              f"<text x='{padL+plotW+28}' y='{ly+9}' font-size='10'>{html.escape(op)} ({pct:.0f}%)</text>")
+            x += w  # advance so segments STACK left→right (not overlap at padL)
         parts.append(f"<rect x='{padL}' y='{y}' width='{plotW}' height='{barH}' fill='none' stroke='#333'/>")
     parts.append("</svg>")
     return "\n".join(parts)

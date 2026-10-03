@@ -1,0 +1,75 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1180' height='422' font-family='sans-serif'>
+<rect width='1180' height='422' fill='white'/>
+<text x='90' y='30' font-size='18' font-weight='bold'>DeepSeek-V4-Flash — time attribution (share of wall-time, per phase)</text>
+<text x='90' y='52' font-size='13' fill='#444'>EMR 1-socket (tp=1, decode-cap=8) · MXFP4 W4A16 experts, bf16 compute · batch 1 · each bar = 100%</text>
+<rect x='90' y='62' width='13' height='13' fill='#2f6f4f'/><text x='107' y='73' font-size='11'>kernel</text>
+<rect x='185' y='62' width='13' height='13' fill='#9db4d0'/><text x='202' y='73' font-size='11'>torch</text>
+<rect x='280' y='62' width='13' height='13' fill='#d08c3c'/><text x='297' y='73' font-size='11'>framework</text>
+<rect x='375' y='62' width='13' height='13' fill='#b9b9b9'/><text x='392' y='73' font-size='11'>other</text>
+<text x='90' y='86' font-size='14' font-weight='bold'>prefill</text>
+<rect x='90.0' y='92' width='405.1' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='292.6' y='116.0' font-size='11' fill='white' text-anchor='middle'>47%</text>
+<rect x='964' y='94' width='10' height='10' fill='#2f6f4f'/><text x='978' y='103' font-size='10'>moe.expert_apply (47%)</text>
+<rect x='495.1' y='92' width='70.8' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='530.5' y='116.0' font-size='11' fill='white' text-anchor='middle'>8%</text>
+<rect x='964' y='107' width='10' height='10' fill='#2f6f4f'/><text x='978' y='116' font-size='10'>dense.fp8_linear (8%)</text>
+<rect x='565.9' y='92' width='65.7' height='40' fill='#9db4d0' stroke='white'/>
+<text x='598.8' y='116.0' font-size='11' fill='white' text-anchor='middle'>8%</text>
+<rect x='964' y='120' width='10' height='10' fill='#9db4d0'/><text x='978' y='129' font-size='10'>dsa.mla.attend (8%)</text>
+<rect x='631.7' y='92' width='48.8' height='40' fill='#9db4d0' stroke='white'/>
+<text x='656.1' y='116.0' font-size='11' fill='white' text-anchor='middle'>6%</text>
+<rect x='964' y='133' width='10' height='10' fill='#9db4d0'/><text x='978' y='142' font-size='10'>dsa.compressor (6%)</text>
+<rect x='680.4' y='92' width='37.8' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='964' y='146' width='10' height='10' fill='#9db4d0'/><text x='978' y='155' font-size='10'>dsa.indexer (4%)</text>
+<rect x='718.3' y='92' width='34.4' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='964' y='159' width='10' height='10' fill='#9db4d0'/><text x='978' y='168' font-size='10'>mhc.hc_pre (4%)</text>
+<rect x='752.7' y='92' width='27.1' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='964' y='172' width='10' height='10' fill='#9db4d0'/><text x='978' y='181' font-size='10'>mhc.hc_post (3%)</text>
+<rect x='779.8' y='92' width='19.7' height='40' fill='#d08c3c' stroke='white'/>
+<rect x='964' y='185' width='10' height='10' fill='#d08c3c'/><text x='978' y='194' font-size='10'>mla.b.mask (2%)</text>
+<rect x='799.5' y='92' width='15.7' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='815.1' y='92' width='14.9' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='830.1' y='92' width='13.1' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='843.1' y='92' width='5.7' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='848.9' y='92' width='5.6' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='854.5' y='92' width='1.5' height='40' fill='#d08c3c' stroke='white'/>
+<rect x='855.9' y='92' width='0.7' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='856.6' y='92' width='0.1' height='40' fill='#d08c3c' stroke='white'/>
+<rect x='856.7' y='92' width='93.3' height='40' fill='#b9b9b9' stroke='white'/>
+<text x='903.3' y='116.0' font-size='11' fill='white' text-anchor='middle'>11%</text>
+<rect x='90' y='92' width='860' height='40' fill='none' stroke='#333'/>
+<text x='90' y='236' font-size='14' font-weight='bold'>decode</text>
+<rect x='90.0' y='242' width='256.9' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='218.5' y='266.0' font-size='11' fill='white' text-anchor='middle'>30%</text>
+<rect x='964' y='244' width='10' height='10' fill='#2f6f4f'/><text x='978' y='253' font-size='10'>moe.expert_apply (30%)</text>
+<rect x='346.9' y='242' width='131.5' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='412.7' y='266.0' font-size='11' fill='white' text-anchor='middle'>15%</text>
+<rect x='964' y='257' width='10' height='10' fill='#2f6f4f'/><text x='978' y='266' font-size='10'>dense.fp8_linear (15%)</text>
+<rect x='478.4' y='242' width='66.4' height='40' fill='#9db4d0' stroke='white'/>
+<text x='511.6' y='266.0' font-size='11' fill='white' text-anchor='middle'>8%</text>
+<rect x='964' y='270' width='10' height='10' fill='#9db4d0'/><text x='978' y='279' font-size='10'>dsa.mla.attend (8%)</text>
+<rect x='544.8' y='242' width='64.2' height='40' fill='#9db4d0' stroke='white'/>
+<text x='576.9' y='266.0' font-size='11' fill='white' text-anchor='middle'>7%</text>
+<rect x='964' y='283' width='10' height='10' fill='#9db4d0'/><text x='978' y='292' font-size='10'>dsa.compressor (7%)</text>
+<rect x='609.0' y='242' width='57.1' height='40' fill='#9db4d0' stroke='white'/>
+<text x='637.6' y='266.0' font-size='11' fill='white' text-anchor='middle'>7%</text>
+<rect x='964' y='296' width='10' height='10' fill='#9db4d0'/><text x='978' y='305' font-size='10'>mhc.hc_pre (7%)</text>
+<rect x='666.1' y='242' width='44.2' height='40' fill='#9db4d0' stroke='white'/>
+<text x='688.2' y='266.0' font-size='11' fill='white' text-anchor='middle'>5%</text>
+<rect x='964' y='309' width='10' height='10' fill='#9db4d0'/><text x='978' y='318' font-size='10'>dsa.indexer (5%)</text>
+<rect x='710.4' y='242' width='23.0' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='964' y='322' width='10' height='10' fill='#9db4d0'/><text x='978' y='331' font-size='10'>mhc.sinkhorn (3%)</text>
+<rect x='733.4' y='242' width='17.1' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='964' y='335' width='10' height='10' fill='#2f6f4f'/><text x='978' y='344' font-size='10'>mla.b.softmax (2%)</text>
+<rect x='750.5' y='242' width='15.9' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='766.4' y='242' width='15.0' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='781.4' y='242' width='13.4' height='40' fill='#d08c3c' stroke='white'/>
+<rect x='794.8' y='242' width='9.3' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='804.1' y='242' width='7.6' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='811.7' y='242' width='3.9' height='40' fill='#d08c3c' stroke='white'/>
+<rect x='815.6' y='242' width='2.8' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='818.4' y='242' width='0.6' height='40' fill='#d08c3c' stroke='white'/>
+<rect x='819.1' y='242' width='130.9' height='40' fill='#b9b9b9' stroke='white'/>
+<text x='884.5' y='266.0' font-size='11' fill='white' text-anchor='middle'>15%</text>
+<rect x='90' y='242' width='860' height='40' fill='none' stroke='#333'/>
+</svg>
