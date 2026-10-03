@@ -31,8 +31,15 @@ human attention. Kill it by making completion AUTO-WAKE the agent:
    an expensive run should ITSELF be incrementally-checkpointed (a per-question/per-unit **sneak preview**),
    not one blocking call whose only signal is completion — else the gate is as slow to disprove as the thing
    it gates. (This repo: a chunked gsm8k shard surfaces ~150–300 Q within ~40 min of a 3 h run — enough to
-   abort a regressed harness before burning the wall; a one-shot 16-Q pre-check gave no signal until it finished.)
-This is the control-flow dual of the disposition matrix: the matrix says what each outcome means; the
+   abort a regressed harness before burning the wall; a one-shot 16-Q pre-check gave no signal until it finished.)7. **Make the run OBSERVABLE, and NEVER probe a saturated server to "preview" it.** Two traps that waste wall:
+   (a) piping a progress-bar tool through `tail`/buffering (e.g. `lm_eval … | tail -50`) hides tqdm + results
+   until EOF → you can't tell slow from hung; stream unbuffered (`stdbuf -oL -eL …`, no pipe) and emit an
+   incremental artifact (`--log_samples`, per-chunk json) so progress is readable from the LOG. (b) Poking a
+   busy single-stream server (a `/v1/completions` probe, an extra client) to sneak-preview ADDS CONTENTION and
+   SLOWS the very run you're measuring — on a CPU-bound server it can wedge it. Read progress from the log/artifact;
+   if you need a real partial score, launch a SEPARATE small job, don't poke the running one. `/health` is the
+   only safe instant poke. (This repo: completion-probing a saturated CPU gsm8k server stretched its wall and
+   briefly wedged the detokenizer; the fix was log-only observation + a separate small `--limit` run.)This is the control-flow dual of the disposition matrix: the matrix says what each outcome means; the
 async-heartbeat guarantees the agent is actually there to read the outcome the instant it exists.
 
 When the run is the bottleneck, **loop wall-time = num_runs × run_cost**. `run_cost` is
