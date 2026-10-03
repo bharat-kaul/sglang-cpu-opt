@@ -26,10 +26,21 @@ def read_jsonl(path):
         return [json.loads(l) for l in f if l.strip()]
 
 
+def _clean_answer(ans):
+    """gsm8k raw answer -> clean CoT ending 'The answer is N.' (the standard eval format).
+    Strips <<calc>> annotations and the bare '#### N' marker, which make a base model ramble/
+    degenerate instead of emitting a clean, stoppable answer."""
+    ans = re.sub(r"<<[^>]*>>", "", ans)
+    if "####" in ans:
+        reasoning, _, final = ans.partition("####")
+        ans = reasoning.strip() + " The answer is " + final.strip() + "."
+    return re.sub(r"[ \t]+", " ", ans).strip()
+
+
 def one_example(x, include_answer):
     s = "Question: " + x["question"] + "\nAnswer:"
     if include_answer:
-        s += " " + x["answer"]
+        s += " " + _clean_answer(x["answer"])
     return s
 
 
