@@ -323,34 +323,51 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
 
-    # DECODE MLA on CPU uses MLA_FUSED_ROPE_CPU, whose core consumes the PackWeightMethod-CONVERTED
-    # w_kc [heads, kv_lora, qk_nope]; the GENERIC MLA bmm expects the UN-converted [heads, qk_nope,
-    # kv_lora] layout -> rerouting there mismatches (got [4,64,32] want [4,32,64]). So keep the fused
-    # path and fix its ONE NoPE problem: GLM MLA has qk_rope_head_dim=0 -> self.rotary_emb is None, but
-    # forward_absorb_fused_mla_rope_cpu_prepare derefs self.rotary_emb.cos_sin_cache. Supply a dummy
-    # 0-width cache (rope is inert at qk_rope=0). GLM always takes the fused-cpu path so setting a
-    # non-None rotary_emb here can't misroute the generic/born-fp8 branches (those are GPU-only).
+    # DECODE NoPE MLA (GLM, qk_rope_head_dim=0 -> rotary_emb None). Neither stock CPU MLA path works
+    # out-of-the-box: (a) the FUSED path's kernel SIGFPEs (divides by qk_rope_head_dim=0) AND its
+    # PackWeightMethod transpose+VNNI-packs w_kc/w_vc; (b) the GENERIC absorb path is NoPE-native
+    # (skips rope when rotary_emb is None) and CPU-viable, but its plain torch.bmm needs LOGICAL
+    # w_kc [heads, qk_nope, kv_lora] and chokes on the packed bytes. FIX: for NoPE MLA, keep w_kc/w_vc
+    # LOGICAL (no-op the MLA's PackWeightMethod) and route the dispatch to the generic MLA path.
+    # DSV4 (has rope) keeps the fused path unchanged.
     try:
         from sglang.srt.models.deepseek_common.attention_forward_methods.forward_mla_fused_rope_cpu import (
             DeepseekMLACpuForwardMixin as _MlaCpuMix,
         )
 
-        _orig_fused_prep = _MlaCpuMix.forward_absorb_fused_mla_rope_cpu_prepare
+        _orig_mla_init = _MlaCpuMix.init_mla_fused_rope_cpu_forward
 
-        class _DummyRope:
-            def __init__(self, cache):
-                self.cos_sin_cache = cache
+        class _NoPackQuant:
+            def process_weights_after_loading(self, module):  # keep w_kc/w_vc logical
+                return None
 
-        def _cpu_nope_fused_prepare(self, positions, hidden_states, forward_batch, zero_allocator):
+        def _cpu_nope_mla_init(self):
+            _orig_mla_init(self)
             if getattr(self, "rotary_emb", None) is None:
-                # dtype must match the activations (kernel CHECK_EQ(cos_sin_cache.scalar_type, st)).
-                self.rotary_emb = _DummyRope(torch.zeros((163840, 0), dtype=hidden_states.dtype))
-            return _orig_fused_prep(self, positions, hidden_states, forward_batch, zero_allocator)
+                self.quant_method = _NoPackQuant()
 
-        _MlaCpuMix.forward_absorb_fused_mla_rope_cpu_prepare = _cpu_nope_fused_prepare
-        logger.info("GLM5 CPU: NoPE MLA fused-rope-cpu prepare given dummy 0-width cos_sin_cache.")
+        _MlaCpuMix.init_mla_fused_rope_cpu_forward = _cpu_nope_mla_init
+        logger.info("GLM5 CPU: NoPE MLA keeps w_kc/w_vc logical (skip AMX pack) for the generic bmm.")
     except Exception as _e:
-        logger.warning("GLM5 CPU NoPE fused-rope prepare patch not installed: %s", _e)
+        logger.warning("GLM5 CPU NoPE MLA keep-logical patch not installed: %s", _e)
+
+    try:
+        import sglang.srt.models.deepseek_common.attention_backend_handler as _abh
+        from sglang.srt.models.deepseek_common.attention_forward_methods.forward_methods import (
+            AttnForwardMethod as _AFM,
+        )
+
+        _orig_mla_dispatch = _abh._dispatch_mla_subtype
+
+        def _cpu_nope_aware_mla_dispatch(attn, forward_batch):
+            if getattr(attn, "rotary_emb", None) is None:
+                return _AFM.MLA  # NoPE MLA -> generic absorb (logical w_kc bmm, no fused-rope kernel)
+            return _orig_mla_dispatch(attn, forward_batch)
+
+        _abh._dispatch_mla_subtype = _cpu_nope_aware_mla_dispatch
+        logger.info("GLM5 CPU: NoPE MLA routed to generic MLA absorb path.")
+    except Exception as _e:
+        logger.warning("GLM5 CPU NoPE-MLA dispatch guard not installed: %s", _e)
 
     # DSA indexer in the DECODE MLA absorb path: self.indexer(...) has no CPU kernel
     # (forward_native raises NotImplementedError). Mirror the prefill no-op — skip the indexer on
