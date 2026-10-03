@@ -24,7 +24,7 @@ level). Enablement reuses kernels; optimization writes/improves them.
 | 2 | `kernel-capability-registry` | after decomposition | contracts loaded |
 | 3 | `coverage-gate` | graph + registry ready | 100% covered, else HAND OFF |
 | 4 | `cpu-model-wiring` | coverage clean | loads + forward pass on CPU |
-| 5 | `accuracy-oracle` | model runs on CPU | parity + task within tol |
+| 5 | `accuracy-oracle` | model runs on CPU | FULL-MODEL dummy ALL-LAYER parity (NOT the tiny bring-up proxy) → then real-weight task |
 | 6 | `peer-relative-roofline` | accuracy passed | ≥ absolute AND peer bar |
 | 7 | `enablement-certificate` | all gates green | PR-ready report + diff |
 
@@ -65,7 +65,13 @@ reuse them unmodified, and new capabilities are added as new skill folders.
      all ops covered      -> continue
      any GAP (novel op)   -> route to cpu-optimizer (new-kernel leg); STOP here
 4. cpu-model-wiring (plugin only)    -> prepack + intel_amx attn + FusedMoE CPU
-5. accuracy-oracle                   -> per-layer parity, then task score
+5. accuracy-oracle                   -> CORRECTNESS LADDER (do NOT stop at the bring-up proxy):
+                                        tiny-dummy parity = op-TYPE coverage ONLY; the GATE is
+                                        FULL-MODEL DUMMY all-layer parity (real shapes/depth,
+                                        MULTI-GPU reference e.g. H200xN, deterministic dummy so NO
+                                        real-weight load) -- established BEFORE optimizing and used
+                                        to regression-guard EACH optimization; REAL-weight parity +
+                                        task score = the finale (dtype bridge + accuracy)
 6. peer-relative-roofline            -> per-op % vs achievable AND vs peer model;
                                         end-to-end tok/s vs peer; loop on the gap
 7. enablement-certificate            -> machine-checkable pass/fail + reviewable diff
