@@ -4,7 +4,8 @@
 # real-weight fingerprint (fingerprints/glm5_gpu_fullcap_REAL_381095.pt, all 45 layers, tp4) ->
 # the authoritative ALL-LAYER correctness gate AND the first exercise of the fp8 bridge. Big-mem
 # node: 306GB fp8 -> ~600GB after the bf16 bridge + activations.
-#SBATCH --partition=emr,gnrap
+# Big-mem node REQUIRED: 306GB fp8 -> ~600GB after the bf16 bridge; needs the 1.5TB gnrap node.
+#SBATCH --partition=gnrap
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --mem=0
@@ -23,7 +24,11 @@ export MODEL_PATH=/scratch/bkaul/models/GLM-5.3-Flash
 # REAL weights (no LOAD_FORMAT=dummy) -> exercises the fp8->bf16 W8A16 bridge.
 export INTEL_CPU_GLM_FULLCAP=1
 export FULLCAP_FILE=/scratch/bkaul/glm5_cpu_real_fullcap_${SLURM_JOB_ID}.pt
-export MEM_FRAC=0.15
+# CPU mem_fraction_static = TOTAL engine budget (model + KV/mamba pools), NOT a GPU-style KV-only
+# fraction. The ~600GB bridged model needs a HIGH fraction of the 1.5TB node; 0.15 left the mamba
+# cache negative. MAX_RUNNING=1 (one capture prompt) keeps the per-req mamba/KV caches tiny.
+export MEM_FRAC=${MEM_FRAC:-0.9}
+export MAX_RUNNING=${MAX_RUNNING:-1}
 export LOG_LEVEL=info
 export MAMBA_RADIX_STRATEGY=no_buffer
 export DISABLE_RADIX=1
