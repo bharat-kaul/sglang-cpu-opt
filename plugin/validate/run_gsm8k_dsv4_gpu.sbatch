@@ -23,6 +23,7 @@ podman --cgroup-manager=cgroupfs \
   run --rm --device nvidia.com/gpu=all --userns=host \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
+  -e TMPDIR=/dev/shm \
   -e PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
   -e NCCL_DEBUG=WARN -e NCCL_CUMEM_ENABLE=0 \
