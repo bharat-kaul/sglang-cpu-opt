@@ -39,7 +39,15 @@ human attention. Kill it by making completion AUTO-WAKE the agent:
    SLOWS the very run you're measuring — on a CPU-bound server it can wedge it. Read progress from the log/artifact;
    if you need a real partial score, launch a SEPARATE small job, don't poke the running one. `/health` is the
    only safe instant poke. (This repo: completion-probing a saturated CPU gsm8k server stretched its wall and
-   briefly wedged the detokenizer; the fix was log-only observation + a separate small `--limit` run.)This is the control-flow dual of the disposition matrix: the matrix says what each outcome means; the
+   briefly wedged the detokenizer; the fix was log-only observation + a separate small `--limit` run.)
+8. **Quote ETAs from the MEASURED per-unit rate, never a guess.** A wrong ETA repeated from intuition erodes
+   trust and invites exactly the impatient probing that slows the run. Derive remaining-time from a real rate:
+   the progress bar's `s/it` (e.g. tqdm `1/8 [07:02<49:16, 422s/it]` → ~7 min/item → size/ETA from that), or a
+   prior run's per-unit cost (a chunked-shard json gives sec/question directly). If the rate is not yet
+   observable, say "unknown until the first unit completes" instead of inventing a number — then surface the
+   per-unit cost the moment it appears. (This repo: several ~15-min ETAs were wrong because CPU gsm8k is
+   ~7 min/question — a fact that was knowable only once the bar rendered; guessing before that was the error.)
+This is the control-flow dual of the disposition matrix: the matrix says what each outcome means; the
 async-heartbeat guarantees the agent is actually there to read the outcome the instant it exists.
 
 When the run is the bottleneck, **loop wall-time = num_runs × run_cost**. `run_cost` is
