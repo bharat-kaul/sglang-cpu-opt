@@ -133,6 +133,30 @@ core edits) so `enablement-certificate` can attach it for PR review.
   as an iterative ladder, and treat each newly-revealed infra gap as expected, not
   as scope creep. Use a tiny same-arch config so each iteration is seconds, not
   minutes on a scarce big-memory node.
+- **DECODE breaks hide behind PREFILL.** Prefill and decode take DIFFERENT code paths
+  (extend vs absorb/decode, different attention backend entrypoints). A full prefill pass
+  (`MAX_NEW=1`) can succeed while decode has its own ladder of breaks. Separate the two:
+  drive prefill to green first (it's the correctness-fingerprint path), then exercise decode
+  with `MAX_NEW>=2`. The per-layer PARITY fingerprint should capture BOTH passes (prefill `pf`,
+  first-decode `dc0`) keyed by token-count so one diff proves both. (GLM-5.3: prefill fully green
+  while decode had ~4 more breaks; verified both via pf + dc0 fingerprint parity.)
+- **NoPE MLA on CPU (qk_rope_head_dim=0 → `rotary_emb` is None) is a real sglang gap.** Neither
+  stock CPU MLA path works out-of-the-box: (a) the fast `MLA_FUSED_ROPE_CPU` path's kernel
+  DIVIDES BY qk_rope_head_dim → SIGFPE (exit -8) at decode, AND its `PackWeightMethod`
+  transpose+VNNI-packs `w_kc`/`w_vc`; (b) the GENERIC absorb path IS NoPE-native (skips rope when
+  `rotary_emb is None`) and CPU-viable, but its plain `torch.bmm` needs the LOGICAL `w_kc`
+  `[heads,qk_nope,kv_lora]`, not the packed bytes. FIX: for NoPE MLA, KEEP `w_kc`/`w_vc` logical
+  (no-op the MLA's `PackWeightMethod` in `init_mla_fused_rope_cpu_forward` when `rotary_emb is None`)
+  AND route the dispatcher (`_dispatch_mla_subtype`) to the generic `AttnForwardMethod.MLA`. Models
+  WITH rope keep the fused path. Dead-ends (don't repeat): rerouting to generic WITHOUT un-packing
+  (bmm shape/layout mismatch, same class as the DSV4 `wo_a` VNNI-vs-einsum bug), and a dummy
+  `cos_sin_cache` (fixes the deref but the kernel still SIGFPEs on the div-by-zero). PERF TODO: the
+  logical-`w_kc` bmm is not AMX-accelerated (same trade as `wo_a`).
+- **A weight AMX-packed (transpose+VNNI) for path A, consumed by plain torch in path B, is scrambled.**
+  `_amx_process_weight_after_loading` both transposes AND VNNI-packs; transposing back does NOT recover
+  the logical weight. When you reroute an op to a different forward path, ensure its weights are in the
+  layout THAT path expects (keep them logical if it uses plain bmm/einsum). Grep for weights consumed
+  outside `.apply` (bespoke bmm/einsum) when a rerouted path gives cos≈0 or a bmm shape mismatch.
 - **A "fallback" is not automatically a CPU fallback.** HIP/XPU/NPU paths are
   non-CUDA but still call that accelerator's Triton/custom ops. Confirm the fallback
   is pure torch (or a CPU sgl_kernel) before routing CPU to it.

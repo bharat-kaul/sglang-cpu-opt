@@ -105,6 +105,31 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
 + the DSA CPU path, and the accuracy oracle did exactly its job — it blocked on a real decode bug
 until correctness passed, and only then were performance numbers published.*
 
+### Second Thesis-2 model — GLM-5.3 Flash (`glm5_next`), enabled by the same playbook
+
+A deliberate clean test of the playbook on a *different* architecture: a 45-layer hybrid with **34
+KDA linear-attention layers** (Kimi Delta / gated-delta-rule), **11 NoPE MLA+DSA** full-attention
+layers, **MHC hash-clustering** residual, a **288-expert MoE** (top-8, 1 shared), and an fp8 e4m3
+128×128 block-quant checkpoint (one fp8→bf16 W8A16 bridge). Delivered as the same external plugin
+(`intel_cpu_models`), no fork.
+
+- ✅ **Bring-up ladder cleared** (~18 sequential breaks across prefill + decode) on a tiny
+  arch-faithful dummy config — KDA, MHC, dense MLP, NoPE MLA, DSA indexer, 288-expert MoE all wired.
+- ✅ **Correctness PROVEN by per-layer fingerprint parity** vs the native-GPU sglang reference, using
+  a **deterministic-dummy** method (numpy name-seeded init → bit-identical weights across the CPU
+  engine and the GPU container, decoupling wiring/kernel correctness from the fp8 bridge): **prefill
+  all layers + decode (dc0 L0–2) BIT-EXACT** (cos 1.000001, rel-max-err 0.0), logits cos 0.999996.
+- ✅ **New CPU authoring:** a reference-first **KDA linear-attention** CPU path (recurrence + dual
+  cache), and the fix for a genuine sglang gap — **NoPE MLA on CPU** (the fused-rope kernel SIGFPEs on
+  `qk_rope_head_dim=0`; keep `w_kc`/`w_vc` logical + route to the generic absorb path).
+- ⏭ **Next:** real-weight finale (fp8 bridge + full 45-layer depth + gsm8k task accuracy), then the
+  roofline. Known perf TODOs documented (288-expert CPU top-k kernel, logical-`w_kc` AMX path,
+  incremental-sparse DSA decode, AMX KDA kernel).
+
+*Second data point for the thesis: a structurally different model (linear-attn + hash-clustering +
+NoPE-MLA) carried by the SAME skills + plugin to proven per-layer correctness, with only the genuinely
+novel op (KDA) hand-authored.*
+
 ---
 
 ## Why this is the best achievable performance for Thesis 1 (with rising headroom)
