@@ -27,8 +27,11 @@ export FULLCAP_FILE=/scratch/bkaul/glm5_cpu_real_fullcap_${SLURM_JOB_ID}.pt
 # CPU mem_fraction_static = TOTAL engine budget (model + KV/mamba pools), NOT a GPU-style KV-only
 # fraction. The ~600GB bridged model needs a HIGH fraction of the 1.5TB node; 0.15 left the mamba
 # cache negative. MAX_RUNNING=1 (one capture prompt) keeps the per-req mamba/KV caches tiny.
-export MEM_FRAC=${MEM_FRAC:-0.9}
+export MEM_FRAC=${MEM_FRAC:-0.5}
 export MAX_RUNNING=${MAX_RUNNING:-1}
+# Cap context so the DSA/MLA KV pool + KDA mamba cache stay small (native 1M context over-reserves
+# and either starves the mamba cache at low mem_frac or OOMs at high); 8192 is ample for a 5-tok capture.
+export CONTEXT_LEN=${CONTEXT_LEN:-8192}
 export LOG_LEVEL=info
 export MAMBA_RADIX_STRATEGY=no_buffer
 export DISABLE_RADIX=1

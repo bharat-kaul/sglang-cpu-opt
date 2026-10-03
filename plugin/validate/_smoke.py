@@ -39,6 +39,11 @@ def main():
         kw["mamba_radix_cache_strategy"] = os.environ["MAMBA_RADIX_STRATEGY"]
     if os.environ.get("PAGE_SIZE"):
         kw["page_size"] = int(os.environ["PAGE_SIZE"])
+    # Cap context_length to shrink the DSA/MLA KV pool + mamba cache (sized by max_total_tokens);
+    # a short-prompt per-layer capture needs almost none, and the model's native 1M context would
+    # over-reserve and OOM a big real-weight CPU load.
+    if os.environ.get("CONTEXT_LEN"):
+        kw["context_length"] = int(os.environ["CONTEXT_LEN"])
     # Hybrid mamba+DSA page_size clash on CPU: mamba no_buffer radix cache needs
     # page_size=1 but DSA forces 64. Prefix caching of hybrid state is an optimization,
     # not correctness — disable_radix_cache routes to ChunkCache (no MambaComponent),
