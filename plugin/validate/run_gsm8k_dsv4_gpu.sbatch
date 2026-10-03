@@ -16,10 +16,15 @@ export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
 nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
 IMG=docker.io/lmsysorg/sglang:latest
 nvidia-smi -L
-# Reuse the shared pre-pulled image in the storage.conf graphroot (/scratch). The subuid blocker
-# (no /etc/subuid range) is bypassed by overlay ignore_chown_errors=true in ~/.config/containers/
-# storage.conf; --userns=host maps the container to the invoking user at run time.
-podman --cgroup-manager=cgroupfs \
+# Rootless podman's image store is NOT safe under concurrent multi-node access; the shared /scratch
+# graphroot got corrupted when a parallel session ran podman too (missing-module/panic failures).
+# Use a PRIVATE node-local store per job (overlay ignore_chown_errors in storage.conf still applies,
+# so unpack works without an /etc/subuid range); --userns=host maps the container to the caller.
+LROOT=/tmp/podman-root-${SLURM_JOB_ID}; LRUN=/tmp/podman-runroot-${SLURM_JOB_ID}; mkdir -p "$LROOT" "$LRUN"
+PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs"
+trap 'rm -rf "$LROOT" "$LRUN"' EXIT
+$PODMAN pull "$IMG"
+$PODMAN \
   run --rm --device nvidia.com/gpu=all --userns=host \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
