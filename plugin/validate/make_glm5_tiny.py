@@ -25,10 +25,10 @@ def shrink(c):
     tc["hidden_size"] = 256
     tc["intermediate_size"] = 128
     tc["moe_intermediate_size"] = 64
-    # Keep the REAL top-8 (num_experts_per_tok): the CPU biased_grouped_topk kernel only
-    # supports the real models' top-k values ("Unexpected topk: 2"). 16 experts so top-8 is
-    # non-degenerate.
-    tc["n_routed_experts"] = 16
+    # The CPU biased_grouped_topk kernel is hardcoded for the real models' (num_experts, top_k)
+    # — "Unexpected num_experts: 16" / "Unexpected topk: 2". So keep REAL n_routed_experts=288 +
+    # top-8; only the expert WIDTH (moe_intermediate_size) and the layer COUNT are shrinkable.
+    tc["n_routed_experts"] = 288
     tc["num_experts_per_tok"] = 8
     tc["n_shared_experts"] = 1
     tc["n_group"] = 1
