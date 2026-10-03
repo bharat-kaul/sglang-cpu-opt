@@ -33,6 +33,7 @@ def main():
     p.add_argument("--model", required=True)
     p.add_argument("--data", required=True)
     p.add_argument("--tp", type=int, default=1)
+    p.add_argument("--device", default="cpu", help="cpu | cuda (cuda = GPU oracle)")
     p.add_argument("--num-questions", type=int, default=300)
     p.add_argument("--num-shots", type=int, default=8)
     p.add_argument("--max-new-tokens", type=int, default=256)
@@ -70,7 +71,7 @@ def main():
     import sglang as sgl
 
     engine = sgl.Engine(
-        model_path=args.model, device="cpu", tp_size=args.tp, dtype=args.dtype,
+        model_path=args.model, device=args.device, tp_size=args.tp, dtype=args.dtype,
         quantization=args.quantization,
         disable_overlap_schedule=True, trust_remote_code=True,
         mem_fraction_static=args.mem_fraction, log_level="warning",
