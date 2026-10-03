@@ -31,11 +31,13 @@ for i in $(seq 1 180); do
 done
 [ "$READY" = 1 ] || { echo "server never became ready"; kill $SERVER_PID 2>/dev/null; exit 1; }
 # 3. lm-eval (ISOLATED venv) standard gsm8k 8-shot vs the server
-/scratch/bkaul/venvs/lmeval/bin/lm_eval \
+# NOTE: do NOT pipe lm_eval through `tail` — tail buffers to EOF, hiding the tqdm progress bar and the
+# final results table until the job exits (blind mid-run). Stream stdbuf-unbuffered straight to the log.
+stdbuf -oL -eL /scratch/bkaul/venvs/lmeval/bin/lm_eval \
   --model local-completions \
-  --model_args "model=dsv4,base_url=http://127.0.0.1:$PORT/v1/completions,num_concurrent=${CONC:-4},max_retries=2,timeout=${TIMEOUT:-3600},tokenized_requests=False,tokenizer=/scratch/bkaul/models/DeepSeek-V4-Flash" \
-  --tasks gsm8k --num_fewshot 8 --limit ${LIMIT:-40} \
-  --output_path "/scratch/bkaul/dsv4_lmeval_${SLURM_JOB_ID}" 2>&1 | tail -50
+  --model_args "model=dsv4,base_url=http://127.0.0.1:$PORT/v1/completions,num_concurrent=${CONC:-2},max_retries=2,timeout=${TIMEOUT:-3600},tokenized_requests=False,tokenizer=/scratch/bkaul/models/DeepSeek-V4-Flash" \
+  --tasks gsm8k --num_fewshot 8 --limit ${LIMIT:-40} --log_samples \
+  --output_path "/scratch/bkaul/dsv4_lmeval_${SLURM_JOB_ID}" 2>&1
 echo "[lm_eval exit=$?]"
 kill $SERVER_PID 2>/dev/null
 echo "=== gsm8k STANDARD-harness result (vs published 90.8) ==="
