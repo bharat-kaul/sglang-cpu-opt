@@ -28,6 +28,12 @@ export FULLCAP_FILE=/scratch/bkaul/glm5_cpu_real_fullcap_${SLURM_JOB_ID}.pt
 # fraction. The ~600GB bridged model needs a HIGH fraction of the 1.5TB node; 0.15 left the mamba
 # cache negative. MAX_RUNNING=1 (one capture prompt) keeps the per-req mamba/KV caches tiny.
 export MEM_FRAC=${MEM_FRAC:-0.5}
+# NUMA capacity fix: gnrap is 1.5TB but SNC-partitioned into ~258GB domains. A tp=1 CPU engine
+# first-touches ONE domain -> the ~600GB bridged model overflows it and the OOM-killer fires
+# (seen: "Load weight begin. avail mem=249.78 GB" == a single SNC domain). Interleave allocation
+# across ALL domains so the model spans the full node. Cross-domain BW is irrelevant for a
+# correctness CAPTURE (not a perf run). NUMACTL overridable (set empty to disable).
+export NUMACTL=${NUMACTL:-"numactl --interleave=all"}
 export MAX_RUNNING=${MAX_RUNNING:-1}
 # Cap context so the DSA/MLA KV pool + KDA mamba cache stay small (native 1M context over-reserves
 # and either starves the mamba cache at low mem_frac or OOMs at high); 8192 is ample for a 5-tok capture.
@@ -38,7 +44,7 @@ export DISABLE_RADIX=1
 # PREFILL-ONLY: the archived GPU fingerprint is prefill (pf.L0-44); match it. Same first prompt.
 export MAX_NEW=1
 export SMOKE_PROMPTS="The capital of France is"
-python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
+$NUMACTL python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
 echo "[fullcap] $FULLCAP_FILE"; ls -la "$FULLCAP_FILE" 2>/dev/null
 python3 -c "import torch;d=torch.load('$FULLCAP_FILE',map_location='cpu');ks=list(d.keys());print(len(d),'tensors; pf layers:',sorted(int(k.split('.L')[1].split('.r')[0]) for k in ks if k.startswith('pf.L') and 'hcpost' not in k)[-3:])" 2>/dev/null || echo "no fingerprint saved"
 echo "[exit=$?]"
