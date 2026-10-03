@@ -16,7 +16,8 @@ export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
 nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
 IMG=docker.io/lmsysorg/sglang:latest
 nvidia-smi -L
-podman run --rm --device nvidia.com/gpu=all --userns=host \
+podman --cgroup-manager=cgroupfs --root /tmp/podman-root-$(id -u) --runroot /tmp/podman-runroot \
+  run --rm --device nvidia.com/gpu=all --userns=host \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate \
