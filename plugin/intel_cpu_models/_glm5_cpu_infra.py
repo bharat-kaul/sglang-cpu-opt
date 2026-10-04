@@ -326,8 +326,10 @@ def install() -> None:
             )
 
         _topk.biased_grouped_topk_cpu = _bgt_cpu_fallback
-        if getattr(_topk, "biased_grouped_topk", None) is _orig_bgt:
-            _topk.biased_grouped_topk = _bgt_cpu_fallback  # the CPU alias select_experts calls
+        # select_experts calls the module alias `biased_grouped_topk` (= biased_grouped_topk_cpu on CPU).
+        # Patch it UNCONDITIONALLY: the earlier `is _orig_bgt` guard could miss if another install wrapped
+        # the alias first, leaving select_experts on the raw kernel (uncaught 288 crash with fast_router).
+        _topk.biased_grouped_topk = _bgt_cpu_fallback
         logger.info(
             "GLM5 CPU: biased_grouped_topk -> torch impl fallback (fast_router=%s).", _fast_router
         )
