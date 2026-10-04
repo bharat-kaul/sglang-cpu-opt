@@ -49,12 +49,15 @@ export CONTEXT_LEN=${CONTEXT_LEN:-8192}
 export LOG_LEVEL=info
 export MAMBA_RADIX_STRATEGY=no_buffer
 export DISABLE_RADIX=1
-# PREFILL-ONLY: the archived GPU fingerprint is prefill (pf.L0-44); match it. Same first prompt.
-export MAX_NEW=1
+# MAX_NEW=1 -> prefill-only fingerprint (pf.L0-44, matches the GPU golden). MAX_NEW>1 -> ALSO captures
+# decode fingerprints (dec.L{lid}.c{step}, declogits.c{n}) for the decode parity gate. Overridable.
+export MAX_NEW=${MAX_NEW:-1}
+# LOAD_FORMAT/NUM_LAYERS overridable for a cheap dummy harness smoke-test (LOAD_FORMAT=dummy NUM_LAYERS=8).
+export LOAD_FORMAT=${LOAD_FORMAT:-auto}
 # Feed explicit token ids (bypass tokenizer) so CPU + GPU prefill byte-identical sequences -> the
 # CPU fallback tokenizer (drops the GLM special prefix the GPU container adds) can't desync the capture.
 export TOKEN_IDS="785,6722,315,9621,374"
 $NUMACTL python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
 echo "[fullcap] $FULLCAP_FILE"; ls -la "$FULLCAP_FILE" 2>/dev/null
-python3 -c "import torch;d=torch.load('$FULLCAP_FILE',map_location='cpu');ks=list(d.keys());print(len(d),'tensors; pf layers:',sorted(int(k.split('.L')[1].split('.r')[0]) for k in ks if k.startswith('pf.L') and 'hcpost' not in k)[-3:])" 2>/dev/null || echo "no fingerprint saved"
+python3 -c "import torch;d=torch.load('$FULLCAP_FILE',map_location='cpu');ks=list(d.keys());print(len(d),'tensors;','pf:',sum(1 for k in ks if k.startswith('pf.L') and 'hcpost' not in k),'dec:',sum(1 for k in ks if k.startswith('dec.L')),'declogits:',sum(1 for k in ks if k.startswith('declogits')))" 2>/dev/null || echo "no fingerprint saved"
 echo "[exit=$?]"

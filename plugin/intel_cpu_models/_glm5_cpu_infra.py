@@ -676,7 +676,8 @@ def _install_fullcap_glm_cpu() -> None:
         return
     _F = _os.environ.get("FULLCAP_FILE", "/scratch/bkaul/glm5_cpu_fullcap.pt")
     _CAP: dict = {}
-    _ST = {"seen_pf": False, "dc": 0}
+    _ST = {"seen_pf": False}
+    _DCNT: dict = {}  # per-(op,layer) decode-token counter -> unique key per decode step
 
     def _rk():
         try:
@@ -686,14 +687,6 @@ def _install_fullcap_glm_cpu() -> None:
         except Exception:  # noqa: BLE001
             return -1
 
-    def _tag(T):
-        if 2 <= T <= 16:
-            _ST["seen_pf"] = True
-            return "pf"
-        if T == 1 and _ST["seen_pf"]:
-            return f"dc{_ST['dc'] // 64}"
-        return None
-
     _ofwd = Layer.forward
 
     def _fwd(self, *a, **k):
@@ -701,14 +694,18 @@ def _install_fullcap_glm_cpu() -> None:
         try:
             h = out[0] if isinstance(out, (tuple, list)) else out
             if torch.is_tensor(h) and h.dim() >= 2:
-                tg = _tag(h.shape[0])
-                if tg:
-                    lid = getattr(self, "layer_id", -1)
-                    key = f"{tg}.L{lid}.r{_rk()}"
+                lid = getattr(self, "layer_id", -1)
+                T = h.shape[0]
+                if 2 <= T <= 16:  # prefill (keys byte-identical to the golden)
+                    _ST["seen_pf"] = True
+                    key = f"pf.L{lid}.r{_rk()}"
                     if key not in _CAP:
                         _CAP[key] = h.detach().float().cpu()
-                    if tg.startswith("dc"):
-                        _ST["dc"] += 1
+                elif T == 1 and _ST["seen_pf"]:  # decode: one key per (layer, decode step)
+                    _ck = ("L", lid)
+                    _c = _DCNT.get(_ck, 0)
+                    _DCNT[_ck] = _c + 1
+                    _CAP[f"dec.L{lid}.c{_c}.r{_rk()}"] = h.detach().float().cpu()
         except Exception:  # noqa: BLE001
             pass
         return out
@@ -723,13 +720,18 @@ def _install_fullcap_glm_cpu() -> None:
             r = _ohcp(self, *a, **k)
             try:
                 o = r[0] if isinstance(r, (tuple, list)) else r
-                if torch.is_tensor(o):
-                    tg = _tag(o.shape[0])
-                    if tg:
-                        lid = getattr(self, "layer_id", -1)
-                        key = f"{tg}.hcpost.L{lid}.r{_rk()}"
+                if torch.is_tensor(o) and o.dim() >= 2:
+                    lid = getattr(self, "layer_id", -1)
+                    T = o.shape[0]
+                    if 2 <= T <= 16:
+                        key = f"pf.hcpost.L{lid}.r{_rk()}"
                         if key not in _CAP:
                             _CAP[key] = o.detach().float().cpu()
+                    elif T == 1 and _ST["seen_pf"]:
+                        _ck = ("HC", lid)
+                        _c = _DCNT.get(_ck, 0)
+                        _DCNT[_ck] = _c + 1
+                        _CAP[f"dec.hcpost.L{lid}.c{_c}.r{_rk()}"] = o.detach().float().cpu()
             except Exception:  # noqa: BLE001
                 pass
             return r
@@ -742,14 +744,18 @@ def _install_fullcap_glm_cpu() -> None:
 
         if not getattr(LogitsProcessor, "_fullcap_glm_cpu_patched", False):
             _olp = LogitsProcessor.forward
+            _LGT = {"n": 0}
 
             def _lp(self, *a, **k):
                 r = _olp(self, *a, **k)
                 try:
                     lg = getattr(r, "next_token_logits", None)
                     if lg is not None:
-                        n = sum(1 for kk in _CAP if kk.startswith("logits"))
-                        _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
+                        # first logits = prefill (legacy key logits.0); rest = decode steps.
+                        i = _LGT["n"]
+                        _LGT["n"] = i + 1
+                        key = f"logits.0.r{_rk()}" if i == 0 else f"declogits.c{i - 1}.r{_rk()}"
+                        _CAP[key] = lg.detach().float().cpu()
                         torch.save(_CAP, _F)
                 except Exception:  # noqa: BLE001
                     pass
@@ -759,4 +765,4 @@ def _install_fullcap_glm_cpu() -> None:
             LogitsProcessor._fullcap_glm_cpu_patched = True
     except Exception as _e:  # noqa: BLE001
         logger.warning("GLM5 CPU fullcap logits hook not installed: %s", _e)
-    logger.info("GLM5 CPU: full-tensor prefill capture installed -> %s", _F)
+    logger.info("GLM5 CPU: full-tensor prefill+decode capture installed -> %s", _F)
