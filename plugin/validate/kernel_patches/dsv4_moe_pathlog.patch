@@ -1,0 +1,29 @@
+--- /data/nfs_home/bkaul/sglang/python/sglang/kernels/aot/csrc/cpu/moe_fp8.cpp	2026-09-07 22:25:34.380581003 -0700
++++ aot_private/csrc/cpu/moe_fp8.cpp	2026-10-03 23:28:08.534438605 -0700
+@@ -1,6 +1,8 @@
+ #include "common.h"
+ #include "gemm.h"
+ #include "moe.h"
++#include <cstdio>   // fprintf for the DSV4 path diagnostic
++#include <cstdlib>  // getenv
+ 
+ template <typename scalar_t, typename packed_t, typename param_t, bool is_mxfp4>
+ void fused_experts_fp_kernel_impl(
+@@ -58,6 +60,17 @@
+   int64_t avg_M = std::max(int64_t(1), M * topk / E);
+   const bool use_brgemm = can_use_brgemm<packed_t>(avg_M);
+ 
++  // DSV4 path diagnostic (one-shot, gated): confirm which GEMM path the MoE takes for this (M,E).
++  if (std::getenv("INTEL_CPU_DSV4_MOE_PATHLOG")) {
++    static bool logged = false;
++    if (!logged) {
++      logged = true;
++      fprintf(stderr, "[DSV4_MOE_PATHLOG] M=%ld topk=%ld E=%ld avg_M=%ld use_brgemm=%d (%s path)\n",
++              (long)M, (long)topk, (long)E, (long)avg_M, (int)use_brgemm,
++              use_brgemm ? "Btmp/AMX brgemm" : "fused AVX tinygemm_kernel_nn");
++    }
++  }
++
+   int64_t B_tmp_size_per_thread = MAX_CACHE_BLOCK_SIZE * BLOCK_N * std::max(K, N);
+ 
+   // here we only parallel on half of 2N to fuse silu_and_mul with gemm
