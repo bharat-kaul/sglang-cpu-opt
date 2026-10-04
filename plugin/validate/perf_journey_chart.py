@@ -16,23 +16,24 @@ from pathlib import Path
 
 # DeepSeek-V4-Flash — routed-expert MoE (68% of decode), EMR 1 socket, MXFP4 W4A16.
 # Source: plugin/validate/results/deepseek_v4_flash_roofline.json (bench_mxfp4_moe_roofline.py).
-TITLE = "DeepSeek-V4-Flash — routed-expert MoE decode: baseline → optimized → roofline"
-SUBTITLE = ("EMR 1 socket (1 NUMA domain, 226 GB/s) · MXFP4 W4A16 · the 68%-of-decode dominant op · "
-            "DRAM-bandwidth utilization — all three points measured")
+TITLE = "DeepSeek-V4-Flash — routed-expert MoE decode: DRAM bandwidth vs operating point"
+SUBTITLE = ("EMR 1 socket · 226 GB/s stream_triad · MXFP4 W4A16 · routed-expert MoE (68% of decode) · "
+            "achieved BW vs batch size")
 ROOFLINE = 226.0
 BARS = [
-    ("CPU baseline", "unbatched decode (M=1)", 59.0, "#c0504d"),
-    ("Optimized", "continuous batching (M=32)", 170.0, "#2f6f4f"),
-    ("Roofline", "DRAM-BW ceiling", 226.0, "#8a8a8a"),
+    ("M = 1", "unbatched decode", 59.0, "#c0504d"),
+    ("M = 32", "batched decode", 170.0, "#2f6f4f"),
+    ("Roofline", "stream_triad ceiling", 226.0, "#8a8a8a"),
 ]
-FOOTNOTE = ("Optimization = continuous batching (the decode lever) → 2.9× streaming bandwidth, 26%→75% of "
-            "roofline (model-level decode 0.93→9.3 tok/s). The OpenMP spin-wait fix (63× prefill / 10× "
-            "decode) underlies all three points — it corrected a busy-wait measurement artifact.")
+FOOTNOTE = ("Operating-point chart, NOT an optimization delta: a larger batch amortizes & dedups expert-weight "
+            "streaming over more tokens, so achieved BW rises with M (arithmetic intensity, not a kernel change). "
+            "Implementation optimizations (spin-wait fix 63x prefill / 10x decode, thread-cap, native-MXFP4) are a "
+            "separate fixed-workload before/after story. At M=32 the kernel reaches 75% of the stream ceiling.")
 
 
 def build_svg() -> str:
-    W, H = 940, 520
-    padL, padR, padT, padB = 74, 34, 100, 116
+    W, H = 940, 540
+    padL, padR, padT, padB = 74, 34, 100, 136
     plotW, plotH = W - padL - padR, H - padT - padB
     ymax = 240.0  # headroom above the 226 roofline
     y0 = padT + plotH
@@ -79,7 +80,7 @@ def build_svg() -> str:
     x2 = padL + slot * 1.5
     ay = yv(170.0) - 48
     p.append(f"<text x='{(x1+x2)/2:.1f}' y='{ay:.1f}' font-size='13' font-weight='bold' fill='#2f6f4f' "
-             f"text-anchor='middle'>2.9× (batching)</text>")
+             f"text-anchor='middle'>2.9× — batch amortization (operating point)</text>")
     # footnote (wrapped)
     words, line, lines = FOOTNOTE.split(), "", []
     for w in words:
