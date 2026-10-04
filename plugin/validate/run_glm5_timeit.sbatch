@@ -21,7 +21,10 @@ cd /data/nfs_home/bkaul
 export MODEL_PATH=/scratch/bkaul/models/GLM-5.3-Flash
 export LOAD_FORMAT=${LOAD_FORMAT:-dummy}
 # Real-weight verification (LOAD_FORMAT=auto on gnrap) needs the NUMA single-rank full-node bind.
-export SGLANG_CPU_OMP_THREADS_BIND=${SGLANG_CPU_OMP_THREADS_BIND:-}
+# Export ONLY when set — an empty value makes sglang's init_cpu_threads_env raise "no CPUs specified".
+if [[ -n "${SGLANG_CPU_OMP_THREADS_BIND:-}" ]]; then
+  export SGLANG_CPU_OMP_THREADS_BIND
+fi
 export NUM_LAYERS=${NUM_LAYERS:-8}
 export MEM_FRAC=${MEM_FRAC:-0.8}
 export MAX_RUNNING=1
