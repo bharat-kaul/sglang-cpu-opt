@@ -13,6 +13,13 @@
 #
 # config legend: base=no gates; eager=INTEL_CPU_GLM_EAGER_ROUTER; chunk=INTEL_CPU_GLM_CHUNKED_KDA
 #
+# CORRECTNESS (real-weight fullcap diff vs bit-exact baseline, same node/threads):
+#   * CPU inference is BIT-DETERMINISTIC across thread counts (baseline EMR/128 == gnrap/256, rel_maxerr 0).
+#   * chunk (KDA)  = FAITHFUL: logits cos 0.999926, no layer diverges -> safe to ship / default-on.
+#   * eager (router) = NOT bit-faithful: @torch.compile vs eager rounds gating scores differently, topk
+#     flips a borderline expert (discrete), cascades -> logits cos 0.9958 (token still ' Paris').
+#     PENDING a gsm8k accuracy decision before shipping; perf win is real but needs accuracy sign-off.
+#
 group,run_id,date,config,layer_total_pf_s,attn_kda_pf_s,moe_bgt_pf_s,moe_experts_pf_s,attn_mla_pf_s,notes
 real-8L/gnrap,381955,2026-10-03,base,55.535,24.639,27.134,1.205,0.869,kosher baseline (router @torch.compile + KDA scan)
 real-8L/gnrap,381965,2026-10-03,eager+chunk,9.789,6.032,0.067,1.236,0.843,optimized perf-final — 5.7x prefill vs baseline (router 405x, KDA 4.1x)
