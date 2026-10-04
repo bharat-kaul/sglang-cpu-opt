@@ -464,6 +464,20 @@ def _install_glm_timeit() -> None:
             _FMoE._glm_timed = True
     except Exception as _e:  # noqa: BLE001
         logger.warning("GLM5 TIMEIT: wrap moe.experts_fwd failed: %s", _e)
+    # Finer TopK split: select_experts (routing core) + _apply_waterfill (dispatch balancer) to pin
+    # the ~5s/call that is NOT the <1ms biased_grouped_topk math.
+    try:
+        import sglang.srt.layers.moe.topk as _tkmod
+
+        if not getattr(_tkmod, "_glm_sel_timed", False):
+            _tkmod.select_experts = _dz._timed("moe.select_experts", "torch")(_tkmod.select_experts)
+            _tkmod._glm_sel_timed = True
+        _TopK = _tkmod.TopK
+        if callable(getattr(_TopK, "_apply_waterfill", None)) and not getattr(_TopK, "_glm_wf_timed", False):
+            _TopK._apply_waterfill = _dz._timed("moe.waterfill", "torch")(_TopK._apply_waterfill)
+            _TopK._glm_wf_timed = True
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: wrap select_experts/waterfill failed: %s", _e)
     # Flush the counters after EACH model forward (the scheduler subprocess is hard-killed, so an
     # atexit dump never fires — the capture-hook lesson). Each flush overwrites with the cumulative
     # _TIMES, so the final forward's write is complete + survives the kill.
