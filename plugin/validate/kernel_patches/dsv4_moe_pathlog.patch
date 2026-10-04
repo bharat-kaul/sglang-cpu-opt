@@ -1,5 +1,5 @@
 --- /data/nfs_home/bkaul/sglang/python/sglang/kernels/aot/csrc/cpu/moe_fp8.cpp	2026-09-07 22:25:34.380581003 -0700
-+++ aot_private/csrc/cpu/moe_fp8.cpp	2026-10-03 23:28:08.534438605 -0700
++++ aot_private/csrc/cpu/moe_fp8.cpp	2026-10-03 23:38:04.153116159 -0700
 @@ -1,6 +1,8 @@
  #include "common.h"
  #include "gemm.h"
@@ -9,7 +9,7 @@
  
  template <typename scalar_t, typename packed_t, typename param_t, bool is_mxfp4>
  void fused_experts_fp_kernel_impl(
-@@ -58,6 +60,17 @@
+@@ -58,6 +60,22 @@
    int64_t avg_M = std::max(int64_t(1), M * topk / E);
    const bool use_brgemm = can_use_brgemm<packed_t>(avg_M);
  
@@ -24,6 +24,41 @@
 +    }
 +  }
 +
++  // DSV4 fixed-point profiler (gated, default-off, DIAGNOSTIC ONLY -> wrong numerics): pin every expert
++  // WEIGHT/scale read to expert 0 so the same path + routing + m_size run cache-resident, isolating the
++  // compute/latency floor from the DRAM weight stream. NOT an optimization; never enable in production.
++  const bool pin_expert = (std::getenv("INTEL_CPU_DSV4_MOE_PINEXPERT") != nullptr);
++
    int64_t B_tmp_size_per_thread = MAX_CACHE_BLOCK_SIZE * BLOCK_N * std::max(K, N);
  
    // here we only parallel on half of 2N to fuse silu_and_mul with gemm
+@@ -71,10 +89,11 @@
+ 
+       // B shape [K, n_size] in vnni format
+       int32_t expert_id = expert_ids[mb];
+-      const packed_t* __restrict__ B = packed_w1 + expert_id * stride_e + nb * BLOCK_N * stride_n;
++      int32_t weid = pin_expert ? 0 : expert_id;
++      const packed_t* __restrict__ B = packed_w1 + weid * stride_e + nb * BLOCK_N * stride_n;
+       const param_t* __restrict__ Bs =
+-          w1s + expert_id * scale_size_N * scale_size_K + scale_offset_per_block(nb) * scale_size_K;
+-      const float* __restrict__ B_bias = with_bias ? w1_bias + expert_id * 2 * N + nb * BLOCK_N : nullptr;
++          w1s + weid * scale_size_N * scale_size_K + scale_offset_per_block(nb) * scale_size_K;
++      const float* __restrict__ B_bias = with_bias ? w1_bias + weid * 2 * N + nb * BLOCK_N : nullptr;
+ 
+       // do unpacking for the first row or a new expert
+       int32_t pre_expert_id = mb == 0 ? -1 : expert_ids[mb - 1];
+@@ -165,10 +184,11 @@
+ 
+       // B shape [IC, n_size] in vnni format
+       int32_t expert_id = expert_ids[mb];
+-      const packed_t* __restrict__ B = packed_w2 + expert_id * stride_e2 + nb * BLOCK_N * stride_oc;
++      int32_t weid = pin_expert ? 0 : expert_id;
++      const packed_t* __restrict__ B = packed_w2 + weid * stride_e2 + nb * BLOCK_N * stride_oc;
+       const param_t* __restrict__ Bs =
+-          w2s + expert_id * scale_size_N * scale_size_K + scale_offset_per_block(nb) * scale_size_K;
+-      const float* __restrict__ B_bias = with_bias ? w2_bias + expert_id * OC + nb * BLOCK_N : nullptr;
++          w2s + weid * scale_size_N * scale_size_K + scale_offset_per_block(nb) * scale_size_K;
++      const float* __restrict__ B_bias = with_bias ? w2_bias + weid * OC + nb * BLOCK_N : nullptr;
+ 
+       // do unpacking for the first row or a new expert
+       int32_t pre_expert_id = mb == 0 ? -1 : expert_ids[mb - 1];
