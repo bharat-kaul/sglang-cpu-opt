@@ -26,6 +26,7 @@ for a later AMX fast path. NOT yet AMX-accelerated — correctness first.
 
 from __future__ import annotations
 
+import os as _os
 from typing import Optional, Tuple
 
 import torch
@@ -37,6 +38,7 @@ __all__ = [
     "causal_conv1d",
     "causal_conv1d_update",
     "kda_recurrent",
+    "kda_chunked",
     "kda_layer_forward",
     "cpu_kda_extend",
     "cpu_kda_decode",
@@ -199,6 +201,75 @@ def kda_recurrent(
     return out, h
 
 
+# Separable form overflows once chunk*|gate_lower_bound| exceeds the fp32 exp ceiling
+# (exp(88)~3.4e38): GLM lb=-5 => chunk <= 17. 16 is the stable max; validated finite +
+# cos=1.0 / rel~3e-7 vs kda_recurrent, NaN at 32/64 (plugin/validate/_kda_chunked_proto.py).
+_KDA_CHUNK = 16
+
+
+def kda_chunked(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    scale: Optional[float] = None,
+    initial_state: Optional[torch.Tensor] = None,
+    use_qk_l2norm: bool = True,
+    chunk: int = _KDA_CHUNK,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """CHUNKED (parallel, matmul) gated delta-rule — the high-arithmetic-intensity fast
+    path for prefill. Bit-equivalent to the sequential kda_recurrent scan but turns the
+    per-token loop into blocked matmuls (AMX-friendly), raising AI at a fixed operating
+    point. kda_recurrent remains the correctness oracle; this is gated on for prefill.
+
+    Per head (state S[K,V], decay a_i=exp(g_i) applied to the state carried INTO step i,
+    P_i=cumprod_{<=i} a), within a chunk:
+      v'_i = beta_i (v_i - (k_i*P_i)@S - sum_{j<i} <k_i*P_i, k_j/P_j> v'_j)   # tri solve
+      o_i  = (q_i*P_i)@S + sum_{j<=i} <q_i*P_i, k_j/P_j> v'_j
+      S_next = diag(P_last) (S + sum_j (k_j/P_j) ⊗ v'_j)
+    Decay factors <·,k_j/P_j>=sum_K exp(G_i-G_j) with i>=j are <=1; the k/P (=exp(-G))
+    intermediate is why chunk is capped at 16 for lb=-5 (see _KDA_CHUNK).
+    """
+    T, H, Kd = q.shape
+    V = v.shape[-1]
+    if scale is None:
+        scale = Kd ** -0.5
+    qf, kf, vf, gf, bf = q.float(), k.float(), v.float(), g.float(), beta.float()
+    if use_qk_l2norm:
+        qf = l2norm(qf)
+        kf = l2norm(kf)
+    qf = qf * scale
+    S = (
+        torch.zeros(H, Kd, V, dtype=torch.float32)
+        if initial_state is None
+        else initial_state.float().clone()
+    )
+    out = torch.empty(T, H, V, dtype=torch.float32)
+    eye = torch.eye(chunk, dtype=torch.float32)
+    for c0 in range(0, T, chunk):
+        c1 = min(c0 + chunk, T)
+        C = c1 - c0
+        qc, kc, vc, gc, bc = qf[c0:c1], kf[c0:c1], vf[c0:c1], gf[c0:c1], bf[c0:c1]
+        G = torch.cumsum(gc, dim=0)                   # [C,H,K] log-decay <=0
+        expG = torch.exp(G)                           # P_i in (0,1]
+        KP, QP = kc * expG, qc * expG                 # k_i*P_i, q_i*P_i
+        KD = kc * torch.exp(-G)                       # k_j/P_j (bounded for chunk<=16)
+        A_kk = torch.einsum("ihk,jhk->hij", KP, KD)   # solve matrix (strict lower)
+        A_qk = torch.einsum("ihk,jhk->hij", QP, KD)   # output matrix (lower incl diag)
+        A_kk = A_kk * torch.tril(torch.ones(C, C), -1)
+        A_qk = A_qk * torch.tril(torch.ones(C, C), 0)
+        Su = torch.einsum("ihk,hkv->hiv", KP, S)      # (k_i P_i)@S -> [H,C,V]
+        So = torch.einsum("ihk,hkv->hiv", QP, S)      # (q_i P_i)@S -> [H,C,V]
+        beta_h = bc.transpose(0, 1).unsqueeze(-1)     # [H,C,1]
+        rhs = beta_h * (vc.transpose(0, 1) - Su)      # [H,C,V]
+        M = eye[:C, :C].unsqueeze(0) + beta_h * A_kk  # I + tril(beta*A_kk,-1)
+        Vp = torch.linalg.solve_triangular(M, rhs, upper=False)   # [H,C,V]
+        out[c0:c1] = (So + torch.bmm(A_qk, Vp)).transpose(0, 1)
+        S = expG[-1].unsqueeze(-1) * (S + torch.einsum("jhk,hjv->hkv", KD, Vp))
+    return out, S
+
+
 def kda_layer_forward(
     mixed_qkv: torch.Tensor,
     a: torch.Tensor,
@@ -277,9 +348,17 @@ def kda_layer_forward(
     beta = torch.sigmoid(b.float())                           # [T,H]
 
     # 4) recurrence (carrying the SSM matrix state).
-    out, new_ssm_state = kda_recurrent(
-        q, k, v, g, beta, scale=scale, initial_state=ssm_state
-    )
+    # Prefill fast path: env INTEL_CPU_GLM_CHUNKED_KDA swaps the sequential scan for the
+    # matmul-based chunked form (identical numerics, higher AI). Decode (T==1) stays on
+    # the scan (chunking a single token has no benefit). Gate default-OFF (oracle = scan).
+    if (not is_decode) and T > 1 and _os.environ.get("INTEL_CPU_GLM_CHUNKED_KDA", "0") == "1":
+        out, new_ssm_state = kda_chunked(
+            q, k, v, g, beta, scale=scale, initial_state=ssm_state
+        )
+    else:
+        out, new_ssm_state = kda_recurrent(
+            q, k, v, g, beta, scale=scale, initial_state=ssm_state
+        )
     return out, new_conv_state, new_ssm_state
 
 
@@ -416,6 +495,18 @@ def _selftest() -> None:
     ).item()
     assert cos_sp > 1 - 1e-6, f"split-carry mismatch cos={cos_sp}"
     assert (s_full - s2).abs().max().item() < 1e-4, "final-state carry mismatch"
+
+    # (2b) CHUNKED (matmul) fast path == sequential scan, incl. a carried initial_state.
+    o_ch, s_ch = kda_chunked(q, k, v, g, beta)
+    cos_ch = torch.nn.functional.cosine_similarity(
+        o_full.flatten(), o_ch.flatten(), dim=0
+    ).item()
+    assert cos_ch > 1 - 1e-4 and torch.isfinite(o_ch).all(), f"chunked!=scan cos={cos_ch}"
+    assert (s_full - s_ch).abs().max().item() < 1e-3, "chunked final-state mismatch"
+    o_ch2, s_ch2 = kda_chunked(q[n:], k[n:], v[n:], g[n:], beta[n:], initial_state=s1)
+    assert (
+        torch.cat([o1, o_ch2], 0) - o_full
+    ).abs().max().item() < 1e-3, "chunked seeded-state mismatch"
 
     # (3) causal_conv1d sequence form vs the decode-update ring must match.
     C, Kc = 8, 4
