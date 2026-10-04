@@ -585,6 +585,29 @@ def _install_glm_timeit() -> None:
             _MLA._glm_timed = True
     except Exception as _e:  # noqa: BLE001
         logger.warning("GLM5 TIMEIT: wrap attn.mla failed: %s", _e)
+    # KDA sub-split: the whole attn.kda (Glm5NextLinearAttention.forward) = input projections +
+    # conv1d + gated-delta recurrence + output norm/proj. Split them to localize the ~67ms/layer
+    # in-engine decode cost (microbench says the recurrence arithmetic is only ~3ms -> the rest is
+    # projections (M=1 GEMMs) / conv / norm). Reassign the module globals so the in-function call
+    # sites pick up the timed versions.
+    try:
+        _LA = getattr(_glm, "Glm5NextLinearAttention", None)
+        if _LA is not None and not getattr(_LA, "_glm_kda_sub_timed", False):
+            if callable(getattr(_LA, "forward_qkvbfg", None)):
+                _LA.forward_qkvbfg = _dz._timed("kda.qkvbfg", "kernel")(_LA.forward_qkvbfg)
+            if callable(getattr(_LA, "forward_qkvbfg_fused", None)):
+                _LA.forward_qkvbfg_fused = _dz._timed("kda.qkvbfg", "kernel")(_LA.forward_qkvbfg_fused)
+            _LA._glm_kda_sub_timed = True
+        import intel_cpu_models.kda_linear_attention_cpu as _kcpu
+
+        if not getattr(_kcpu, "_glm_kda_timed", False):
+            _kcpu.kda_recurrent = _dz._timed("kda.recur", "torch")(_kcpu.kda_recurrent)
+            _kcpu.kda_chunked = _dz._timed("kda.recur", "torch")(_kcpu.kda_chunked)
+            _kcpu.causal_conv1d_update = _dz._timed("kda.conv", "torch")(_kcpu.causal_conv1d_update)
+            _kcpu.causal_conv1d = _dz._timed("kda.conv", "torch")(_kcpu.causal_conv1d)
+            _kcpu._glm_kda_timed = True
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: wrap KDA sub-ops failed: %s", _e)
     # MoE sub-split: TopK.forward (router+dispatch) and FusedMoE.forward (experts wrapper = permute/
     # activation-quant/combine around the 0.08s expert kernel) to localize the ~25s prefill overhead.
     try:
