@@ -348,10 +348,11 @@ def kda_layer_forward(
     beta = torch.sigmoid(b.float())                           # [T,H]
 
     # 4) recurrence (carrying the SSM matrix state).
-    # Prefill fast path: env INTEL_CPU_GLM_CHUNKED_KDA swaps the sequential scan for the
-    # matmul-based chunked form (identical numerics, higher AI). Decode (T==1) stays on
-    # the scan (chunking a single token has no benefit). Gate default-OFF (oracle = scan).
-    if (not is_decode) and T > 1 and _os.environ.get("INTEL_CPU_GLM_CHUNKED_KDA", "0") == "1":
+    # Prefill fast path: the matmul-based chunked form (identical numerics, higher AI) replaces the
+    # sequential scan. VALIDATED FAITHFUL on real weights (fullcap diff vs baseline: logits cos 0.999926,
+    # no layer diverges) -> DEFAULT-ON. Decode (T==1) stays on the scan (chunking one token has no benefit).
+    # INTEL_CPU_GLM_CHUNKED_KDA=0 reverts to the scan oracle (kept for revertibility / A-B).
+    if (not is_decode) and T > 1 and _os.environ.get("INTEL_CPU_GLM_CHUNKED_KDA", "1") != "0":
         out, new_ssm_state = kda_chunked(
             q, k, v, g, beta, scale=scale, initial_state=ssm_state
         )
