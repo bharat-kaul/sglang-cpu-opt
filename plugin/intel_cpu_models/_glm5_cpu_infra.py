@@ -446,6 +446,24 @@ def _install_glm_timeit() -> None:
             _MLA._glm_timed = True
     except Exception as _e:  # noqa: BLE001
         logger.warning("GLM5 TIMEIT: wrap attn.mla failed: %s", _e)
+    # MoE sub-split: TopK.forward (router+dispatch) and FusedMoE.forward (experts wrapper = permute/
+    # activation-quant/combine around the 0.08s expert kernel) to localize the ~25s prefill overhead.
+    try:
+        from sglang.srt.layers.moe.topk import TopK as _TopK
+
+        if not getattr(_TopK, "_glm_timed", False):
+            _TopK.forward = _dz._timed("moe.topk", "torch")(_TopK.forward)
+            _TopK._glm_timed = True
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: wrap moe.topk failed: %s", _e)
+    try:
+        from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE as _FMoE
+
+        if not getattr(_FMoE, "_glm_timed", False):
+            _FMoE.forward = _dz._timed("moe.experts_fwd", "kernel")(_FMoE.forward)
+            _FMoE._glm_timed = True
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: wrap moe.experts_fwd failed: %s", _e)
     # Flush the counters after EACH model forward (the scheduler subprocess is hard-killed, so an
     # atexit dump never fires — the capture-hook lesson). Each flush overwrites with the cumulative
     # _TIMES, so the final forward's write is complete + survives the kill.
