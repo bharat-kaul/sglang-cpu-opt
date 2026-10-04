@@ -18,6 +18,13 @@ import json
 import os
 import time
 
+# Pre-import the external plugin so its import-time CPU arg-resolution guards (e.g. the
+# torch.cuda.get_device_capability() guard for CPU-only torch) install BEFORE sgl.Engine's
+# resolve_once(). Mirrors _smoke.py; without it GLM crashes in handle_model_specific_adjustments.
+_pkg = os.environ.get("SGLANG_EXTERNAL_MODEL_PACKAGE")
+if _pkg:
+    __import__(_pkg)
+
 from task_gsm8k import INVALID, answer_value, extract_final_answer, one_example, read_jsonl
 
 
