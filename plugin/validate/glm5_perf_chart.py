@@ -24,16 +24,16 @@ SUBTITLE = ("GNR 1 node (256 threads) \u00b7 8-layer proxy, 256-tok prefill \u00
 # (label, sublabel, seconds, color)
 BARS = [
     ("Baseline", "@torch.compile router + KDA scan", 55.5, "#c0504d"),
-    ("Optimized", "warm-compiled router + chunked KDA", 9.79, "#2f6f4f"),
+    ("Optimized", "warm-compiled router + chunked KDA", 7.69, "#2f6f4f"),
     ("Roofline", "AMX bf16 dense-GEMM ceiling", 0.092, "#8a8a8a"),
 ]
-FLOOR = 2.7  # realistic achievable floor (fused CPU KDA kernel), projected
+FLOOR = 4.0  # realistic achievable floor (fused CPU KDA kernel; non-KDA ops + overhead remain), projected
 FOOTNOTE = (
-    "5.7\u00d7 achieved (55.5\u21929.8s), faithful (prefill+decode parity: logits cos 0.9999, identical "
+    "7.2× achieved (55.5→7.7s), faithful (prefill+decode parity: logits cos 0.9999, identical "
     "tokens). The dense-GEMM roofline (0.09s) is the hardware compute ceiling but is NOT reachable: the "
     "gated-delta KDA recurrence is dispatch/small-op bound (even the native AMX kernel = parity with torch "
-    "compute), so the realistic floor is ~2.7s via a fused CPU KDA kernel. Router 27\u21920.067s = warming "
-    "the CPU @torch.compile (bit-exact), not an eager bypass; KDA 24.6\u21926.0s = chunked matmuls."
+    "compute), so the realistic floor is ~4s via a fused CPU KDA kernel. Router 27→0.1s = warming "
+    "the CPU @torch.compile (bit-exact), not an eager bypass; KDA 24.6→3.7s = chunked matmuls (WY form)."
 )
 
 
@@ -78,12 +78,12 @@ def build_svg() -> str:
                  f"text-anchor='middle'>{html.escape(label)}</text>")
         p.append(f"<text x='{cx:.1f}' y='{y0+40:.1f}' font-size='10.5' fill='#555' "
                  f"text-anchor='middle'>{html.escape(sub)}</text>")
-    # 5.7x arrow baseline -> optimized
+    # 7.2x arrow baseline -> optimized
     x1 = padL + slot * 0.5
     x2 = padL + slot * 1.5
     ay = yv(55.5) - 16
     p.append(f"<text x='{(x1+x2)/2:.1f}' y='{ay:.1f}' font-size='14' font-weight='bold' fill='#2f6f4f' "
-             f"text-anchor='middle'>5.7\u00d7</text>")
+             f"text-anchor='middle'>7.2\u00d7</text>")
     words, line, lines = FOOTNOTE.split(), "", []
     for w in words:
         if len(line) + len(w) + 1 > 120:
