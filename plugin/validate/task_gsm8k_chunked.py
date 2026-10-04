@@ -70,6 +70,20 @@ def main():
 
     import sglang as sgl
 
+    # GLM-5.3 (hybrid KDA mamba + DSA MLA) needs CPU-valid cache config the DSv4 harness
+    # didn't: no_buffer mamba radix + disable_radix_cache (page_size clash) + a capped
+    # context_length (native 1M over-reserves). Read from env (mirrors _smoke.py) so the
+    # SAME hard-won prompt/scoring/sharding harness carries GLM unchanged.
+    extra_kw = {}
+    if os.environ.get("MAMBA_RADIX_STRATEGY"):
+        extra_kw["mamba_radix_cache_strategy"] = os.environ["MAMBA_RADIX_STRATEGY"]
+    if os.environ.get("DISABLE_RADIX") == "1":
+        extra_kw["disable_radix_cache"] = True
+    if os.environ.get("CONTEXT_LEN"):
+        extra_kw["context_length"] = int(os.environ["CONTEXT_LEN"])
+    if os.environ.get("MAX_RUNNING"):
+        extra_kw["max_running_requests"] = int(os.environ["MAX_RUNNING"])
+
     engine = sgl.Engine(
         model_path=args.model, device=args.device, tp_size=args.tp, dtype=args.dtype,
         quantization=args.quantization,
@@ -77,6 +91,7 @@ def main():
         mem_fraction_static=args.mem_fraction, log_level="warning",
         watchdog_timeout=args.watchdog_timeout,
         chunked_prefill_size=args.chunked_prefill_size,
+        **extra_kw,
     )
     sp = {"temperature": 0.0, "max_new_tokens": args.max_new_tokens,
           "stop": ["Question", "Assistant:"]}
