@@ -26,6 +26,19 @@ condition is met and gating every step against the measured roofline.
 > carries the node-parallel + chunked + checkpointed harness, the generate-once → score-OFFLINE
 > decouple, and the certify-vs-trusted-reference rule (a bare score certifies nothing).
 
+> **PRESERVE THE KOSHER BASELINE (do this BEFORE the first optimization).** The parity-checked,
+> unoptimized CPU build is the reference for the whole perf phase — it must stay runnable and
+> untouched. Three guards, all required: (1) **FREEZE the golden fingerprint** (the per-op tensors +
+> logits from the unoptimized real-weight build) — the immutable correctness reference; (2) **TAG the
+> baseline commit** (e.g. `git tag <model>-baseline-parity`) so the exact baseline CODE is recoverable,
+> not just a floating SHA; (3) **make every optimization ENV-GATED default-OFF** (the repo convention —
+> DSV4 ships ~47 `INTEL_CPU_*` gates) so gate-off reproduces the baseline byte-for-byte in the SAME tree,
+> and develop the opt work on a **separate branch** merged back only after the full golden-parity +
+> no-regression confirm. An optimization becomes the DEFAULT (gate flipped on / merged) ONLY after it
+> passes the per-op golden-check AND the full-model re-diff. This is how "incrementally optimize +
+> integrate, correct by construction" stays honest: the baseline is always one `git checkout <tag>` or
+> one gate-off away, so any regression is bisectable to the single op that caused it.
+
 > **Reference-wiring-FIRST.** Before optimizing, wire the full serving path with
 > fallback/reference kernels and make it RUN + CORRECT on a **tiny architecturally-faithful
 > config** (real arch switches, tiny dims, dummy weights — runs in seconds, same code paths).
