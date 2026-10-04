@@ -15,7 +15,7 @@
 #
 group,run_id,date,config,layer_total_pf_s,attn_kda_pf_s,moe_bgt_pf_s,moe_experts_pf_s,attn_mla_pf_s,notes
 real-8L/gnrap,381955,2026-10-03,base,55.535,24.639,27.134,1.205,0.869,kosher baseline (router @torch.compile + KDA scan)
-real-8L/gnrap,PENDING,2026-10-03,eager+chunk,,,,,,optimized real-weight (perf-final) — gnrap run in flight
-dummy-8L/emr,PENDING,2026-10-03,base,,,,,,clean dummy baseline anchor — EMR run in flight
+real-8L/gnrap,381965,2026-10-03,eager+chunk,9.789,6.032,0.067,1.236,0.843,optimized perf-final — 5.7x prefill vs baseline (router 405x, KDA 4.1x)
+dummy-8L/emr,381966,2026-10-03,base,33.616,23.166,9.501,0.144,0.219,clean dummy baseline anchor (opts off)
 dummy-8L/emr,381958,2026-10-03,eager,10.408,9.450,0.035,0.135,0.869,router eager-bypass only (KDA still scan)
 dummy-8L/emr,381964,2026-10-03,eager+chunk,3.647,2.675,0.034,0.135,0.869,router eager + KDA chunked (both opts)
