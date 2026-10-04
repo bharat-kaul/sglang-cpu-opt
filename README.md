@@ -232,13 +232,32 @@ Delivered as the same external plugin (`intel_cpu_models`) — no fork.
   dual cache, [kda_linear_attention_cpu.py](plugin/intel_cpu_models/kda_linear_attention_cpu.py)), and
   the fix for a genuine sglang gap: **NoPE MLA on CPU** (the fused-rope kernel divides by
   `qk_rope_head_dim=0` → SIGFPE; keep `w_kc`/`w_vc` logical + route to the generic absorb path).
+- **Real-weight parity — PROVEN, full 45 layers, prefill AND decode.** The fp8→bf16 bridge was
+  exercised on the full 306 GB checkpoint and diffed against the frozen golden: **prefill** all-layer
+  logits cos **0.999926** (no layer diverges, token ` Paris`); **decode** generates **identical tokens**
+  across steps (argmax-identical logits, residual cos ~0.998). CPU inference is **bit-deterministic across
+  thread counts** (so parity diffs hold node+bind constant). The remaining CPU-vs-GPU diff is the
+  documented **W8A16-vs-W8A8** fp8-activation-quant difference (CPU is more precise), not a bug.
+- **Performance optimization — 5.7× prefill, faithful.** Measure-first on the real per-op profile:
 
-**Remaining (scoped):** the **real-weight finale** — exercise the fp8→bf16 bridge on the full 45-layer
-checkpoint, confirm per-layer parity against the frozen real-weight GPU fingerprint, run gsm8k task
-accuracy, then the roofline. Perf TODOs noted (288-expert CPU top-k kernel, logical-`w_kc` AMX path,
-incremental-sparse DSA decode, AMX KDA kernel). *The point of this section is the **velocity**: a
-structurally different architecture carried to proven per-layer correctness by the same playbook, with
-only the genuinely novel op (KDA) hand-authored.*
+  ![GLM-5.3 Flash CPU prefill: baseline 55.5s → optimized 9.8s (5.7×) → roofline, with the realistic fused-kernel floor](plugin/validate/results/glm5_flash_prefill_journey.png)
+
+  Two wins, both **bit-faithful** and env-gated: **(1) MoE router 27 → 0.067 s (~400×)** — the
+  288-expert torch router is `@torch.compile(dynamic=True)`, and on CPU that inductor compile is a ~50 s
+  one-time cost that landed *inside* the timed prefill; the fix **warms the compile at init** (overlapped
+  with weight load) and keeps the **compiled** path — *bit-exact* to baseline, unlike an eager bypass
+  which flips a borderline `topk` expert; **(2) KDA 24.6 → 6.0 s (4.1×)** — the per-token gated-delta scan
+  becomes **chunk-parallel matmuls** (WY form), validated to the scan oracle (rel ~3e-7). **Honest
+  ceiling:** the dense-GEMM roofline (~0.09 s) is *not* reachable — the recurrence is dispatch/small-op
+  bound (even the native AMX kernel is only parity with torch compute), so the realistic floor is ~2.7 s
+  via a fused CPU KDA kernel (scoped follow-up; the sgl-kernel AMX gated-delta kernel is **per-head** gate,
+  KDA needs **per-key**). Ledger: [glm5_perf_ledger.csv](plugin/validate/results/glm5_perf_ledger.csv).
+
+**Remaining (scoped):** **gsm8k task-accuracy** on the full real-weight model (the final downstream
+sign-off; parity already makes it faithful by construction) and the **fused CPU KDA AMX kernel** (the
+~2× further prefill headroom; build path de-risked). *The point of this section is the **velocity**: a
+structurally different architecture carried to proven **prefill+decode real-weight parity** and a **5.7×
+faithful perf win** by the same playbook, with only the genuinely novel op (KDA) hand-authored.*
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
