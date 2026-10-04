@@ -446,6 +446,26 @@ def _install_glm_timeit() -> None:
             _MLA._glm_timed = True
     except Exception as _e:  # noqa: BLE001
         logger.warning("GLM5 TIMEIT: wrap attn.mla failed: %s", _e)
+    # Flush the counters after EACH model forward (the scheduler subprocess is hard-killed, so an
+    # atexit dump never fires — the capture-hook lesson). Each flush overwrites with the cumulative
+    # _TIMES, so the final forward's write is complete + survives the kill.
+    try:
+        _Model = _glm.Glm5NextModel
+        if not getattr(_Model, "_glm_timeit_flush", False):
+            _orig_mfwd = _Model.forward
+
+            def _mfwd(self, *a, **k):
+                r = _orig_mfwd(self, *a, **k)
+                try:
+                    _dz._dump_times()
+                except Exception:  # noqa: BLE001
+                    pass
+                return r
+
+            _Model.forward = _mfwd
+            _Model._glm_timeit_flush = True
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: model-forward flush not installed: %s", _e)
     _atexit.register(_dz._dump_times)
     Layer._glm_timeit = True
     logger.info("GLM5 CPU: TIMEIT per-op profiler installed (layer+KDA/MLA/MoE/dense/hc_post).")
