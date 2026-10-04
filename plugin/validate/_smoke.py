@@ -31,6 +31,21 @@ def main():
     )
     if load_format:
         kw["load_format"] = load_format
+    # Depth-reduced PERF PROXY: shrink num_hidden_layers (keep full WIDTH) + truncate the per-layer
+    # type lists so the proxy keeps one of every op family (KDA/MLA/dense/MoE). Reads the model's own
+    # config so it works for GLM's nested text_config + layer_types/mlp_layer_types lists.
+    if os.environ.get("NUM_LAYERS"):
+        import json as _json
+        n = int(os.environ["NUM_LAYERS"])
+        cfg = _json.load(open(os.path.join(model, "config.json")))
+        tc = cfg.get("text_config", cfg)
+        ov = {"num_hidden_layers": n}
+        for lk in ("layer_types", "mlp_layer_types"):
+            if isinstance(tc.get(lk), list):
+                ov[lk] = tc[lk][:n]
+        override = {"text_config": ov} if "text_config" in cfg else ov
+        kw["json_model_override_args"] = _json.dumps(override)
+        print(f"[smoke] PERF PROXY num_hidden_layers={n} override={override}", flush=True)
     if os.environ.get("MAX_RUNNING"):
         kw["max_running_requests"] = int(os.environ["MAX_RUNNING"])
     # Mamba/linear-attention models (GLM-5 KDA): the default extra_buffer radix-cache

@@ -390,7 +390,65 @@ def install() -> None:
         logger.warning("GLM5 CPU decode indexer-skip not installed: %s", _e)
 
     _install_fullcap_glm_cpu()
+    _install_glm_timeit()
     _INSTALLED = True
+
+
+def _install_glm_timeit() -> None:
+    """TIMEIT-only per-op wall profiler for GLM, reusing the shared DSV4 timer primitives.
+    Gated by INTEL_CPU_DSV4_TIMEIT=1 (prefill/decode split via INTEL_CPU_DSV4_TIMEIT_PHASE=1).
+    Times the decoder layer (parent) + NON-overlapping leaf components (KDA/MLA attn, MoE, dense
+    MLP, MHC hc_post), so layer.total - sum(leaves) = framework glue. Inert when the gate is off."""
+    import atexit as _atexit
+    try:
+        from intel_cpu_models import _dsv4_cpu_infra as _dz
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: shared timer import failed: %s", _e)
+        return
+    if not _dz._TIMEIT_ON:
+        return
+    try:
+        import sglang.srt.models.glm5_next as _glm
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: glm5_next import failed: %s", _e)
+        return
+    Layer = _glm.Glm5NextDecoderLayer
+    if getattr(Layer, "_glm_timeit", False):
+        return
+    _timed_layer = _dz._timed("layer.total", "parent")(Layer.forward)
+
+    def _layer_fwd(self, positions, hidden_states, forward_batch, *a, **k):
+        if _dz._PHASE_ON:
+            try:
+                _dz._PHASE = "dec" if forward_batch.forward_mode.is_decode() else "pf"
+            except Exception:  # noqa: BLE001
+                pass
+        return _timed_layer(self, positions, hidden_states, forward_batch, *a, **k)
+
+    Layer.forward = _layer_fwd
+    if callable(getattr(Layer, "hc_post", None)):
+        Layer.hc_post = _dz._timed("mhc.hc_post", "torch")(Layer.hc_post)
+    for _cattr, _meth, _nm, _kind in (
+        ("Glm5NextLinearAttention", "forward", "attn.kda", "torch"),
+        ("Glm5NextMoE", "forward", "moe", "kernel"),
+        ("Glm5NextMLP", "forward", "dense.mlp", "kernel"),
+    ):
+        try:
+            _cls = getattr(_glm, _cattr)
+            setattr(_cls, _meth, _dz._timed(_nm, _kind)(getattr(_cls, _meth)))
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("GLM5 TIMEIT: wrap %s failed: %s", _nm, _e)
+    try:
+        from sglang.srt.models.deepseek_v2 import DeepseekV2AttentionMLA as _MLA
+
+        if not getattr(_MLA, "_glm_timed", False):
+            _MLA.forward = _dz._timed("attn.mla", "kernel")(_MLA.forward)
+            _MLA._glm_timed = True
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("GLM5 TIMEIT: wrap attn.mla failed: %s", _e)
+    _atexit.register(_dz._dump_times)
+    Layer._glm_timeit = True
+    logger.info("GLM5 CPU: TIMEIT per-op profiler installed (layer+KDA/MLA/MoE/dense/hc_post).")
 
 
 def _install_fullcap_glm_cpu() -> None:
