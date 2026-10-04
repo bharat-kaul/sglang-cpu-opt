@@ -32,6 +32,9 @@ export TOKEN_IDS=$(python3 -c "print(','.join(str(i) for i in range(1,257)))")
 # Per-op TIMEIT (reuses the shared DSV4 timer; GLM wraps layer+KDA/MLA/MoE/dense/hc_post).
 export INTEL_CPU_DSV4_TIMEIT=1
 export INTEL_CPU_DSV4_TIMEIT_PHASE=1
+# MoE thread-cliff sweep: cap the threads around the native fused_experts_cpu apply (DSV4 found it
+# scales INVERSELY with threads). Empty = no cap (baseline, uses all NUMA-domain cores).
+export INTEL_CPU_DSV4_MOE_THREADS=${MOE_THREADS:-}
 export INTEL_CPU_DSV4_TIMEIT_JSON=/scratch/bkaul/glm5_timeit_${SLURM_JOB_ID}.json
 export TIMEIT_MODEL="GLM-5.3-Flash"
 export TIMEIT_NODE="${TIMEIT_NODE:-EMR}"
