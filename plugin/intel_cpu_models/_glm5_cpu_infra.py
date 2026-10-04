@@ -309,23 +309,6 @@ def install() -> None:
             num_fused_shared_experts=0, routed_scaling_factor=None,
             apply_routed_scaling_factor_on_output=False,
         ):
-            if not getattr(_bgt_cpu_fallback, "_probed", False):
-                _bgt_cpu_fallback._probed = True
-                import time as _t
-                _t0 = _t.perf_counter()
-                _r = _topk.biased_grouped_topk_impl(
-                    hidden_states, gating_output, correction_bias, topk, renormalize,
-                    num_expert_group, topk_group, num_fused_shared_experts=num_fused_shared_experts,
-                    routed_scaling_factor=routed_scaling_factor,
-                    apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
-                )
-                logger.warning(
-                    "GLM5 BGT PROBE: gating%s/%s contig=%s | topk=%s neg=%s tg=%s nfs=%s rsf=%s | impl=%.1fms",
-                    tuple(gating_output.shape), gating_output.dtype, gating_output.is_contiguous(),
-                    topk, num_expert_group, topk_group, num_fused_shared_experts, routed_scaling_factor,
-                    (_t.perf_counter() - _t0) * 1000,
-                )
-                return _r
             if not _fast_router:
                 try:
                     return _orig_bgt(
@@ -335,13 +318,21 @@ def install() -> None:
                     )
                 except (RuntimeError, NotImplementedError):
                     pass
-            return _topk.biased_grouped_topk_impl(
-                hidden_states, gating_output, correction_bias, topk, renormalize,
-                num_expert_group, topk_group,
-                num_fused_shared_experts=num_fused_shared_experts,
-                routed_scaling_factor=routed_scaling_factor,
-                apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
-            )
+            # The torch router is a tiny [T, 288] op but inside the engine runs on the 64 affinity-bound
+            # threads, where it thrashes (~22s/call in-model vs <1ms isolated/single-thread). Cap threads
+            # around it; restore after so the big GEMMs keep all cores.
+            _prev_thr = torch.get_num_threads()
+            torch.set_num_threads(1)
+            try:
+                return _topk.biased_grouped_topk_impl(
+                    hidden_states, gating_output, correction_bias, topk, renormalize,
+                    num_expert_group, topk_group,
+                    num_fused_shared_experts=num_fused_shared_experts,
+                    routed_scaling_factor=routed_scaling_factor,
+                    apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
+                )
+            finally:
+                torch.set_num_threads(_prev_thr)
 
         _topk.biased_grouped_topk_cpu = _bgt_cpu_fallback
         # select_experts calls the module alias `biased_grouped_topk` (= biased_grouped_topk_cpu on CPU).
