@@ -35,6 +35,8 @@ export INTEL_CPU_DSV4_TIMEIT_PHASE=1
 # MoE thread-cliff sweep: cap the threads around the native fused_experts_cpu apply (DSV4 found it
 # scales INVERSELY with threads). Empty = no cap (baseline, uses all NUMA-domain cores).
 export INTEL_CPU_DSV4_MOE_THREADS=${MOE_THREADS:-}
+# Explicitly re-export (not just --export passthrough) so the scheduler subprocess reliably sees it.
+export INTEL_CPU_GLM_FAST_ROUTER=${INTEL_CPU_GLM_FAST_ROUTER:-}
 export INTEL_CPU_DSV4_TIMEIT_JSON=/scratch/bkaul/glm5_timeit_${SLURM_JOB_ID}.json
 export TIMEIT_MODEL="GLM-5.3-Flash"
 export TIMEIT_NODE="${TIMEIT_NODE:-EMR}"
