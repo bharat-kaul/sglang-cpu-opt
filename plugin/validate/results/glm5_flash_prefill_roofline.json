@@ -1,0 +1,19 @@
+{
+  "_comment": "GLM-5.3 Flash CPU prefill roofline (8-layer proxy, M=256, GNR). Baseline/optimized are MEASURED layer.total.pf (ledger). Roofline = total GEMM FLOPs / measured GNR AMX bf16 GEMM ceiling. The large roofline gap is small-matmul inefficiency (MoE ~M*topk/E tokens/expert; KDA chunk=16) -> operating-point/batching lever (cf DSv4), not a missing kernel.",
+  "node": "GNR (gnrap, 256 threads)",
+  "threads": 256,
+  "M_tokens": 256,
+  "amx_bf16_peak_gflops": 14927.2,
+  "total_prefill_gflops": 1374.5,
+  "per_op_gflops": {
+    "kda": 433.9,
+    "mla": 128.8,
+    "dense": 231.9,
+    "moe": 579.8
+  },
+  "baseline_s": 55.535,
+  "optimized_s": 9.791,
+  "roofline_s": 0.0921,
+  "speedup_measured": 5.67,
+  "optimized_pct_of_roofline": 0.94
+}
