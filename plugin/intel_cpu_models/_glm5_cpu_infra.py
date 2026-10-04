@@ -294,6 +294,13 @@ def install() -> None:
         import sglang.srt.layers.moe.topk as _topk
 
         _orig_bgt = _topk.biased_grouped_topk_cpu
+        # PERF (env-gated INTEL_CPU_GLM_FAST_ROUTER): the CPU biased_grouped_topk_cpu KERNEL does
+        # seconds of work before REJECTING GLM's 288 experts (profile: this try-path is ~4.6s/call,
+        # ~74% of prefill), then we fall to the torch impl (<1ms) anyway. Since the kernel can NEVER
+        # succeed for 288, skip the try entirely and call the impl directly — the RESULT is identical
+        # (bit-for-bit the same impl output), so this is correctness-neutral. Gate default-OFF so the
+        # baseline (kernel-try → impl) is preserved; flip on after the golden-check.
+        _fast_router = _os.environ.get("INTEL_CPU_GLM_FAST_ROUTER", "0") == "1"
 
         def _bgt_cpu_fallback(
             hidden_states, gating_output, correction_bias, topk, renormalize,
@@ -301,25 +308,29 @@ def install() -> None:
             num_fused_shared_experts=0, routed_scaling_factor=None,
             apply_routed_scaling_factor_on_output=False,
         ):
-            try:
-                return _orig_bgt(
-                    hidden_states, gating_output, correction_bias, topk, renormalize,
-                    num_expert_group, topk_group, compiled, num_fused_shared_experts,
-                    routed_scaling_factor, apply_routed_scaling_factor_on_output,
-                )
-            except (RuntimeError, NotImplementedError):
-                return _topk.biased_grouped_topk_impl(
-                    hidden_states, gating_output, correction_bias, topk, renormalize,
-                    num_expert_group, topk_group,
-                    num_fused_shared_experts=num_fused_shared_experts,
-                    routed_scaling_factor=routed_scaling_factor,
-                    apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
-                )
+            if not _fast_router:
+                try:
+                    return _orig_bgt(
+                        hidden_states, gating_output, correction_bias, topk, renormalize,
+                        num_expert_group, topk_group, compiled, num_fused_shared_experts,
+                        routed_scaling_factor, apply_routed_scaling_factor_on_output,
+                    )
+                except (RuntimeError, NotImplementedError):
+                    pass
+            return _topk.biased_grouped_topk_impl(
+                hidden_states, gating_output, correction_bias, topk, renormalize,
+                num_expert_group, topk_group,
+                num_fused_shared_experts=num_fused_shared_experts,
+                routed_scaling_factor=routed_scaling_factor,
+                apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
+            )
 
         _topk.biased_grouped_topk_cpu = _bgt_cpu_fallback
         if getattr(_topk, "biased_grouped_topk", None) is _orig_bgt:
             _topk.biased_grouped_topk = _bgt_cpu_fallback  # the CPU alias select_experts calls
-        logger.info("GLM5 CPU: biased_grouped_topk -> torch impl fallback for unsupported num_experts.")
+        logger.info(
+            "GLM5 CPU: biased_grouped_topk -> torch impl fallback (fast_router=%s).", _fast_router
+        )
     except Exception as _e:
         logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
 
