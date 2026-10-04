@@ -211,6 +211,16 @@ layers** (Kimi Delta / gated-delta-rule), **11 NoPE MLA + DSA** full-attention l
 hash-clustering** residual, and an **fp8 e4m3 128×128 block-quant** checkpoint (one fp8→bf16 W8A16 bridge).
 Delivered as the same external plugin (`intel_cpu_models`) — no fork.
 
+> **What "structurally different" means here (scoped honestly).** The novelty is precisely the **KDA
+> gated-linear-attention op family** (34/45 layers) and the **hybrid KDA↔MLA interleaving + NoPE MLA** —
+> none of which exist in DeepSeek, and which required *new* CPU kernels (`cpu_kda_extend/decode`) and
+> NoPE-MLA routing. The backbone it grafts onto is **DeepSeek lineage, reused verbatim**: sglang literally
+> aliases `Glm5NextMoE = DeepseekV2MoE`, `Glm5NextMLP = DeepseekV2MLP`, uses `DeepseekV2AttentionMLA` + the
+> DSA indexer + the fp8 block-quant + `DeepseekV2WeightLoaderMixin`. That reuse is the *point*: it is what
+> makes "the same playbook carries it" a meaningful claim — the playbook had to absorb **one genuinely new
+> op family (KDA) inside a hybrid**, not re-derive a whole model. (It also shapes the perf work: the
+> dominant prefill cost lives in the *shared* MoE/TopK path, while the GLM-distinct KDA dominates decode.)
+
 **What the autonomous run has demonstrated so far:**
 - **Bring-up ladder cleared autonomously — ~18 sequential breaks** across prefill **and** decode, each
   diagnosed → fixed-in-plugin → re-run on a tiny arch-faithful config (seconds per iteration): DSA
