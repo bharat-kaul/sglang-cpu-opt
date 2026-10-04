@@ -295,21 +295,21 @@ def install() -> None:
         import os as _os
 
         _orig_bgt = _topk.biased_grouped_topk_cpu
-        # PERF (env-gated INTEL_CPU_GLM_FAST_ROUTER): the CPU biased_grouped_topk_cpu KERNEL does
-        # seconds of work before REJECTING GLM's 288 experts (profile: this try-path is ~4.6s/call,
-        # ~74% of prefill), then we fall to the torch impl (<1ms) anyway. Since the kernel can NEVER
-        # succeed for 288, skip the try entirely and call the impl directly — the RESULT is identical
-        # (bit-for-bit the same impl output), so this is correctness-neutral. Gate default-OFF so the
-        # baseline (kernel-try → impl) is preserved; flip on after the golden-check.
-        _fast_router = _os.environ.get("INTEL_CPU_GLM_FAST_ROUTER", "0") == "1"
-        # *** ROOT CAUSE FIX (env-gated INTEL_CPU_GLM_EAGER_ROUTER) ***
-        # biased_grouped_topk_impl is decorated @torch.compile(dynamic=True) (topk.py:1459). On GPU that
-        # compiles fast + wins; on CPU the compiler backend is CATASTROPHIC for this tiny [T,288] op:
-        # ~22.5s FIRST-call compilation + ~1s/call dynamic-shape re-guarding (profiled 27s/5calls REAL
-        # weights, thread-INVARIANT). GLM uniquely hits it because the 288-expert CPU kernel rejects and
-        # we fall to this compiled impl (DSV4's kernel succeeds -> never compiles). FIX: call the EAGER
-        # underlying fn via __wrapped__ (identical math, no JIT) -> 27s -> 0.037s. Correctness-neutral.
-        # Gate default-OFF (baseline = compiled impl) per PRESERVE-KOSHER-BASELINE; flip after golden-check.
+        # FAST_ROUTER (default-ON): the CPU biased_grouped_topk_cpu KERNEL cannot handle 288 experts and
+        # RAISES "Unexpected num_experts: 288"; we fall to the torch impl anyway. Skip the dead kernel-try
+        # and call the impl directly — RESULT is bit-identical. INTEL_CPU_GLM_FAST_ROUTER=0 restores the
+        # (kernel-try→impl) path for exact baseline reproduction.
+        _fast_router = _os.environ.get("INTEL_CPU_GLM_FAST_ROUTER", "1") != "0"
+        # *** ROOT CAUSE + BIT-EXACT FIX (warm the compile) ***
+        # biased_grouped_topk_impl is @torch.compile(dynamic=True) (topk.py:1459). On CPU the inductor
+        # backend's one-time COMPILATION is ~50s; it dominated prefill (27s/5calls REAL weights). But the
+        # COMPILED KERNEL, once built, is 0.4ms AND handles any token-count without recompiling (dynamic=
+        # True verified). FIX (option B): WARM the compile in a background thread at install (overlapped
+        # with the ~700s weight load) and keep using the COMPILED impl -> fast AND BIT-EXACT to the golden
+        # baseline (which used this same compiled kernel). This replaces the earlier EAGER bypass, which
+        # was NOT bit-faithful: torch.compile reassociates the gating-score fp ops vs eager, and the
+        # DISCRETE topk flips a borderline expert (fullcap: logits cos 0.9958, diverges from L21).
+        # INTEL_CPU_GLM_EAGER_ROUTER=1 keeps the eager path for A/B only (fast but expert-flips -> NOT faithful).
         _eager_router = _os.environ.get("INTEL_CPU_GLM_EAGER_ROUTER", "0") == "1"
         _eager_bgt_impl = getattr(
             _topk.biased_grouped_topk_impl, "__wrapped__", _topk.biased_grouped_topk_impl
@@ -416,18 +416,8 @@ def install() -> None:
                     routed_scaling_factor=routed_scaling_factor,
                     apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
                 )
-            if _router_probe:
-                # Measure at the NATIVE engine thread count (no cap) to diagnose the real condition.
-                return _timed_bgt_impl(
-                    hidden_states, gating_output, correction_bias, topk, renormalize,
-                    num_expert_group, topk_group,
-                    num_fused_shared_experts=num_fused_shared_experts,
-                    routed_scaling_factor=routed_scaling_factor,
-                    apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
-                )
-            # Root cause was @torch.compile on CPU (22.5s compile + ~1s/call re-guard), NOT threading —
-            # set_num_threads(1) was profiled ineffective. When INTEL_CPU_GLM_EAGER_ROUTER=1, call the
-            # eager __wrapped__ fn (identical math, no JIT): 27s -> 0.037s. Default path = compiled impl.
+            # Default = the COMPILED impl (warmed off the critical path -> fast AND bit-exact to golden).
+            # EAGER is faster-but-flips-experts (A/B only, NOT faithful).
             _impl = _eager_bgt_impl if _eager_router else _topk.biased_grouped_topk_impl
             return _impl(
                 hidden_states, gating_output, correction_bias, topk, renormalize,
@@ -442,9 +432,32 @@ def install() -> None:
         # Patch it UNCONDITIONALLY: the earlier `is _orig_bgt` guard could miss if another install wrapped
         # the alias first, leaving select_experts on the raw kernel (uncaught 288 crash with fast_router).
         _topk.biased_grouped_topk = _bgt_cpu_fallback
+
+        # WARM the compiled router off the critical path (unless using the eager A/B path). The ~50s
+        # inductor compile runs in a daemon thread, overlapped with the ~700s weight load, so the first
+        # prefill hits the cached 0.4ms compiled kernel instead of paying the compile inline. Args match
+        # GLM's router guard (topk=8, renormalize, n_group=1, topk_group=1, nfs=0, rsf=2.5) so no recompile.
+        def _warm_compiled_router():
+            try:
+                _go = torch.randn(32, 288, dtype=torch.bfloat16)
+                _hs = torch.randn(32, 4096, dtype=torch.bfloat16)
+                _cb = torch.randn(288, dtype=torch.float32)
+                _topk.biased_grouped_topk_impl(
+                    _hs, _go, _cb, 8, True, 1, 1,
+                    num_fused_shared_experts=0, routed_scaling_factor=2.5,
+                )
+                logger.warning("GLM5 CPU: router torch.compile WARMED (bit-exact fast path ready).")
+            except Exception as _we:
+                logger.warning("GLM5 CPU: router warm failed (compiles lazily on first use): %s", _we)
+
+        if not _eager_router:
+            import threading as _threading
+            _threading.Thread(
+                target=_warm_compiled_router, name="glm-router-warm", daemon=True
+            ).start()
         logger.warning(
-            "GLM5 CPU: biased_grouped_topk fallback installed (fast_router=%s, eager_router=%s, probe=%s).",
-            _fast_router, _eager_router, _router_probe,
+            "GLM5 CPU: biased_grouped_topk fallback installed (fast_router=%s, eager_router=%s, probe=%s, warming=%s).",
+            _fast_router, _eager_router, _router_probe, not _eager_router,
         )
     except Exception as _e:
         logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
