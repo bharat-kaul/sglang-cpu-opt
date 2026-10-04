@@ -302,6 +302,83 @@ def install() -> None:
         # (bit-for-bit the same impl output), so this is correctness-neutral. Gate default-OFF so the
         # baseline (kernel-try → impl) is preserved; flip on after the golden-check.
         _fast_router = _os.environ.get("INTEL_CPU_GLM_FAST_ROUTER", "0") == "1"
+        # PROBE (env INTEL_CPU_GLM_ROUTER_PROBE): per-statement-timed copy of biased_grouped_topk_impl.
+        # The impl is pure torch on a tiny [T,288] tensor yet costs ~5.4s/call IN-ENGINE (22.5s first,
+        # ~1s steady) vs <1ms isolated — thread-INVARIANT (same on EMR-64 and gnrap-256). Reproduces
+        # with DUMMY weights on EMR, so instrument there. Logs call#, per-op ms -> pinpoints the op.
+        _router_probe = _os.environ.get("INTEL_CPU_GLM_ROUTER_PROBE", "0") == "1"
+        _probe_call_n = [0]
+
+        def _timed_bgt_impl(
+            hidden_states, gating_output, correction_bias, topk, renormalize,
+            num_expert_group=None, topk_group=None, num_fused_shared_experts=0,
+            routed_scaling_factor=None, apply_routed_scaling_factor_on_output=False,
+        ):
+            import time as _t
+            _probe_call_n[0] += 1
+            _c = _probe_call_n[0]
+            _laps = []
+
+            def _lap(tag, fn):
+                _s = _t.perf_counter()
+                _r = fn()
+                _laps.append((tag, (_t.perf_counter() - _s) * 1e3))
+                return _r
+
+            scores = _lap("sigmoid", lambda: gating_output.sigmoid())
+            num_token = scores.shape[0]
+            num_experts = scores.shape[1]
+            scores_for_choice = _lap(
+                "add_bias",
+                lambda: scores.view(num_token, -1) + correction_bias.unsqueeze(0),
+            )
+            group_scores = _lap(
+                "group_topk2_sum",
+                lambda: scores_for_choice.view(num_token, num_expert_group, -1)
+                .topk(2, dim=-1)[0]
+                .sum(dim=-1),
+            )
+            group_idx = _lap(
+                "group_topk",
+                lambda: torch.topk(group_scores, k=topk_group, dim=-1, sorted=False)[1],
+            )
+            group_mask = _lap("zeros_like", lambda: torch.zeros_like(group_scores))
+            _lap("scatter", lambda: group_mask.scatter_(1, group_idx, 1))
+            score_mask = _lap(
+                "expand_reshape",
+                lambda: group_mask.unsqueeze(-1)
+                .expand(num_token, num_expert_group, scores.shape[-1] // num_expert_group)
+                .reshape(num_token, -1),
+            )
+            tmp_scores = _lap(
+                "masked_fill",
+                lambda: scores_for_choice.masked_fill(~score_mask.bool(), float("-inf")),
+            )
+            topk_ids = _lap(
+                "final_topk",
+                lambda: torch.topk(
+                    tmp_scores, k=topk, dim=-1,
+                    sorted=(True if num_fused_shared_experts > 0 else False),
+                )[1],
+            )
+            topk_weights = _lap("gather", lambda: scores.gather(1, topk_ids))
+            if renormalize:
+                topk_weights_sum = topk_weights.sum(dim=-1, keepdim=True, dtype=torch.float32)
+                topk_weights = _lap(
+                    "renorm_div", lambda: topk_weights / (topk_weights_sum + 1e-20)
+                )
+            topk_weights, topk_ids = _lap(
+                "cast_out",
+                lambda: (topk_weights.to(torch.float32), topk_ids.to(torch.int32)),
+            )
+            _tot = sum(ms for _, ms in _laps)
+            logger.warning(
+                "GLM5 ROUTER_PROBE call#%d gating=%s/%s/contig=%s total=%.1fms | %s",
+                _c, tuple(gating_output.shape), gating_output.dtype,
+                gating_output.is_contiguous(), _tot,
+                " ".join(f"{t}={ms:.1f}" for t, ms in _laps),
+            )
+            return topk_weights, topk_ids
 
         def _bgt_cpu_fallback(
             hidden_states, gating_output, correction_bias, topk, renormalize,
@@ -318,12 +395,30 @@ def install() -> None:
                     )
                 except (RuntimeError, NotImplementedError):
                     pass
+            if _router_probe:
+                # Measure at the NATIVE engine thread count (no cap) to diagnose the real condition.
+                return _timed_bgt_impl(
+                    hidden_states, gating_output, correction_bias, topk, renormalize,
+                    num_expert_group, topk_group,
+                    num_fused_shared_experts=num_fused_shared_experts,
+                    routed_scaling_factor=routed_scaling_factor,
+                    apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
+                )
             # The torch router is a tiny [T, 288] op but inside the engine runs on the 64 affinity-bound
             # threads, where it thrashes (~22s/call in-model vs <1ms isolated/single-thread). Cap threads
             # around it; restore after so the big GEMMs keep all cores.
             _prev_thr = torch.get_num_threads()
             torch.set_num_threads(1)
             try:
+
+                if _router_probe:
+                    return _timed_bgt_impl(
+                        hidden_states, gating_output, correction_bias, topk, renormalize,
+                        num_expert_group, topk_group,
+                        num_fused_shared_experts=num_fused_shared_experts,
+                        routed_scaling_factor=routed_scaling_factor,
+                        apply_routed_scaling_factor_on_output=apply_routed_scaling_factor_on_output,
+                    )
                 return _topk.biased_grouped_topk_impl(
                     hidden_states, gating_output, correction_bias, topk, renormalize,
                     num_expert_group, topk_group,
