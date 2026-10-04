@@ -40,6 +40,7 @@ __all__ = [
     "kda_recurrent",
     "kda_chunked",
     "kda_chunked_batched",
+    "warm_compiled_kda",
     "kda_layer_forward",
     "cpu_kda_extend",
     "cpu_kda_decode",
@@ -341,6 +342,25 @@ def kda_chunked_batched(
     return out, S
 
 
+# torch.compile fuses the batched form's ops into few inductor kernels, cutting the in-engine
+# per-op dispatch overhead (the ~13x inflation from 256-thread barriers on ~100 small ops/layer)
+# WITHOUT a C++ kernel. Faithful (rel 4.6e-7 vs scan). Set by warm_compiled_kda() at install so the
+# ~38s CPU compile is off the critical path (like the router). INTEL_CPU_GLM_KDA_COMPILE=1.
+_COMPILED_KDA = None
+
+
+def warm_compiled_kda() -> None:
+    """Compile kda_chunked_batched + run it once on dummy inputs (pays the ~38s inductor compile)."""
+    global _COMPILED_KDA
+    if _COMPILED_KDA is not None:
+        return
+    fn = torch.compile(kda_chunked_batched, dynamic=True)
+    q = torch.randn(32, 8, 128)
+    fn(q, torch.randn(32, 8, 128), torch.randn(32, 8, 128),
+       -0.1 * torch.rand(32, 8, 128), torch.sigmoid(torch.randn(32, 8)))
+    _COMPILED_KDA = fn
+
+
 def kda_layer_forward(
     mixed_qkv: torch.Tensor,
     a: torch.Tensor,
@@ -424,9 +444,11 @@ def kda_layer_forward(
     # no layer diverges) -> DEFAULT-ON. Decode (T==1) stays on the scan (chunking one token has no benefit).
     # INTEL_CPU_GLM_CHUNKED_KDA=0 reverts to the scan oracle (kept for revertibility / A-B).
     if (not is_decode) and T > 1 and _os.environ.get("INTEL_CPU_GLM_CHUNKED_KDA", "1") != "0":
-        # INTEL_CPU_GLM_KDA_BATCHED=1 -> batch-across-chunks WY form (fewer torch dispatches);
-        # default = the per-chunk loop. Both bit-equivalent to the scan oracle.
-        if _os.environ.get("INTEL_CPU_GLM_KDA_BATCHED", "0") == "1":
+        # INTEL_CPU_GLM_KDA_COMPILE=1 -> warm-compiled batched form (fuses dispatches); then BATCHED;
+        # else the per-chunk loop. All bit-equivalent to the scan oracle.
+        if _os.environ.get("INTEL_CPU_GLM_KDA_COMPILE", "0") == "1" and _COMPILED_KDA is not None:
+            out, new_ssm_state = _COMPILED_KDA(q, k, v, g, beta, scale, ssm_state)
+        elif _os.environ.get("INTEL_CPU_GLM_KDA_BATCHED", "0") == "1":
             out, new_ssm_state = kda_chunked_batched(
                 q, k, v, g, beta, scale=scale, initial_state=ssm_state
             )

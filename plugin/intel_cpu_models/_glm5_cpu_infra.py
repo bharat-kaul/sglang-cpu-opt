@@ -462,6 +462,26 @@ def install() -> None:
     except Exception as _e:
         logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
 
+    # Warm the torch.compile KDA fast path off the critical path (gate INTEL_CPU_GLM_KDA_COMPILE).
+    try:
+        import os as _os2
+
+        if _os2.environ.get("INTEL_CPU_GLM_KDA_COMPILE", "0") == "1":
+            import threading as _threading2
+
+            from intel_cpu_models.kda_linear_attention_cpu import warm_compiled_kda
+
+            def _warm_kda():
+                try:
+                    warm_compiled_kda()
+                    logger.warning("GLM5 CPU: KDA torch.compile WARMED (fused fast path ready).")
+                except Exception as _we:
+                    logger.warning("GLM5 CPU: KDA compile warm failed (lazy on first use): %s", _we)
+
+            _threading2.Thread(target=_warm_kda, name="glm-kda-warm", daemon=True).start()
+    except Exception as _e:
+        logger.warning("GLM5 CPU KDA compile warm not installed: %s", _e)
+
     # DECODE NoPE MLA (GLM, qk_rope_head_dim=0 -> rotary_emb None). Neither stock CPU MLA path works
     # out-of-the-box: (a) the FUSED path's kernel SIGFPEs (divides by qk_rope_head_dim=0) AND its
     # PackWeightMethod transpose+VNNI-packs w_kc/w_vc; (b) the GENERIC absorb path is NoPE-native
