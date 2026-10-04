@@ -292,6 +292,7 @@ def install() -> None:
     # any num_experts) when the kernel raises. Perf-phase TODO: a CPU kernel covering 288 experts.
     try:
         import sglang.srt.layers.moe.topk as _topk
+        import os as _os
 
         _orig_bgt = _topk.biased_grouped_topk_cpu
         # PERF (env-gated INTEL_CPU_GLM_FAST_ROUTER): the CPU biased_grouped_topk_cpu KERNEL does
