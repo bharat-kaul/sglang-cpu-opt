@@ -1,5 +1,5 @@
 --- /data/nfs_home/bkaul/sglang/python/sglang/kernels/aot/csrc/cpu/gemm_fp8.cpp	2026-09-07 22:25:34.377581036 -0700
-+++ aot_private/csrc/cpu/gemm_fp8.cpp	2026-10-03 23:14:43.872002531 -0700
++++ aot_private/csrc/cpu/gemm_fp8.cpp	2026-10-03 23:51:02.428872805 -0700
 @@ -1,6 +1,7 @@
  #include "common.h"
  #include "gemm.h"
@@ -30,3 +30,117 @@
        _mm_prefetch(b_ptr + (k + PREFETCH_SIZE_K) * ldb2, _MM_HINT_T0);
      }
      auto [vb0, vb1] = CVT_MXFP4_TO_BF16(b4, vscale0, vscale1);
+@@ -426,6 +429,96 @@
+ 
+ template <bool has_bias, int BLOCK_M, int BLOCK_N>
+ struct tinygemm_kernel_nn<at::BFloat16, uint8_t, uint8_t, has_bias, BLOCK_M, BLOCK_N> {
++  // env-gated high-ILP MXFP4 GEMV: U accumulator banks break the dpbf16 loop-carried dependency so its
++  // ~5-cycle latency is hidden at low BLOCK_M. Reassociates the fp32 reduction -> NOT bit-identical
++  // (validate by bounded cosine, not torch.equal). Same path/semantics otherwise.
++  static inline void apply_ilp(
++      const at::BFloat16* __restrict__ A,
++      const uint8_t* __restrict__ B,
++      at::BFloat16* __restrict__ C,
++      const float* __restrict__ bias,
++      const uint8_t* __restrict__ scale,
++      int K,
++      int lda,
++      int ldb,
++      int ldc) {
++    constexpr int ROWS = BLOCK_M;
++    constexpr int COLS = BLOCK_N / 16;
++    constexpr int U = (ROWS == 1) ? 8 : (ROWS == 2) ? 4 : 2;  // accumulator banks (keeps live zmm <= 32)
++    constexpr int PREFETCH_SIZE_K = 64;
++
++    const __m512i off = _mm512_set1_epi16(0x7F);
++    __m512i vscale[COLS];
++    __m512 acc[ROWS * COLS * U];
++    {
++      auto zero = [&](auto i) { acc[i] = _mm512_setzero_ps(); };
++      Unroll<ROWS * COLS * U>{}(zero);
++    }
++
++    const int64_t K2 = K >> 1;
++    const int64_t lda2 = lda >> 1;
++    const int64_t ldb2 = ldb;
++    const float* a_ptr = reinterpret_cast<const float*>(A);
++    const uint8_t* b_ptr = reinterpret_cast<const uint8_t*>(B);
++
++    // one half-K step kk, accumulating into compile-time bank
++    auto step = [&](int kk, auto bank_ic) {
++      constexpr int bank = bank_ic;
++      if ((kk & 15) == 0) {
++        __m256i s8 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(scale + (kk >> 4) * 32));
++        __m512i s16 = _mm512_slli_epi16(_mm512_sub_epi16(_mm512_cvtepu8_epi16(s8), off), 0x7);
++        std::tie(vscale[0], vscale[1]) = transpose_2x32_16bit(s16, s16);
++      }
++      __m512bh vb[COLS];
++      __m256i b4 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(b_ptr + kk * ldb2));
++      if (PREFETCH_SIZE_K > 0) {
++        _mm_prefetch(b_ptr + (kk + PREFETCH_SIZE_K) * ldb2, _MM_HINT_T0);
++      }
++      std::tie(vb[0], vb[1]) = CVT_MXFP4_TO_BF16(b4, vscale[0], vscale[1]);
++      auto fma = [&](auto i) {
++        constexpr int row = i / COLS;
++        constexpr int col = i % COLS;
++        __m512bh va = (__m512bh)(_mm512_set1_ps(a_ptr[row * lda2 + kk]));
++        constexpr int ai = (row * COLS + col) * U + bank;
++        acc[ai] = _mm512_dpbf16_ps(acc[ai], va, vb[col]);
++      };
++      Unroll<ROWS * COLS>{}(fma);
++    };
++
++    int64_t k = 0;
++    for (; k + U <= K2; k += U) {
++      Unroll<U>{}([&](auto u) { step(k + u, u); });
++    }
++    for (; k < K2; ++k) {
++      step(k, std::integral_constant<int, 0>{});
++    }
++
++    // reduce banks (+bias) then store in the baseline layout
++    __m512 vc[ROWS * COLS];
++    auto reduce = [&](auto i) {
++      constexpr int ii = i;
++      __m512 s = acc[ii * U + 0];
++      Unroll<U - 1>{}([&](auto j) { s = _mm512_add_ps(s, acc[ii * U + (int(j) + 1)]); });
++      if constexpr (has_bias) {
++        constexpr int col = ii % COLS;
++        s = _mm512_add_ps(s, _mm512_loadu_ps(bias + col * 16));
++      }
++      vc[ii] = s;
++    };
++    Unroll<ROWS * COLS>{}(reduce);
++
++    auto storec = [&](auto i) {
++      constexpr int row = i / COLS;
++      constexpr int col = i % COLS;
++      if constexpr (col % 2 == 0) {
++        _mm512_storeu_si512(
++            reinterpret_cast<__m512i*>((C + row * ldc + col * 16)),
++            (__m512i)(_mm512_cvtne2ps_pbh(vc[row * COLS + col + 1], vc[row * COLS + col])));
++      }
++    };
++    Unroll<ROWS * COLS>{}(storec);
++  }
++
+   static inline void apply(
+       const at::BFloat16* __restrict__ A,
+       const uint8_t* __restrict__ B,
+@@ -445,6 +538,16 @@
+     constexpr int ROWS = BLOCK_M;
+     constexpr int COLS = BLOCK_N / 16;
+ 
++    // env-gated high-ILP variant (default off): hide the dpbf16 latency with U accumulator banks.
++    static const bool use_ilp = [] {
++      const char* e = std::getenv("INTEL_CPU_DSV4_MOE_GEMV_UNROLL");
++      return e && atoi(e) != 0;
++    }();
++    if (use_ilp) {
++      apply_ilp(A, B, C, bias, scale, K, lda, ldb, ldc);
++      return;
++    }
++
+     // prefetch distance
+     constexpr int PREFETCH_SIZE_K = 64;
+     constexpr int PREFETCH_SIZE_KB = 1;
