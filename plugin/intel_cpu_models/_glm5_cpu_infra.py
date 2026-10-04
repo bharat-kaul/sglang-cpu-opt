@@ -331,8 +331,9 @@ def install() -> None:
         # Patch it UNCONDITIONALLY: the earlier `is _orig_bgt` guard could miss if another install wrapped
         # the alias first, leaving select_experts on the raw kernel (uncaught 288 crash with fast_router).
         _topk.biased_grouped_topk = _bgt_cpu_fallback
-        logger.info(
-            "GLM5 CPU: biased_grouped_topk -> torch impl fallback (fast_router=%s).", _fast_router
+        logger.warning(
+            "GLM5 CPU: biased_grouped_topk fallback installed (fast_router=%s, env=%r).",
+            _fast_router, _os.environ.get("INTEL_CPU_GLM_FAST_ROUTER"),
         )
     except Exception as _e:
         logger.warning("GLM5 CPU biased_grouped_topk fallback not installed: %s", _e)
