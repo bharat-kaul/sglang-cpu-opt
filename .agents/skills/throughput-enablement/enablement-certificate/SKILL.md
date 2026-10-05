@@ -26,14 +26,20 @@ missing evidence, the certificate FAILS — no partial credit.
    profile, plugin commit, reproduce commands.
 8. **Diff** — the plugin-only patch (thin subclass, zero `sglang/` edits),
    lint/format-clean to SGLang conventions, ready to open as a PR.
-9. **Roofline target vs measured (PUBLISHED artifact).** Every published result
-   carries the roofline-achievable TARGET next to the MEASURED number, at the model
-   level AND per hot op, rendered as a table + bar chart via
-   `plugin/validate/roofline_vs_measured.py` (input = the `model-profile-hotspots`
-   JSON). Publish the target UP FRONT (measured usually falls below it); the per-op
-   efficiency-gap chart, ranked by recoverable fraction (shortfall × share), shows
-   exactly which kernels underperform their roofline and are the next optimization
-   RoI. Link the report/chart from the certificate and the repo results page.
+9. **Roofline target vs measured (PUBLISHED artifact PAIR — auto-emit at cycle close).** Every
+   published result carries, as the CLOSING STEP of the perf cycle, TWO linked artifacts: (a) the
+   roofline-achievable TARGET next to the MEASURED number (model level AND per hot op) via
+   `plugin/validate/roofline_vs_measured.py`, AND (b) the time-attribution PIVOT companion
+   (`plugin/validate/time_attribution_pivot.py`, where the wall-clock goes per phase, summing to
+   100% with an explicit unattributed slice) — PLUS the model's bullet in the README "Roofline
+   target vs measured" section. All three (roofline report, pivot report, README bullet) are
+   required; a baseline→optimized "journey"/summary chart is NOT a substitute (it answers a
+   different question and must not be mistaken for "charts done"). Publish the target UP FRONT
+   (measured usually falls below it); the per-op efficiency-gap chart, ranked by recoverable
+   fraction (shortfall × share), shows exactly which kernels underperform their roofline and are
+   the next optimization RoI. For a recurrence/small-op-bound hot op, caption the realistic
+   (fused-kernel) floor so a low FLOP-roofline efficiency is not misread as failure. Link both
+   reports/charts from the certificate and the repo results page.
    **Same machine config, always labeled:** roofline and measured MUST be at the
    identical config (socket count, TP, batch, precision) — never a single-socket
    roofline against a dual-socket measured. State "single socket" vs "full node (2

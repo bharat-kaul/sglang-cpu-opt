@@ -1,0 +1,29 @@
+{
+  "_comment": "GLM-5.3 Flash prefill+decode time-attribution. Source: TIMEIT run 382001 (shipping default: warm-compiled router + batched chunked KDA), real fp8 weights, 8-layer proxy, GNR gnrap 256 threads, 256-tok prefill + 8 decode, batch 1. ONLY the NON-overlapping decoder-layer leaves (attn.kda, attn.mla, moe, dense.mlp, mhc.hc_post) are listed — the raw dump also has nested sub-splits (kda.qkvbfg/conv/recur, moe.topk/expert_apply) and cross-cutting linear timers (dense.bf16/fp8_linear) that OVERLAP these leaves and must not be summed. layer.total - sum(leaves) = framework glue = the 'other/unattributed' slice.",
+  "model": "GLM-5.3 Flash",
+  "node": "GNR (gnrap, 256 threads)",
+  "precision": "fp8 e4m3 block W8A16, bf16 compute",
+  "batch": 1,
+  "phases": {
+    "prefill": {
+      "wall_s": 7.6938,
+      "ops": [
+        {"op": "attn.kda (gated-delta linear attn)", "s": 3.6597, "bucket": "torch"},
+        {"op": "moe (288-expert top-8)", "s": 2.2996, "bucket": "kernel"},
+        {"op": "attn.mla (NoPE MLA + DSA)", "s": 0.8454, "bucket": "kernel"},
+        {"op": "mhc.hc_post", "s": 0.2691, "bucket": "torch"},
+        {"op": "dense.mlp (L0-2 dense)", "s": 0.162, "bucket": "kernel"}
+      ]
+    },
+    "decode": {
+      "wall_s": 4.9701,
+      "ops": [
+        {"op": "attn.kda (gated-delta linear attn)", "s": 2.7483, "bucket": "torch"},
+        {"op": "moe (288-expert top-8)", "s": 0.9289, "bucket": "kernel"},
+        {"op": "attn.mla (NoPE MLA + DSA)", "s": 0.5339, "bucket": "kernel"},
+        {"op": "dense.mlp (L0-2 dense)", "s": 0.4993, "bucket": "kernel"},
+        {"op": "mhc.hc_post", "s": 0.0239, "bucket": "torch"}
+      ]
+    }
+  }
+}

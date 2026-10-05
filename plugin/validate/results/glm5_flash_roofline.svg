@@ -1,0 +1,18 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1120' height='310' font-family='sans-serif'>
+<rect width='1120' height='310' fill='white'/>
+<text x='210' y='26' font-size='18' font-weight='bold'>GLM-5.3 Flash — roofline vs measured (GFLOP/s)</text>
+<text x='210' y='48' font-size='13' fill='#444'>Machine: GNR (gnrap, 256 threads)  ·  fp8 e4m3 block W8A16, bf16 compute  ·  batch 1  ·  prefill (M=256)  ·  34 KDA + 11 MLA · 8-layer proxy  ·  ceilings: uPP-measured</text>
+<rect x='210' y='62' width='14' height='14' fill='#9db4d0'/><text x='230' y='74' font-size='12'>roofline target</text><rect x='350' y='62' width='14' height='14' fill='#2f6f4f'/><text x='370' y='74' font-size='12'>measured</text>
+<text x='202' y='109.0' font-size='12' text-anchor='end'>attn.kda (gated-delta recurrence) (48%)</text>
+<rect x='210' y='92' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='109.0' width='5.6' height='17.0' fill='#2f6f4f'/><text x='926.0' y='113.0' font-size='11'>1% of achievable</text>
+<text x='202' y='155.0' font-size='12' text-anchor='end'>moe (288-expert top-8) (30%)</text>
+<rect x='210' y='138' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='155.0' width='12.0' height='17.0' fill='#2f6f4f'/><text x='926.0' y='159.0' font-size='11'>2% of achievable</text>
+<text x='202' y='201.0' font-size='12' text-anchor='end'>attn.mla (NoPE MLA + DSA) (11%)</text>
+<rect x='210' y='184' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='201.0' width='7.2' height='17.0' fill='#2f6f4f'/><text x='926.0' y='205.0' font-size='11'>1% of achievable</text>
+<text x='202' y='247.0' font-size='12' text-anchor='end'>dense.mlp (L0-2 dense) (2%)</text>
+<rect x='210' y='230' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='247.0' width='68.1' height='17.0' fill='#2f6f4f'/><text x='926.0' y='251.0' font-size='11'>10% of achievable</text>
+</svg>

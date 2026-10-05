@@ -282,6 +282,19 @@ headroom (an RoI even when no new kernel was written).
   *distribution* story, not a kernel story. The [analytical roofline](plugin/validate/results/deepseek_v4_pro_roofline.md)
   is an earlier GNR-TP4 estimate kept for reference only; the multi-socket roofline is TBD and no
   single-node Pro run is claimed.
+- **GLM-5.3 Flash — recurrence-bound, so the FLOP ceiling is NOT the reachable target** (hybrid KDA +
+  MLA, fp8 W8A16, GNR): [roofline vs measured report](plugin/validate/results/glm5_flash_roofline.md)
+  · ![chart](plugin/validate/results/glm5_flash_roofline.png) — unlike DSv4's 75%-of-BW-roofline, GLM's
+  hot block `attn.kda` (**48% of prefill**) is a **gated-delta recurrence** (per-chunk/per-head small
+  matmuls, dispatch-bound), so the dense-GEMM ceiling (0.09 s) is **physically unreachable** — even a
+  native AMX kernel only ties torch compute. The honest target is the **~4 s fused-kernel floor**; the
+  cycle delivered **55.5 → 7.7 s (7.2×), faithful** (prefill+decode parity, logits cos 0.9999) via a
+  bit-exact warm-compiled router (27 → 0.1 s) + chunked-WY KDA (24.6 → 3.7 s). Per-op efficiency reads as
+  *where FLOP-throughput is lost* (small-M KDA/MoE/MLA) vs the one near-efficient block (big-M dense MLP).
+  · **Time-attribution pivot** (companion — *where the wall-clock goes*, per phase, summing to 100%):
+  [report](plugin/validate/results/glm5_flash_pivot.md) · ![pivot](plugin/validate/results/glm5_flash_pivot.png)
+  — `attn.kda` dominates both phases (**48% prefill / 55% decode**), `moe` is the #2 (30% / 19%), with an
+  explicit **6% / 5% unattributed** slice keeping the split honest (batch 1, tp=1).
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 
