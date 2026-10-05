@@ -30,6 +30,8 @@ NUMACTL=${NUMACTL:-"numactl --interleave=all"}
 AJ=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
 AI=${SLURM_ARRAY_TASK_ID:-0}
 NS=${SLURM_ARRAY_TASK_COUNT:-1}
+# Stagger shard starts (STAGGER secs x shard-index) to avoid NFS thundering-herd on the 306 GB model.
+if [[ -n "${STAGGER:-}" && "${AI}" -gt 0 ]]; then echo "STAGGER shard ${AI}: sleep $(( AI * STAGGER ))s"; sleep $(( AI * STAGGER )); fi
 cd /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate
 $NUMACTL python task_gsm8k_chunked.py \
     --model /scratch/bkaul/models/GLM-5.3-Flash \
