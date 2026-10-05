@@ -286,7 +286,7 @@ headroom (an RoI even when no new kernel was written).
   [report](plugin/validate/results/glm5_flash_pivot.md) · ![pivot](plugin/validate/results/glm5_flash_pivot.png)
   — `attn.kda` dominates both phases (**48% prefill / 55% decode**), `moe` is the #2 (30% / 19%), with an
   explicit **6% / 5% unattributed** slice keeping the split honest (batch 1, tp=1).
-  - **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
+- **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
   architecture as Flash (DSA + MHC + MLA + native-MXFP4 MoE), so Flash's authored CPU kernels are its
   **donors** — enabling Pro is Thesis-1-style *wiring + validation*, not new kernels. It is **too large
   for one GNR node at tp=1**: ~800 GB native MXFP4 exceeds a single 256 GB NUMA domain (and the 768 GB
