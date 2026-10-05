@@ -372,6 +372,17 @@ APPLES-TO-APPLES. Reference hierarchy + the two checks it enables:
   our 256-token / `"\n\n"`-stop harness vs the card's **90.8% gsm8k 8-shot**, because the short cap + `\n\n`
   stop TRUNCATED the chain-of-thought before the final answer (gsm8k 8-shot is conventionally CoT → needs
   ~512 tok, stop only on `"Question"`). Replicate the published protocol before concluding anything.
+  - **PARITY config ≠ CAPABILITY reproduction — and a frontier model's card may not report the task at
+    all.** Separate TWO goals: (1) a correctness/parity gate (greedy, short cap, no thinking budget — fast,
+    deterministic, the point is "optimized == baseline == reference in the SAME config"), vs (2) a
+    leaderboard reproduction (the card's protocol). Do NOT present a parity-config score as a card match.
+    For REASONING models the card number often REQUIRES a thinking budget (e.g. GLM-5.3-Flash:
+    `reasoning_effort=max` + very long generations) — a short-cap greedy run will land well BELOW the
+    headline by design and is NOT a bug. And many frontier models DON'T report saturated tasks like gsm8k
+    at all (they report agentic/reasoning suites), so there may be NO published number to match: then the
+    task run is a PARITY gate only (0 invalid + cross-shard consistency + faithful-to-baseline), and you
+    state that explicitly rather than implying a leaderboard result. Worked example (GLM-5.3-Flash CPU):
+    91.46% gsm8k 8-shot in the parity config = correct-build sign-off, explicitly NOT a card-comparable number.
 - **Base models need CLEAN CoT exemplars, not raw dataset answers (applies to ANY model on the task).**
   Feeding the raw gsm8k `answer` field (with `<<calc>>` annotations + a bare `#### N`) made this base model
   DEGENERATE after answering — unrelated math, repeated `</s>`, "Confidence: 100" — which both deflates the
@@ -480,6 +491,16 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
   (measured: 1319-Q single-node gen ran 3h+ and still walled; the same split 8 ways finishes in minutes),
   so node-parallelism is the real lever. Worked example: `run_gsm8k_dsv4_sharded.sbatch` +
   `combine_gsm8k_shards.py`.
+- **CHECKPOINT-RESUME across relaunch — a wall-kill must COST NOTHING, not restart from zero.** Chunked
+  checkpointing (above) only helps if a relaunch RESUMES from it; otherwise a walled shard reloads the
+  (100s-of-GB) model and re-generates every question. Make the runner, on start, read its own partial and
+  pick up where it stopped: RE-SCORE the saved gens to restore correct/invalid/done self-consistently
+  (temp=0 is deterministic → skipped chunks reproduce exactly; trusting the gens avoids an out/gens
+  between-write double-count), SKIP completed chunks, and SKIP THE ENGINE LOAD ENTIRELY if the shard is
+  already complete. The one non-obvious requirement: checkpoint filenames must key off a STABLE run tag,
+  NOT the slurm job-id — a relaunch gets a NEW job-id and would miss the prior files; pass `RUN_TAG=<prior
+  id>` so the resume relaunch finds them (completed shards then exit in seconds). Worked example:
+  `task_gsm8k_chunked.py --resume` + `run_glm5_gsm8k.sbatch RUN_TAG=…`.
 - **RE-SHARD THE STRAGGLER TAIL across idle nodes — don't let a few slow shards grind the last chunk.**
   Contiguous equal-size shards finish UNEVENLY (answer-length variance): most hit the wall done, a few
   slow subsets sit at ~half with ~50 Q each still to grind (~1–2.5 h) while the finished nodes' engines
