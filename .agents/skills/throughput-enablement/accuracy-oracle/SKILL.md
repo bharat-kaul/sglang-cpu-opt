@@ -383,6 +383,20 @@ APPLES-TO-APPLES. Reference hierarchy + the two checks it enables:
     task run is a PARITY gate only (0 invalid + cross-shard consistency + faithful-to-baseline), and you
     state that explicitly rather than implying a leaderboard result. Worked example (GLM-5.3-Flash CPU):
     91.46% gsm8k 8-shot in the parity config = correct-build sign-off, explicitly NOT a card-comparable number.
+  - **When card reproduction is INFEASIBLE, cross-check CPU vs the GPU reference on a SHORT benchmark — and
+    surface it as the user's choice.** For a frontier model whose card suite is agentic/multimodal + huge
+    generations (so a full CPU reproduction would take days / isn't even in scope for the text path), the
+    robust correctness proof is NOT the card number — it is **CPU ≡ GPU on the SAME short benchmark (gsm8k),
+    SAME harness/protocol**. Run the identical harness on the GPU reference (native sglang CUDA, `--device
+    cuda --tp N`, no plugin env) and compare: (a) aggregate accuracy within a small tolerance, (b) PER-QUESTION
+    answer agreement, (c) that disagreements are SYMMETRIC (≈equal CPU-only vs GPU-only correct → no systematic
+    CPU deficit), (d) 0 invalid both. This is NOT bit-identical (CPU W8A16 vs GPU W8A8 fp8-activations → long-CoT
+    answers flip on borderline items), so expect ~<1 pp aggregate + ~93–95% answer agreement, NOT 100% — the
+    bit-level proof remains the per-layer logits-cos parity; the task cross-check is the end-to-end confirmation.
+    Because this is a methodology CHOICE (reproduce the expensive card number vs cheap CPU-vs-GPU equivalence),
+    the autonomous playbook SURFACES IT AS A USER DECISION (see `cpu-optimization-playbook`). Worked example:
+    GLM-5.3-Flash CPU 91.46% vs GPU(H200 tp=8) 92.07% = 0.61 pp / 93.7% agreement / symmetric → EQUIVALENT.
+    Tooling: `run_glm5_gsm8k_gpu.sbatch` (GPU oracle) + `results/glm5_flash_gsm8k_cpu_vs_gpu.json`.
 - **Base models need CLEAN CoT exemplars, not raw dataset answers (applies to ANY model on the task).**
   Feeding the raw gsm8k `answer` field (with `<<calc>>` annotations + a bare `#### N`) made this base model
   DEGENERATE after answering — unrelated math, repeated `</s>`, "Confidence: 100" — which both deflates the

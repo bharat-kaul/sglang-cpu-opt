@@ -1,0 +1,15 @@
+{
+  "model": "/scratch/bkaul/models/GLM-5.3-Flash",
+  "num_shots": 8,
+  "shard_index": 0,
+  "num_shards": 1,
+  "done": 1311,
+  "total": 1311,
+  "partial": false,
+  "accuracy": 0.9207,
+  "correct": 1207,
+  "invalid": 0,
+  "elapsed_s": 704.2,
+  "acc_min": 0.0,
+  "verdict": "PASS"
+}
