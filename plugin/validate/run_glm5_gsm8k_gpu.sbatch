@@ -20,7 +20,7 @@ nvidia-smi -L
 DEVARGS=""; N=0
 for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVARGS --device nvidia.com/gpu=$u"; N=$((N+1)); done
 echo "=== GLM GPU gsm8k oracle: tp=$N real weights, SAME protocol as CPU ==="
-LROOT=/scratch/bkaul/podman-glm-store; LRUN=/tmp/podman-glm-rr-gsm8k; mkdir -p "$LROOT" "$LRUN"
+LROOT=/scratch/bkaul/podman-glm-store; LRUN=/tmp/podman-glm-rr; mkdir -p "$LROOT" "$LRUN"
 PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs --storage-driver overlay --storage-opt overlay.mount_program=/usr/bin/fuse-overlayfs --storage-opt overlay.ignore_chown_errors=true"
 trap 'rm -rf "$LRUN"/* 2>/dev/null' EXIT
 $PODMAN image exists "$IMG" || $PODMAN pull "$IMG"
