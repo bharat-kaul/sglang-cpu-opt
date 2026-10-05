@@ -59,6 +59,9 @@ def main():
                    help="also save per-question {q,gold,text} here for free offline re-scoring")
     p.add_argument("--watchdog-timeout", type=float, default=7200.0)
     p.add_argument("--chunked-prefill-size", type=int, default=512)
+    p.add_argument("--no-resume", dest="resume", action="store_false",
+                   help="disable checkpoint resume (re-run from chunk 0 even if a partial exists)")
+    p.set_defaults(resume=True)
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
@@ -74,6 +77,49 @@ def main():
     prompts = [shots + one_example(x, False) for x in eval_lines]
     labels = [answer_value(x["answer"]) for x in eval_lines]
     total = len(labels)
+
+    # --- checkpoint resume: if a prior run of THIS shard left a partial, pick up where it
+    # stopped so a wall-kill/crash loses no work. Re-score the saved gens to restore counts
+    # self-consistently (temp=0 is deterministic, so skipped chunks reproduce exactly, and
+    # trusting the gens file avoids any out/gens between-write double-count). ---
+    resume_done = resume_correct = resume_invalid = 0
+    resume_elapsed = 0.0
+    gens = []
+    if args.resume and args.gens_out and os.path.exists(args.gens_out):
+        try:
+            with open(args.gens_out) as f:
+                gens = json.load(f)
+        except Exception as e:
+            print(f"[resume] ignoring unreadable gens {args.gens_out}: {e}", flush=True)
+            gens = []
+        for g in gens:
+            pr = extract_final_answer(g["text"])
+            resume_correct += int(pr == g["gold"])
+            resume_invalid += int(pr == INVALID)
+        resume_done = len(gens)
+    elif args.resume and args.out and os.path.exists(args.out):
+        try:
+            with open(args.out) as f:
+                ck = json.load(f)
+            resume_done = int(ck.get("done", 0))
+            resume_correct = int(ck.get("correct", 0))
+            resume_invalid = int(ck.get("invalid", 0))
+        except Exception as e:
+            print(f"[resume] ignoring unreadable checkpoint {args.out}: {e}", flush=True)
+    if args.out and os.path.exists(args.out):
+        try:
+            with open(args.out) as f:
+                resume_elapsed = float(json.load(f).get("elapsed_s", 0.0))
+        except Exception:
+            resume_elapsed = 0.0
+    if resume_done:
+        print(f"[resume] shard {args.shard_index}: resuming from checkpoint done={resume_done}/{total} "
+              f"correct={resume_correct} invalid={resume_invalid} prior_elapsed={resume_elapsed:.0f}s",
+              flush=True)
+    if total > 0 and resume_done >= total:
+        print(f"[resume] shard {args.shard_index} already COMPLETE ({resume_done}/{total}) "
+              f"— skipping engine load.", flush=True)
+        return
 
     import sglang as sgl
 
@@ -103,10 +149,11 @@ def main():
     sp = {"temperature": 0.0, "max_new_tokens": args.max_new_tokens,
           "stop": ["Question", "Assistant:"]}
 
-    correct = invalid = done = 0
-    gens = []
+    correct, invalid, done = resume_correct, resume_invalid, resume_done
     t0 = time.perf_counter()
     for start in range(0, total, args.chunk_size):
+        if start < resume_done:
+            continue  # already checkpointed on a prior run — skip
         chunk_p = prompts[start:start + args.chunk_size]
         chunk_l = labels[start:start + args.chunk_size]
         outs = engine.generate(chunk_p, sp)
@@ -115,7 +162,7 @@ def main():
         correct += sum(int(pr == l) for pr, l in zip(preds, chunk_l))
         invalid += sum(int(pr == INVALID) for pr in preds)
         done += len(chunk_l)
-        dt = time.perf_counter() - t0
+        dt = resume_elapsed + (time.perf_counter() - t0)
         acc = correct / done
         result = {
             "model": args.model, "num_shots": args.num_shots,

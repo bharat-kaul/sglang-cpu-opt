@@ -30,6 +30,9 @@ NUMACTL=${NUMACTL:-"numactl --interleave=all"}
 AJ=${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}
 AI=${SLURM_ARRAY_TASK_ID:-0}
 NS=${SLURM_ARRAY_TASK_COUNT:-1}
+# STABLE checkpoint tag: defaults to the array job id, but set RUN_TAG=<prior AJ> on a relaunch so the
+# per-shard out/gens files MATCH the prior run -> the harness resumes from checkpoint (no work lost).
+TAG=${RUN_TAG:-$AJ}
 # Stagger shard starts (STAGGER secs x shard-index) to avoid NFS thundering-herd on the 306 GB model.
 if [[ -n "${STAGGER:-}" && "${AI}" -gt 0 ]]; then echo "STAGGER shard ${AI}: sleep $(( AI * STAGGER ))s"; sleep $(( AI * STAGGER )); fi
 cd /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate
@@ -41,6 +44,6 @@ $NUMACTL python task_gsm8k_chunked.py \
     --num-shots ${SHOTS:-8} --max-new-tokens ${MAXNEW:-256} \
     --mem-fraction ${MEM_FRAC:-0.6} --chunked-prefill-size ${CPS:-512} \
     --watchdog-timeout 7000 \
-    --out /scratch/bkaul/glm5_gsm8k_sh_${AJ}_${AI}.json \
-    --gens-out /scratch/bkaul/glm5_gsm8k_gens_${AJ}_${AI}.json
+    --out /scratch/bkaul/glm5_gsm8k_sh_${TAG}_${AI}.json \
+    --gens-out /scratch/bkaul/glm5_gsm8k_gens_${TAG}_${AI}.json
 echo "[exit=$?]"
