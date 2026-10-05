@@ -253,12 +253,19 @@ Delivered as the same external plugin (`intel_cpu_models`) — no fork.
   kernel is only parity with torch compute), so the realistic floor is ~4 s via a fused CPU KDA kernel
   (scoped follow-up; the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**).
   Ledger: [glm5_perf_ledger.csv](plugin/validate/results/glm5_perf_ledger.csv).
+- **Task accuracy — gsm8k 8-shot, full test set, PASSED.** The optimized faithful CPU build scores
+  **91.46%** (1199/1311, **0 invalid**) on the complete gsm8k test set, real fp8 weights
+  ([glm5_flash_gsm8k.json](plugin/validate/results/glm5_flash_gsm8k.json)) — the downstream sign-off that
+  the 7.2× perf wins are accuracy-neutral (as the prefill+decode parity already implied by construction).
+  Run node-parallel + chunk-checkpointed + **straggler-tail re-sharded** across EMR (16 shards, then the
+  slow tail re-split 12-way to finish wide instead of grinding), with the auto sneak-preview fail-fast
+  watcher armed at submit (`scripts/sneak_preview.sh`, `reshard_tail.py`).
 
-**Remaining (scoped):** **gsm8k task-accuracy** on the full real-weight model (the final downstream
-sign-off; parity already makes it faithful by construction) and the **fused CPU KDA AMX kernel** (the
-~2× further prefill headroom; build path de-risked). *The point of this section is the **velocity**: a
-structurally different architecture carried to proven **prefill+decode real-weight parity** and a **7.2×
-faithful perf win** by the same playbook, with only the genuinely novel op (KDA) hand-authored.*
+**Remaining (scoped):** the **fused CPU KDA AMX kernel** (the ~2× further prefill headroom; build path
+de-risked — the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**). *The point
+of this section is the **velocity**: a structurally different architecture carried to proven
+**prefill+decode real-weight parity**, **91.46% gsm8k**, and a **7.2× faithful perf win** by the same
+playbook, with only the genuinely novel op (KDA) hand-authored.*
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
@@ -273,6 +280,15 @@ headroom (an RoI even when no new kernel was written).
 - **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (routed-expert MoE kernel = 68% of decode, MXFP4 W4A16, EMR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
   · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.png) — **measured**: prefill and *batched* decode hit **75% of the DRAM-BW roofline**; unbatched M=1 decode only **26%** → batching is the decode lever. Model-level (tp=1+cap, full 43 layers, batch 32): prefill 69.6 / decode 9.3 tok/s.
   · **Time-attribution pivot** (companion — *where the wall-clock goes*, per phase, summing to 100%): [report](plugin/validate/results/deepseek_v4_flash_pivot.md) · ![pivot](plugin/validate/results/deepseek_v4_flash_pivot.png) — the **MoE expert kernel dominates** (47% prefill / 30% decode), the **authored novel ops (DSA + MHC) are a bounded ~25–30% torch slice** (the optimization frontier), and an explicit **11%/15% unattributed** slice keeps the split honest (batch=1, tp=1).
+- **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
+  architecture as Flash (DSA + MHC + MLA + native-MXFP4 MoE), so Flash's authored CPU kernels are its
+  **donors** — enabling Pro is Thesis-1-style *wiring + validation*, not new kernels. It is **too large
+  for one GNR node at tp=1**: ~800 GB native MXFP4 exceeds a single 256 GB NUMA domain (and the 768 GB
+  socket), so it can only run **TP≥2** — the decode-hostile config we measured at 2.8× slower. Its
+  realistic home is a **multi-socket EMR cluster** (Kimi-K3-style TP/EP/PP across ~16 sockets) — a
+  *distribution* story, not a kernel story. The [analytical roofline](plugin/validate/results/deepseek_v4_pro_roofline.md)
+  is an earlier GNR-TP4 estimate kept for reference only; the multi-socket roofline is TBD and no
+  single-node Pro run is claimed.
 - **GLM-5.3 Flash — recurrence-bound, so the FLOP ceiling is NOT the reachable target** (hybrid KDA +
   MLA, fp8 W8A16, GNR): [roofline vs measured report](plugin/validate/results/glm5_flash_roofline.md)
   · ![chart](plugin/validate/results/glm5_flash_roofline.png) — unlike DSv4's 75%-of-BW-roofline, GLM's
@@ -286,15 +302,6 @@ headroom (an RoI even when no new kernel was written).
   [report](plugin/validate/results/glm5_flash_pivot.md) · ![pivot](plugin/validate/results/glm5_flash_pivot.png)
   — `attn.kda` dominates both phases (**48% prefill / 55% decode**), `moe` is the #2 (30% / 19%), with an
   explicit **6% / 5% unattributed** slice keeping the split honest (batch 1, tp=1).
-- **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
-  architecture as Flash (DSA + MHC + MLA + native-MXFP4 MoE), so Flash's authored CPU kernels are its
-  **donors** — enabling Pro is Thesis-1-style *wiring + validation*, not new kernels. It is **too large
-  for one GNR node at tp=1**: ~800 GB native MXFP4 exceeds a single 256 GB NUMA domain (and the 768 GB
-  socket), so it can only run **TP≥2** — the decode-hostile config we measured at 2.8× slower. Its
-  realistic home is a **multi-socket EMR cluster** (Kimi-K3-style TP/EP/PP across ~16 sockets) — a
-  *distribution* story, not a kernel story. The [analytical roofline](plugin/validate/results/deepseek_v4_pro_roofline.md)
-  is an earlier GNR-TP4 estimate kept for reference only; the multi-socket roofline is TBD and no
-  single-node Pro run is claimed.
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 
