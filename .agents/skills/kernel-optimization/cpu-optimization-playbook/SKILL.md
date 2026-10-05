@@ -71,6 +71,19 @@ condition is met and gating every step against the measured roofline.
 > per-layer on the full OPTIMIZED model. TASK accuracy (real weights, full generation) is LAST. See
 > `accuracy-oracle` CORRECTNESS ORDERING + the `perf-proxy` ladder.
 
+> **TASK-ACCURACY SIGN-OFF — SURFACE THE METHOD AS A USER DECISION (don't silently pick).** The final
+> task-accuracy step has two legitimate routes; PRESENT BOTH to the user and let them choose (cost vs
+> external-validation tradeoff): **(A) Reproduce the published card number** — exact card protocol
+> (shots, `reasoning_effort`/thinking budget, long generations, sampling). Gold-standard external
+> validation, but for a frontier agentic/multimodal model this can be days of CPU compute or out of
+> scope for the text path (and the card may not even report a cheap task like gsm8k). **(B) CPU-vs-GPU
+> equivalence on a SHORT benchmark** — run the IDENTICAL harness (gsm8k) on the CPU build and the GPU
+> reference and show they match (aggregate within <1 pt, high per-question agreement, SYMMETRIC
+> disagreements, 0 invalid). Cheap, feasible, and a direct correctness proof of the CPU build vs the
+> same-model reference — though it certifies *equivalence to the reference*, not an absolute leaderboard
+> number. Recommend (B) when (A) is infeasible, but STATE the tradeoff and let the user decide. See
+> `accuracy-oracle` (the CPU-vs-GPU cross-check + the PARITY-vs-CAPABILITY distinction).
+
 > Two legs, one plugin. This playbook is the **new-kernel** leg (write/optimize a
 > kernel). `model-enablement-playbook` is the **throughput** leg (wire a new model
 > from EXISTING kernels). The enablement `coverage-gate` hands a genuine gap to

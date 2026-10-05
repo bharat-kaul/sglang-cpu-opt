@@ -253,12 +253,19 @@ Delivered as the same external plugin (`intel_cpu_models`) — no fork.
   kernel is only parity with torch compute), so the realistic floor is ~4 s via a fused CPU KDA kernel
   (scoped follow-up; the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**).
   Ledger: [glm5_perf_ledger.csv](plugin/validate/results/glm5_perf_ledger.csv).
-- **Task accuracy — gsm8k 8-shot, full test set, PASSED.** The optimized faithful CPU build scores
-  **91.46%** (1199/1311, **0 invalid**) on the complete gsm8k test set, real fp8 weights
-  ([glm5_flash_gsm8k.json](plugin/validate/results/glm5_flash_gsm8k.json)) — the downstream sign-off that
-  the 7.2× perf wins are accuracy-neutral (as the prefill+decode parity already implied by construction).
-  Run node-parallel + chunk-checkpointed + **straggler-tail re-sharded** across EMR (16 shards, then the
-  slow tail re-split 12-way to finish wide instead of grinding), with the auto sneak-preview fail-fast
+- **Task accuracy — gsm8k 8-shot, full test set, PASSED + CPU↔GPU cross-checked.** The optimized faithful
+  CPU build scores **91.46%** (1199/1311, **0 invalid**) on the complete gsm8k test set, real fp8 weights
+  ([glm5_flash_gsm8k.json](plugin/validate/results/glm5_flash_gsm8k.json)). Because GLM-5.3-Flash's card
+  reports only *agentic/multimodal* suites (no gsm8k) at `reasoning_effort=max` with 64–163K-token
+  generations — infeasible to reproduce on a CPU inference build — correctness is established the robust
+  way instead: run the **identical** harness on the **GPU reference** (native sglang CUDA, tp=8, H200) and
+  show **CPU ≡ GPU**. GPU scores **92.07%** (1207/1311, 0 invalid); the two agree to **0.61 pp aggregate**
+  and **93.7% per-question answer agreement**, with **symmetric** disagreements (30 CPU-only vs 38 GPU-only
+  correct — no CPU deficit) — exactly the signature of the documented **W8A16-vs-W8A8** fp8-activation
+  difference, not a bug. Together with the per-layer parity (logits cos 0.9999, identical decode tokens),
+  this is the end-to-end correctness sign-off that the 7.2× perf wins are accuracy-neutral
+  ([cpu-vs-gpu](plugin/validate/results/glm5_flash_gsm8k_cpu_vs_gpu.json)). Run node-parallel +
+  chunk-checkpointed + **straggler-tail re-sharded** across EMR, with the auto sneak-preview fail-fast
   watcher armed at submit (`scripts/sneak_preview.sh`, `reshard_tail.py`).
 
 **Remaining (scoped):** the **fused CPU KDA AMX kernel** (the ~2× further prefill headroom; build path

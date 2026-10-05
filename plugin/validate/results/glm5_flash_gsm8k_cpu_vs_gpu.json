@@ -1,0 +1,28 @@
+{
+  "benchmark": "gsm8k 8-shot (full test set)",
+  "protocol": "greedy, 256 max-new, chunk32, same harness both sides",
+  "questions": 1311,
+  "cpu": {
+    "build": "CPU native fp8 W8A16 (optimized-faithful plugin)",
+    "accuracy": 0.9146,
+    "correct": 1199,
+    "invalid": 0,
+    "node": "EMR, reshard 382474+382474r"
+  },
+  "gpu": {
+    "build": "GPU native sglang fp8 W8A8 (reference)",
+    "accuracy": 0.9207,
+    "correct": 1207,
+    "invalid": 0,
+    "node": "H200 tp=8, job 382638"
+  },
+  "equivalence": {
+    "abs_acc_delta_pp": 0.61,
+    "per_question_answer_agreement": 0.9367,
+    "both_correct": 1169,
+    "cpu_only_correct": 30,
+    "gpu_only_correct": 38,
+    "neither": 74,
+    "verdict": "EQUIVALENT within W8A16-vs-W8A8 fp8-activation noise: <1pp aggregate, symmetric disagreements (no CPU bias), 0 invalid both. Bit-level proof = per-layer logits cos 0.9999 + identical decode tokens (separate parity capture)."
+  }
+}
