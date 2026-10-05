@@ -480,12 +480,19 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
   (measured: 1319-Q single-node gen ran 3h+ and still walled; the same split 8 ways finishes in minutes),
   so node-parallelism is the real lever. Worked example: `run_gsm8k_dsv4_sharded.sbatch` +
   `combine_gsm8k_shards.py`.
-- **SNEAK-PREVIEW + EARLY-ABORT the full run (fail-fast).** Because each shard is chunk-checkpointed, `combine`
-  on the partial jsons gives a running accuracy within ~1 chunk (~150–300 Q of a 3 h run). Read it against an
-  EXPECTED floor (prior known-good number / the published target) and `scancel` + fix if it's clearly below —
-  don't burn the full wall on a regressed harness. Likewise gate the full run on a CHEAP pre-check (small
-  diag), but make that pre-check itself chunk-checkpointed so it gives a per-question sneak preview, not an
-  all-or-nothing signal at completion. (See `high-information-runs` FAIL-FAST.)
+- **SNEAK-PREVIEW + EARLY-ABORT the full run (fail-fast) — ARM IT AUTOMATICALLY AT SUBMIT, don't run it
+  reactively.** Because each shard is chunk-checkpointed, `combine` on the partial jsons gives a running
+  accuracy within ~1 chunk (~150–300 Q of a 3 h run). The codified way to get this is an ARMED watcher, the
+  accuracy analogue of `await_job.sh`: right after launching the array, fire
+  `bash scripts/sneak_preview.sh <array_jobid> <shard_glob> [floor] [min_q] [interval] [--abort]` in the async
+  terminal — it periodically combines the partials, prints the running accuracy, and ALERTS (or `--abort`
+  scancels) when accuracy drops below an EXPECTED floor (prior known-good / published target) or the invalid
+  rate spikes, so a regressed harness is caught on its own instead of burning the wall. **Do NOT treat "the
+  skill says to sneak-preview" as done without the watcher actually armed** — a codified-but-un-armed check
+  silently does not happen (this repo's miss: the array ran un-watched until a human asked for status; the fix
+  is to arm `sneak_preview.sh` at the same moment as `await_job.sh`). Likewise gate the full run on a CHEAP
+  pre-check (small diag), but make that pre-check itself chunk-checkpointed so it gives a per-question sneak
+  preview, not an all-or-nothing signal at completion. (See `high-information-runs` FAIL-FAST.)
 - **MEASURE load contention before "fixing" it — don't pre-optimize the fan-out.** The obvious worry is
   M nodes each reading the big model (149 GB) over NFS at once = thundering herd. MEASURE it first: here
   8× concurrent load was **~2.5 min/node — FASTER than the 7 min cold single-node load**, because the NFS

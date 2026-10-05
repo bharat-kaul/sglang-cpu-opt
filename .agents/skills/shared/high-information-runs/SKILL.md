@@ -31,7 +31,15 @@ human attention. Kill it by making completion AUTO-WAKE the agent:
    an expensive run should ITSELF be incrementally-checkpointed (a per-question/per-unit **sneak preview**),
    not one blocking call whose only signal is completion — else the gate is as slow to disprove as the thing
    it gates. (This repo: a chunked gsm8k shard surfaces ~150–300 Q within ~40 min of a 3 h run — enough to
-   abort a regressed harness before burning the wall; a one-shot 16-Q pre-check gave no signal until it finished.)7. **Make the run OBSERVABLE, and NEVER probe a saturated server to "preview" it.** Two traps that waste wall:
+   abort a regressed harness before burning the wall; a one-shot 16-Q pre-check gave no signal until it finished.)
+   **ARM IT AUTOMATICALLY AT SUBMIT — do NOT rely on running the combine reactively ("when asked").** The
+   sneak-preview is the accuracy analogue of the completion watcher in #5: right after launching the array,
+   fire `scripts/sneak_preview.sh <array_jobid> <shard_glob> [floor] [min_q] [interval]` in the ASYNC terminal.
+   It periodically combines the partial shard jsons, prints a running accuracy, and ALERTS (or `--abort`
+   scancels) when accuracy falls below the floor or the invalid rate spikes — so the fail-fast triggers
+   on its own within ~1 chunk. A codified-but-not-armed check is a check that silently does not happen; the
+   anti-pattern (this repo) was treating "the skill says to sneak-preview" as done while the run burned
+   un-watched until a human asked for a status. Arm the watcher at the same moment you arm `await_job.sh`.7. **Make the run OBSERVABLE, and NEVER probe a saturated server to "preview" it.** Two traps that waste wall:
    (a) piping a progress-bar tool through `tail`/buffering (e.g. `lm_eval … | tail -50`) hides tqdm + results
    until EOF → you can't tell slow from hung; stream unbuffered (`stdbuf -oL -eL …`, no pipe) and emit an
    incremental artifact (`--log_samples`, per-chunk json) so progress is readable from the LOG. (b) Poking a
