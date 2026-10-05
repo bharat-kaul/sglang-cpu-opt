@@ -1,0 +1,45 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1180' height='422' font-family='sans-serif'>
+<rect width='1180' height='422' fill='white'/>
+<text x='90' y='30' font-size='18' font-weight='bold'>GLM-5.3 Flash — time attribution (share of wall-time, per phase)</text>
+<text x='90' y='52' font-size='13' fill='#444'>GNR (gnrap, 256 threads) · fp8 e4m3 block W8A16, bf16 compute · batch 1 · each bar = 100%</text>
+<rect x='90' y='62' width='13' height='13' fill='#2f6f4f'/><text x='107' y='73' font-size='11'>kernel</text>
+<rect x='185' y='62' width='13' height='13' fill='#9db4d0'/><text x='202' y='73' font-size='11'>torch</text>
+<rect x='280' y='62' width='13' height='13' fill='#d08c3c'/><text x='297' y='73' font-size='11'>framework</text>
+<rect x='375' y='62' width='13' height='13' fill='#b9b9b9'/><text x='392' y='73' font-size='11'>other</text>
+<text x='90' y='86' font-size='14' font-weight='bold'>prefill</text>
+<rect x='90.0' y='92' width='409.1' height='40' fill='#9db4d0' stroke='white'/>
+<text x='294.5' y='116.0' font-size='11' fill='white' text-anchor='middle'>48%</text>
+<rect x='964' y='94' width='10' height='10' fill='#9db4d0'/><text x='978' y='103' font-size='10'>attn.kda (gated-delta linear attn) (48%)</text>
+<rect x='499.1' y='92' width='257.0' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='627.6' y='116.0' font-size='11' fill='white' text-anchor='middle'>30%</text>
+<rect x='964' y='107' width='10' height='10' fill='#2f6f4f'/><text x='978' y='116' font-size='10'>moe (288-expert top-8) (30%)</text>
+<rect x='756.1' y='92' width='94.5' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='803.4' y='116.0' font-size='11' fill='white' text-anchor='middle'>11%</text>
+<rect x='964' y='120' width='10' height='10' fill='#2f6f4f'/><text x='978' y='129' font-size='10'>attn.mla (NoPE MLA + DSA) (11%)</text>
+<rect x='850.6' y='92' width='30.1' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='964' y='133' width='10' height='10' fill='#9db4d0'/><text x='978' y='142' font-size='10'>mhc.hc_post (3%)</text>
+<rect x='880.7' y='92' width='18.1' height='40' fill='#2f6f4f' stroke='white'/>
+<rect x='964' y='146' width='10' height='10' fill='#2f6f4f'/><text x='978' y='155' font-size='10'>dense.mlp (L0-2 dense) (2%)</text>
+<rect x='898.8' y='92' width='51.2' height='40' fill='#b9b9b9' stroke='white'/>
+<text x='924.4' y='116.0' font-size='11' fill='white' text-anchor='middle'>6%</text>
+<rect x='964' y='159' width='10' height='10' fill='#b9b9b9'/><text x='978' y='168' font-size='10'>other / unattributed (6%)</text>
+<rect x='90' y='92' width='860' height='40' fill='none' stroke='#333'/>
+<text x='90' y='236' font-size='14' font-weight='bold'>decode</text>
+<rect x='90.0' y='242' width='475.6' height='40' fill='#9db4d0' stroke='white'/>
+<text x='327.8' y='266.0' font-size='11' fill='white' text-anchor='middle'>55%</text>
+<rect x='964' y='244' width='10' height='10' fill='#9db4d0'/><text x='978' y='253' font-size='10'>attn.kda (gated-delta linear attn) (55%)</text>
+<rect x='565.6' y='242' width='160.7' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='645.9' y='266.0' font-size='11' fill='white' text-anchor='middle'>19%</text>
+<rect x='964' y='257' width='10' height='10' fill='#2f6f4f'/><text x='978' y='266' font-size='10'>moe (288-expert top-8) (19%)</text>
+<rect x='726.3' y='242' width='92.4' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='772.5' y='266.0' font-size='11' fill='white' text-anchor='middle'>11%</text>
+<rect x='964' y='270' width='10' height='10' fill='#2f6f4f'/><text x='978' y='279' font-size='10'>attn.mla (NoPE MLA + DSA) (11%)</text>
+<rect x='818.7' y='242' width='86.4' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='861.9' y='266.0' font-size='11' fill='white' text-anchor='middle'>10%</text>
+<rect x='964' y='283' width='10' height='10' fill='#2f6f4f'/><text x='978' y='292' font-size='10'>dense.mlp (L0-2 dense) (10%)</text>
+<rect x='905.1' y='242' width='4.1' height='40' fill='#9db4d0' stroke='white'/>
+<rect x='964' y='296' width='10' height='10' fill='#9db4d0'/><text x='978' y='305' font-size='10'>mhc.hc_post (0%)</text>
+<rect x='909.2' y='242' width='40.8' height='40' fill='#b9b9b9' stroke='white'/>
+<rect x='964' y='309' width='10' height='10' fill='#b9b9b9'/><text x='978' y='318' font-size='10'>other / unattributed (5%)</text>
+<rect x='90' y='242' width='860' height='40' fill='none' stroke='#333'/>
+</svg>

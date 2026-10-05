@@ -1,0 +1,19 @@
+{
+  "_comment": "GLM-5.3 Flash prefill roofline-vs-measured. Per-op 'measured' = that decoder-layer block's GEMM-FLOPs / its measured wall-time (effective GEMM throughput of the block), from the roofline FLOP budget (glm5_flash_prefill_roofline.json: kda 433.9, moe 579.8, mla 128.8, dense 231.9 GFLOP) and the shipping TIMEIT leaves (382001, GNR gnrap, 8-layer proxy, M=256). roofline_target = measured GNR AMX bf16 dense-GEMM peak 14927.2 GFLOP/s. HONEST CAVEAT appended to the .md: this dense-GEMM FLOP ceiling is the hardware max but is NOT the right target for the recurrence-dominated KDA (dispatch/small-op bound; even a native AMX kernel ~ torch compute) -> the realistic engineering floor is ~4s (fused CPU KDA kernel), not 0.09s. The low per-op efficiency localizes WHERE FLOP-throughput is lost (small-M KDA/MoE/MLA) vs the one near-efficient block (big-M dense MLP).",
+  "model": "GLM-5.3 Flash",
+  "node": "GNR (gnrap, 256 threads)",
+  "precision": "fp8 e4m3 block W8A16, bf16 compute",
+  "phase": "prefill (M=256)",
+  "batch": 1,
+  "unit": "GFLOP/s",
+  "params": "34 KDA + 11 MLA \u00b7 8-layer proxy",
+  "constants_source": "plugin/validate/glm5_prefill_roofline.py (measured GNR AMX bf16 GEMM peak = 14927 GFLOP/s)",
+  "model_roofline_target": 14927.2,
+  "model_measured": 178.6,
+  "ops": [
+    {"op": "attn.kda (gated-delta recurrence)", "roofline_target": 14927.2, "measured": 118.6, "share_pct": 47.6, "regime": "recurrence / small-op", "note": "per-chunk per-head matmuls; dispatch-bound. FLOP-roofline NOT the right ceiling — realistic floor ~4s via a fused CPU KDA kernel."},
+    {"op": "moe (288-expert top-8)", "roofline_target": 14927.2, "measured": 252.1, "share_pct": 29.9, "regime": "small-M GEMM", "note": "~M*topk/E tokens/expert (small M); batching / operating-point lever (cf. DSv4 MoE)."},
+    {"op": "attn.mla (NoPE MLA + DSA)", "roofline_target": 14927.2, "measured": 152.4, "share_pct": 11.0, "regime": "small-M attn", "note": "absorb path; small-M projections."},
+    {"op": "dense.mlp (L0-2 dense)", "roofline_target": 14927.2, "measured": 1431.5, "share_pct": 2.1, "regime": "M=256 GEMM", "note": "big contiguous dense-MLP GEMMs — the one near-efficient block (~10x the small-M ops)."}
+  ]
+}
