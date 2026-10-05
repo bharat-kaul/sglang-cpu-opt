@@ -480,6 +480,26 @@ shards over NFS) but the ~50-min sink was gsm8k GENERATION (long 8-shot prompts 
   (measured: 1319-Q single-node gen ran 3h+ and still walled; the same split 8 ways finishes in minutes),
   so node-parallelism is the real lever. Worked example: `run_gsm8k_dsv4_sharded.sbatch` +
   `combine_gsm8k_shards.py`.
+- **RE-SHARD THE STRAGGLER TAIL across idle nodes — don't let a few slow shards grind the last chunk.**
+  Contiguous equal-size shards finish UNEVENLY (answer-length variance): most hit the wall done, a few
+  slow subsets sit at ~half with ~50 Q each still to grind (~1–2.5 h) while the finished nodes' engines
+  have EXITED. Don't resume those stragglers 1:1 (same few nodes, same grind); instead CANCEL them,
+  compute their REMAINING global question indices (slice-range − completed-`q` from the gens), and
+  re-shard that tail WIDE across the freed/idle nodes (an explicit-index run). ~199 Q on 4 nodes (~1.5 h)
+  → 12 nodes (~17 Q each ≈ 40 min incl. one load). The still-running fast shards are left untouched (they
+  finish free + warm). Requires the harness to run an EXPLICIT index set, not just contiguous slices
+  (`--question-ids-file`, carrying the GLOBAL `q` so gens/combine stay consistent); the final `combine`
+  sums the ORIGINAL shard jsons + the phase-2 tail jsons (disjoint by construction). Size the phase-2
+  split so NO id-file is empty (an empty shard must skip the engine load, not crash). Worked example:
+  `reshard_tail.py` + `run_glm5_gsm8k.sbatch IDS_DIR=…`.
+  - **The SUPERIOR design that avoids stragglers AND the reload = WORK-STEALING.** A phase-2 re-shard
+    still pays a fresh model LOAD on the new nodes (306 GB for GLM). The straggler problem disappears
+    entirely if each node, after finishing its slice, PULLS the next remaining question from a shared
+    queue (atomic claim — a lock-dir/rename or a tiny coordinator) and keeps its WARM engine busy: fast
+    nodes absorb the tail automatically, zero re-shard, zero reload. Prefer this for expensive-load
+    models. CAVEAT (why it's not always available): the in-process `sgl.Engine` batch harness EXITS when
+    its slice ends (no server/queue), so you cannot retrofit a RUNNING array into work-stealing — build
+    it into the runner up front, or accept the one-time phase-2 re-shard for a run already in flight.
 - **SNEAK-PREVIEW + EARLY-ABORT the full run (fail-fast) — ARM IT AUTOMATICALLY AT SUBMIT, don't run it
   reactively.** Because each shard is chunk-checkpointed, `combine` on the partial jsons gives a running
   accuracy within ~1 chunk (~150–300 Q of a 3 h run). The codified way to get this is an ARMED watcher, the
