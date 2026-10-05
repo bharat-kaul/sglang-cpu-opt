@@ -1,0 +1,234 @@
+{
+  "shards_found": 28,
+  "questions_scored": 1311,
+  "correct": 1199,
+  "invalid": 0,
+  "accuracy": 0.9146,
+  "any_partial": true,
+  "detail": [
+    {
+      "file": "glm5_gsm8k_sh_382474_0.json",
+      "shard": 0,
+      "done": 82,
+      "total": 82,
+      "correct": 77,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_1.json",
+      "shard": 1,
+      "done": 82,
+      "total": 82,
+      "correct": 78,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_10.json",
+      "shard": 10,
+      "done": 82,
+      "total": 82,
+      "correct": 76,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_11.json",
+      "shard": 11,
+      "done": 32,
+      "total": 82,
+      "correct": 32,
+      "partial": true
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_12.json",
+      "shard": 12,
+      "done": 32,
+      "total": 82,
+      "correct": 31,
+      "partial": true
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_13.json",
+      "shard": 13,
+      "done": 82,
+      "total": 82,
+      "correct": 74,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_14.json",
+      "shard": 14,
+      "done": 82,
+      "total": 82,
+      "correct": 74,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_15.json",
+      "shard": 15,
+      "done": 32,
+      "total": 81,
+      "correct": 32,
+      "partial": true
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_2.json",
+      "shard": 2,
+      "done": 82,
+      "total": 82,
+      "correct": 74,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_3.json",
+      "shard": 3,
+      "done": 82,
+      "total": 82,
+      "correct": 74,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_4.json",
+      "shard": 4,
+      "done": 82,
+      "total": 82,
+      "correct": 74,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_5.json",
+      "shard": 5,
+      "done": 82,
+      "total": 82,
+      "correct": 75,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_6.json",
+      "shard": 6,
+      "done": 82,
+      "total": 82,
+      "correct": 75,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_7.json",
+      "shard": 7,
+      "done": 82,
+      "total": 82,
+      "correct": 75,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_8.json",
+      "shard": 8,
+      "done": 32,
+      "total": 82,
+      "correct": 28,
+      "partial": true
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474_9.json",
+      "shard": 9,
+      "done": 82,
+      "total": 82,
+      "correct": 70,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_0.json",
+      "shard": 0,
+      "done": 17,
+      "total": 17,
+      "correct": 17,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_1.json",
+      "shard": 1,
+      "done": 17,
+      "total": 17,
+      "correct": 16,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_10.json",
+      "shard": 10,
+      "done": 17,
+      "total": 17,
+      "correct": 17,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_11.json",
+      "shard": 11,
+      "done": 12,
+      "total": 12,
+      "correct": 11,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_2.json",
+      "shard": 2,
+      "done": 17,
+      "total": 17,
+      "correct": 17,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_3.json",
+      "shard": 3,
+      "done": 17,
+      "total": 17,
+      "correct": 11,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_4.json",
+      "shard": 4,
+      "done": 17,
+      "total": 17,
+      "correct": 15,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_5.json",
+      "shard": 5,
+      "done": 17,
+      "total": 17,
+      "correct": 15,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_6.json",
+      "shard": 6,
+      "done": 17,
+      "total": 17,
+      "correct": 13,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_7.json",
+      "shard": 7,
+      "done": 17,
+      "total": 17,
+      "correct": 16,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_8.json",
+      "shard": 8,
+      "done": 17,
+      "total": 17,
+      "correct": 16,
+      "partial": false
+    },
+    {
+      "file": "glm5_gsm8k_sh_382474r_9.json",
+      "shard": 9,
+      "done": 17,
+      "total": 17,
+      "correct": 16,
+      "partial": false
+    }
+  ]
+}

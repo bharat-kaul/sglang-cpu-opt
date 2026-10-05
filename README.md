@@ -253,12 +253,19 @@ Delivered as the same external plugin (`intel_cpu_models`) — no fork.
   kernel is only parity with torch compute), so the realistic floor is ~4 s via a fused CPU KDA kernel
   (scoped follow-up; the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**).
   Ledger: [glm5_perf_ledger.csv](plugin/validate/results/glm5_perf_ledger.csv).
+- **Task accuracy — gsm8k 8-shot, full test set, PASSED.** The optimized faithful CPU build scores
+  **91.46%** (1199/1311, **0 invalid**) on the complete gsm8k test set, real fp8 weights
+  ([glm5_flash_gsm8k.json](plugin/validate/results/glm5_flash_gsm8k.json)) — the downstream sign-off that
+  the 7.2× perf wins are accuracy-neutral (as the prefill+decode parity already implied by construction).
+  Run node-parallel + chunk-checkpointed + **straggler-tail re-sharded** across EMR (16 shards, then the
+  slow tail re-split 12-way to finish wide instead of grinding), with the auto sneak-preview fail-fast
+  watcher armed at submit (`scripts/sneak_preview.sh`, `reshard_tail.py`).
 
-**Remaining (scoped):** **gsm8k task-accuracy** on the full real-weight model (the final downstream
-sign-off; parity already makes it faithful by construction) and the **fused CPU KDA AMX kernel** (the
-~2× further prefill headroom; build path de-risked). *The point of this section is the **velocity**: a
-structurally different architecture carried to proven **prefill+decode real-weight parity** and a **7.2×
-faithful perf win** by the same playbook, with only the genuinely novel op (KDA) hand-authored.*
+**Remaining (scoped):** the **fused CPU KDA AMX kernel** (the ~2× further prefill headroom; build path
+de-risked — the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**). *The point
+of this section is the **velocity**: a structurally different architecture carried to proven
+**prefill+decode real-weight parity**, **91.46% gsm8k**, and a **7.2× faithful perf win** by the same
+playbook, with only the genuinely novel op (KDA) hand-authored.*
 
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
