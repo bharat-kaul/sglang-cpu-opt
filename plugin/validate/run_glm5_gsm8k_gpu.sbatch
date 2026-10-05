@@ -6,7 +6,7 @@
 # NO plugin env (SGLANG_EXTERNAL_MODEL_PACKAGE unset) => pure native-GPU path.
 #SBATCH --partition=h200
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:h200:4
+#SBATCH --gres=gpu:h200:8
 #SBATCH --cpus-per-task=32
 #SBATCH --time=01:30:00
 #SBATCH --job-name=glm5_gsm8k_gpu
