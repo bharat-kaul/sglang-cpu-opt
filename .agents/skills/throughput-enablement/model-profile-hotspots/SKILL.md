@@ -116,14 +116,21 @@ irrelevant — do the systemic sweep FIRST.**
 efficiency, roi, mapping: donor|new-kernel|config, action: author|tune|skip}]`.
 Only `author`/`tune` items with meaningful `roi` descend to `kernel-feasibility-gate`.
 
-**Publish it.** Emit the same data as a roofline-TARGET-vs-MEASURED artifact (model
-level + per op) via `plugin/validate/roofline_vs_measured.py` — a table + bar chart
-that every published result links (see `enablement-certificate` §9). Publish the
-target up front; measured (usually below) fills in, and the per-op gap ranked by
-shortfall×share is the headline "which kernels underperform vs roofline" view.
+**Publish it — BOTH artifacts, as the CLOSING STEP of the cycle (not deferred).** Emit the same data as:
+(1) a roofline-TARGET-vs-MEASURED artifact (model level + per op) via
+`plugin/validate/roofline_vs_measured.py` — the "which kernels underperform vs roofline" RoI view
+(per-op gap ranked by shortfall×share); AND (2) the time-attribution PIVOT companion via
+`plugin/validate/time_attribution_pivot.py` — "where the wall-clock goes" per phase, summing to 100%
+with an explicit unattributed slice. Then ADD the model's bullet to the README "Roofline target vs
+measured" section. **The pair + the README bullet are the deliverable; a baseline→optimized
+"journey" chart does NOT satisfy it** (different question). Every published result links both (see
+`enablement-certificate` §9). Publish the target up front; measured (usually below) fills in.
 **Roofline and measured MUST be the SAME machine config** (socket count, TP, batch,
 precision) and labeled as such (single socket vs full 2-socket node) — profile at the
-same point the roofline was computed for, never mix socket counts.
+same point the roofline was computed for, never mix socket counts. **If the hot op is a
+recurrence / small-op (dispatch-bound, not a dense GEMM), the dense-GEMM FLOP roofline is NOT the
+reachable target** — publish it but caption the realistic floor (fused-kernel) so a "~1% of
+achievable" number is read as "where FLOP-throughput is lost," not as failure.
 
 ## Gate
 No kernel enters `kernel-feasibility-gate` unless this tier measured it as a high-RoI

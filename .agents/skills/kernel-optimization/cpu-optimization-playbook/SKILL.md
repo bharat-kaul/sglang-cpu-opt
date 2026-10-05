@@ -17,6 +17,24 @@ condition is met and gating every step against the measured roofline.
 > accurate, perf-vs-roofline model in the enablement-certificate. `cpu-serving-integration`
 > is the step that turns authored kernels into that running model.
 
+> **⛔ CYCLE-EXIT GATE — a perf-optimization cycle is NOT done until the published artifact PAIR
+> exists (auto-emit it as the CLOSING STEP, do not wait to be asked).** The moment the final
+> measured per-op profile is in hand, emit BOTH, from that profile, at the labeled machine config:
+> (1) the **roofline-target-vs-measured** report+chart (`roofline_vs_measured.py`), AND (2) the
+> **time-attribution pivot** companion (`time_attribution_pivot.py`, where the wall-clock goes per
+> phase, summing to 100% with an explicit unattributed slice) — then ADD the model's bullet to the
+> README "Roofline target vs measured" section (mirroring the existing entries) and publish. Both
+> files are the deliverable; one without the other is incomplete. **A baseline→optimized→roofline
+> "journey"/summary chart is NOT a substitute** — it answers "how much faster did we get," the
+> required pair answers "how close to the ceiling, and where does the wall-time go" (the RoI view
+> every published result links). *Anti-pattern that actually happened (GLM-5.3 Flash): the cycle
+> ended with only the journey chart, which LOOKED like "charts done," so the DSv4-format roofline+pivot
+> pair + the README results-section bullet were silently skipped and had to be back-filled.* Treat
+> "generated a chart" as NOT satisfying this gate until the roofline report, the pivot report, and the
+> README bullet all exist. If the hot op is recurrence/small-op bound (dispatch-limited, not a dense
+> GEMM), the FLOP roofline is the WRONG reachable target — publish it but CAPTION the realistic
+> engineering floor (e.g. fused-kernel) so "1% of achievable" is not misread as failure.
+
 > **When the RUN is the bottleneck (long load / slow decode / cluster queue) — load the
 > run-efficiency skills (apply to EVERY model, both legs):** `high-information-runs` (make each
 > expensive run a multi-angle probe; and ALWAYS launch `scripts/await_job.sh` in the async terminal
