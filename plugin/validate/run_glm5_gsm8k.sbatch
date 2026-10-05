@@ -36,11 +36,15 @@ TAG=${RUN_TAG:-$AJ}
 # Stagger shard starts (STAGGER secs x shard-index) to avoid NFS thundering-herd on the 306 GB model.
 if [[ -n "${STAGGER:-}" && "${AI}" -gt 0 ]]; then echo "STAGGER shard ${AI}: sleep $(( AI * STAGGER ))s"; sleep $(( AI * STAGGER )); fi
 cd /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate
+# IDS_DIR set => re-shard mode: this task runs the explicit global-index set in ${IDS_DIR}/ids_${AI}.json
+# (the straggler-tail reshard) instead of a contiguous num_shards slice. Needs NQ to span the full set.
+IDS_ARG=""
+if [[ -n "${IDS_DIR:-}" ]]; then IDS_ARG="--question-ids-file ${IDS_DIR}/ids_${AI}.json"; fi
 $NUMACTL python task_gsm8k_chunked.py \
     --model /scratch/bkaul/models/GLM-5.3-Flash \
     --data /scratch/bkaul/gsm8k_test.jsonl \
     --num-questions ${NQ:-4} --chunk-size ${CHUNK:-4} \
-    --num-shards ${NS} --shard-index ${AI} \
+    --num-shards ${NS} --shard-index ${AI} ${IDS_ARG} \
     --num-shots ${SHOTS:-8} --max-new-tokens ${MAXNEW:-256} \
     --mem-fraction ${MEM_FRAC:-0.6} --chunked-prefill-size ${CPS:-512} \
     --watchdog-timeout 7000 \

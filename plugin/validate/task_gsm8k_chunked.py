@@ -61,22 +61,43 @@ def main():
     p.add_argument("--chunked-prefill-size", type=int, default=512)
     p.add_argument("--no-resume", dest="resume", action="store_false",
                    help="disable checkpoint resume (re-run from chunk 0 even if a partial exists)")
+    p.add_argument("--question-ids-file", default="",
+                   help="JSON list of GLOBAL eval-question indices to run (into the post-shots set); "
+                        "overrides --num-shards/--shard-index slicing. For re-sharding a straggler tail "
+                        "across many nodes — the ids carry the global q so gens/combine stay consistent.")
     p.set_defaults(resume=True)
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
     shots = "".join(one_example(lines[i], True) + "\n\n" for i in range(args.num_shots))
-    eval_lines = lines[args.num_shots:args.num_shots + args.num_questions]
-    # disjoint contiguous shard for parallel multi-node runs (combine sums correct/done)
-    shard_offset = 0
-    if args.num_shards > 1:
-        n = len(eval_lines)
-        per = (n + args.num_shards - 1) // args.num_shards
-        shard_offset = args.shard_index * per
-        eval_lines = eval_lines[shard_offset:min(shard_offset + per, n)]
+    full_eval = lines[args.num_shots:args.num_shots + args.num_questions]
+    # Select this task's questions. Default = disjoint contiguous shard (combine sums correct/done).
+    # --question-ids-file = an EXPLICIT global-index set (re-shard a straggler tail across many nodes);
+    # q_ids carries each question's GLOBAL index so gens/combine stay consistent regardless of layout.
+    if args.question_ids_file:
+        with open(args.question_ids_file) as f:
+            q_ids = [int(i) for i in json.load(f)]
+        eval_lines = [full_eval[i] for i in q_ids]
+    else:
+        shard_offset = 0
+        if args.num_shards > 1:
+            n = len(full_eval)
+            per = (n + args.num_shards - 1) // args.num_shards
+            shard_offset = args.shard_index * per
+            full_eval = full_eval[shard_offset:min(shard_offset + per, n)]
+        eval_lines = full_eval
+        q_ids = list(range(shard_offset, shard_offset + len(eval_lines)))
     prompts = [shots + one_example(x, False) for x in eval_lines]
     labels = [answer_value(x["answer"]) for x in eval_lines]
     total = len(labels)
+
+    if total == 0:  # empty id-shard (over-split reshard) — nothing to do, skip the engine load
+        print(f"[reshard] shard {args.shard_index} has 0 questions — skipping engine load.", flush=True)
+        if args.out:
+            _atomic_write(args.out, {"model": args.model, "shard_index": args.shard_index,
+                                     "done": 0, "total": 0, "partial": False, "accuracy": 0.0,
+                                     "correct": 0, "invalid": 0, "verdict": "EMPTY"})
+        return
 
     # --- checkpoint resume: if a prior run of THIS shard left a partial, pick up where it
     # stopped so a wall-kill/crash loses no work. Re-score the saved gens to restore counts
@@ -177,7 +198,7 @@ def main():
         if args.out:
             _atomic_write(args.out, result)
         if args.gens_out:
-            gens.extend({"q": shard_offset + start + j, "gold": l, "text": t}
+            gens.extend({"q": q_ids[start + j], "gold": l, "text": t}
                         for j, (t, l) in enumerate(zip(texts, chunk_l)))
             _atomic_write(args.gens_out, gens)
 
