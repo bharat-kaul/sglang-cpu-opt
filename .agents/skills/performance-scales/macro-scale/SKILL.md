@@ -44,6 +44,28 @@ spent in model kernels, or in glue?** Until it's kernel-dominated, no micro-tuni
    lever and must be chosen BEFORE deciding any kernel is "at roofline" (a kernel's roofline fraction
    is defined at an operating point). See `runtime-config-tuning`.
 
+## Operating-config determination (DERIVE M and tp/EP up front, confirm cheaply)
+Don't pick M or tp by trial — derive them, then confirm. Order: **capacity → tp/EP → per-rank budget → M**
+(tp sets per-rank shapes + the memory budget that caps M).
+- **M (the batch sweet spot).** A weight-GEMM's `AI ≈ 2M/b` (b = bytes/weight), so it crosses the ridge at
+  `M* ≈ ½·ridge·b` (EMR ridge≈51 → bf16 M≈25–50, fp8 M≈12–25; the 16–64 band). Confirm with a GEMM sweep on
+  the model's dominant shapes → the M where real oneDNN BRGEMM hits **80–90% of the BW roofline**; treat it
+  as a RANGE (M drifts in continuous batching). Bound: `M ≤ min(sweet-spot, memory-cap[GATE 0], latency-SLA)`.
+  ⚠ M amortizes WEIGHT-bound ops only; per-sequence state / softmax ops are M-immune and become the frontier
+  at M* (that's anchor discovery, `multiscale-optimization`).
+- **tp / EP (sharding).** `tp* = smallest feasible tp clearing the capacity floor`:
+  - **Capacity floor:** `tp_min = ⌈(model_resident + pools) / domain_RAM⌉` (GATE 0, per-NUMA/SNC domain). tp=1
+    if it fits the node interleaved.
+  - **Divisibility / padding:** feasible set = divisors of the sharded dims (heads/intermediate; **block-quant
+    shard must stay a multiple of 128**) or paddable with `(padded−real)/real` < a few % waste.
+  - **Comm cost (CPU-specific):** per-layer all-reduce is expensive → **tp>1 HURTS latency-bound decode**
+    (measured GNR tp=2 = 2.8× worse than EMR tp=1). CPU tp is a **capacity/prefill lever, NOT a decode
+    throughput lever** (reverse of GPU). So **minimize tp** for decode-dominated serving.
+  - **EP-first for MoE:** expert-parallel splits experts whole — no padding, no per-layer all-reduce on the
+    expert GEMM, sidesteps block-quant divisibility. EP primary for the MoE; TP secondary for dense/attention.
+  - Confirm with a tp∈{1,2,4} micro-sweep (comm cost) + interleave-vs-per-domain, on the target node. See
+    `sub-numa-clustering`, `runtime-config-tuning`.
+
 ## Exit criterion
 Framework/glue share below threshold (kernel-domination ≥ ~0.90) at the chosen operating point.
 The remaining wall is model kernels → descend to `meso-scale` for each dominant kernel.

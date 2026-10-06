@@ -74,6 +74,45 @@ The control loop is bottleneck-first: the profile picks the scale each pass. The
 within-scale self-loops) are this feedback. A single macro→meso→micro pass without re-profiling and
 re-dispatching on the revealed bottleneck is the waterfall anti-pattern.
 
+## ⛔ ANCHOR DISCOVERY — derive the dominant op ANALYTICALLY, then validate by ONE run
+Each iteration's real question is "which op, and which knob?" Answer it on PAPER first (architecture +
+baseline code + the machine roofline), THEN confirm with a run. The **anchor** = the controllable
+parameter the current binding resource is most sensitive to (M / tp·EP / precision / context-S /
+fusion / tiling / layout). M is only one instance — discover the anchor, don't assume it.
+
+**A. Analytical op inventory (no run).** From the arch + baseline code, per token per layer compute
+`FLOPs`, `bytes_moved` → `AI = FLOP/byte`; classify the binding resource (AI<ridge → BW-bound;
+AI>ridge → compute-bound; many tiny ops → dispatch-bound; model>domain → capacity-bound; decode SLA →
+latency-bound); and — the discriminator — **does AI scale with the batchable dim M?** Weight-reused-
+across-batch ops → `AI ∝ M` (amortize); per-sequence state / softmax / elementwise → `AI = const` in M
+(immune); sparse MoE → effective `M·topk/E`. Weight each by LAYER COUNT.
+
+**B. Set the operating-config anchors** (analytical, then a cheap confirm — see `macro-scale`):
+`M* ≈ ½·ridge·b` (GEMM-sweep-confirmed 80–90%-roofline range, bounded by GATE 0 + latency); `tp*` =
+smallest feasible tp clearing the capacity floor (divisibility/padding set; EP-first for MoE; CPU tp>1
+hurts decode). Order: capacity → tp/EP → per-rank budget → M.
+
+**C. Predict the dominant op = the POST-ANCHOR residual.** Apply the anchors on paper: anchor-movable
+ops amortize to ~roofline; anchor-immune ops remain. **Rank by post-anchor residual × layer-count, NOT
+the raw M=1 share** — else you chase an op the anchor was about to fix (the M=1 trap). Top residual =
+predicted frontier; its own anchor is whatever ITS binding resource is most sensitive to (usually NOT
+the operating-config anchor that just amortized the others — e.g. a per-sequence recurrence → fusion).
+
+**D. VALIDATE BY ONE RUN (GATE 2).** One GATE-0-sized profile at the derived (tp/EP, M) config (dummy
+weights OK for perf, full depth, target ISA) → confirm kernel-domination ratio + per-op shares match
+the prediction. MATCH → optimize the predicted frontier. MISMATCH → the paper model omitted a cost
+(materialization / dispatch / sparse-routing / comm) → UPDATE it and re-rank. The run corrects the
+paper; never cling to the paper.
+
+**E. Iterate — the anchor shifts.** Optimizing the frontier changes the binding resource → a new
+anchor and a new dominant op → repeat A–D. Converge per the control-loop test.
+
+*Worked example (GLM, derived on paper → confirmed by run): KDA gated-delta recurrence AI≈1 and
+**constant in M** (per-sequence [H,K,V] state), 34 of 45 layers → predicted dominant at M*; projection
+GEMMs AI 2→~64 as M→M* → amortize to ~1%. Validated: measured recur+conv = 74–79% of decode at M=32,
+projections ~1%. The paper flagged the frontier (KDA fusion) AND the M=1 trap (don't chase projections)
+before any run.*
+
 ## ⛔ GATE 0 — CAPACITY / FEASIBILITY PRE-FLIGHT (compute BEFORE submitting ANY expensive run)
 Do the memory math UP FRONT, every launch — never submit-to-OOM. A wrong guess burns a ~15–30 min
 load-to-SIGKILL round-trip on a scarce node. BEFORE each submit, size the FULL resident footprint vs the
