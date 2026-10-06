@@ -34,6 +34,31 @@ Do NOT start at the micro scale. A micro-optimal kernel buried under 90% glue is
    packing, inline precision conversion, fp32 accumulation, and a FUSED epilogue.
 Re-profile after each scale; the dominant op (and therefore the next lever) changes as you go.
 
+## ⛔ ITERATIVE FEEDBACK LOOPS (the scales are NOT a one-pass waterfall)
+Top-down is the DISCOVERY order; the real method is ITERATIVE with BOTTOM-UP feedback — a finding at
+a lower scale re-decides a higher one. Expert loops to internalize and run every iteration:
+1. **Re-profile after EVERY change (dominant op shifts scale).** Fixing the macro glue can expose a
+   meso-bound kernel; speeding one kernel promotes the next op — which may live at a DIFFERENT scale.
+   Never assume the post-fix profile; measure it.
+2. **A FLOOR finding at a lower scale feeds UP.** If an op is measured at its meso floor (BW-bound,
+   AI < ridge) or its micro floor (inner loop at peak) and still too slow, the lever is NOT more of
+   the same scale — it moves UP: change the OPERATING POINT (macro), FUSE it into its neighbor so the
+   intermediate never materializes (macro/meso), or ACCEPT it as an attributed floor and move on.
+   *Worked example (ours): the M-sweep (a macro operating-point experiment) measured the KDA
+   recurrence scaling LINEARLY with M → fed back to the macro decision "batching will NOT help the
+   recurrence; whole-operator fusion is its only lever" — which then set the meso/micro target.*
+3. **In-engine measurement (GATE 2) CORRECTS the roofline model (GATE 1).** When a real impl misses
+   the proxy, do NOT cling to the proxy — update the estimate with the costs the proxy omitted
+   (conversion/materialization/layout/dispatch) and RE-RANK the RoI. *Worked example: DSA indexer
+   naive C++ = 1.07× vs 6–7× predicted → fed back to "the op MUST be whole-operator-fused" AND to a
+   feasibility RE-DECISION (realistic ~1.3× may not beat the authoring/maintenance cost).*
+4. **Convergence test (when to STOP iterating).** Loop until the north-star holds (kernel-dominated
+   ≥ ~0.90 AND each dominant kernel at its roofline) OR every remaining gap is an ATTRIBUTED, accepted
+   floor (BW-bound op at its BW; dispatch-bound tiny op not worth fusing; operating-point already
+   chosen). "No single-scale lever left, all gaps attributed" = done — not "ran out of ideas."
+The dotted upward arrows in `performance-scales/README.md` are these feedback edges; a pass that only
+goes macro→meso→micro once, without re-profiling and feeding floors back up, is the waterfall anti-pattern.
+
 ## ⛔ GATE 1 — UPFRONT MULTI-SCALE DONOR STUDY (before estimating OR authoring any op)
 Before you model a roofline or write a line of kernel code for a novel op, STUDY THE NEAREST
 SGLang CPU DONOR at ALL THREE scales (`kernel-authoring/assets/donor-kernel-map.md`):
