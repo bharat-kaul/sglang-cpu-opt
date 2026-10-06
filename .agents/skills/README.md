@@ -104,3 +104,18 @@ For a coverage GAP (e.g. DeepSeek-V4 DSA indexer). Driven by the `cpu-optimizer`
   `establish-achievable-performance`, `model-roofline-analysis`, and the `kernel-authoring`
   knobs. Runnable suite: `tools/uarch_perf_probe/`. No model/serving dependency — any agentic
   workflow can call it; this repo's DeepSeek-V4 workflow is the demo consumer.
+
+## `performance-scales/` — SCALE-STRATIFIED SPINE (load FIRST for autonomous model perf)
+A parallel tree organizing the whole performance corpus by the three scales at which lessons
+live, so a new model reaches best-possible CPU performance autonomously without re-deriving them.
+North-star: wall-time DOMINATED by model-op/kernel time (glue → 0) with EACH dominant kernel at its
+roofline. Traverse TOP-DOWN. See [`performance-scales/README.md`](performance-scales/README.md).
+- `multiscale-optimization` — ENTRY POINT: north-star + top-down flow + GATE 1 (upfront multi-scale
+  donor study; model the WHOLE operator incl. the seam, never a bare GEMM) + GATE 2 (confirm
+  microbench/roofline-proxy wins in-engine). The organizing spine over the per-technique leaves.
+- `macro-scale` — make the profile KERNEL-DOMINATED: kill framework/dispatch overhead, fuse the
+  whole operator (no materialization), parallelize + NUMA, pick the operating point (batch M).
+- `meso-scale` — each dominant kernel's DATA MOVEMENT at the streamed roofline (BRGEMM-resident,
+  tiling, prepacking, operand-byte reduction); AI-vs-ridge → compute-bound vs BW-bound.
+- `micro-scale` — each INNER LOOP at the AMX/VNNI peak (tile op, VNNI pack, inline precision
+  convert, FUSED epilogue) + the settled null-traps (thread-cap, ILP, prefetch).

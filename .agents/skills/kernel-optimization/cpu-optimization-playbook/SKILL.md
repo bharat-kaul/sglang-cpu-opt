@@ -10,6 +10,13 @@ task. It does not itself optimize; it **routes** the op through a progressive,
 composable library of per-technique skills, loading each only when its trigger
 condition is met and gating every step against the measured roofline.
 
+> **Load the SCALE-STRATIFIED SPINE alongside this router.** `performance-scales/multiscale-optimization`
+> organizes the whole corpus by scale (macro → meso → micro) and enforces the north-star (wall-time
+> DOMINATED by kernel time, each kernel at roofline), the UPFRONT multi-scale donor study (model the
+> WHOLE operator incl. the seam before estimating/authoring — never a bare GEMM), and the
+> confirm-in-engine rule. This router supplies the per-technique leaves; the spine supplies the
+> top-down flow + the anti-overstatement gates that prevent reasoning at the wrong scale.
+
 > **North-star deliverable (both legs).** Enablement is "done" ONLY when the new model
 > RUNS end-to-end on CPU, is ACCURACY-parity vs a trusted reference (accuracy-oracle,
 > real weights), AND ships a published ROOFLINE-TARGET-vs-MEASURED perf artifact at a
