@@ -77,12 +77,17 @@ def main():
     # a CPU fallback tokenizer that drops the GLM [gMASK]<sop> prefix the GPU container adds).
     max_new = int(os.environ.get("MAX_NEW", "8"))
     token_ids_env = os.environ.get("TOKEN_IDS", "")
+    # TIMEIT_BATCH=M replicates the prefill into M perturbed sequences -> decode runs M concurrent
+    # streams (the real serving operating point) so the per-op TIMEIT reflects batch-M GEMM amortization.
+    batch = max(1, int(os.environ.get("TIMEIT_BATCH", "1")))
     if token_ids_env:
         ids = [int(t) for t in token_ids_env.replace("|", ",").split(",") if t.strip() != ""]
-        o = e.generate(input_ids=[ids], sampling_params={"temperature": 0.0, "max_new_tokens": max_new})
+        # perturb each sequence (shift token ids) so MoE routing spreads across experts, not all-identical
+        batched_ids = [[t + s for t in ids] for s in range(batch)]
+        o = e.generate(input_ids=batched_ids, sampling_params={"temperature": 0.0, "max_new_tokens": max_new})
         rec = o[0] if isinstance(o, list) else o
         txt = rec["text"] if isinstance(rec, dict) else rec
-        print("TOKEN_IDS:", ids, "-> OUT:", repr(txt), flush=True)
+        print(f"TIMEIT_BATCH={batch} TOKEN_IDS[0]:", ids[:4], "... -> OUT[0]:", repr(txt), flush=True)
     else:
         prompts = os.environ.get("SMOKE_PROMPTS", "The capital of France is|2 + 2 =").split("|")
         for pr in prompts:

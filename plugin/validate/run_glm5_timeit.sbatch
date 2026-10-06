@@ -27,7 +27,7 @@ if [[ -n "${SGLANG_CPU_OMP_THREADS_BIND:-}" ]]; then
 fi
 export NUM_LAYERS=${NUM_LAYERS:-8}
 export MEM_FRAC=${MEM_FRAC:-0.8}
-export MAX_RUNNING=1
+export MAX_RUNNING=${BATCH:-1}
 export CONTEXT_LEN=${CONTEXT_LEN:-4096}
 export DISABLE_RADIX=1
 export MAMBA_RADIX_STRATEGY=no_buffer
@@ -46,7 +46,7 @@ export INTEL_CPU_DSV4_TIMEIT_JSON=/scratch/bkaul/glm5_timeit_${SLURM_JOB_ID}.jso
 export TIMEIT_MODEL="GLM-5.3-Flash"
 export TIMEIT_NODE="${TIMEIT_NODE:-EMR}"
 export TIMEIT_PRECISION="fp8 e4m3 block W8A16, bf16 compute"
-export TIMEIT_BATCH=1
+export TIMEIT_BATCH=${BATCH:-1}
 export LOG_LEVEL=warning
 python /data/nfs_home/bkaul/sglang-cpu-opt/plugin/validate/_smoke.py
 echo "[timeit json] $INTEL_CPU_DSV4_TIMEIT_JSON"; ls -la "$INTEL_CPU_DSV4_TIMEIT_JSON" 2>/dev/null
