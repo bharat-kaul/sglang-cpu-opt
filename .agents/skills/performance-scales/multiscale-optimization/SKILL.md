@@ -74,6 +74,28 @@ The control loop is bottleneck-first: the profile picks the scale each pass. The
 within-scale self-loops) are this feedback. A single macro→meso→micro pass without re-profiling and
 re-dispatching on the revealed bottleneck is the waterfall anti-pattern.
 
+## ⛔ GATE 0 — CAPACITY / FEASIBILITY PRE-FLIGHT (compute BEFORE submitting ANY expensive run)
+Do the memory math UP FRONT, every launch — never submit-to-OOM. A wrong guess burns a ~15–30 min
+load-to-SIGKILL round-trip on a scarce node. BEFORE each submit, size the FULL resident footprint vs the
+node (per-NUMA/SNC DOMAIN for a single-rank tp=1 engine, not node total) and cap batch/context/depth to fit:
+- **Model resident (the big fixed cost).** A low-bit checkpoint DEQUANTS at load: CPU **W8A16 fp8→bf16 ≈ 2×
+  the on-disk fp8** (+ an AMX-prepack transient). **Dummy weights allocate the SAME real-shape tensors** —
+  dummy is NOT small. (GLM: 306 GB fp8 → ~600 GB bf16 resident.)
+- **Activations (scale with batch × tokens × layers) — the usual OOM culprit at batch.** An UNOPTIMIZED
+  path MATERIALIZES per-op intermediates (the KDA scan, [N,H,S] scores) → multiply the estimate. Batch-M
+  prefill of T tokens = M·T tokens through every layer.
+- **State / KV pools.** Linear-attn (mamba/KDA) state = `max_running × per-req-state` — LARGE at batch;
+  KV = `context_len × max_tokens × per-token-KV`. CPU `mem_fraction_static` = TOTAL engine budget
+  (model+pools), not a GPU-style KV-only fraction — too high reserves a giant pool and OOMs.
+- **Rule:** fixed model-resident FIRST, then the REMAINING domain RAM caps `batch × context × depth`.
+  If it doesn't fit: cut batch, cut prefill tokens, cut depth, cap context, or pick a bigger-RAM node —
+  BEFORE submitting. Cross-ref `accuracy-oracle` ⛔ CAPACITY BUDGET for the full ladder.
+*Worked example (do NOT repeat): GLM tree-pilot iter-1 submitted full-45L dummy (~600 GB) + **batch-32** ×
+256-tok prefill + unoptimized KDA-scan materialization on a 1.5 TB GNR at mem_frac 0.5 → the batch-32
+activations/state blew past the ~900 GB remainder → **SIGKILL at the MoE (8192 tokens)**, a wasted ~30 min.
+The 10-second pre-flight (600 GB model ⇒ batch-32 full-depth infeasible) would have said "start at M=1 or
+small batch / short prefill" and never submitted it.*
+
 ## ⛔ GATE 1 — UPFRONT MULTI-SCALE DONOR STUDY (before estimating OR authoring any op)
 Before you model a roofline or write a line of kernel code for a novel op, STUDY THE NEAREST
 SGLang CPU DONOR at ALL THREE scales (`kernel-authoring/assets/donor-kernel-map.md`):

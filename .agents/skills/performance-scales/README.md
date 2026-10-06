@@ -45,7 +45,7 @@ flowchart TB
   MICRO -.->|re-profile → re-dispatch on the revealed bottleneck| LOOP
   MESO  -.->|op BW-bound / at floor → feed UP (operating point or fuse)| LOOP
   MICRO -.->|inner loop can't beat floor → fuse into neighbor| LOOP
-  GATES["CROSS-CUTTING GATES: (1) upfront multi-scale DONOR study, model WHOLE operator incl. seam · (2) confirm microbench wins IN-ENGINE · (3) correctness parity + CPU↔GPU equivalence"]
+  GATES["CROSS-CUTTING GATES: (0) CAPACITY/FEASIBILITY pre-flight — size memory vs node BEFORE every launch, cap batch/context/depth to fit · (1) upfront multi-scale DONOR study, model WHOLE operator incl. seam · (2) confirm microbench wins IN-ENGINE · (3) correctness parity + CPU↔GPU equivalence"]
   GATES -.-> MACRO
   GATES -.-> MESO
   GATES -.-> MICRO

@@ -51,6 +51,16 @@ condition is met and gating every step against the measured roofline.
 > carries the node-parallel + chunked + checkpointed harness, the generate-once → score-OFFLINE
 > decouple, and the certify-vs-trusted-reference rule (a bare score certifies nothing).
 
+> **⛔ CAPACITY / FEASIBILITY PRE-FLIGHT — compute the memory footprint BEFORE submitting ANY run (every
+> launch, up front).** Never submit-to-OOM. Size the resident footprint vs the node's per-NUMA/SNC DOMAIN
+> and cap batch/context/depth to fit: **model resident** (W8A16 fp8→bf16 ≈ 2× on-disk; **dummy weights
+> allocate the same real-shape tensors — not small**) + **activations** (scale with batch×tokens×layers;
+> an UNOPTIMIZED path materializes intermediates) + **state/KV pools** (`max_running × per-req-state` for
+> linear-attn is large at batch). Fixed model-resident first, remaining RAM caps batch×context×depth; if it
+> won't fit, shrink batch/prefill/depth or pick a bigger node — BEFORE submitting. A 10-second calc avoids
+> a ~30-min load-to-SIGKILL round-trip on a scarce node. Full ladder: `performance-scales/multiscale-optimization`
+> GATE 0 + `accuracy-oracle` ⛔ CAPACITY BUDGET.
+
 > **PRESERVE THE KOSHER BASELINE (do this BEFORE the first optimization).** The parity-checked,
 > unoptimized CPU build is the reference for the whole perf phase — it must stay runnable and
 > untouched. Three guards, all required: (1) **FREEZE the golden fingerprint** (the per-op tensors +
