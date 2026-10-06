@@ -16,11 +16,12 @@ up-front, enforced flow.
    remainder. 2. **Each dominant kernel at its roofline** for its regime, gap explained. Accuracy is a
 hard gate throughout (`accuracy-oracle`).
 
-## The scales + the feedback loops (solid = top-down discovery; dotted = bottom-up feedback)
+## The scales + the feedback loops (solid = first-pass discovery; dotted = bottleneck-driven feedback)
 ```mermaid
 flowchart TB
-  NS["★ NORTH-STAR: wall = Σ kernel-time (glue→0) AND each kernel at its roofline"] --> MACRO
-  subgraph MACRO["MACRO — make the profile KERNEL-DOMINATED"]
+  NS["★ NORTH-STAR: wall = Σ kernel-time (glue→0) AND each kernel at its roofline"] --> LOOP
+  LOOP["↻ EVERY ITERATION (bottleneck-driven): profile → pick the SINGLE dominant bottleneck → classify its scale → apply ONE lever → re-profile. Next lever may be the SAME scale (within) or another (across)."] --> MACRO
+  subgraph MACRO["MACRO — make the profile KERNEL-DOMINATED  ↻ iterate within"]
     M1["whole-operator fusion (no DRAM materialization)"]
     M2["dispatch elimination (fewer/larger ops, bf16 e2e, warm torch.compile)"]
     M3["operating point (batch M): amortizes WEIGHT-bound ops; per-sequence STATE ops do NOT"]
@@ -28,30 +29,32 @@ flowchart TB
     M5["measure the SEAM, not the kernel"]
   end
   MACRO -->|kernel-dominated| MESO
-  subgraph MESO["MESO — each kernel's DATA MOVEMENT at the streamed roofline"]
+  subgraph MESO["MESO — each kernel's DATA MOVEMENT at the streamed roofline  ↻ iterate within"]
     S1["two-ceiling: streamed ≠ resident peak; BRGEMM is the baseline"]
     S2["AI vs RIDGE (measured BW): >ridge compute-bound (grows w/M); <ridge BW-bound (op-point only)"]
     S3["weight prepack → persisted VNNI/AMX layout"]
     S4["low-precision STORAGE = data-movement lever; contiguous-layout invariant"]
   end
   MESO -->|data movement at roofline| MICRO
-  subgraph MICRO["MICRO — each INNER LOOP at the AMX/VNNI peak"]
+  subgraph MICRO["MICRO — each INNER LOOP at the AMX/VNNI peak  ↻ iterate within"]
     U1["tile op (dpbf16/dpbusd) + fp32 accumulate"]
     U2["VNNI pack; inline fp8→bf16 in load; scale folded in FMA"]
     U3["FUSED epilogue (activation/dequant in the store)"]
     U4["SETTLED NULL-TRAPS: thread-cap / ILP / prefetch — do NOT re-test"]
   end
-  MICRO -.->|re-profile: dominant op shifted scale| MACRO
-  MESO -.->|op BW-bound / at floor → change operating point or fuse up| MACRO
-  MICRO -.->|inner loop can't beat floor → fuse into neighbor| MESO
+  MICRO -.->|re-profile → re-dispatch on the revealed bottleneck| LOOP
+  MESO  -.->|op BW-bound / at floor → feed UP (operating point or fuse)| LOOP
+  MICRO -.->|inner loop can't beat floor → fuse into neighbor| LOOP
   GATES["CROSS-CUTTING GATES: (1) upfront multi-scale DONOR study, model WHOLE operator incl. seam · (2) confirm microbench wins IN-ENGINE · (3) correctness parity + CPU↔GPU equivalence"]
   GATES -.-> MACRO
   GATES -.-> MESO
   GATES -.-> MICRO
 ```
-The dotted edges are the iterative feedback loops (a lower-scale floor re-decides a higher scale) —
-see `multiscale-optimization` § ITERATIVE FEEDBACK LOOPS. A single macro→meso→micro pass without
-re-profiling + feeding floors back up is the waterfall anti-pattern.
+Iteration is **bottleneck-driven and happens BOTH within a scale and across scales**: every pass
+re-profiles and the revealed dominant bottleneck picks the next lever (same scale = within-scale
+iteration; a floor feeding up or the dominant op shifting = across-scale). See
+`multiscale-optimization` § ITERATIVE, BOTTLENECK-DRIVEN FEEDBACK LOOPS. A single macro→meso→micro
+pass without re-profiling + re-dispatching is the waterfall anti-pattern.
 
 ## The tree (traverse TOP-DOWN — fix the biggest scale first)
 - **[multiscale-optimization](multiscale-optimization/SKILL.md)** — ENTRY POINT: north-star,
