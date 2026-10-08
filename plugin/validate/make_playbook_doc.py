@@ -104,6 +104,14 @@ bullet("genuinely novel ops get an AI-written, roofline-tuned native kernel (C/C
 para("Scope discovery is the router (which ops are covered vs novel); the spine-leaf performance tree "
      "\u2014 the macro/meso/micro per-op roofline loop \u2014 is the engine. One pipeline, re-applied per "
      "(model, platform).", GRAY)
+para("Deliverable contract (what the pipeline guarantees):", bold=True)
+bullet("Every op / fused-op is AUTHORED as a native kernel \u2014 a C/C++ torch extension on CPU "
+       "(CUDA/Triton on GPU). Nothing hot stays in eager python/torch.", bold_lead="1 \u2014 ")
+bullet("Each authored kernel is TESTED standalone (parity + roofline) and ONLY THEN integrated into the "
+       "serving stack's model behind the cosine-fingerprint gate \u2014 wired as a torch op, no fork "
+       "(the pilot: SGLang external model package / PyTorch).", bold_lead="2 \u2014 ")
+bullet("All end-to-end model runs execute through the serving-stack engine (the pilot: SGLang / "
+       "sgl.Engine), not a bespoke loop \u2014 so wall-time reflects the real inference path.", bold_lead="3 \u2014 ")
 
 # ---- governing two-phase ----
 h1("Governing principle — two phases")
