@@ -169,6 +169,43 @@ num("Re-run the model end-to-end (dummy weights, same M sweep) and record the ne
     "vs the previous row and the cumulative speed-up vs baseline.", bold_lead="3 \u2014 ")
 num("Repeat for the next op. The ledger accumulates to the final published curve: baseline \u2192 "
     "op-by-op \u2192 fully-optimized.", bold_lead="4 \u2014 ")
+h2("Depth-proxy timing + analytical scaling to full depth")
+para("Perf runs use DUMMY weights (no real load) AND a depth-reduced proxy: every DSv4 layer is the "
+     "identical MoE+MLA+DSA archetype (first_k_dense_replace=0, moe_layer_freq=1), so end-to-end wall "
+     "time is LINEAR in depth, t(L) = t_fixed + L\u00b7t_layer. This keeps every iteration cheap "
+     "(4 layers, not 43) while still reporting a full-depth number.", GRAY)
+bullet("Calibrate ONCE at baseline from two proxy depths (4 and 8 layers): "
+       "t_layer = (t\u2088 \u2212 t\u2084)/4 and t_fixed = t\u2084 \u2212 4\u00b7t_layer, where t_fixed is the non-layer cost "
+       "(embed + lm_head + framework/sampling).")
+bullet("Each iteration records BOTH: (a) the MEASURED proxy-4 wall time, and (b) the full-depth wall time "
+       "derived ANALYTICALLY \u2014 t_layer(iter) = (t_proxy4(iter) \u2212 t_fixed)/4, predicted full = "
+       "t_fixed + 43\u00b7t_layer(iter). Report proxy and full-scaled speed-up curves side by side "
+       "(they differ because the fixed overhead does not scale).")
+bullet("t_fixed is config-invariant across per-layer optimizations; recalibrate only if a NON-layer op "
+       "(e.g. lm_head) is optimized.")
+bullet("END VALIDATION: after all ops are integrated, do ONE full-depth dummy run (43 layers) and compare "
+       "the MEASURED full-depth wall time against the analytically predicted value \u2014 small error "
+       "confirms the whole depth-scaled progression. Ledger: "
+       "plugin/validate/results/wall_time_progress.json.")
+h2("Framework / dispatch / OpenMP overhead \u2014 the proxy studies these too (Phase B on the proxy)")
+para("The depth proxy is the right instrument for system overhead, not just op math: the depth-independent "
+     "t_fixed term IS the framework/dispatch/sampling cost, and per-op dispatch + OpenMP-barrier overhead "
+     "lives in t_layer and is incurred every layer \u2014 both are fully present at depth 4. Global OMP "
+     "pathologies are depth-invariant, so the proxy reproduces them at a fraction of the cost.", GRAY)
+num("Finish ALL ops/fused-ops to their roofline ceiling and integrate them into the proxy (end of Phase A); "
+    "record the fully-integrated proxy + full-scaled wall time.", bold_lead="Order \u2014 ")
+num("THEN attack framework/dispatch/OMP overhead on that integrated proxy (this is Phase B). Bit-exact "
+    "gate: an overhead fix must not change tokens.", bold_lead="")
+num("Show the wall-time improvement from the overhead work (proxy + full-scaled), SURFACE it, and only "
+    "THEN launch the single full-depth run.", bold_lead="")
+bullet("Bind threads ONCE at init \u2014 never per-forward torch.set_num_threads (it rebuilds the OpenMP pool "
+       "and LOSES CPU affinity \u2192 unpinned contention inflates the whole forward uniformly; invisible per-op).")
+bullet("Collapse many tiny torch ops into fewer/bigger parallel regions \u2014 at N threads each tiny op pays "
+       "a barrier, so ~100 ops/layer is a ~10-20x dispatch tax; fuse into one parallel region.")
+bullet("Clear the usual systemic levers: OMP spin-wait (OMP_WAIT_POLICY), allocator (tcmalloc/jemalloc), "
+       "NUMA first-touch into the rank's own domain, thread-cap, CPU-freq/cold-start; remove dtype-cast and "
+       "dispatch churn on the hot path. A global-config pathology masquerades as uniform per-op cost \u2014 "
+       "clear it before trusting any per-op ranking.")
 h2("MoE mode-collapse \u2014 the input tensor matters")
 para("The dummy-weight run must exercise a REPRESENTATIVE set of routed experts. With tiny random gate "
      "weights, a non-diverse input (e.g. one hidden vector broadcast across the batch) collapses routing "
