@@ -1,0 +1,18 @@
+{
+  "_schema": "Registry of EVERY place a kept kernel falls back to torch (or a donor) instead of a custom/native path, with the reason and the roofline/limit justification. Maintained across the whole optimization + integration phase and SURFACED FOR REVIEW at phase end. A fallback is legitimate only if it is (a) strictly best-of (no regression at the fallback point) OR (b) at the measured limit for that case with no known lever left.",
+  "surface_at": "end of optimization + integration phase (review gate)",
+  "fallbacks": [
+    {
+      "op": "indexer_topk",
+      "where": "M=8 (mid priority)",
+      "fallback_to": "torch.topk(k=512, sorted=False)",
+      "custom_path": "parallel std::nth_element O(S) set-select (used for M=1 and priority M=16/32/64)",
+      "reason": "custom loses at M=8 (0.42x vs torch.topk): only 8 row-tasks spread over 64 threads underutilize the machine; torch.topk parallelizes the selection differently.",
+      "limit_justification": "top-k is SELECTION, not GEMM -> no oneDNN/AMX primitive to exploit; op is tiny (sub-ms, minor forward slice). Explored: a 2-pass chunk->local-topk->merge kernel would close M=8 but adds code for a tiny op (diminishing returns). ACCEPTED AT THE LIMIT for now.",
+      "strictly_best_of": true,
+      "decided": "option 1 — custom + torch.topk fallback at M=8 (wins priority, no regression anywhere)",
+      "commit": "06faec0",
+      "revisit": "if M=8 becomes hot after integration, or if a cheap finer-grain kernel is found"
+    }
+  ]
+}

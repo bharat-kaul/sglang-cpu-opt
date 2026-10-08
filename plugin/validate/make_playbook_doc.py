@@ -170,6 +170,11 @@ bullet("Per op, record EVERY optimization pass (before/after): approach, off-mac
        "per M, correctness (cosine / set-match), kept?, commit. The final KEPT pass is the best-of, reported "
        "against the roofline (at-ceiling, or surfaced-as-plateaued with the residual-gap cause).")
 bullet("Per-op pass ledgers: plugin/validate/results/op_passes/<op>.json (schema in _schema.json).")
+bullet("Torch/donor fallback registry: every point where the kept best-of falls back to torch (or a "
+       "donor) instead of the custom path is recorded with its reason + limit justification "
+       "(plugin/validate/results/torch_fallbacks.json). A fallback is legitimate only if strictly best-of "
+       "(no regression at that point) OR at the measured limit with no lever left. The WHOLE registry is "
+       "SURFACED FOR REVIEW at the end of the optimization + integration phase.")
 h2("The loop (repeat per op, in Phase-A order)")
 num("Baseline wall time FIRST: run the model end-to-end (depth proxy, deterministic-dummy weights) and "
     "record the steady-state median latency at each M (step 0 = the reference; never time the cold step).",

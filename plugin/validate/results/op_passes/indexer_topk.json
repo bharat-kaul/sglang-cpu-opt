@@ -1,7 +1,7 @@
 {
   "op": "indexer_topk",
   "lane": "B",
-  "queue_state": "DONE_STANDALONE (best kept, in queue) — N=8 fallback decision OPEN",
+  "queue_state": "DONE_STANDALONE (best kept, in queue) — M=8 torch.topk fallback LOCKED (option 1)",
   "binding": "latency/selection-bound (no oneDNN primitive — selection, not GEMM); sub-ms op",
   "kernel": "plugin/kernels/dsa_pilot/indexer_topk.cpp",
   "passes": [
@@ -9,8 +9,7 @@
   ],
   "best": {
     "commit": "06faec0",
-    "verdict": "best-of pending user decision at M=8",
-    "open_decision": "(1) keep custom + torch.topk fallback at M=8 [recommended, strictly best-of]; (2) keep custom everywhere (accept M=8 sub-ms regression); (3) 2-pass finer-grain kernel for M=8",
-    "note": "top-k has no oneDNN/GEMM primitive; op is tiny (sub-ms, minor forward slice)"
+    "verdict": "best-of LOCKED: custom nth_element for M=1 and priority M=16/32/64; torch.topk fallback at M=8 (at the limit — see torch_fallbacks.json)",
+    "note": "top-k has no oneDNN/GEMM primitive; op is tiny (sub-ms, minor forward slice). M=8 accepted at limit; revisit if M=8 becomes hot."
   }
 }

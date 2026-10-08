@@ -1,6 +1,9 @@
 // DSv4 DSA indexer top-k — Phase-A kernel (pilot). Select the top-k KV indices per query.
 // Sparse attention only needs the SET of top-k (gather is permutation-invariant), so use an
 // O(S) selection (std::nth_element) instead of a sort. Parallel over N rows.
+// INTEGRATION: best-of = this custom path for M=1 and priority M=16/32/64; torch.topk FALLBACK at
+// M=8 (custom 0.42x there — 8 row-tasks underutilize 64 threads; at the limit, no GEMM primitive).
+// Logged in plugin/validate/results/torch_fallbacks.json (surfaced for review at phase end).
 #include <torch/extension.h>
 #include <ATen/Parallel.h>
 #include <algorithm>
