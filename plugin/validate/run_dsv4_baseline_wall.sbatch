@@ -1,8 +1,12 @@
 #!/bin/bash
-# DSv4-Flash BASELINE wall-time (progressive ledger step 0) — full config, dummy weights, EMR 1 socket.
-# E2E decode latency across the M sweep; DSA ENABLED (the ops we optimize live here); one NUMA domain
-# bound ONCE (canonical config). Random distinct input tokens -> decorrelated -> MoE routing disperses
-# (avoids the broadcast mode-collapse trap). Feeds plugin/validate/results/wall_time_progress.json step 0.
+# DSv4-Flash BASELINE wall-time (progressive ledger step 0) — dummy weights, EMR 1 socket.
+# Perf runs use DUMMY weights (no real load) AND a depth-reduced proxy: every DSv4 layer is the
+# identical MoE+MLA+DSA archetype (first_k_dense_replace=0, moe_layer_freq=1), so a 4-layer proxy
+# (flash-v4.1-proxy4, full width/ranks/experts/groups) gives representative per-op timing and
+# progression deltas without paying the 43x compute or the 139GB dummy-init. Override MODEL for a
+# one-off full-depth anchor (flash-v4.1-dummy). DSA ENABLED (the ops we optimize live here); one
+# NUMA domain bound ONCE. Random distinct input tokens -> decorrelated -> MoE routing disperses
+# (avoids the broadcast mode-collapse trap). Feeds plugin/validate/results/wall_time_progress.json.
 #SBATCH --partition=emr
 #SBATCH --nodes=1
 #SBATCH --exclusive
@@ -18,9 +22,9 @@ export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
 # canonical bind: one socket = one NUMA domain (SNC off), 64 physical cores, pinned ONCE at init
 export OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores
 cd /data/nfs_home/bkaul
-MODEL=/scratch/$USER/models/flash-v4.1-dummy
+MODEL=${MODEL:-/scratch/$USER/models/flash-v4.1-proxy4}
 INLEN=2048; OUTLEN=8
-echo "=== DSv4-Flash BASELINE wall-time sweep (full 43L/256E dummy, DSA on, 1 socket) ==="
+echo "=== DSv4-Flash BASELINE wall-time sweep  model=$MODEL (DSA on, 1 socket) ==="
 for M in 1 8 16 32 64; do
   echo "########## M=$M ##########"
   OMP_NUM_THREADS=64 numactl --cpunodebind=0 --membind=0 \
