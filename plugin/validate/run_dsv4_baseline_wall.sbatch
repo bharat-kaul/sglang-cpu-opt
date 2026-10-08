@@ -18,10 +18,12 @@ source /scratch/$USER/venvs/sglang-cpu/bin/activate
 export SGLANG_USE_CPU_ENGINE=1
 export DETERMINISTIC_DUMMY=1
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
-export PYTHONPATH=/data/nfs_home/bkaul/sglang-cpu-opt/plugin
+# everything from THIS pilot branch (not the old sglang-cpu-opt checkout)
+REPO=/data/nfs_home/bkaul/dsv4-tree-pilot
+export PYTHONPATH=$REPO/plugin
 # canonical bind: one socket = one NUMA domain (SNC off), 64 physical cores, pinned ONCE at init
 export OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores
-cd /data/nfs_home/bkaul
+cd "$REPO"
 MODEL=${MODEL:-/scratch/$USER/models/flash-v4.1-proxy4}
 INLEN=2048; OUTLEN=8
 TAG=$(basename "$MODEL")
