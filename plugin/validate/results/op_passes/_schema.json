@@ -1,0 +1,12 @@
+{
+  "_schema": "Per-op optimization-pass ledger. One file per op under op_passes/. Records EVERY optimization pass (before/after), so the final kept version is auditable against the roofline. Ops are AUTHORED IN PARALLEL (independent work items, one node each) and QUEUED for SERIAL one-by-one integration (cosine-gated) into the wall-time ledger. Metrics are ratios (unit-invariant): off_machine_peak = measured/roofline-floor (lower=closer to ceiling); vs_ref = speedup over the torch/donor reference; cos / set-match = correctness.",
+  "fields": {
+    "passes[]": "{pass, name, approach, off_machine_peak:{M}, vs_ref:{M}, correctness, kept, commit, note}",
+    "best": "the kept pass + verdict vs roofline (at-ceiling | surfaced-as-plateaued + residual-gap cause)",
+    "M_priority": "16/32/64 high, then 8, then 1"
+  },
+  "parallel_authoring": {
+    "rule": "fan out op authoring across idle nodes (one op per node); each op runs its own author->measure->iterate loop and records passes here. Integration stays SERIAL: dequeue one finished op at a time, cosine-gate, re-run wall-time ledger.",
+    "queue_states": ["TODO", "AUTHORING", "DONE_STANDALONE (best kept, in queue)", "INTEGRATING", "INTEGRATED"]
+  }
+}

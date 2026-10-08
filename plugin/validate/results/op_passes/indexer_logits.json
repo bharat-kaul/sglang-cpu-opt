@@ -1,0 +1,19 @@
+{
+  "op": "indexer_logits",
+  "lane": "B",
+  "queue_state": "DONE_STANDALONE (best kept, in queue)",
+  "binding": "BW-bound at all M (machine-peak roofline)",
+  "kernel": "plugin/kernels/dsa_pilot/indexer_logits.cpp",
+  "passes": [
+    {"pass": 1, "name": "serial-n per-op matmul", "approach": "loop N rows, per-row matmul + epilogue", "off_machine_peak": {}, "vs_ref": {"M64": 0.04}, "correctness": "cos 1.0", "kept": false, "commit": null, "note": "pathologically slow (no batched AMX); diagnosed, discarded"},
+    {"pass": 2, "name": "batched bmm bf16 + fused epilogue", "approach": "one at::bmm over folded N*H rows -> AMX; single-pass relu*weight*sum epilogue", "off_machine_peak": {"M8": 55.1, "M16": 28.4, "M32": 14.5, "M64": 8.2}, "vs_ref": {"M1": 2.3, "M64": 6.2}, "correctness": "cos 1.000000", "kept": false, "commit": "241119a", "note": "scores still round-trip DRAM"},
+    {"pass": 3, "name": "tiled brgemm + per-tile fused epilogue", "approach": "ATen cpublas::brgemm into L1 stack buffer; scores never leave cache (drops [N,H,S] DRAM round-trip)", "off_machine_peak": {"M8": 28.4, "M16": 13.0, "M32": 8.2, "M64": 6.3}, "vs_ref": {"M16": 6.68}, "correctness": "cos 1.000000", "kept": false, "commit": "e56b47c", "note": "superseded by best-of (still loses to bmm at M=1 overhead-bound)"},
+    {"pass": "final", "name": "best-of dispatcher (tiled M>=8 + bmm M=1)", "approach": "pick tiled for M>=8, bmm for M=1", "off_machine_peak": {"M1": "overhead-bound", "M8": 28.1, "M16": 13.2, "M32": 7.7, "M64": 5.9}, "vs_ref": {"M1": 2.0, "M8": 5.15, "M16": 6.68, "M32": 5.84, "M64": 5.34}, "correctness": "cos 1.000000", "kept": true, "commit": "e3fdcb9", "note": "tuned for priority M=16/32/64"}
+  ],
+  "best": {
+    "commit": "e3fdcb9",
+    "verdict": "surfaced-as-plateaued",
+    "residual_gap_cause": "primary lever (drop [N,H,S] score DRAM round-trip via L1/L2-resident tiled epilogue) EXHAUSTED; remaining gap to machine peak = achievable DRAM BW ~60% of 358 GB/s datasheet + sub-ms per-layer dispatch overhead. Not closable by further kernel work on this silicon.",
+    "frac_of_machine_peak": {"M64": "~17%", "M32": "~13%", "M16": "~7.6%"}
+  }
+}

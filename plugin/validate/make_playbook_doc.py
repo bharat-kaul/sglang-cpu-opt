@@ -162,6 +162,14 @@ para("Each optimization is proven end-to-end, not just in a microbench. We keep 
      "publication shows a monotonic, correctness-gated speed-up curve.", bold=True)
 para("Ledger artifact: plugin/validate/results/wall_time_progress.json (baseline row + one row per "
      "op, filled after each integration).", GRAY)
+h2("Parallel authoring, serial integration, per-pass record")
+para("Ops are independent work items (distinct kernel, distinct microbench), so AUTHOR THEM IN PARALLEL "
+     "(one op per idle node) and QUEUE the finished best-of versions. INTEGRATION stays serial: dequeue "
+     "one op at a time, cosine-gate, re-run the wall-time ledger. Only the integrated re-profile is serial.", GRAY)
+bullet("Per op, record EVERY optimization pass (before/after): approach, off-machine-peak and vs-reference "
+       "per M, correctness (cosine / set-match), kept?, commit. The final KEPT pass is the best-of, reported "
+       "against the roofline (at-ceiling, or surfaced-as-plateaued with the residual-gap cause).")
+bullet("Per-op pass ledgers: plugin/validate/results/op_passes/<op>.json (schema in _schema.json).")
 h2("The loop (repeat per op, in Phase-A order)")
 num("Baseline wall time FIRST: run the model end-to-end (depth proxy, deterministic-dummy weights) and "
     "record the steady-state median latency at each M (step 0 = the reference; never time the cold step).",
