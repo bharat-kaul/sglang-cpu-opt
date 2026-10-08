@@ -1,0 +1,30 @@
+{
+  "_schema": "Registry of ops SURFACED-AS-PLATEAUED: driven to their roofline limit but still below MACHINE PEAK, with the residual-gap cause and whether any lever remains. Distinct from torch_fallbacks.json (which tracks torch/donor fallbacks). SURFACED FOR REVIEW at the end of the optimization + integration phase alongside the fallback registry.",
+  "surface_at": "end of optimization + integration phase (review gate)",
+  "limits": [
+    {
+      "op": "indexer_logits",
+      "commit": "e3fdcb9",
+      "binding": "BW-bound at all M (machine-peak roofline)",
+      "plateau_frac_of_machine_peak": {"M64": "~17%", "M32": "~13%", "M16": "~7.6%"},
+      "off_machine_peak": {"M64": 5.9, "M32": 7.7, "M16": 13.2, "M8": 28.1, "M1": "overhead-bound"},
+      "vs_reference": {"M64": 5.34, "M32": 5.84, "M16": 6.68, "M8": 5.15, "M1": 2.0},
+      "primary_lever": "eliminate [N,H,S] score DRAM round-trip via L1/L2-resident tiled epilogue",
+      "lever_status": "EXHAUSTED",
+      "residual_gap_cause": "achievable DRAM BW is ~60% of the 358 GB/s datasheet machine peak (hardware delivers ~214 GB/s wall) + sub-ms per-layer dispatch overhead at low M. Not closable by further kernel work on this silicon.",
+      "internal_fallback": "best-of uses bmm (not the tiled kernel) at M=1 where tiling is overhead-bound (custom-to-custom, not torch).",
+      "revisit": "if achievable BW improves (allocator/NUMA/prefetch) or per-layer sizes grow (batching)."
+    },
+    {
+      "op": "indexer_topk",
+      "commit": "06faec0",
+      "binding": "selection/latency-bound (no oneDNN/AMX GEMM primitive — top-k is selection)",
+      "plateau_frac_of_machine_peak": "n/a (not a GEMM/BW op; measured vs torch.topk)",
+      "vs_reference": {"M64": 1.53, "M32": 1.63, "M16": 1.48, "M8": 0.42, "M1": 2.55},
+      "primary_lever": "O(S) parallel nth_element set-select instead of a sort",
+      "lever_status": "EXHAUSTED for M>=16 and M=1; M=8 at the limit (see torch_fallbacks.json)",
+      "residual_gap_cause": "tiny sub-ms op; at M=8 only 8 row-tasks underutilize 64 threads -> torch.topk fallback.",
+      "revisit": "if M=8 becomes hot or a cheap 2-pass chunk->local-topk->merge kernel is found."
+    }
+  ]
+}

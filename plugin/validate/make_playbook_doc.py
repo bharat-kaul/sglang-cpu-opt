@@ -160,6 +160,11 @@ h1("Progressive wall-time tracking (publication ledger)")
 para("Each optimization is proven end-to-end, not just in a microbench. We keep a running "
      "wall-time ledger from the unoptimized baseline through every integrated op, so the final "
      "publication shows a monotonic, correctness-gated speed-up curve.", bold=True)
+para("Use the CHEAPEST representative proxy at every altitude, wherever feasible, and recover the "
+     "full-scale number ANALYTICALLY \u2014 validated by ONE full run at the end: (a) op optimization uses the "
+     "isolated-op microbench at real op dims (and reduced context S where the op scales trivially in S); "
+     "(b) wall-time uses the depth-reduced model with linear depth-scaling to full N. Proxies move us "
+     "faster; the single full-depth run at phase end confirms the analytical scaling held.", GRAY)
 para("Ledger artifact: plugin/validate/results/wall_time_progress.json (baseline row + one row per "
      "op, filled after each integration).", GRAY)
 h2("Parallel authoring, serial integration, per-pass record")
