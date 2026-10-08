@@ -22,6 +22,15 @@ logger.info(
     "(SGLANG_EXTERNAL_MODEL_PACKAGE)."
 )
 
+# Neutralize pin_memory on CPU FIRST — newer sglang allocates pin_memory=True tensors
+# (DSA backend / KV pool / scheduler) that crash on a CPU-only host.
+try:
+    from intel_cpu_models._cpu_pin_memory import install_cpu_pin_memory_shim
+
+    install_cpu_pin_memory_shim()
+except Exception as _e:  # never block loading on this shim
+    logger.warning("intel_cpu_models: pin_memory shim not installed: %s", _e)
+
 # Install CPU arg-resolution guards at package-import time — BEFORE sglang's
 # resolve_once() runs the DSA-family device probes (GLM-5.3 Flash routes there).
 try:
