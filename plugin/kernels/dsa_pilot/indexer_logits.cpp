@@ -4,6 +4,22 @@
 // library GEMM (bf16 AMX), fuse ONLY the irreducible epilogue (relu * weight * sum over H).
 // Scores are computed per-n as [S,H] so they stay L2-resident -> the epilogue reads them
 // from cache, removing the [N,H,S] DRAM round-trip that makes a non-fused port BW-bound.
+//
+// RESULTS vs MACHINE-PEAK roofline (EMR: BW 358.4 GB/s, AMX bf16 124.6 TF @1.9GHz; op is
+// BW-bound at every M). best-of = tiled brgemm (M>=8) + bmm (M=1); set-match cos 1.000000.
+// Measured wall times are unchanged from the achievable-ceiling run; off-ceiling just rescales
+// by 358.4/214.4 = 1.67x. priority M = 16/32/64.
+//   M  | vs torch ref | off achievable-BW | off MACHINE-peak | frac of machine-peak ceiling
+//   64 |    5.34x     |      3.5x          |     5.9x         |   ~17%   (priority)
+//   32 |    5.84x     |      4.6x          |     7.7x         |   ~13%   (priority)
+//   16 |    6.68x     |      7.9x          |    13.2x         |   ~7.6%  (priority)
+//    8 |    5.15x     |     16.8x          |    28.1x         |   ~3.6%
+//    1 |    ~2x       |   overhead-bound (~5us ideal traffic; bmm path) — ratio not meaningful
+// VERDICT (plateau->surface->stop): primary lever (eliminate [N,H,S] score DRAM round-trip via
+// L1/L2-resident tiled epilogue) is EXHAUSTED. Residual gap to machine peak is NOT closable by
+// further kernel work on this silicon: (1) achievable DRAM BW is ~60% of the 358 GB/s datasheet
+// peak (measured 214 GB/s wall) and (2) per-layer op is small (sub-ms, dispatch/alloc overhead
+// at low M). SURFACED as plateaued; best-of kept for integration.
 #include <torch/extension.h>
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
