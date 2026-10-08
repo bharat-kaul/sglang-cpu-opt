@@ -8,6 +8,8 @@
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
 #include <ATen/native/CPUBlas.h>
+#include <cstring>
+#include <vector>
 
 // q:[N,H,D] kv:[N,S,D] weight:[N,H] -> logits:[N,S] (fp32), semantics == indexer_logits ref.
 torch::Tensor indexer_logits_fused(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
@@ -56,7 +58,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   const int64_t nthr = at::get_num_threads();
   int64_t tpn = std::max<int64_t>(1, (4 * nthr + N - 1) / N);        // tiles per n
   int64_t Sb = std::max<int64_t>(16, ((S + tpn - 1) / tpn + 15) / 16 * 16);
-  Sb = std::min<int64_t>(Sb, 256);
+  Sb = std::min<int64_t>(Sb, 1024);               // larger tiles -> bigger brgemm M (AMX util)
   const int64_t ntiles = (S + Sb - 1) / Sb;
 
   // Pack B = q[n]^T [D,H] (VNNI) once per n; reused by every S-tile of that n.
@@ -73,17 +75,18 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   }
 
   at::parallel_for(0, N * ntiles, 1, [&](int64_t a, int64_t b) {
-    alignas(64) float Cbuf[256 * 64];           // >= Sb*H (Sb<=256, H=64) = 64KB
+    std::vector<float> Cbuf(Sb * H);            // heap C tile (L2-resident), per chunk
+    float* C = Cbuf.data();
     for (int64_t it = a; it < b; ++it) {
       const int64_t n = it / ntiles, ti = it % ntiles, s0 = ti * Sb;
       const int64_t sb = std::min(Sb, S - s0);
       const at::BFloat16* A = kvb[n].data_ptr<at::BFloat16>() + s0 * D;   // [sb,D]
       const at::BFloat16* B = qpack[n].data_ptr<at::BFloat16>();          // packed [D,H]
-      at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, Cbuf, vnni);
+      at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, C, vnni);
       const float* w = wf[n].data_ptr<float>();
       float* lp = logits[n].data_ptr<float>() + s0;
       for (int64_t r = 0; r < sb; ++r) {
-        const float* row = Cbuf + r * H;
+        const float* row = C + r * H;
         float acc = 0.f;
         #pragma omp simd reduction(+ : acc)
         for (int64_t h = 0; h < H; ++h) {
@@ -98,7 +101,16 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   return logits;
 }
 
+// Integration entry point: keep the BEST-performing variant per operating point.
+// tiled (brgemm + L1 fused epilogue) wins for N>=8; at N=1 the op is overhead-bound and bmm
+// is a tie/slightly better. Measured crossover ~N=4-8 on EMR.
+torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
+  return q.size(0) >= 8 ? indexer_logits_tiled(q, kv, weight)
+                        : indexer_logits_fused(q, kv, weight);
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def("indexer_logits", &indexer_logits, "DSA indexer logits (best-of dispatcher, integration entry)");
   m.def("indexer_logits_fused", &indexer_logits_fused, "DSA indexer logits (fused epilogue)");
   m.def("indexer_logits_tiled", &indexer_logits_tiled, "DSA indexer logits (tiled brgemm + fused epilogue, no DRAM scores)");
 }
