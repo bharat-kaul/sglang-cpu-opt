@@ -1,0 +1,12 @@
+{
+  "op": "mhc_combine",
+  "lane": "C",
+  "queue_state": "DONE_STANDALONE (best kept, in queue) — ALL C/C++, no fallback",
+  "binding": "BW/latency-bound (weighted sum over hc clusters)",
+  "kernel": "plugin/kernels/dsa_pilot/combine.cpp",
+  "passes": [
+    {"pass": 1, "name": "naive per-k += over y", "approach": "for each cluster k: y[h] += pre[k]*x[k,h] (hc passes over y)", "vs_ref": {"M1": 7.05, "M8": 0.82, "M16": 0.59, "M32": 0.53, "M64": 0.57}, "correctness": "cos 1.000000", "kept": false, "commit": "pending", "note": "wins M=1 but LOSES M>=8: hc passes re-read/re-write the whole y row -> 2x output traffic vs torch einsum (ATen C++)."},
+    {"pass": 2, "name": "tiled accumulate-once (L1 h-tile, accumulate over hc, write y once)", "approach": "per h-tile: zero L1 acc, accumulate over hc, store once; x read once, y written once", "vs_ref": {"M1": 5.28, "M8": 2.28, "M16": 2.31, "M32": 2.12, "M64": 1.89}, "correctness": "cos 1.000000", "kept": true, "commit": "pending", "note": "wins ALL M; fixed the M>=8 loss. No fallback."}
+  ],
+  "best": {"commit": "pending", "verdict": "tiled accumulate-once kept; wins all M, all C/C++.", "revisit": "n/a"}
+}
