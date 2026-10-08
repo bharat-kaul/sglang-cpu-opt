@@ -56,7 +56,25 @@ torch::Tensor sparse_attend(torch::Tensor q, torch::Tensor k, torch::Tensor v, d
   return out;
 }
 
+// pass 2: bf16 AMX batched GEMM (q.k and w.v via at::bmm on AMX) — for larger M where the
+// compute-bound GEMMs dominate and the scalar flash only ties torch's fp32 BLAS. Softmax in fp32.
+torch::Tensor sparse_attend_amx(torch::Tensor q, torch::Tensor k, torch::Tensor v, double scale_) {
+  TORCH_CHECK(q.dim() == 3 && k.dim() == 4 && v.dim() == 4, "bad dims");
+  const int64_t N = q.size(0), H = q.size(1), D = q.size(2);
+  const int64_t K = k.size(2), Dv = v.size(3);
+  const double scale = scale_ > 0 ? scale_ : 1.0 / std::sqrt((double)D);
+  auto qb = q.to(torch::kBFloat16).reshape({N * H, 1, D});
+  auto kb = k.to(torch::kBFloat16).reshape({N * H, K, D});
+  auto vb = v.to(torch::kBFloat16).reshape({N * H, K, Dv});
+  auto scores = at::bmm(qb, kb.transpose(1, 2)).to(torch::kFloat32) * scale;  // [N*H,1,K]
+  auto w = at::softmax(scores, -1).to(torch::kBFloat16);
+  auto out = at::bmm(w, vb).to(torch::kFloat32);                               // [N*H,1,Dv]
+  return out.reshape({N, H, Dv});
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("sparse_attend", &sparse_attend,
         "DSA sparse attention over top-k KV (flash-style online softmax, no score materialize)");
+  m.def("sparse_attend_amx", &sparse_attend_amx,
+        "DSA sparse attention via bf16 AMX bmm (q.k, w.v batched GEMM; for larger M)");
 }
