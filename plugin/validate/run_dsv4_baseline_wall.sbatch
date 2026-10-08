@@ -24,16 +24,12 @@ export OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores
 cd /data/nfs_home/bkaul
 MODEL=${MODEL:-/scratch/$USER/models/flash-v4.1-proxy4}
 INLEN=2048; OUTLEN=8
-echo "=== DSv4-Flash BASELINE wall-time sweep  model=$MODEL (DSA on, 1 socket) ==="
-for M in 1 8 16 32 64; do
-  echo "########## M=$M ##########"
-  OMP_NUM_THREADS=64 numactl --cpunodebind=0 --membind=0 \
-    python -m sglang.bench_one_batch \
-      --model-path "$MODEL" --load-format dummy --device cpu --tp 1 \
-      --batch-size "$M" --input-len "$INLEN" --output-len "$OUTLEN" \
-      --trust-remote-code --disable-cuda-graph \
-      --mem-fraction-static 0.6 --max-total-tokens 180000 2>&1 \
-    | grep -iE "Decode|Prefill|latency|throughput|median|OOM|Error" || echo "[M=$M no latency lines]"
-  echo "[M=$M exit=${PIPESTATUS[0]}]"
-done
-echo "=== DONE baseline sweep ==="
+TAG=$(basename "$MODEL")
+echo "=== DSv4-Flash BASELINE wall-time  model=$MODEL (DSA on, 1 socket, Engine path) ==="
+OMP_NUM_THREADS=64 numactl --cpunodebind=0 --membind=0 \
+  python plugin/validate/bench_wall_time.py \
+    --model "$MODEL" --batch-list 1,8,16,32,64 --input-len "$INLEN" --output-len "$OUTLEN" \
+    --reps 3 --tp 1 --dtype bfloat16 --load-format dummy --mem-fraction 0.6 \
+    --out /scratch/$USER/dsv4_wall_${TAG}.json
+echo "[exit=$?]"
+echo "=== DONE baseline sweep ($TAG) ==="
