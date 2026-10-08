@@ -1,0 +1,90 @@
+DSv4-Flash analytical roofline (Ops + fused Ops) — EMR, generated 2026-10-08T03:08Z
+Source: plugin/validate/dsv4_roofline_p2.py  |  platform: plugin/validate/platforms/emr.json
+
+================================================================================================
+P0 CAPACITY  platform=emr  domain=504 GB  SNC=False  ridge AI*=188 FLOP/byte
+================================================================================================
+  MoE experts(fp4)         132.1 GB
+  shared(fp4)                0.5 GB
+  MLA proj(fp8)              3.3 GB
+  indexer proj(fp8)          1.4 GB
+  embed+lm_head(bf16)        2.1 GB
+  RESIDENT                 139.4 GB  -> FITS one domain (139<504) => tp=1/EP=1
+
+================================================================================================================================
+PHASE A — PER-OP ROOFLINE + BINDING RESOURCE + AI-IMPROVABILITY + CEILING + C++ LANE  (decode, context S=4096; EVERY op, none skipped)
+================================================================================================================================
+op                                           impl-lane                      prec |       M=1       M=8      M=16      M=32      M=64  binding@M=1->64
+--------------------------------------------------------------------------------------------------------------------------------
+MLA wqkv_a (fused q_a+kv_a, 4096->1536)      donor dsv2 qkv                 fp8  |     1.3ms     1.3ms     1.3ms     1.3ms     1.4ms  B->B->B->B->B
+  q_norm RMSNorm(1024)                       donor norm.cpp                 -    |   215.0us   215.0us   215.0us   215.0us   215.0us  L->L->L->L->L
+MLA wq_b (1024->32768)                       donor dsv2                     fp8  |     6.7ms     6.8ms     6.9ms     7.2ms     7.6ms  B->B->B->B->B
+  RoPE (yarn)                                donor rope                     -    |   215.0us   215.0us   215.0us   215.0us   215.0us  L->L->L->L->L
+  kv_norm RMSNorm(512)                       donor norm.cpp                 -    |   215.0us   215.0us   215.0us   215.0us   215.0us  L->L->L->L->L
+MLA attn core (flash MQA /latent 512)        donor intel_amx attn backend   fp8  |   572.8us     4.6ms     9.2ms    18.3ms    36.7ms  C->C->C->C->C
+MLA wo_a (grouped, 32768->1024)              donor dsv2                     fp8  |     6.7ms     6.8ms     6.9ms     7.2ms     7.6ms  B->B->B->B->B
+MLA wo_b (1024->4096)                        donor dsv2                     fp8  |   843.3us   857.6us   874.1us   906.9us   972.6us  B->B->B->B->B
+DSA indexer wq (4096->8192)                  donor dsv2                     fp8  |     6.3ms     6.3ms     6.3ms     6.4ms     6.6ms  B->B->B->B->B
+DSA indexer wk (4096->128)                   donor dsv2                     fp8  |    99.4us   110.4us   123.0us   148.3us   198.7us  B->B->B->B->B
+DSA indexer logits (GEMM+epilogue FUSED)     NEW-C++ (xpu-triton oracle)    bf16 |   296.5us     1.0ms     1.8ms     3.4ms     6.7ms  B->B->B->B->B
+DSA indexer topk-512                         NEW-C++ (partial-sort)         -    |     1.6ms     1.6ms     1.6ms     1.6ms     1.6ms  L->L->L->L->L
+DSA compressor (softmax-pool)                NEW-C++                        -    |     1.2ms     1.2ms     1.2ms     1.2ms     1.2ms  L->L->L->L->L
+DSA sparse attend (top-512 KV)               donor dsv2 mla                 fp8  |    73.4us   532.9us     1.1ms     2.1ms     4.3ms  B->C->C->C->C
+MHC sinkhorn (20 iters)                      NEW-C++                        -    |     2.6ms     2.6ms     2.6ms     2.6ms     2.6ms  L->L->L->L->L
+MHC hash (3 layers)                          NEW-C++                        -    |   860.0us   860.0us   860.0us   860.0us   860.0us  L->L->L->L->L
+MoE router gate (4096->256)                  donor gemm                     bf16 |   402.7us   414.4us   427.7us   454.3us   507.6us  B->B->B->B->B
+MoE experts (gate+up+SiLU+down FUSED, W4A16) donor moe.cpp MXFP4            fp4  |    14.3ms   105.7ms   193.3ms   326.2ms   480.5ms  B->B->B->B->B
+shared-expert (gate+up+SiLU+down, 4096/2048) donor moe.cpp                  fp4  |   804.4us   820.9us   839.7us   877.3us     1.1ms  B->B->B->B->C
+embed (VocabParallel lookup)                 donor embed                    -    |    10.0us    10.0us    10.0us    10.0us    10.0us  L->L->L->L->L
+lm_head (4096->129280)                       donor gemm                     bf16 |     4.9ms     4.9ms     5.0ms     5.0ms     5.0ms  B->B->B->B->B
+
+AI across M (regime B=BW C=compute L=latency) + improvability:
+op                                           | AI@1   AI@8   AI@16  AI@32  AI@64   improvable?
+--------------------------------------------------------------------------------------------------------------------------------
+MLA wqkv_a (fused q_a+kv_a, 4096->1536)      |    2B   16B   31B   61B  115B  ↑M crosses ridge at M≈94
+  q_norm RMSNorm(1024)                       |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+MLA wq_b (1024->32768)                       |    2B   16B   31B   60B  113B  ↑M crosses ridge at M≈94
+  RoPE (yarn)                                |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+  kv_norm RMSNorm(512)                       |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+MLA attn core (flash MQA /latent 512)        |  200C  630C  745C  819C  862C  AI set by context S + flash-fusion, not M
+MLA wo_a (grouped, 32768->1024)              |    2B   16B   31B   60B  113B  ↑M crosses ridge at M≈94
+MLA wo_b (1024->4096)                        |    2B   16B   31B   59B  111B  ↑M crosses ridge at M≈94
+DSA indexer wq (4096->8192)                  |    2B   16B   32B   63B  122B  ↑M crosses ridge at M≈94
+DSA indexer wk (4096->128)                   |    2B   14B   25B   42B   63B  ↑M crosses ridge at M≈94
+DSA indexer logits (GEMM+epilogue FUSED)     |   43B  101B  112B  118B  122B  FUSE epilogue -> drop score DRAM round-trip -> AI↑ (primary lever, not M)
+DSA indexer topk-512                         |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+DSA compressor (softmax-pool)                |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+DSA sparse attend (top-512 KV)               |  171B  410C  455C  482C  496C  AI set by context S + flash-fusion, not M
+MHC sinkhorn (20 iters)                      |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+MHC hash (3 layers)                          |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+MoE router gate (4096->256)                  |    1B    8B   15B   28B   51B  ↑M crosses ridge at M≈188
+MoE experts (gate+up+SiLU+down FUSED, W4A16) |    4B    4B    5B    6B    8B  ↑M barely helps (needs avg_M>4 => M>170); lever=EP/grouping, NOT M in {1..64}
+shared-expert (gate+up+SiLU+down, 4096/2048) |    4B   31B   61B  117B  216C  ↑M crosses ridge at M≈47
+embed (VocabParallel lookup)                 |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
+lm_head (4096->129280)                       |    1B    8B   16B   32B   63B  ↑M crosses ridge at M≈188
+
+==============================================================================================================
+FUSION PASS (fusion-analysis: taxonomy | fuse-into | mapping | note)  -- refines the roofline
+==============================================================================================================
+kind        candidate                          fuse into                  mapping                           
+--------------------------------------------------------------------------------------------------------------
+vertical    q_norm -> wq_b                     norm into GEMM prologue    COVERED norm.cpp                  
+              -> small; L2-resident
+vertical    kv_norm+RoPE -> attn               prologue into attn         COVERED intel_amx attn            
+              -> position-indexed RoPE: fuse carefully
+horizontal  q_a + kv_a -> wqkv_a               fused QKV GEMM             COVERED (already fused)           
+              -> 1 packed GEMM
+epilogue    gate+up + SiLU*mul -> down         MoE W1 store step          COVERED moe.cpp                   
+              -> the big BW win; already donor-fused
+epilogue    fp4/fp8 dequant+scale -> GEMM      W4A16/W8A16 in-GEMM        COVERED gemm_{fp8,mxfp4}          
+              -> removes a full dequant pass
+epilogue    DSA indexer relu*weight*sum -> GEMM store indexer epilogue           NEW-C++ (xpu-triton+adhoc oracle) 
+              -> drops [M,NH,S] score round-trip: primary indexer lever
+epilogue    KV quant(fp8) + cache write        write kernel               COVERED kvcache.cpp               
+              -> on-write
+vertical    compressor pool -> write           softmax-pool epilogue      NEW-C++                           
+              -> fuse pool into compressed-KV write
+
+Ceiling rule: drive EVERY op/fused-op to its binding ceiling (BW peak / compute peak / latency floor).
+If a gap cannot be bridged by known techniques -> SURFACE TO USER (Phase A exit).
+Phase B (wall-time + Amdahl ordering) begins ONLY after all ops are at ceiling.

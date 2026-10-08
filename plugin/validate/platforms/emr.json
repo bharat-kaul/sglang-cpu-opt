@@ -1,0 +1,39 @@
+{
+  "name": "emr",
+  "host": "pcl-spr10.sc.intel.com",
+  "scanned_at": "2026-10-07T02:03:58",
+  "sockets": 2,
+  "cores_per_socket": 64,
+  "threads_per_core": 2,
+  "logical_cpus": null,
+  "physical_cores": 128,
+  "model_name": "INTEL(R) XEON(R) PLATINUM 8592+",
+  "l2_cache": "256 MiB (128 instances)",
+  "l3_cache": "640 MiB (2 instances)",
+  "isa": {
+    "amx_tile": true,
+    "amx_bf16": true,
+    "amx_int8": true,
+    "avx512f": true,
+    "avx512_bf16": true,
+    "avx512_fp16": true,
+    "avx512_vnni": true
+  },
+  "amx_compute_dtypes": [
+    "bf16",
+    "int8"
+  ],
+  "numa_nodes": 2,
+  "per_numa_gb": {
+    "0": 503.5,
+    "1": 503.9
+  },
+  "domain_ram_gb": 503.5,
+  "total_ram_gb": 1007.4,
+  "snc": false,
+  "domains_per_socket": 1,
+  "mem_bw_gbps": 214.4,
+  "amx_bf16_tflops": 40.3,
+  "amx_int8_tops": null,
+  "measured_how": "MEASURED 2026-10-07 uarch_probe_verify.py on pcl-spr10, numactl --cpunodebind=0 --membind=0, 64 threads (ONE socket = ONE NUMA domain, SNC off). BW=214.4 GB/s (stream-triad fp32 2GB). AMX bf16=40.3 TFLOP/s = torch.matmul plateau at 16384^3 (size-dependent: 13.5@2048, 26@4096, 32.5@8192, 40.3@16384; still climbing) ~= 32pct of theoretical ~124-190 TFLOP/s -> CONSERVATIVE achievable peak; hand-tuned brgemm could exceed. ridge=PEAK/BW~=188. Decode is BW-bound across M{1..64} regardless of exact peak; AMX peak governs only compute-bound attention + prefill."
+}
