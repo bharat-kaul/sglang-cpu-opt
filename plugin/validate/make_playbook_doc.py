@@ -276,11 +276,32 @@ bullet("Escalation order: L0 coherence → per-layer cosine (dummy, no load) →
        "isolation → component/reduces-to-identity parity → real-weight per-token parity → task accuracy "
        "→ reference-vs-target sign-off.")
 
+# ---- shape-capture audit ----
+h1("Shape-capture audit — ground every kernel's shapes in REALITY (human-auditable)")
+para("A green parity microbench is SELF-CONSISTENT: it validates op MATH at the shapes the author "
+     "CHOSE, so a wrong-but-consistent or hallucinated shape still passes (softmax-pool, flash-attention "
+     "etc. are shape-generic). Op tensor/GEMM shapes must therefore be grounded in the REAL model \u2014 not "
+     "hand-picked, and not merely inferred from the config.", bold=True)
+para("Provenance ladder (trust increases down; a kernel is trusted only at the bottom rung):", GRAY)
+bullet("hand-picked microbench shapes \u2014 REJECT as evidence (self-consistent only).")
+bullet("config-spec dims \u2014 weak (a declared config can be wrong or regenerated).")
+bullet("module-constructor-derived dims \u2014 better (the model computes op dims from config deterministically).")
+bullet("CAPTURED tensors from a real forward (dummy weights OK) \u2014 REQUIRED: dump {op, tensor, shape, "
+       "dtype, stride, layer_id} at every op boundary and DRIVE the microbench from these.")
+bullet("Kernel shape-contract asserts (check each dim vs the captured/expected value) so a wrong shape "
+       "fails loudly, not silently.")
+bullet("Emit a reviewable SHAPE MANIFEST (per-op captured shapes + their source) that a HUMAN signs off "
+       "before the kernel is trusted \u2014 the manifest + op-math-vs-reference together are the human-audit gate.")
+para("Consequence: performance numbers measured at non-captured shapes are NOT trustworthy \u2014 an attention "
+     "kernel at the wrong head_dim/head_count can flip which variant wins. Re-measure at captured shapes. "
+     "Never re-GUESS a shape after finding one wrong (same failure mode) \u2014 CAPTURE it.", GRAY)
+
 # ---- gates ----
 h1("Gates")
 for g in ["G0 — capacity / precision (every launch)",
           "G1 — coverage / lane (routes Thesis 1 vs 2 per op)",
           "Fusion roofline gate (bytes saved + AI lift + cache-resident; reference oracle where available)",
+          "Shape-provenance gate (every kernel's shapes CAPTURED from the real forward + human-signed manifest, before trust/perf-claims)",
           "Phase-A ceiling-or-surface (every op at its ceiling, else surface to user)",
           "G2 — validate-by-run (confirm the paper model in-engine)",
           "G2.5 — system-pathology (kernel-domination ≥ bar before per-op work)",

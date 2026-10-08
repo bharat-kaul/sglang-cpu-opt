@@ -4,6 +4,7 @@
   "queue_state": "DONE_STANDALONE (best kept = scalar flash; AMX pass-2 failed) — M=64 at BLAS limit",
   "binding": "compute; per-query attention has M=1 GEMMs (no AMX tiling benefit); torch einsum is fp32 BLAS",
   "kernel": "plugin/kernels/dsa_pilot/sparse_attend.cpp",
+  "shape_provenance": "UNVERIFIED — microbench used H=8,D=128,Dv=128 (NOT config dims: heads=64, qk=512, v_head_dim=512). Kernel is dim-generic + math-validated vs the real reference, but PERF (incl. the AMX-bmm 'failed' verdict) is NOT trustworthy and may FLIP at real dims; re-measure at CAPTURED shapes (shape-provenance gate).",
   "passes": [
     {"pass": 1, "name": "scalar flash online-softmax over K (parallel N*H)", "approach": "one streaming pass per (n,h); scores never materialized", "vs_ref": {"M1": 2.79, "M8": 2.53, "M16": 2.85, "M32": 2.24, "M64": 1.02}, "correctness": "cos 1.000000", "kept": true, "commit": "pending", "note": "wins low M; ties M=64 (torch fp32 BLAS)"},
     {"pass": 2, "name": "bf16 AMX bmm (q.k, w.v via at::bmm)", "approach": "batched bf16 GEMM for the two matmuls", "vs_ref": {"M1": 0.53, "M8": 0.08, "M16": 0.14, "M32": 0.15, "M64": 0.20}, "correctness": "cos 0.99998", "kept": false, "commit": "pending", "note": "FAILED: each attention GEMM has M=1 (one query/head) -> AMX tiles need M>=16; bmm over N*H tiny matmuls + bf16 cast overhead is far slower. Discarded."}

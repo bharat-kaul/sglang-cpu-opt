@@ -4,6 +4,7 @@
   "queue_state": "DONE_STANDALONE (best kept, in queue)",
   "binding": "latency/BW-bound (small streaming pool)",
   "kernel": "plugin/kernels/dsa_pilot/compressor.cpp",
+  "shape_provenance": "UNVERIFIED — microbench used R=128,D=128 (D inferred; main-KV compressor head_dim is likely 512, not 128). Kernel is dim-generic + math-validated vs the real reference, but PERF numbers below are NOT trustworthy until re-measured at CAPTURED shapes (shape-provenance gate).",
   "passes": [
     {"pass": 1, "name": "streaming online-softmax pool (vectorized over D, parallel over N)", "approach": "one pass, no w[N,R,D] temporary; online max/sum per channel", "vs_ref": {"M1": 0.73, "M8": 1.14, "M16": 1.49, "M32": 9.10, "M64": 7.19}, "correctness": "cos 1.000000", "kept": true, "commit": "pending", "note": "wins priority M=16/32/64; M=1 0.73x overhead-bound (tiny op). ref_ms noisy (torch)."}
   ],
