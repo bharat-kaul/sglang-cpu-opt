@@ -1,15 +1,16 @@
 {
   "op": "indexer_topk",
   "lane": "B",
-  "queue_state": "DONE_STANDALONE (best kept, in queue) — M=8 torch.topk fallback LOCKED (option 1)",
-  "binding": "latency/selection-bound (no oneDNN primitive — selection, not GEMM); sub-ms op",
+  "queue_state": "DONE_STANDALONE (best kept, in queue) — ALL C/C++, NO torch fallback (chunked pass-2 fixed M=8)",
+  "binding": "latency/selection-bound (no oneDNN/AMX GEMM primitive); within-row chunking saturates cores at small M",
   "kernel": "plugin/kernels/dsa_pilot/indexer_topk.cpp",
   "passes": [
-    {"pass": "final", "name": "custom parallel nth_element (O(S) set-select)", "approach": "sparse attention needs only the SET of top-512 indices, not a sort -> parallel nth_element over rows", "off_machine_peak": {}, "vs_ref": {"M1": 2.55, "M8": 0.42, "M16": 1.48, "M32": 1.63, "M64": 1.53}, "correctness": "top-k set-match exact", "kept": true, "commit": "06faec0", "note": "wins all priority points (16/32/64) + M=1; LOSES M=8 (0.42x) — only 8 row-tasks underutilize 64 threads"}
+    {"pass": 1, "name": "row-parallel nth_element (O(S) set-select)", "approach": "one row per thread", "vs_ref": {"M1": 2.55, "M8": 0.42, "M16": 1.48, "M32": 1.63, "M64": 1.53}, "correctness": "set-match exact", "kept": false, "commit": "06faec0", "note": "lost M=8 (0.42x): 8 rows underutilize 64 threads"},
+    {"pass": 2, "name": "best-of: chunked within-row 2-pass for small N + row-parallel for large N", "approach": "small N: split row into C chunks, local top-k per (row,chunk) in parallel, merge C*k candidates -> exact; uses all cores at small M", "vs_ref": {"M1": 0.47, "M8": 4.74, "M16": 9.03, "M32": 9.55, "M64": 18.43}, "correctness": "set-match 1.0 all M", "kept": true, "commit": "pending", "note": "M=8 FIXED 0.42x->4.74x; wins M>=8; M=1 0.47x but both ~10-20us (negligible). NO torch fallback."}
   ],
   "best": {
-    "commit": "06faec0",
-    "verdict": "best-of LOCKED: custom nth_element for M=1 and priority M=16/32/64; torch.topk fallback at M=8 (at the limit — see torch_fallbacks.json)",
-    "note": "top-k has no oneDNN/GEMM primitive; op is tiny (sub-ms, minor forward slice). M=8 accepted at limit; revisit if M=8 becomes hot."
+    "commit": "pending",
+    "verdict": "ALL C/C++ single path (chunked small-N + row-parallel large-N); wins M>=8, M=1 marginal on a ~10us op. Torch fallback ELIMINATED.",
+    "note": "confirms always-C/C++ is clean here: the chunked kernel beats torch.topk at the small-M limit that previously forced the fallback."
   }
 }

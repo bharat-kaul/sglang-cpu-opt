@@ -1,11 +1,12 @@
 {
   "op": "sparse_attend",
   "lane": "B/A",
-  "queue_state": "AUTHORING — pass 1 correct but M=64 (priority) only at parity; needs pass 2",
-  "binding": "compute at high M (torch einsum uses batched BLAS); flash-online at low M",
+  "queue_state": "DONE_STANDALONE (best kept = scalar flash; AMX pass-2 failed) — M=64 at BLAS limit",
+  "binding": "compute; per-query attention has M=1 GEMMs (no AMX tiling benefit); torch einsum is fp32 BLAS",
   "kernel": "plugin/kernels/dsa_pilot/sparse_attend.cpp",
   "passes": [
-    {"pass": 1, "name": "scalar flash online-softmax over K (parallel N*H)", "approach": "one streaming pass per (n,h); scores never materialized", "vs_ref": {"M1": 2.74, "M8": 3.45, "M16": 2.58, "M32": 1.91, "M64": 0.99}, "correctness": "cos 1.000000", "kept": false, "commit": "pending", "note": "wins low M; at M=64 torch's einsum q.k / w.v hits batched BLAS -> parity. Scalar dot-products don't use AMX."}
+    {"pass": 1, "name": "scalar flash online-softmax over K (parallel N*H)", "approach": "one streaming pass per (n,h); scores never materialized", "vs_ref": {"M1": 2.79, "M8": 2.53, "M16": 2.85, "M32": 2.24, "M64": 1.02}, "correctness": "cos 1.000000", "kept": true, "commit": "pending", "note": "wins low M; ties M=64 (torch fp32 BLAS)"},
+    {"pass": 2, "name": "bf16 AMX bmm (q.k, w.v via at::bmm)", "approach": "batched bf16 GEMM for the two matmuls", "vs_ref": {"M1": 0.53, "M8": 0.08, "M16": 0.14, "M32": 0.15, "M64": 0.20}, "correctness": "cos 0.99998", "kept": false, "commit": "pending", "note": "FAILED: each attention GEMM has M=1 (one query/head) -> AMX tiles need M>=16; bmm over N*H tiny matmuls + bf16 cast overhead is far slower. Discarded."}
   ],
-  "best": {"commit": null, "verdict": "NOT FINAL", "next_pass": "pass 2 for priority M=64: brgemm/AMX for the q.k and w.v GEMMs (tiled flash), OR route integration to the donor MLA flash backend (roofline lane B/A). Compare both; keep best-of."}
+  "best": {"commit": "pending", "verdict": "scalar flash kept (wins M=1..32, ties M=64). AMX bmm failed (M=1 GEMMs). M=64 at the fp32-BLAS limit for this op shape — SURFACED (see surfaced_limits.json). Never regresses vs reference.", "revisit": "donor MLA flash backend at integration could help M=64 if it batches heads into AMX tiles."}
 }

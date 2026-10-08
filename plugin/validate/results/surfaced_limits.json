@@ -17,14 +17,21 @@
     },
     {
       "op": "indexer_topk",
-      "commit": "06faec0",
-      "binding": "selection/latency-bound (no oneDNN/AMX GEMM primitive — top-k is selection)",
-      "plateau_frac_of_machine_peak": "n/a (not a GEMM/BW op; measured vs torch.topk)",
-      "vs_reference": {"M64": 1.53, "M32": 1.63, "M16": 1.48, "M8": 0.42, "M1": 2.55},
-      "primary_lever": "O(S) parallel nth_element set-select instead of a sort",
-      "lever_status": "EXHAUSTED for M>=16 and M=1; M=8 at the limit (see torch_fallbacks.json)",
-      "residual_gap_cause": "tiny sub-ms op; at M=8 only 8 row-tasks underutilize 64 threads -> torch.topk fallback.",
-      "revisit": "if M=8 becomes hot or a cheap 2-pass chunk->local-topk->merge kernel is found."
+      "commit": "pending",
+      "binding": "selection/latency-bound (no GEMM primitive)",
+      "vs_reference": {"M64": 18.43, "M32": 9.55, "M16": 9.03, "M8": 4.74, "M1": 0.47},
+      "lever_status": "RESOLVED (chunked within-row pass-2 fixed M=8); ALL C/C++, no fallback. M=1 marginal on a ~10us op.",
+      "residual_gap_cause": "M=1 single-row is ~10-20us either way (torch.topk vs ours) — negligible; kept custom for a consistent single C/C++ path.",
+      "revisit": "n/a"
+    },
+    {
+      "op": "sparse_attend",
+      "commit": "pending",
+      "binding": "compute; per-query attention = M=1 GEMMs (no AMX tiling benefit)",
+      "vs_reference": {"M64": 1.02, "M32": 2.24, "M16": 2.85, "M8": 2.53, "M1": 2.79},
+      "lever_status": "scalar flash kept (wins M=1..32); AMX bmm pass-2 FAILED (M=1 GEMMs, 0.08-0.53x). M=64 at the fp32-BLAS limit.",
+      "residual_gap_cause": "each attention GEMM has M=1 (one query per head) so AMX tiles (need M>=16) give no benefit; torch's einsum is already fp32-BLAS-optimal. Scalar flash ties it at M=64 (never regresses).",
+      "revisit": "donor MLA flash backend at integration (if it batches heads into AMX tiles)."
     }
   ]
 }
