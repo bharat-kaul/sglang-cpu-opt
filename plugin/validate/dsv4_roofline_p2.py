@@ -30,8 +30,13 @@ if PLAT.get("mem_bw_gbps") is None or PLAT.get("amx_bf16_tflops") is None:
     sys.exit(f"{_a.platform}: measure mem_bw_gbps / amx_bf16_tflops first (uarch-perf-probe).")
 
 NAME = PLAT["name"]
-BW = PLAT["mem_bw_gbps"] * 1e9
-PEAK = PLAT["amx_bf16_tflops"] * 1e12
+# Reference FLOOR = measured-achievable (where we are today).
+BW_MEAS = PLAT["mem_bw_gbps"] * 1e9
+PEAK_MEAS = PLAT["amx_bf16_tflops"] * 1e12
+# Roofline CEILING = machine (theoretical datasheet) peak; optimize against this.
+_MP = PLAT.get("machine_peak") or {}
+BW = _MP.get("mem_bw_gbps", PLAT["mem_bw_gbps"]) * 1e9
+PEAK = _MP.get("amx_bf16_tflops", PLAT["amx_bf16_tflops"]) * 1e12
 RIDGE = PEAK / BW
 DOMAIN_RAM = PLAT["domain_ram_gb"] * 1e9
 BPW = {"fp4": 0.5, "fp8": 1.0, "bf16": 2.0}
@@ -178,6 +183,10 @@ def p0():
     print(f"P0 CAPACITY  platform={NAME}  domain={DOMAIN_RAM/1e9:.0f} GB  SNC={PLAT.get('snc')}  "
           f"ridge AI*={RIDGE:.0f} FLOP/byte")
     print("=" * 96)
+    print(f"  ROOFLINE CEILING = MACHINE PEAK: BW={BW/1e9:.1f} GB/s  AMX bf16={PEAK/1e12:.1f} TFLOP/s  "
+          f"(ridge {RIDGE:.0f} FLOP/byte)")
+    print(f"  reference FLOOR  = measured:     BW={BW_MEAS/1e9:.1f} GB/s ({BW_MEAS/BW*100:.0f}% of peak)  "
+          f"AMX bf16={PEAK_MEAS/1e12:.1f} TFLOP/s ({PEAK_MEAS/PEAK*100:.0f}% of peak)  -> gap = headroom")
     for n, b in [("MoE experts(fp4)", experts), ("shared(fp4)", shared), ("MLA proj(fp8)", mla),
                  ("indexer proj(fp8)", idx), ("embed+lm_head(bf16)", head)]:
         print(f"  {n:22s} {b/1e9:7.1f} GB")
@@ -190,6 +199,8 @@ def phaseA():
     print(f"PHASE A — PER-OP ROOFLINE + BINDING RESOURCE + AI-IMPROVABILITY + CEILING + C++ LANE  "
           f"(decode, context S={S}; EVERY op, none skipped)")
     print("=" * 128)
+    print(f"ceiling = MACHINE PEAK (BW {BW/1e9:.0f} GB/s, AMX {PEAK/1e12:.0f} TF); times below are the "
+          f"machine-peak floor each op is optimized toward")
     print(f"{'op':44s} {'impl-lane':30s} {'prec':4s} | " + " ".join(f"{'M='+str(m):>9s}" for m in Ms) + "  binding@M=1->64")
     print("-" * 128)
     for op in OPS:
@@ -222,9 +233,13 @@ def fusion_pass():
     for kind, cand, into, mapping, note in FUSIONS:
         print(f"{kind:11s} {cand:34s} {into:26s} {mapping:34s}")
         print(f"{'':11s}   -> {note}")
-    print("\nCeiling rule: drive EVERY op/fused-op to its binding ceiling (BW peak / compute peak / "
-          "latency floor).\nIf a gap cannot be bridged by known techniques -> SURFACE TO USER (Phase A exit).")
-    print("Phase B (wall-time + Amdahl ordering) begins ONLY after all ops are at ceiling.")
+    print("\nCeiling rule: the roofline ceiling is MACHINE PEAK (theoretical BW/compute from the datasheet), "
+          "NOT the measured plateau.\nDrive EVERY op/fused-op toward its machine-peak binding ceiling "
+          "(BW peak / compute peak / latency floor) by exercising ALL levers\n(fusion, tiling, packing, dtype, "
+          "M/EP operating point, dispatch batching).\nWhen an op's levers are exhausted and performance PLATEAUS "
+          "below machine peak, SURFACE the residual gap (measured vs machine peak)\nand STOP optimizing that op "
+          "(Phase A exit for that op). Phase B (wall-time + Amdahl ordering) begins ONLY after every op has "
+          "either reached machine peak or been surfaced as plateaued.")
 
 
 if __name__ == "__main__":
