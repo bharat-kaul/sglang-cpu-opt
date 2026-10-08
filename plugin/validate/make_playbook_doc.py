@@ -101,8 +101,9 @@ bullet("ops already covered by the target's native high-throughput kernels (e.g.
        "dtype, prepack/layout, fused-MoE).", bold_lead="Thesis 1 (covered) — ")
 bullet("genuinely novel ops get an AI-written, roofline-tuned native kernel (C/C++ for CPU, CUDA/Triton "
        "for GPU), human-gated.", bold_lead="Thesis 2 (novel) — ")
-para("Scope discovery is the router (which ops are covered vs novel); the per-op roofline loop is the "
-     "engine. One pipeline, re-applied per (model, platform).", GRAY)
+para("Scope discovery is the router (which ops are covered vs novel); the spine-leaf performance tree "
+     "\u2014 the macro/meso/micro per-op roofline loop \u2014 is the engine. One pipeline, re-applied per "
+     "(model, platform).", GRAY)
 
 # ---- governing two-phase ----
 h1("Governing principle — two phases")
