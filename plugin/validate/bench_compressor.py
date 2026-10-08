@@ -24,7 +24,7 @@ def bench(fn, *a, it=50):
     return (time.perf_counter() - t0) / it * 1e3
 
 
-R, D = 128, 128  # c128 window, head_dim
+R, D = 128, 512  # c128 window (ratio-128 non-overlap), head_dim=512 (main attn compressor; published model.py)
 print(f"op#3 compressor softmax-pool  R={R} D={D}")
 print(f"{'M':>4} {'cos':>10} {'ref_ms':>9} {'cpp_ms':>9} {'speedup':>8}")
 for M in (1, 8, 16, 32, 64):

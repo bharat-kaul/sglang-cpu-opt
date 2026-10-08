@@ -1,4 +1,4 @@
-DSv4-Flash analytical roofline (Ops + fused Ops) — EMR, roofline=MACHINE PEAK (AMX@1.9GHz), generated 2026-10-08T08:44Z
+DSv4-Flash analytical roofline (Ops + fused Ops) — EMR, roofline=MACHINE PEAK (AMX@1.9GHz), dims grounded in published model.py, generated 2026-10-08T15:33Z
 P0 CAPACITY  platform=emr  domain=504 GB  SNC=False  ridge AI*=348 FLOP/byte
 ================================================================================================
   ROOFLINE CEILING = MACHINE PEAK: BW=358.4 GB/s  AMX bf16=124.6 TFLOP/s  (ridge 348 FLOP/byte)
@@ -23,9 +23,9 @@ MLA wq_b (1024->32768)                       donor dsv2                     fp8 
   kv_norm RMSNorm(512)                       donor norm.cpp                 -    |   215.0us   215.0us   215.0us   215.0us   215.0us  L->L->L->L->L
 MLA attn core (flash MQA /latent 512)        donor intel_amx attn backend   fp8  |   322.4us     1.5ms     3.0ms     5.9ms    11.9ms  B->C->C->C->C
 MLA wo_a (grouped, 32768->1024)              donor dsv2                     fp8  |     4.0ms     4.1ms     4.2ms     4.3ms     4.5ms  B->B->B->B->B
-MLA wo_b (1024->4096)                        donor dsv2                     fp8  |   504.5us   513.1us   522.9us   542.5us   581.9us  B->B->B->B->B
-DSA indexer wq (4096->8192)                  donor dsv2                     fp8  |     3.7ms     3.8ms     3.8ms     3.8ms     3.9ms  B->B->B->B->B
-DSA indexer wk (4096->128)                   donor dsv2                     fp8  |    59.5us    66.1us    73.6us    88.7us   118.9us  B->B->B->B->B
+MLA wo_b (8192->4096)                        donor dsv2                     fp8  |     4.0ms     4.0ms     4.1ms     4.1ms     4.2ms  B->B->B->B->B
+DSA indexer wq (1024->8192)                  donor dsv2                     fp8  |   938.3us   952.7us   969.1us     1.0ms     1.1ms  B->B->B->B->B
+DSA indexer weights_proj (4096->64)          donor gemm                     bf16 |    59.4us    65.9us    73.4us    88.2us   117.9us  B->B->B->B->B
 DSA indexer logits (GEMM+epilogue FUSED)     NEW-C++ (xpu-triton oracle)    bf16 |   177.4us   599.8us     1.1ms     2.0ms     4.0ms  B->B->B->B->B
 DSA indexer topk-512                         NEW-C++ (partial-sort)         -    |     1.6ms     1.6ms     1.6ms     1.6ms     1.6ms  L->L->L->L->L
 DSA compressor (softmax-pool)                NEW-C++                        -    |     1.2ms     1.2ms     1.2ms     1.2ms     1.2ms  L->L->L->L->L
@@ -48,9 +48,9 @@ MLA wq_b (1024->32768)                       |    2B   16B   31B   60B  113B  �
   kv_norm RMSNorm(512)                       |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
 MLA attn core (flash MQA /latent 512)        |  200B  630C  745C  819C  862C  AI set by context S + flash-fusion, not M
 MLA wo_a (grouped, 32768->1024)              |    2B   16B   31B   60B  113B  ↑M crosses ridge at M≈174
-MLA wo_b (1024->4096)                        |    2B   16B   31B   59B  111B  ↑M crosses ridge at M≈174
-DSA indexer wq (4096->8192)                  |    2B   16B   32B   63B  122B  ↑M crosses ridge at M≈174
-DSA indexer wk (4096->128)                   |    2B   14B   25B   42B   63B  ↑M crosses ridge at M≈174
+MLA wo_b (8192->4096)                        |    2B   16B   32B   63B  122B  ↑M crosses ridge at M≈174
+DSA indexer wq (1024->8192)                  |    2B   16B   31B   60B  112B  ↑M crosses ridge at M≈174
+DSA indexer weights_proj (4096->64)          |    1B    7B   13B   21B   32B  ↑M crosses ridge at M≈348
 DSA indexer logits (GEMM+epilogue FUSED)     |   43B  101B  112B  118B  122B  FUSE epilogue -> drop score DRAM round-trip -> AI↑ (primary lever, not M)
 DSA indexer topk-512                         |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
 DSA compressor (softmax-pool)                |   -     -     -     -     -    fuse/batch dispatch (no AI lever)

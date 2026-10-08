@@ -277,24 +277,36 @@ bullet("Escalation order: L0 coherence → per-layer cosine (dummy, no load) →
        "→ reference-vs-target sign-off.")
 
 # ---- shape-capture audit ----
-h1("Shape-capture audit — ground every kernel's shapes in REALITY (human-auditable)")
-para("A green parity microbench is SELF-CONSISTENT: it validates op MATH at the shapes the author "
-     "CHOSE, so a wrong-but-consistent or hallucinated shape still passes (softmax-pool, flash-attention "
-     "etc. are shape-generic). Op tensor/GEMM shapes must therefore be grounded in the REAL model \u2014 not "
-     "hand-picked, and not merely inferred from the config.", bold=True)
-para("Provenance ladder (trust increases down; a kernel is trusted only at the bottom rung):", GRAY)
-bullet("hand-picked microbench shapes \u2014 REJECT as evidence (self-consistent only).")
-bullet("config-spec dims \u2014 weak (a declared config can be wrong or regenerated).")
-bullet("module-constructor-derived dims \u2014 better (the model computes op dims from config deterministically).")
-bullet("CAPTURED tensors from a real forward (dummy weights OK) \u2014 REQUIRED: dump {op, tensor, shape, "
-       "dtype, stride, layer_id} at every op boundary and DRIVE the microbench from these.")
-bullet("Kernel shape-contract asserts (check each dim vs the captured/expected value) so a wrong shape "
-       "fails loudly, not silently.")
-bullet("Emit a reviewable SHAPE MANIFEST (per-op captured shapes + their source) that a HUMAN signs off "
-       "before the kernel is trusted \u2014 the manifest + op-math-vs-reference together are the human-audit gate.")
-para("Consequence: performance numbers measured at non-captured shapes are NOT trustworthy \u2014 an attention "
-     "kernel at the wrong head_dim/head_count can flip which variant wins. Re-measure at captured shapes. "
-     "Never re-GUESS a shape after finding one wrong (same failure mode) \u2014 CAPTURE it.", GRAY)
+h1("Shape & semantics provenance — ground kernels in the PUBLISHED reference (human-auditable)")
+para("A green parity microbench is SELF-CONSISTENT only: it validates op MATH at shapes the AUTHOR chose. "
+     "Shape-generic ops (softmax-pool, flash-attention) pass cos=1.0 at ANY dims, so a hallucinated shape "
+     "OR a missing semantic (an overlap window, an attention sink, MQA-vs-MHA) still passes. Ground every "
+     "kernel's shapes AND semantics in the model author's PUBLISHED reference, not in author-chosen shapes "
+     "and not in inference from the config alone.", bold=True)
+h2("The method (model-agnostic, in order)")
+num("PIN the published reference model definition (the author's own model.py / modeling_*.py) at a fixed "
+    "revision. This is the architecture a human reviewer already trusts \u2014 the audit anchor.", bold_lead="1 \u2014 ")
+num("Derive, per op, a CONTRACT from it: shapes as f(config, per-layer variant, phase, TP, batch) AND the "
+    "SEMANTICS (fusions, gating, sinks, overlap windows, MQA/MHA, two-of-a-kind modules). Cite the source line.",
+    bold_lead="2 \u2014 ")
+num("BIND numeric constants from the real checkpoint config.json \u2014 the reference's defaults are often a "
+    "TOY example (e.g. fewer layers/experts). CROSS-CHECK config vs reference defaults and reconcile any "
+    "divergence; this also audits a regenerated/proxy config.", bold_lead="3 \u2014 ")
+num("SWEEP the contract over the REAL variation axes \u2014 per-layer variants (e.g. per-layer compression "
+    "ratios), prefill vs decode, TP, batch M \u2014 and assert each shape is VALID and EQUALS the kernel's "
+    "contract (equality, not mere internal validity).", bold_lead="4 \u2014 ")
+num("Port the published forward as the NUMERICAL ORACLE (exact parity, not a re-derived reference) so a "
+    "SEMANTIC error, not just a shape error, is caught.", bold_lead="5 \u2014 ")
+num("RUNTIME-CAPTURE (module-level now, full-forward at integration) to CONFIRM the serving stack's actual "
+    "layout matches the contract \u2014 the serving path may repack/absorb/shard differently from the reference.",
+    bold_lead="6 \u2014 ")
+para("Why it survives human audit: every shape and semantic traces to a line in the PUBLISHED model + the "
+     "real config; the sweep, validity and equality checks are mechanical; the oracle gives exact numbers. "
+     "The reviewer checks FACTS and CITATIONS, not the agent's reading.", GRAY)
+para("Anti-patterns (each is a silent-failure trap): trusting a parity microbench at author-chosen shapes; "
+     "inferring dims from config alone (misses semantics \u2014 overlap, sink, MQA); treating the reference's "
+     "toy defaults as the real constants; and the cardinal sin \u2014 RE-GUESSING a shape after finding one "
+     "wrong instead of capturing it from the published model.", GRAY)
 
 # ---- gates ----
 h1("Gates")

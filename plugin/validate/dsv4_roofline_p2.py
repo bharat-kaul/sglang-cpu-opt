@@ -139,10 +139,10 @@ OPS = [
     latency("  kv_norm RMSNorm(512)", "A", "donor norm.cpp", 5, L, "fuse into attn prologue"),
     attn("MLA attn core (flash MQA /latent 512)", S, "fp8", L, "A", "donor intel_amx attn backend"),
     wgemm("MLA wo_a (grouped, 32768->1024)", NH * HD, OLORA, "fp8", L, "A", "donor dsv2"),
-    wgemm("MLA wo_b (1024->4096)", OLORA, H, "fp8", L, "A", "donor dsv2"),
+    wgemm("MLA wo_b (8192->4096)", OG * OLORA, H, "fp8", L, "A", "donor dsv2"),
     # --- DSA (indexer layers) ---
-    wgemm("DSA indexer wq (4096->8192)", H, IDX_NH * IDX_HD, "fp8", N_IDX, "A", "donor dsv2"),
-    wgemm("DSA indexer wk (4096->128)", H, IDX_HD, "fp8", N_IDX, "A", "donor dsv2"),
+    wgemm("DSA indexer wq (1024->8192)", QLORA, IDX_NH * IDX_HD, "fp8", N_IDX, "A", "donor dsv2"),
+    wgemm("DSA indexer weights_proj (4096->64)", H, IDX_NH, "bf16", N_IDX, "A", "donor gemm"),
     indexer_fused(),
     latency("DSA indexer topk-512", "B", "NEW-C++ (partial-sort)", 40, N_IDX, "sort; fuse with epilogue write"),
     latency("DSA compressor (softmax-pool)", "B", "NEW-C++", 30, N_IDX, "BW/latency; fuse pool into write"),
