@@ -1,0 +1,11 @@
+{
+  "op": "mhc_sinkhorn",
+  "lane": "C",
+  "queue_state": "DONE_STANDALONE (best kept, in queue)",
+  "binding": "latency/dispatch-bound (many tiny torch ops in the reference; hc=4 matrix)",
+  "kernel": "plugin/kernels/dsa_pilot/sinkhorn.cpp",
+  "passes": [
+    {"pass": 1, "name": "fused per-row sinkhorn (hc x hc resident, all 20 iters fused)", "approach": "parallel over b*s rows; tiny hc x hc matrix kept in registers/L1 through all iters; no per-iter global tensor pass", "vs_ref": {"M1": 95.67, "M8": 19.16, "M16": 20.05, "M32": 20.84, "M64": 22.05}, "correctness": "cos 1.000000 (pre/post/comb)", "kept": true, "commit": "pending", "note": "the reference is ~40 tiny torch ops/call (20 iters x normalize) each paying dispatch; fusing collapses that -> ~20x."}
+  ],
+  "best": {"commit": "pending", "verdict": "big win from dispatch collapse (fused iters); eps placement matches oracle exactly (bit-faithful). At limit for this op.", "revisit": "n/a"}
+}

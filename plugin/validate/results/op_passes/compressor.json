@@ -1,0 +1,11 @@
+{
+  "op": "compressor_softmax_pool",
+  "lane": "B",
+  "queue_state": "DONE_STANDALONE (best kept, in queue)",
+  "binding": "latency/BW-bound (small streaming pool)",
+  "kernel": "plugin/kernels/dsa_pilot/compressor.cpp",
+  "passes": [
+    {"pass": 1, "name": "streaming online-softmax pool (vectorized over D, parallel over N)", "approach": "one pass, no w[N,R,D] temporary; online max/sum per channel", "vs_ref": {"M1": 0.73, "M8": 1.14, "M16": 1.49, "M32": 9.10, "M64": 7.19}, "correctness": "cos 1.000000", "kept": true, "commit": "pending", "note": "wins priority M=16/32/64; M=1 0.73x overhead-bound (tiny op). ref_ms noisy (torch)."}
+  ],
+  "best": {"commit": "pending", "verdict": "wins priority points; M=1 minor overhead loss on a tiny op. Candidate: bmm/brgemm variant if it ever dominates, else keep.", "revisit": "if M=1 compressor becomes hot."}
+}

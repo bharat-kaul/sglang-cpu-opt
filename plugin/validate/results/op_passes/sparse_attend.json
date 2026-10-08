@@ -1,0 +1,11 @@
+{
+  "op": "sparse_attend",
+  "lane": "B/A",
+  "queue_state": "AUTHORING — pass 1 correct but M=64 (priority) only at parity; needs pass 2",
+  "binding": "compute at high M (torch einsum uses batched BLAS); flash-online at low M",
+  "kernel": "plugin/kernels/dsa_pilot/sparse_attend.cpp",
+  "passes": [
+    {"pass": 1, "name": "scalar flash online-softmax over K (parallel N*H)", "approach": "one streaming pass per (n,h); scores never materialized", "vs_ref": {"M1": 2.74, "M8": 3.45, "M16": 2.58, "M32": 1.91, "M64": 0.99}, "correctness": "cos 1.000000", "kept": false, "commit": "pending", "note": "wins low M; at M=64 torch's einsum q.k / w.v hits batched BLAS -> parity. Scalar dot-products don't use AMX."}
+  ],
+  "best": {"commit": null, "verdict": "NOT FINAL", "next_pass": "pass 2 for priority M=64: brgemm/AMX for the q.k and w.v GEMMs (tiled flash), OR route integration to the donor MLA flash backend (roofline lane B/A). Compare both; keep best-of."}
+}
