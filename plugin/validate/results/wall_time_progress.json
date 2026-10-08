@@ -1,0 +1,48 @@
+{
+  "_schema": "DSv4-Flash progressive wall-time ledger. One baseline + one row per op integrated, in order. Wall time = end-to-end model forward with DETERMINISTIC_DUMMY weights, MoE-anti-collapse input (plugin/validate/moe_balanced_input.py), steady-state median (DO NOT time step 0). Each op is integrated ONLY after a standalone cosine fingerprint gate (cos >= 0.9999 vs torch/GPU reference) passes. 'speedup_vs_baseline' and per-op 'delta_ms' are filled after the E2E re-run. PENDING = not yet measured.",
+  "platform": "emr",
+  "roofline_basis": "machine_peak (BW 358.4 GB/s, AMX 124.6 TF@1.9GHz, ridge 348)",
+  "timing_recipe": {
+    "weights": "DETERMINISTIC_DUMMY=1 (skip real load; bit-identical CPU/GPU dummy)",
+    "input": "plugin/validate/moe_balanced_input.build_verified_input(M, gate_weight) -> collapse-gated hidden; distinct-experts ~ E*(1-(1-1/E)^(topk*M))",
+    "bind": "OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores, one rank per socket/NUMA domain; bind ONCE at init (never per-forward)",
+    "measure": "INTEL_CPU_DSV4_TIMEIT=1 end-to-end; median of steps 1..N (step 0 = cold, excluded); >=3 runs, report median",
+    "M_points": [1, 8, 16, 32, 64],
+    "M_priority": "16/32/64 high, then 8, then 1"
+  },
+  "integration_gate": {
+    "metric": "per-layer + per-op cosine fingerprint vs reference (torch eager / GPU oracle) on the SAME dummy weights",
+    "threshold": "cos >= 0.9999 (first layer/op below localizes the break); set-match for top-k ops",
+    "rule": "integrate one op at a time; re-run E2E only after the op's fingerprint gate passes"
+  },
+  "ledger": [
+    {
+      "step": 0,
+      "label": "baseline (unoptimized plugin, all ops torch/donor as-is)",
+      "op": null,
+      "integrated": false,
+      "cosine_gate": "n/a",
+      "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"},
+      "speedup_vs_baseline": 1.0,
+      "note": "Establishes the reference wall time. Run first, before any op integration."
+    },
+    {
+      "step": 1,
+      "label": "op#1 DSA indexer logits (fused GEMM+epilogue, best-of tiled/bmm)",
+      "op": "indexer_logits",
+      "commit": "e3fdcb9",
+      "standalone": "DONE (BW-bound; off machine-peak 5.9/7.7/13.2x @64/32/16; vs torch 5.34/5.84/6.68x; surfaced-as-plateaued)",
+      "integrated": false,
+      "cosine_gate": "PENDING (cos target >=0.9999)",
+      "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"},
+      "delta_ms_vs_prev": "PENDING",
+      "speedup_vs_baseline": "PENDING"
+    },
+    {"step": 2, "label": "op#2 DSA indexer top-k (512)", "op": "indexer_topk", "commit": "06faec0", "standalone": "DONE (custom nth_element; wins 16/32/64 + M1; N=8 fallback decision open)", "integrated": false, "cosine_gate": "PENDING", "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "delta_ms_vs_prev": "PENDING", "speedup_vs_baseline": "PENDING"},
+    {"step": 3, "label": "op#3 DSA compressor (softmax-pool)", "op": "compressor", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "delta_ms_vs_prev": "PENDING", "speedup_vs_baseline": "PENDING"},
+    {"step": 4, "label": "op#4 DSA sparse attend (top-512 KV)", "op": "sparse_attend", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "delta_ms_vs_prev": "PENDING", "speedup_vs_baseline": "PENDING"},
+    {"step": 5, "label": "op#5 MHC sinkhorn (20 iters)", "op": "mhc_sinkhorn", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "delta_ms_vs_prev": "PENDING", "speedup_vs_baseline": "PENDING"},
+    {"step": 6, "label": "op#6 MHC hash (3 layers)", "op": "mhc_hash", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "delta_ms_vs_prev": "PENDING", "speedup_vs_baseline": "PENDING"},
+    {"step": 7, "label": "op#7 Lane-A ceiling verification (MLA proj / MoE experts / attn / lm_head)", "op": "laneA_verify", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "delta_ms_vs_prev": "PENDING", "speedup_vs_baseline": "PENDING"}
+  ]
+}

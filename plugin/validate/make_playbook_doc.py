@@ -148,6 +148,41 @@ bullet("Per-op and per-fused-op roofline: FLOPs, weight+activation+KV bytes, ari
 
 h2("Phase A / Phase B — execute per the governing principle above")
 
+# ---- progressive wall-time tracking ----
+h1("Progressive wall-time tracking (publication ledger)")
+para("Each optimization is proven end-to-end, not just in a microbench. We keep a running "
+     "wall-time ledger from the unoptimized baseline through every integrated op, so the final "
+     "publication shows a monotonic, correctness-gated speed-up curve.", bold=True)
+para("Ledger artifact: plugin/validate/results/wall_time_progress.json (baseline row + one row per "
+     "op, filled after each integration).", GRAY)
+h2("The loop (repeat per op, in Phase-A order)")
+num("Baseline wall time FIRST: run the full model end-to-end with deterministic-dummy weights and "
+    "record the steady-state median latency at each M (step 0 = the reference; never time the cold step).",
+    bold_lead="0 \u2014 ")
+num("Optimize the op standalone to its machine-peak ceiling (author \u2192 measure \u2192 iterate \u2192 keep "
+    "best-of), then surface-and-stop when levers are exhausted.", bold_lead="1 \u2014 ")
+num("Integrate the kept kernel into the model behind a COSINE FINGERPRINT gate: per-layer + per-op "
+    "cosine vs the torch/GPU reference on the SAME dummy weights must stay \u2265 0.9999 (set-match for "
+    "top-k ops). The first layer/op below threshold localizes a break \u2014 do not proceed until it passes.",
+    bold_lead="2 \u2014 ")
+num("Re-run the model end-to-end (dummy weights, same M sweep) and record the new wall time + the delta "
+    "vs the previous row and the cumulative speed-up vs baseline.", bold_lead="3 \u2014 ")
+num("Repeat for the next op. The ledger accumulates to the final published curve: baseline \u2192 "
+    "op-by-op \u2192 fully-optimized.", bold_lead="4 \u2014 ")
+h2("MoE mode-collapse \u2014 the input tensor matters")
+para("The dummy-weight run must exercise a REPRESENTATIVE set of routed experts. With tiny random gate "
+     "weights, a non-diverse input (e.g. one hidden vector broadcast across the batch) collapses routing "
+     "to the same top-k experts every token \u2014 only ~topk of the E=256 experts run, so the measured MoE "
+     "wall time is unrepresentatively low and the roofline's expert traffic is never incurred.", GRAY)
+bullet("Build the input with plugin/validate/moe_balanced_input.build_verified_input(M, gate_weight): "
+       "per-token i.i.d. hidden states (NOT a broadcast), falling back to round-robin gate-row alignment.")
+bullet("VERIFY (not assume) dispersion: realized distinct-experts must track the uniform expectation "
+       "E\u00b7(1\u2212(1\u22121/E)^(topk\u00b7M)) and no expert may absorb an outsized share \u2014 a collapse gate "
+       "asserts this before the timing is trusted. (Checked M=8\u219243, 16\u219281, 32\u2192138, 64\u2192209 distinct "
+       "vs expected 43.8/80.2/135.3/199; the broadcast trap collapses to 6 and is rejected.)")
+bullet("Instrument the real router during the E2E run to confirm the same spread in-engine (per-forward "
+       "distinct-expert count), so the proxy input is validated against the actual model path.")
+
 h2("Phase 6 — Validate, certify, deliver")
 bullet("Validate-by-run (Gate 2): confirm the predicted class/ceiling in-engine (dummy weights for "
        "perf, full depth, target ISA). Mismatch → the paper model omitted a cost; update it.")
