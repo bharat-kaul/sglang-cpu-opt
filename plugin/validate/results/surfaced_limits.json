@@ -6,9 +6,25 @@
       "op": "indexer_logits",
       "commit": "e3fdcb9",
       "binding": "BW-bound at all M (machine-peak roofline)",
-      "plateau_frac_of_machine_peak": {"M64": "~17%", "M32": "~13%", "M16": "~7.6%"},
-      "off_machine_peak": {"M64": 5.9, "M32": 7.7, "M16": 13.2, "M8": 28.1, "M1": "overhead-bound"},
-      "vs_reference": {"M64": 5.34, "M32": 5.84, "M16": 6.68, "M8": 5.15, "M1": 2.0},
+      "plateau_frac_of_machine_peak": {
+        "M64": "~17%",
+        "M32": "~13%",
+        "M16": "~7.6%"
+      },
+      "off_machine_peak": {
+        "M64": 5.9,
+        "M32": 7.7,
+        "M16": 13.2,
+        "M8": 28.1,
+        "M1": "overhead-bound"
+      },
+      "vs_reference": {
+        "M64": 5.34,
+        "M32": 5.84,
+        "M16": 6.68,
+        "M8": 5.15,
+        "M1": 2.0
+      },
       "primary_lever": "eliminate [N,H,S] score DRAM round-trip via L1/L2-resident tiled epilogue",
       "lever_status": "EXHAUSTED",
       "residual_gap_cause": "achievable DRAM BW is ~60% of the 358 GB/s datasheet machine peak (hardware delivers ~214 GB/s wall) + sub-ms per-layer dispatch overhead at low M. Not closable by further kernel work on this silicon.",
@@ -19,19 +35,32 @@
       "op": "indexer_topk",
       "commit": "pending",
       "binding": "selection/latency-bound (no GEMM primitive)",
-      "vs_reference": {"M64": 18.43, "M32": 9.55, "M16": 9.03, "M8": 4.74, "M1": 0.47},
+      "vs_reference": {
+        "M64": 18.43,
+        "M32": 9.55,
+        "M16": 9.03,
+        "M8": 4.74,
+        "M1": 0.47
+      },
       "lever_status": "RESOLVED (chunked within-row pass-2 fixed M=8); ALL C/C++, no fallback. M=1 marginal on a ~10us op.",
-      "residual_gap_cause": "M=1 single-row is ~10-20us either way (torch.topk vs ours) — negligible; kept custom for a consistent single C/C++ path.",
+      "residual_gap_cause": "M=1 single-row is ~10-20us either way (torch.topk vs ours) \u2014 negligible; kept custom for a consistent single C/C++ path.",
       "revisit": "n/a"
     },
     {
       "op": "sparse_attend",
       "commit": "pending",
       "binding": "compute; per-query attention = M=1 GEMMs (no AMX tiling benefit)",
-      "vs_reference": {"M64": 1.02, "M32": 2.24, "M16": 2.85, "M8": 2.53, "M1": 2.79},
-      "lever_status": "scalar flash kept (wins M=1..32); AMX bmm pass-2 FAILED (M=1 GEMMs, 0.08-0.53x). M=64 at the fp32-BLAS limit.",
-      "residual_gap_cause": "each attention GEMM has M=1 (one query per head) so AMX tiles (need M>=16) give no benefit; torch's einsum is already fp32-BLAS-optimal. Scalar flash ties it at M=64 (never regresses).",
-      "revisit": "donor MLA flash backend at integration (if it batches heads into AMX tiles)."
+      "vs_reference": {
+        "M64": 1.02,
+        "M32": 2.24,
+        "M16": 2.85,
+        "M8": 2.53,
+        "M1": 2.79
+      },
+      "lever_status": "RE-MEASURED at GROUNDED real dims (MQA,D=512,+sink): scalar 0.22-0.66x, AMX 0.31-0.86x @ M>=8 -> BOTH LOSE to torch BLAS einsum. Earlier 'scalar wins' was at HALLUCINATED dims (H=8/D=128).",
+      "residual_gap_cause": "q@kv^T and w@kv are batched GEMMs torch runs via optimized BLAS; hand scalar/bmm don't beat it. ROUTE to donor MLA flash at integration, OR author AMX-tiled flash (blocked softmax+sink).",
+      "revisit": "donor MLA flash backend at integration (if it batches heads into AMX tiles).",
+      "shape_grounding_win": "shape-provenance gate caught a kernel that 'won' at wrong dims but REGRESSES at real dims."
     }
   ]
 }

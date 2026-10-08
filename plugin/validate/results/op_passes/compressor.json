@@ -4,9 +4,9 @@
   "queue_state": "DONE_STANDALONE (best kept, in queue)",
   "binding": "latency/BW-bound (small streaming pool)",
   "kernel": "plugin/kernels/dsa_pilot/compressor.cpp",
-  "shape_provenance": "UNVERIFIED — microbench used R=128,D=128 (D inferred; main-KV compressor head_dim is likely 512, not 128). Kernel is dim-generic + math-validated vs the real reference, but PERF numbers below are NOT trustworthy until re-measured at CAPTURED shapes (shape-provenance gate).",
+  "shape_provenance": "GROUNDED in published model.py: main attn compressor head_dim D=512 (ratio-128 non-overlap); indexer compressor D=128 and ratio-4 OVERLAP (window 2*ratio) are caller-side reshape contracts for integration. Re-measured at D=512.",
   "passes": [
-    {"pass": 1, "name": "streaming online-softmax pool (vectorized over D, parallel over N)", "approach": "one pass, no w[N,R,D] temporary; online max/sum per channel", "vs_ref": {"M1": 0.73, "M8": 1.14, "M16": 1.49, "M32": 9.10, "M64": 7.19}, "correctness": "cos 1.000000", "kept": true, "commit": "pending", "note": "wins priority M=16/32/64; M=1 0.73x overhead-bound (tiny op). ref_ms noisy (torch)."}
+    {"pass": 1, "name": "streaming online-softmax pool (vectorized over D, parallel over N)", "approach": "one pass, no w[N,R,D] temporary; online max/sum per channel", "vs_ref": {"M1": 0.60, "M8": 3.37, "M16": 3.25, "M32": 2.68, "M64": 2.76}, "correctness": "cos 1.000000 (R=128, D=512 real main-compressor dims)", "kept": true, "commit": "pending", "note": "wins priority M>=8 (2.7-3.4x); M=1 0.60x overhead. Re-measured at GROUNDED D=512."}
   ],
   "best": {"commit": "pending", "verdict": "wins priority points; M=1 minor overhead loss on a tiny op. Candidate: bmm/brgemm variant if it ever dominates, else keep.", "revisit": "if M=1 compressor becomes hot."}
 }
