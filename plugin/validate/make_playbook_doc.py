@@ -194,8 +194,8 @@ for k, v in [
     ("Topology", "2 sockets × 64 cores; 1 NUMA domain per socket (SNC off)"),
     ("Per-domain RAM", "~503 GB (capacity floor)"),
     ("Memory BW (roofline ceiling)", "358.4 GB/s machine peak (8ch × DDR5-5600 × 8B); measured floor 214.4 GB/s = 60% of peak"),
-    ("AMX bf16 (roofline ceiling)", "190.1 TFLOP/s machine peak (64c × 1024 FLOP/cyc × 2.9 GHz); measured floor 40.3 TFLOP/s = 21% of peak"),
-    ("Ridge (AI*)", "~530 FLOP/byte (machine peak)"),
+    ("AMX bf16 (roofline ceiling)", "124.6 TFLOP/s machine peak (64c × 1024 FLOP/cyc × 1.9 GHz base); measured floor 40.3 TFLOP/s = 32% of peak"),
+    ("Ridge (AI*)", "~348 FLOP/byte (machine peak)"),
     ("Optimization basis", "Optimize every op toward MACHINE PEAK; when levers are exhausted and it plateaus below peak, surface the residual gap and stop that op"),
     ("Implication", "Decode weight-streaming GEMMs are BW-bound across M∈{1,8,16,32,64}; only attention/sparse-attend are compute-bound"),
 ]:

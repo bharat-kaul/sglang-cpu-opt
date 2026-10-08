@@ -39,10 +39,10 @@
   "machine_peak": {
     "mem_bw_gbps": 358.4,
     "mem_bw_derivation": "8 channels x DDR5-5600 MT/s x 8 B = 358.4 GB/s per socket (ONE NUMA domain, SNC off). Datasheet theoretical peak.",
-    "amx_bf16_tflops": 190.1,
-    "amx_bf16_ghz_allcore": 2.9,
-    "amx_bf16_derivation": "64 cores x 1024 bf16 FLOP/cyc/core (AMX TMUL 16x16x32 = 16384 FLOP / 16 cyc) x 2.9 GHz AMX all-core = 190.1 TFLOP/s. Theoretical UPPER BOUND; set amx_bf16_ghz_allcore to 1.9 (base->124.6) or 2.3 (->150.7) for a lower machine-peak assumption.",
-    "ridge_ai": 530.4,
+    "amx_bf16_tflops": 124.6,
+    "amx_bf16_ghz_allcore": 1.9,
+    "amx_bf16_derivation": "64 cores x 1024 bf16 FLOP/cyc/core (AMX TMUL 16x16x32 = 16384 FLOP / 16 cyc) x 1.9 GHz AMX all-core (base clock) = 124.6 TFLOP/s. Anchored to base; set amx_bf16_ghz_allcore to 2.3 (->150.7) or 2.9 (->190.1) for a higher machine-peak assumption.",
+    "ridge_ai": 347.7,
     "note": "ROOFLINE CEILING for Phase A = these machine-peak numbers. Measured-achievable (mem_bw_gbps=214.4, amx_bf16_tflops=40.3) is the reference FLOOR = where we are today; the gap to machine peak is the optimization headroom. Exercise all levers toward machine peak; when an op plateaus below it, SURFACE the residual gap and STOP."
   },
   "measured_how": "MEASURED 2026-10-07 uarch_probe_verify.py on pcl-spr10, numactl --cpunodebind=0 --membind=0, 64 threads (ONE socket = ONE NUMA domain, SNC off). BW=214.4 GB/s (stream-triad fp32 2GB). AMX bf16=40.3 TFLOP/s = torch.matmul plateau at 16384^3 (size-dependent: 13.5@2048, 26@4096, 32.5@8192, 40.3@16384; still climbing) ~= 32pct of theoretical ~124-190 TFLOP/s -> CONSERVATIVE achievable peak; hand-tuned brgemm could exceed. These measured values are the REFERENCE FLOOR; the Phase-A roofline ceiling is machine_peak (above). Decode is BW-bound across M{1..64} regardless of exact compute peak; AMX peak governs only compute-bound attention + prefill."
