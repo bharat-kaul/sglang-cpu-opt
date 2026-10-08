@@ -72,34 +72,37 @@ def num(t, bold_lead=None):
 # ---- title ----
 t = d.add_paragraph()
 t.alignment = WD_ALIGN_PARAGRAPH.CENTER
-r = t.add_run("CPU Model Enablement + Optimization Playbook")
+r = t.add_run("Model- & Platform-Agnostic Enablement + Optimization Playbook")
 r.bold = True
 r.font.size = Pt(20)
 r.font.color.rgb = NAVY
 s = d.add_paragraph()
 s.alignment = WD_ALIGN_PARAGRAPH.CENTER
-r = s.add_run("Scale-stratified methodology — DeepSeek-V4-Flash tree pilot (EMR)")
+r = s.add_run("A reusable methodology for enabling AND optimizing any model on any accelerator "
+              "(CPU shown; the same loop applies to other CPUs and to GPUs)")
 r.font.size = Pt(12)
 r.font.color.rgb = GRAY
 dt = d.add_paragraph()
 dt.alignment = WD_ALIGN_PARAGRAPH.CENTER
-r = dt.add_run("Reference build — 2026-10-07")
+r = dt.add_run("Platform and model constants are INPUTS, not assumptions. The concrete pilot instantiation "
+               "(DeepSeek-V4-Flash on Intel Xeon / EMR) lives in the per-platform spec + roofline artifacts, not in this method.")
 r.font.size = Pt(9)
 r.font.color.rgb = GRAY
 
 # ---- overview ----
 h1("Overview")
-para("Goal: from a bare model config + checkpoint, run CPU enablement AND optimization end-to-end "
-     "for any model, with final wall-time driven toward the sum of kernel roofline times — framework "
-     "overhead squeezed out and every kept kernel at its ceiling.", GRAY)
-para("Two theses, one plugin (SGLang external model package, override by __name__, no fork):", bold=True)
-bullet("models whose ops are fully covered by existing AMX/CPU kernels are enabled by wiring + "
-       "validation only (capability inheritance: bf16/int8, AMX, prepack/VNNI, FusedMoE).",
-       bold_lead="Thesis 1 — ")
-bullet("genuinely novel ops get an AI-written, roofline-tuned C/C++ kernel, human-gated.",
-       bold_lead="Thesis 2 — ")
-para("Scope-discovery (coverage-gate) is the router; the spine-leaf performance tree "
-     "(macro/meso/micro roofline loop) is the engine. One pipeline.", GRAY)
+para("Goal: from a bare model config + checkpoint, enable AND optimize the model end-to-end on a target "
+     "accelerator, driving final wall-time toward the sum of the per-op roofline floors — platform/runtime "
+     "overhead squeezed out and every kept kernel at its ceiling. Nothing here is specific to one model or "
+     "one chip: the platform constants, the op set, and the native-kernel library are INPUTS.", GRAY)
+para("Two theses, one plugin (wire into the serving stack via its external/plugin mechanism — no fork):", bold=True)
+bullet("ops already covered by the target's native high-throughput kernels (e.g. AMX/oneDNN on CPU, "
+       "Tensor-Core/cuBLAS/Triton on GPU) are enabled by wiring + validation only (capability inheritance: "
+       "dtype, prepack/layout, fused-MoE).", bold_lead="Thesis 1 (covered) — ")
+bullet("genuinely novel ops get an AI-written, roofline-tuned native kernel (C/C++ for CPU, CUDA/Triton "
+       "for GPU), human-gated.", bold_lead="Thesis 2 (novel) — ")
+para("Scope discovery is the router (which ops are covered vs novel); the per-op roofline loop is the "
+     "engine. One pipeline, re-applied per (model, platform).", GRAY)
 
 # ---- governing two-phase ----
 h1("Governing principle — two phases")
@@ -108,11 +111,11 @@ h2("Phase A — per-op peaking (ALL ops, including fused ops)")
 num("Discover every op in the layer, including fused ops — a fused op is a first-class unit with its own roofline.")
 num("Per op/fused-op: roofline + binding resource (BW / compute / latency) on the target platform (measured constants).")
 num("Arithmetic-intensity improvability: can the binding resource be moved by a lever (increase M/batch, fusion)? Record the achievable ceiling.")
-num("Implement the op in C/C++ and optimize to a reasonable extent, driving it to its ceiling (BW peak / compute peak / latency floor).")
+num("Implement the op in the target's native kernel language (C/C++ on CPU, CUDA/Triton on GPU) and optimize to a reasonable extent, driving it to its ceiling (BW peak / compute peak / latency floor).")
 num("If the gap to roofline cannot be bridged by known techniques → surface to the user for review.")
 num("Every op done this way — none skipped. Completion gate = every op/fused-op at its ceiling.")
 h2("Phase B — wall-time + ordering (only after Phase A completes)")
-num("Switch to wall-time; fix system pathology first (OpenMP spin-wait, thread-cap, NUMA bind, allocator, dispatch, batching) until kernel-domination clears the bar.")
+num("Switch to wall-time; fix platform/runtime pathology first (CPU: OpenMP spin-wait/affinity, NUMA bind, allocator; GPU: launch/stream config, occupancy, memory pool; plus dispatch & batching) until kernel-domination clears the bar.")
 num("Apply Amdahl ordering — prioritize/aggregate high-share work. Ordering is sequencing, not exclusion.")
 para("Bounding valves that keep Phase A finite: \u201creasonable extent\u201d + \u201csurface if can\u2019t bridge.\u201d "
      "Latency-bound \u201cpeak\u201d = the dispatch/overhead floor (fuse/batch launches), not an AI target.", GRAY)
@@ -121,20 +124,23 @@ para("Bounding valves that keep Phase A finite: \u201creasonable extent\u201d + 
 h1("Pipeline phases (in order)")
 
 h2("Phase 0 — Platform scan + intake + capacity/precision pre-flight (Gate 0)")
-bullet("Run the uArch probe on the target node → measured machine_constants: per-NUMA-domain memory "
-       "BW, per-dtype compute peak, ridge = peak/BW, NUMA/SNC, ISA. No hardcoded constants.")
+bullet("Run the uArch probe on the target device → measured machine constants: per-memory-domain BW, "
+       "per-dtype compute peak, ridge = peak/BW, topology (CPU: NUMA/SNC; GPU: devices/interconnect), "
+       "ISA/occupancy. No hardcoded constants — swap the spec file to retarget.")
 bullet("Data-type audit from the real checkpoint (metadata-only first): {op, stored dtype, target "
        "compute dtype, kernel, inflation?, dtype-bridge, parity gate}. Never inflate a native low-bit "
-       "checkpoint; sub-tile dtypes are moved low-bit and computed bf16 via fused dequant.")
-bullet("Capacity pre-flight: resident weights + activations + KV/state vs per-domain RAM floor → tp/EP "
-       "(EP-first for MoE; CPU tp>1 hurts latency-bound decode).")
+       "checkpoint; sub-tile dtypes are moved low-bit and computed in the native compute dtype via fused dequant.")
+bullet("Capacity pre-flight: resident weights + activations + KV/state vs per-domain memory floor → "
+       "parallelism map (tp/EP; EP-first for MoE). On CPU tp>1 hurts latency-bound decode; on GPU pick "
+       "tp/EP by memory fit + interconnect.")
 
 h2("Phase 1 — Op scope discovery + decomposition (Gate 1)")
 bullet("Enumerate every op (walk each layer index — heterogeneity is easy to miss); 100% compute "
        "coverage; anything unclassifiable is UNKNOWN → treated as a gap.")
 bullet("Dependency-closure for non-compute substrate (KV pool, backends, novel non-attention families).")
-bullet("Coverage-gate assigns each op a lane: A = covered on CPU (donor); B = missing on CPU but "
-       "GPU/XPU reference exists (oracle); C = missing, author from math spec.")
+bullet("Scope discovery assigns each op a lane: A = covered by a native kernel on the target (donor); "
+       "B = missing on the target but a reference impl exists elsewhere (numerical oracle); "
+       "C = missing, author from the math spec.")
 
 h2("Phase 2 — Fusion pass → roofline (per op, target platform)")
 bullet("Fusion analysis first (vertical / horizontal / epilogue). For each candidate: consult the "
@@ -144,7 +150,7 @@ bullet("Fusion analysis first (vertical / horizontal / epilogue). For each candi
        "of a GPU reference is not a reason to skip (CPU is more BW-bound, so a CPU-only fusion may pay).")
 bullet("Map each fusion: COVERED (donor fused kernel) / NEW-C++ (→ kernel authoring) / SKIP (record why).")
 bullet("Per-op and per-fused-op roofline: FLOPs, weight+activation+KV bytes, arithmetic intensity, "
-       "binding resource, achievable ceiling, and the C/C++ implementation lane. Phase-split prefill vs decode.")
+       "binding resource, achievable ceiling, and the native-kernel implementation lane. Phase-split prefill vs decode.")
 
 h2("Phase A / Phase B — execute per the governing principle above")
 
@@ -156,37 +162,36 @@ para("Each optimization is proven end-to-end, not just in a microbench. We keep 
 para("Ledger artifact: plugin/validate/results/wall_time_progress.json (baseline row + one row per "
      "op, filled after each integration).", GRAY)
 h2("The loop (repeat per op, in Phase-A order)")
-num("Baseline wall time FIRST: run the full model end-to-end with deterministic-dummy weights and "
+num("Baseline wall time FIRST: run the model end-to-end (depth proxy, deterministic-dummy weights) and "
     "record the steady-state median latency at each M (step 0 = the reference; never time the cold step).",
     bold_lead="0 \u2014 ")
 num("Optimize the op standalone to its machine-peak ceiling (author \u2192 measure \u2192 iterate \u2192 keep "
     "best-of), then surface-and-stop when levers are exhausted.", bold_lead="1 \u2014 ")
 num("Integrate the kept kernel into the model behind a COSINE FINGERPRINT gate: per-layer + per-op "
-    "cosine vs the torch/GPU reference on the SAME dummy weights must stay \u2265 0.9999 (set-match for "
-    "top-k ops). The first layer/op below threshold localizes a break \u2014 do not proceed until it passes.",
+    "cosine vs a trusted reference (eager / GPU / HF) on the SAME dummy weights must stay \u2265 0.9999 "
+    "(set-match for top-k ops). The first layer/op below threshold localizes a break \u2014 do not proceed until it passes.",
     bold_lead="2 \u2014 ")
 num("Re-run the model end-to-end (dummy weights, same M sweep) and record the new wall time + the delta "
     "vs the previous row and the cumulative speed-up vs baseline.", bold_lead="3 \u2014 ")
 num("Repeat for the next op. The ledger accumulates to the final published curve: baseline \u2192 "
     "op-by-op \u2192 fully-optimized.", bold_lead="4 \u2014 ")
 h2("Depth-proxy timing + analytical scaling to full depth")
-para("Perf runs use DUMMY weights (no real load) AND a depth-reduced proxy: every DSv4 layer is the "
-     "identical MoE+MLA+DSA archetype (first_k_dense_replace=0, moe_layer_freq=1), so end-to-end wall "
-     "time is LINEAR in depth, t(L) = t_fixed + L\u00b7t_layer. This keeps every iteration cheap "
-     "(4 layers, not 43) while still reporting a full-depth number.", GRAY)
-bullet("Calibrate ONCE at baseline from two proxy depths (4 and 8 layers): "
-       "t_layer = (t\u2088 \u2212 t\u2084)/4 and t_fixed = t\u2084 \u2212 4\u00b7t_layer, where t_fixed is the non-layer cost "
-       "(embed + lm_head + framework/sampling).")
-bullet("Each iteration records BOTH: (a) the MEASURED proxy-4 wall time, and (b) the full-depth wall time "
-       "derived ANALYTICALLY \u2014 t_layer(iter) = (t_proxy4(iter) \u2212 t_fixed)/4, predicted full = "
-       "t_fixed + 43\u00b7t_layer(iter). Report proxy and full-scaled speed-up curves side by side "
+para("Perf runs use DUMMY weights (no real load) AND a depth-reduced proxy. When the layer stack is a "
+     "repeated archetype (homogeneous transformer \u2014 the common case), end-to-end wall time is LINEAR in "
+     "depth, t(L) = t_fixed + L\u00b7t_layer, so a few-layer proxy is representative (pilot: 4 layers vs the "
+     "full N). For HETEROGENEOUS stacks, include each distinct archetype at least once and scale per-archetype.", GRAY)
+bullet("Calibrate ONCE at baseline from two proxy depths p and q: t_layer = (t_q \u2212 t_p)/(q \u2212 p) and "
+       "t_fixed = t_p \u2212 p\u00b7t_layer, where t_fixed is the non-layer cost (embed + output head + "
+       "framework/sampling). (pilot p=4, q=8.)")
+bullet("Each iteration records BOTH: (a) the MEASURED proxy wall time, and (b) the full-depth wall time "
+       "derived ANALYTICALLY \u2014 t_layer(iter) = (t_proxy(iter) \u2212 t_fixed)/p, predicted full = "
+       "t_fixed + N\u00b7t_layer(iter). Report proxy and full-scaled speed-up curves side by side "
        "(they differ because the fixed overhead does not scale).")
 bullet("t_fixed is config-invariant across per-layer optimizations; recalibrate only if a NON-layer op "
-       "(e.g. lm_head) is optimized.")
-bullet("END VALIDATION: after all ops are integrated, do ONE full-depth dummy run (43 layers) and compare "
-       "the MEASURED full-depth wall time against the analytically predicted value \u2014 small error "
-       "confirms the whole depth-scaled progression. Ledger: "
-       "plugin/validate/results/wall_time_progress.json.")
+       "(e.g. the output head) is optimized.")
+bullet("END VALIDATION: after all ops are integrated, do ONE full-depth dummy run (all N layers) and "
+       "compare the MEASURED full-depth wall time against the analytically predicted value \u2014 small error "
+       "confirms the whole depth-scaled progression.")
 h2("Framework / dispatch / OpenMP overhead \u2014 the proxy studies these too (Phase B on the proxy)")
 para("The depth proxy is the right instrument for system overhead, not just op math: the depth-independent "
      "t_fixed term IS the framework/dispatch/sampling cost, and per-op dispatch + OpenMP-barrier overhead "
@@ -209,58 +214,60 @@ bullet("Clear the usual systemic levers: OMP spin-wait (OMP_WAIT_POLICY), alloca
 h2("MoE mode-collapse \u2014 the input tensor matters")
 para("The dummy-weight run must exercise a REPRESENTATIVE set of routed experts. With tiny random gate "
      "weights, a non-diverse input (e.g. one hidden vector broadcast across the batch) collapses routing "
-     "to the same top-k experts every token \u2014 only ~topk of the E=256 experts run, so the measured MoE "
+     "to the same top-k experts every token \u2014 only ~topk of the E experts run, so the measured MoE "
      "wall time is unrepresentatively low and the roofline's expert traffic is never incurred.", GRAY)
 bullet("Build the input with plugin/validate/moe_balanced_input.build_verified_input(M, gate_weight): "
        "per-token i.i.d. hidden states (NOT a broadcast), falling back to round-robin gate-row alignment.")
 bullet("VERIFY (not assume) dispersion: realized distinct-experts must track the uniform expectation "
        "E\u00b7(1\u2212(1\u22121/E)^(topk\u00b7M)) and no expert may absorb an outsized share \u2014 a collapse gate "
-       "asserts this before the timing is trusted. (Checked M=8\u219243, 16\u219281, 32\u2192138, 64\u2192209 distinct "
-       "vs expected 43.8/80.2/135.3/199; the broadcast trap collapses to 6 and is rejected.)")
+       "asserts this before the timing is trusted. (pilot E=256: checked M=8\u219243, 16\u219281, 32\u2192138, "
+       "64\u2192209 distinct vs expected 43.8/80.2/135.3/199; the broadcast trap collapses to 6 and is rejected.)")
 bullet("Instrument the real router during the E2E run to confirm the same spread in-engine (per-forward "
        "distinct-expert count), so the proxy input is validated against the actual model path.")
 
 h2("Phase 6 — Validate, certify, deliver")
-bullet("Validate-by-run (Gate 2): confirm the predicted class/ceiling in-engine (dummy weights for "
-       "perf, full depth, target ISA). Mismatch → the paper model omitted a cost; update it.")
-bullet("Accuracy oracle finale: real-weight per-token parity vs HF → task accuracy (gsm8k) → "
-       "GPU-vs-CPU cross-check sign-off.")
-bullet("Enablement certificate (op→kernel→donor provenance + parity gates); peer-relative roofline "
-       "(efficiency vs a shipped donor ≥ 0.90); ship as plugin override (no fork).")
+bullet("Validate-by-run: confirm the predicted class/ceiling in-engine (dummy weights for perf, full "
+       "depth, target backend). Mismatch → the paper model omitted a cost; update it.")
+bullet("Accuracy finale: real-weight per-token parity vs a trusted reference → task accuracy "
+       "(e.g. gsm8k) → reference-vs-target cross-check sign-off.")
+bullet("Provenance record (op→kernel→donor + parity gates) and a peer-relative check where an already-"
+       "shipped model shares the same kernels (efficiency within tolerance); ship as a plugin override (no fork).")
 
 # ---- correctness toolkit ----
 h1("Correctness debugging toolkit (localize cheaply before real-weight runs)")
 bullet("Deterministic-dummy weights: (a) skip the real checkpoint load for fast perf iteration; "
-       "(b) make CPU dummy bit-identical to the GPU/torch dummy reference so a per-layer diff is valid "
+       "(b) make the target dummy bit-identical to the reference dummy so a per-layer diff is valid "
        "without real weights.")
-bullet("Layer-by-layer cosine fingerprint: capture a per-layer reference, run CPU with the same dummy "
+bullet("Layer-by-layer cosine fingerprint: capture a per-layer reference, run the target with the same dummy "
        "weights, diff per-layer hidden states by cosine similarity; the first layer below ~0.999 localizes the break.")
 bullet("Per-op fingerprint (shape + norm + cosine/checksum) to pinpoint the op within the bad layer.")
-bullet("Isolation switches to bisect novel ops (ignore DSA selection → dense, force-dense MoE, swap "
-       "kernel ↔ torch reference).")
-bullet("Reduces-to-identity checks (sparse attend → exact dense at top-k=all) and low-bit dtype-bridge "
-       "parity vs an independent torch dequant oracle.")
+bullet("Isolation switches to bisect novel ops (e.g. bypass sparse selection → dense, force-dense MoE, swap "
+       "kernel ↔ reference).")
+bullet("Reduces-to-identity checks (e.g. sparse attend → exact dense at top-k=all) and low-bit dtype-bridge "
+       "parity vs an independent dequant oracle.")
 bullet("Escalation order: L0 coherence → per-layer cosine (dummy, no load) → per-op fingerprint + "
        "isolation → component/reduces-to-identity parity → real-weight per-token parity → task accuracy "
-       "→ GPU-vs-CPU sign-off.")
+       "→ reference-vs-target sign-off.")
 
 # ---- gates ----
 h1("Gates")
 for g in ["G0 — capacity / precision (every launch)",
           "G1 — coverage / lane (routes Thesis 1 vs 2 per op)",
-          "Fusion roofline gate (bytes saved + AI lift + L2-resident; GPU oracle where available)",
+          "Fusion roofline gate (bytes saved + AI lift + cache-resident; reference oracle where available)",
           "Phase-A ceiling-or-surface (every op at its ceiling, else surface to user)",
           "G2 — validate-by-run (confirm the paper model in-engine)",
           "G2.5 — system-pathology (kernel-domination ≥ bar before per-op work)",
-          "Accuracy-oracle gate · Human-gate (novel kernels)"]:
+          "Accuracy gate · Human-gate (novel kernels)"]:
     bullet(g)
 
-# ---- EMR platform card ----
-h1("Pilot platform — EMR (measured)")
+# ---- platform card (example instantiation) ----
+h1("Platform card — an INPUT, filled per target by the probe")
+para("The method assumes NO specific values. Below is the pilot's instantiation (produced by the uArch "
+     "probe); retarget by swapping the per-platform spec file. Every number here is measured, not assumed.", GRAY)
 tbl = d.add_table(rows=1, cols=2)
 tbl.style = "Light Grid Accent 1"
-tbl.rows[0].cells[0].paragraphs[0].add_run("Property").bold = True
-tbl.rows[0].cells[1].paragraphs[0].add_run("Value (measured 2026-10-07, pcl-spr10)").bold = True
+tbl.rows[0].cells[0].paragraphs[0].add_run("Property (pilot example)").bold = True
+tbl.rows[0].cells[1].paragraphs[0].add_run("Value (DeepSeek-V4-Flash on Intel Xeon EMR, measured 2026-10-07)").bold = True
 for k, v in [
     ("CPU", "Intel Xeon Platinum 8592+ (Emerald Rapids)"),
     ("Topology", "2 sockets × 64 cores; 1 NUMA domain per socket (SNC off)"),
@@ -275,11 +282,12 @@ for k, v in [
     row[0].paragraphs[0].add_run(k)
     row[1].paragraphs[0].add_run(v)
 
-# ---- note on divergence ----
-h1("Note — divergence from the published tree")
-para("The codified tree ROI-skips low-share ops (\u201cdominant kernel at roofline\u201d). This pilot "
-     "requires all ops at their ceiling (Phase A) before wall-time/Amdahl ordering (Phase B). This is "
-     "reported to the tree owner as a methodology item; the pilot does not edit the tree.", GRAY)
+# ---- method note ----
+h1("Method note — all-ops-to-ceiling before wall-time ordering")
+para("This playbook requires EVERY op at its roofline ceiling (Phase A) BEFORE wall-time / Amdahl "
+     "ordering (Phase B), rather than ROI-skipping low-share ops up front. The inversion is deliberate: "
+     "a cheap op can hide a systemic pathology, and completeness-first makes the Phase-B wall-time "
+     "attribution trustworthy. Applies unchanged across models and platforms.", GRAY)
 
 d.save(OUT)
 print("SAVED:", OUT)

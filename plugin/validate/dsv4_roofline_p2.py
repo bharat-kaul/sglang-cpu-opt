@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""DSv4-Flash Phase-A per-op roofline + fusion pass (skill-aligned, analytical).
+"""DSv4-Flash Phase-A per-op roofline + fusion pass (analytical, self-contained).
 
-Follows the glm5-perf skills model-op-decomposition -> fusion-analysis ->
-model-roofline-analysis, and the pilot GOVERNING METHODOLOGY (two-phase):
+Implements the pilot's own two-phase methodology (op decomposition -> fusion analysis ->
+per-op roofline on the target platform); no dependency on any external skill/tree:
   PHASE A (this script): discover EVERY op in a layer INCLUDING fused ops; for each,
     roofline + BINDING RESOURCE (BW/compute/latency) on the target platform; whether its
     arithmetic intensity is IMPROVABLE by a lever (increase M, fusion); the achievable
@@ -120,7 +120,7 @@ def indexer_fused():
 
 def moe_experts():
     """Routed experts, FUSED (gate+up + SiLU*mul + down). Anchor = tokens/expert; distinct
-    experts per step = E*(1-(1-1/E)^(k*B)) (model-roofline-analysis batched-MoE formula)."""
+    experts per step = E*(1-(1-1/E)^(k*B)) (batched-MoE distinct-experts formula)."""
     bpw = BPW["fp4"]
     per = 3 * H * MOE_I
     return Op("MoE experts (gate+up+SiLU+down FUSED, W4A16)", "fused", "A", "donor moe.cpp MXFP4", "fp4",
