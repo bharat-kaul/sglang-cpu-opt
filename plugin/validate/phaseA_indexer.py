@@ -51,7 +51,7 @@ def bench(fn, *a, iters=20):
 
 
 print(f"platform={PLAT['name']} BW={BW/1e9:.0f}GB/s PEAK={PEAK/1e12:.1f}TF ridge={PEAK/BW:.0f} threads={THREADS}")
-print(f"{'N':>4} {'in':>5} {'cos':>10} {'ref ms':>9} {'cpp ms':>9} {'speedup':>8} {'ceil ms':>9} {'cpp/ceil':>9} {'bound':>8}")
+print(f"{'N':>4} {'kern':>6} {'in':>5} {'cos':>10} {'ms':>8} {'vs ref':>7} {'ceil ms':>8} {'off':>7}")
 for N in (1, 8, 16, 32, 64):
     q0 = torch.randn(N, H, D)
     kv0 = torch.randn(N, S, D)
@@ -59,12 +59,13 @@ for N in (1, 8, 16, 32, 64):
     r = ref_logits(q0, kv0, w)
     byts, fl = roofline_bytes(N), roofline_flops(N)
     ceil = max(byts / BW, fl / PEAK)
-    bound = "compute" if fl / byts > PEAK / BW else "BW"
-    for tag, q, kv in (("fp32", q0, kv0), ("bf16", q0.bfloat16(), kv0.bfloat16())):
-        c = mod.indexer_logits_fused(q, kv, w)
+    t_ref = bench(ref_logits, q0, kv0, w)
+    qb, kvb = q0.bfloat16(), kv0.bfloat16()
+    for kern, fn in (("bmm", mod.indexer_logits_fused), ("tiled", mod.indexer_logits_tiled)):
+        c = fn(qb, kvb, w)
         cos = torch.nn.functional.cosine_similarity(r.flatten().float(), c.flatten().float(), dim=0).item()
-        t_ref = bench(ref_logits, q0, kv0, w)
-        t_cpp = bench(mod.indexer_logits_fused, q, kv, w)
-        print(f"{N:>4} {tag:>5} {cos:>10.6f} {t_ref*1e3:>9.3f} {t_cpp*1e3:>9.3f} {t_ref/t_cpp:>7.2f}x "
-              f"{ceil*1e3:>9.3f} {t_cpp/ceil:>8.2f}x {bound:>8}")
+        t = bench(fn, qb, kvb, w)
+        print(f"{N:>4} {kern:>6} {'bf16':>5} {cos:>10.6f} {t*1e3:>8.3f} {t_ref/t:>6.2f}x "
+              f"{ceil*1e3:>8.3f} {t/ceil:>6.1f}x")
+
 

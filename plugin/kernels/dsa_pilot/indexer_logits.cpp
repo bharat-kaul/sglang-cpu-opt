@@ -7,6 +7,7 @@
 #include <torch/extension.h>
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
+#include <ATen/native/CPUBlas.h>
 
 // q:[N,H,D] kv:[N,S,D] weight:[N,H] -> logits:[N,S] (fp32), semantics == indexer_logits ref.
 torch::Tensor indexer_logits_fused(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
@@ -39,6 +40,65 @@ torch::Tensor indexer_logits_fused(torch::Tensor q, torch::Tensor kv, torch::Ten
   return logits;
 }
 
+// ---- tiled brgemm + per-tile fused epilogue: scores never leave L1 (no DRAM round-trip) ----
+// Per n: pack q[n]^T [D,H] to VNNI once; loop S in Sb-row tiles; brgemm each tile's scores
+// [Sb,H] into an L1 stack buffer; apply relu*weight*sum over H in place -> logits. kv streamed once.
+torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
+  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "bad dims");
+  const int64_t N = q.size(0), H = q.size(1), D = q.size(2), S = kv.size(1);
+  auto qb = q.to(torch::kBFloat16).contiguous();
+  auto kvb = kv.to(torch::kBFloat16).contiguous();
+  auto wf = weight.to(torch::kFloat32).contiguous();
+  auto logits = torch::empty({N, S}, torch::kFloat32);
+  const bool vnni = at::native::cpublas::could_pack(torch::kBFloat16);
+  // Adaptive tile: target ~4*threads tasks so each brgemm M is large (AMX-efficient) yet enough
+  // parallelism remains at small N. Sb multiple of 16, clamped [16,256] (Cbuf <= 64KB, L1/L2).
+  const int64_t nthr = at::get_num_threads();
+  int64_t tpn = std::max<int64_t>(1, (4 * nthr + N - 1) / N);        // tiles per n
+  int64_t Sb = std::max<int64_t>(16, ((S + tpn - 1) / tpn + 15) / 16 * 16);
+  Sb = std::min<int64_t>(Sb, 256);
+  const int64_t ntiles = (S + Sb - 1) / Sb;
+
+  // Pack B = q[n]^T [D,H] (VNNI) once per n; reused by every S-tile of that n.
+  auto qpack = torch::empty({N, D * H}, torch::kBFloat16);
+  for (int64_t n = 0; n < N; ++n) {
+    auto qT = qb[n].transpose(0, 1).contiguous();   // [D,H]
+    if (vnni) {
+      at::native::cpublas::pack(D, H, H, H, torch::kBFloat16, torch::kBFloat16,
+                                qT.data_ptr<at::BFloat16>(), qpack[n].data_ptr<at::BFloat16>());
+    } else {
+      std::memcpy(qpack[n].data_ptr<at::BFloat16>(), qT.data_ptr<at::BFloat16>(),
+                  D * H * sizeof(at::BFloat16));
+    }
+  }
+
+  at::parallel_for(0, N * ntiles, 1, [&](int64_t a, int64_t b) {
+    alignas(64) float Cbuf[256 * 64];           // >= Sb*H (Sb<=256, H=64) = 64KB
+    for (int64_t it = a; it < b; ++it) {
+      const int64_t n = it / ntiles, ti = it % ntiles, s0 = ti * Sb;
+      const int64_t sb = std::min(Sb, S - s0);
+      const at::BFloat16* A = kvb[n].data_ptr<at::BFloat16>() + s0 * D;   // [sb,D]
+      const at::BFloat16* B = qpack[n].data_ptr<at::BFloat16>();          // packed [D,H]
+      at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, Cbuf, vnni);
+      const float* w = wf[n].data_ptr<float>();
+      float* lp = logits[n].data_ptr<float>() + s0;
+      for (int64_t r = 0; r < sb; ++r) {
+        const float* row = Cbuf + r * H;
+        float acc = 0.f;
+        #pragma omp simd reduction(+ : acc)
+        for (int64_t h = 0; h < H; ++h) {
+          float v = row[h];
+          acc += (v > 0.f ? v : 0.f) * w[h];
+        }
+        lp[r] = acc;
+      }
+    }
+    at::native::cpublas::brgemm_release(vnni);
+  });
+  return logits;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("indexer_logits_fused", &indexer_logits_fused, "DSA indexer logits (fused epilogue)");
+  m.def("indexer_logits_tiled", &indexer_logits_tiled, "DSA indexer logits (tiled brgemm + fused epilogue, no DRAM scores)");
 }
