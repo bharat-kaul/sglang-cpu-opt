@@ -435,6 +435,12 @@ bullet("Per-layer INVOCATION counts come from the config (per-layer variants/pha
        "\u00d7num_layers. Verify against the model; print per-call cost, calls/step, and per-step cost.")
 bullet("Include quantization metadata (scale/padding bytes) in traffic AND capacity; low-bit storage is "
        "not native low-bit compute.")
+bullet("SWEEP M=1..64 in BOTH the roofline and the measurement \u2014 never a single point. The analytical "
+       "ideal and the measured median must be reported at EVERY M (1/8/16/32/64); a single-M number cannot "
+       "show the plateau or the regime. Expect the measured off-ceiling to CONVERGE toward the achievable "
+       "BW wall as M grows while the small-M points are dispatch/overhead-bound \u2014 that convergence IS the "
+       "best-case-vs-roofline evidence. Measure replicated (median of >=3), threads bound once, one NUMA "
+       "domain, on the roofline's measured-reference node class.", bold_lead="M-sweep \u2014 ")
 bullet("MEASUREMENTS are VALIDATED against their raw record, not asserted: a cited speedup/correctness must "
        "be READ from a structured result record (load it; fail closed if absent). KERNEL revision and "
        "RESULT-RECORD revision are SEPARATE fields; the published quantity must match the specific KEPT "

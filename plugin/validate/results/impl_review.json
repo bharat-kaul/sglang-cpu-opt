@@ -21,19 +21,13 @@
     "resolved four UNRESOLVED kept-pass revisions (topk=17dbb0d, compressor=ccded85, sinkhorn=ccded85, combine=dbfbcfa) from the kernel authoring commits (git log); roofline observations now read a resolved revision."
   ],
   "perf_vs_roofline": {
-    "status": "MEASURED",
-    "raw_record": "SLURM job 384372, log /scratch/bkaul/dsa_perf_sweep_384372.log, node pcl-sprh11 (DDR5-5600), 2026-10-09; run_dsa_perf_sweep.sbatch; 3 reps/bench (median reported); OMP 64thr bound once, numactl NUMA0.",
-    "operating_point": "M=32 (priority)",
-    "ceiling_basis": "NOMINAL machine peak (BW 358.4 GB/s, FP32 7.78 TF / AMX 124.5 TF) from the roofline ideal (dsv4_roofline_vs_measured.py). off_ceiling = measured_median / nominal_ideal; the measured node achieves ~60-77% of nominal DRAM BW, so a BW-bound op is expected ~1.3-1.7x off from the wall alone; small ops are latency/dispatch-bound (far from roof, diagnostic only).",
-    "measured": [
-      {"kernel": "indexer_logits.cpp", "median_ms_M32": 0.540, "nominal_ideal_us": 69.8, "off_ceiling": 7.7, "binding": "BW-bound (matches prior 7.7x off-ceiling record)"},
-      {"kernel": "compressor.cpp", "median_ms_M32": 0.476, "nominal_ideal_us": 47.7, "off_ceiling": 10.0, "binding": "BW-bound (streaming pool)"},
-      {"kernel": "combine.cpp", "median_ms_M32": 0.012, "nominal_ideal_us": 7.3, "off_ceiling": 1.6, "binding": "near roof"},
-      {"kernel": "indexer_topk.cpp", "median_ms_M32": 0.039, "nominal_ideal_us": 0.5, "off_ceiling": 78.0, "binding": "latency/selection-bound (tiny op; diagnostic only)"},
-      {"kernel": "sinkhorn.cpp", "median_ms_M32": 0.015, "nominal_ideal_us": 0.017, "off_ceiling": 882.0, "binding": "dispatch/latency-bound (tiny hc=4 op; diagnostic only)"},
-      {"kernel": "sparse_attend.cpp", "median_ms_M32_scalar": 0.555, "median_ms_M32_amx": 1.786, "nominal_ideal_us": 275.9, "off_ceiling_scalar": 2.0, "binding": "SURFACED: scalar 0.30x vs torch BLAS, AMX below correctness tol -> donor MLA flash is the production path (NOT this kernel)"}
-    ],
-    "verdict": "Measured off-ceiling is CONSISTENT with the roofline and with prior records (indexer_logits 7.7x identical). Streaming ops (indexer_logits, compressor) are BW-bound; the residual vs nominal is dominated by the achievable-vs-nominal DRAM BW wall + small-M overhead, NOT a kernel defect (surfaced, not closable by kernel work). Tiny ops (topk, sinkhorn, combine) are latency/dispatch-bound (off-roof is diagnostic only). sparse_attend stays on the donor path."
+    "status": "MEASURED (full M sweep 1/8/16/32/64)",
+    "raw_record": "SLURM job 384372, log /scratch/bkaul/dsa_perf_sweep_384372.log, node pcl-sprh11 (DDR5-5600), 2026-10-09; run_dsa_perf_sweep.sbatch; 3 reps/bench (median); OMP 64thr bound once, numactl NUMA0.",
+    "measured_sweep": "results/perf_sweep.json (median cpp_ms per op across M=1/8/16/32/64)",
+    "report": "reports/dsv4_roofline_vs_measured_emr.txt (per op: roofline ideal vs measured vs off-ceiling across the full M sweep, with plateau explanation)",
+    "ceiling_basis": "NOMINAL machine peak (BW 358.4 GB/s, FP32 7.78 TF / AMX 124.5 TF). off_ceiling = measured_median / nominal_ideal; the node reaches ~60-77% of nominal DRAM BW so a BW-bound op is ~1.3-1.7x off the wall alone; small ops are latency/dispatch-bound (far from roof by construction).",
+    "plateau_finding": "Across M the off-ceiling CONVERGES toward the achievable BW wall as M grows (e.g. indexer_logits 469x@M1 -> 15x@M8 -> 7.7x@M32 -> 6.6x@M64; compressor 164x@M1 -> 10x@M32 -> 5.6x@M64) \u2014 the large small-M values are dispatch/overhead-bound, the large-M values approach the DRAM wall. This is the best-case-vs-roofline evidence a single-M point cannot show.",
+    "verdict": "Measured off-ceiling is CONSISTENT with the roofline and prior records (indexer_logits 7.7x@M32 identical). Streaming ops (indexer_logits, compressor) are BW-wall-bound (surfaced, not a kernel defect); tiny ops (topk/sinkhorn/combine) latency/dispatch-bound (off-roof diagnostic only); sparse_attend stays on the donor path."
   },
-  "overall": "All 6 authored kernels re-verified for CORRECTNESS (5 PASS at all costed shapes incl. realistic distributions; sparse_attend routes to donor). Four pending kernel revisions resolved. No re-authoring required for the costed stages. PERF-vs-roofline MEASURED on a DDR5-5600 node (job 384372, median of 3): off-ceiling consistent with the roofline + prior records; streaming ops BW-wall-bound (surfaced), tiny ops latency-bound."
+  "overall": "All 6 authored kernels re-verified for CORRECTNESS (5 PASS at all costed shapes incl. realistic distributions; sparse_attend routes to donor). Kernel revisions resolved. No re-authoring required for the costed stages. PERF-vs-roofline MEASURED across the FULL M sweep 1/8/16/32/64 on a DDR5-5600 node (job 384372, median of 3): off-ceiling converges to the BW wall as M grows; report at reports/dsv4_roofline_vs_measured_emr.txt. Correctness remains MICROBENCH scope (E2E verification PENDING)."
 }

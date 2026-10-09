@@ -31,52 +31,39 @@ B2, B4, I4 = 2.0, 4.0, 4.0                   # bf16 / fp32 / int32 bytes
 
 M = 32  # the single observed coordinate
 
-# op: (name, flops, bytes, compute_dtype, record_filename, note)
+# op: (name, flops(M), bytes(M), compute_dtype, record_filename, plateau_note)
 # bytes/flops derived from each bench's call contract; evidence READ from the result record (H1).
 OPS = [
     ("indexer logits (q.ck+reduce)",
-     2*M*64*1024*128 + 3*M*64*1024,
-     M*64*128*B4              # q[M,H,D] FP32 public input (bench_idx_logits.py)
-     + M*1024*128*B4          # kv[M,S,D] per-request FP32 keys
-     + M*64*B4                # weights w[M,H] FP32
-     + M*1024*B4,             # logits[M,S] FP32 out
+     lambda M: 2*M*64*1024*128 + 3*M*64*1024,
+     lambda M: M*64*128*B4 + M*1024*128*B4 + M*64*B4 + M*1024*B4,   # q + kv + w + logits (FP32 public boundary)
      "fp32", "indexer_logits.json",
-     "bench_idx_logits.py FP32 public boundary, per-request keys; BF16 projected-query (9,052,160 B) is a PROSPECTIVE target, not this observation"),
+     "BW-bound; best-of dispatcher (tiled brgemm M>=8 + bmm M=1), scores cache-resident. Plateau = achievable-vs-nominal DRAM BW wall (~60-77%) + small-M dispatch; not closable by kernel work."),
     ("indexer top-k (512 of 1024)",
-     0,
-     M*1024*B4                # read logits[M,1024] fp32
-     + M*512*I4,              # write 512 selected indices (int32) per request
+     lambda M: 0,
+     lambda M: M*1024*B4 + M*512*I4,                               # read logits + write 512 idx
      "fp32", "indexer_topk.json",
-     "selection; reads logits[M,1024], writes [M,512] idx"),
+     "latency/selection-bound (no AMX GEMM primitive); chunked within-row saturates cores at small M. Plateau = tiny absolute (14-39us), dispatch-bound; off-roof diagnostic only."),
     ("compressor softmax-pool",
-     3*M*128*512,
-     M*128*512*B4             # read kv state (win=128, D=512) FP32
-     + M*128*512*B4           # read score state FP32
-     + M*512*B4               # write compressed token (D) per request FP32
-     + 128*512*B4,            # shared positional APE[R,D] read once/call FP32
+     lambda M: 3*M*128*512,
+     lambda M: M*128*512*B4 + M*128*512*B4 + M*512*B4 + 128*512*B4,  # kv + score + out + shared APE
      "fp32", "compressor.json",
-     "R=128,D=512; FP32 kv+score+APE reads, FP32 out"),
+     "BW-bound streaming online-softmax pool (no w[N,R,D] temporary). Plateau = DRAM BW wall; off-roof vs nominal is the wall, not a defect."),
     ("sparse attend (MQA+sink)",
-     4*M*64*512*512,
-     M*512*512*B4             # latent KV read (K=512, D=512)
-     + 2*M*64*512*B4,         # q + out (NH=64, D=512)
+     lambda M: 4*M*64*512*512,
+     lambda M: M*512*512*B4 + 2*M*64*512*B4,                       # latent KV + q + out
      "fp32", "sparse_attend.json",
-     "H=64,K=512,D=512; FP32 scalar-flash boundary (bench_sparse_attend.py)"),
+     "SURFACED: scalar loses to torch BLAS (~0.3x), AMX below correctness tol -> donor MLA flash is the production path. Not optimized further."),
     ("MHC sinkhorn (hc=4,20it)",
-     M*4*4*20*5,
-     M*24*B4                  # read mixes[M,24] FP32
-     + 3*B4                   # read scale[3] FP32
-     + 24*B4                  # read base[24] FP32
-     + M*24*B4,               # write pre+post+comb (24-wide/row total) FP32
+     lambda M: M*4*4*20*5,
+     lambda M: M*24*B4 + 3*B4 + 24*B4 + M*24*B4,                   # mixes + scale + base + pre/post/comb
      "fp32", "mhc_sinkhorn.json",
-     "mixes[M,24]+scale[3]+base[24] -> pre/post/comb (24/row)"),
+     "dispatch-bound (reference ~40 tiny torch ops/call); fused 20 iters -> ~20x vs torch. Plateau = tiny hc=4 op, latency-bound; off-roof diagnostic only."),
     ("MHC combine (reduce)",
-     M*4096*(4+3),            # 4 multiplies + 3 adds per output elem (weighted sum)
-     M*4*4096*B4              # read x[M,4,4096] FP32
-     + M*4*B4                 # read per-request weights pre[M,4] FP32
-     + M*4096*B4,             # write y[M,4096] FP32
+     lambda M: M*4096*(4+3),                                       # 4 mul + 3 add per out elem
+     lambda M: M*4*4096*B4 + M*4*B4 + M*4096*B4,                   # x + per-request pre + y
      "fp32", "mhc_combine.json",
-     "einsum mk,mkh->mh; per-request pre[M,4] weights; +reduction adds"),
+     "BW/latency-bound; tiled accumulate-once (x read once, y written once). Near roof at M>=8; plateau = minimal traffic achieved."),
 ]
 
 # --- fail-closed contract assertions (byte/FLOP + compute-dtype from the bench contracts @ M=32) ---
@@ -87,34 +74,47 @@ _EXPECT = {
     "MHC sinkhorn (hc=4,20it)": {"bytes": 6_252, "cdt": "fp32"},
     "MHC combine (reduce)": {"bytes": 2_621_952, "flops": 917_504, "cdt": "fp32"},
 }
-for _n, _fl, _by, _cdt, _rec, _nt in OPS:
+for _n, _flf, _byf, _cdt, _rec, _nt in OPS:
     _e = _EXPECT.get(_n)
     if _e:
         if "bytes" in _e:
-            assert _by == _e["bytes"], f"{_n}: bytes {_by} != contract {_e['bytes']}"
+            assert _byf(M) == _e["bytes"], f"{_n}: bytes {_byf(M)} != contract {_e['bytes']}"
         if "flops" in _e:
-            assert _fl == _e["flops"], f"{_n}: flops {_fl} != contract {_e['flops']}"
+            assert _flf(M) == _e["flops"], f"{_n}: flops {_flf(M)} != contract {_e['flops']}"
         assert _cdt == _e["cdt"], f"{_n}: compute dtype {_cdt} != {_e['cdt']}"
 
-print(f"DSv4 roofline-VS-observation (authored ops, M={M})  rev {REV[:8]}  nominal BW={BW/1e9:.0f} GB/s "
+# measured M-sweep (sourced from a raw record); None if an op has no measurement yet
+_PS = json.load(open(os.path.join(os.path.dirname(__file__), "results", "perf_sweep.json")))
+MS = _PS["ms"]
+
+print(f"DSv4 roofline-VS-measured (authored ops)  rev {REV[:8]}  M-sweep {MS}  nominal BW={BW/1e9:.0f} GB/s "
       f"AMX={PEAK/1e12:.0f} TF FP32={FP32_PEAK/1e12:.1f} TF")
-print(f"  node={P.get('measurement_node','?')} ({P.get('mem_type','?')}); absolute latency WITHHELD; "
-      f"correctness reported VERBATIM from each record (no match/certification inferred)")
-print("-" * 128)
-print(f"{'op':28s} {'ideal_us':>9s} {'bind':>5s} {'cdt':>5s}  {'record':20s} {'kernel-rev':16s} "
-      f"correctness (recorded, verbatim)")
-print("-" * 128)
-for name, fl, by, cdt, record, note in OPS:
+print(f"  measured: {_PS['raw_record']}")
+print(f"  ideal_us = max(bytes/BW, FLOPs/peak) at the row's compute dtype (nominal peak); off = measured/ideal "
+      f"(vs NOMINAL \u2014 the node reaches ~60-77% of nominal DRAM BW, so a BW-bound op is ~1.3-1.7x off from the wall alone).")
+for name, flf, byf, cdt, record, plateau in OPS:
     peak = CPEAK[cdt]
-    t_bw, t_cc = by / BW, (fl / peak if fl else 0.0)
-    ideal = max(t_bw, t_cc)
-    bind = "C" if t_cc > t_bw else "B"
-    rec = load_record(record)                                   # H1: evidence READ from record (fail-closed)
+    rec = load_record(record)                                     # H1: evidence READ from record (fail-closed)
     rev = rec["kernel_rev"] if _rev_resolved(rec["kernel_rev"]) else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
-    print(f"{name:28s} {ideal*1e6:9.1f} {bind:>5s} {cdt:>5s}  {record:20s} {rev:16s} {rec['correctness']}")
-print("-" * 128)
-print("ideal_us = max(bytes/BW, FLOPs/peak) with the row's EXPLICIT compute dtype (bf16->AMX, fp32->AVX-512);\n"
-      "operands from the cited benchmark's input/output contract (asserted above). kernel-rev + correctness are\n"
-      "READ from each op_passes record's kept pass (not hand-typed); the correctness field is VERBATIM, under:\n"
-      f"  {_ATTRIB}\n"
-      "Absolute latency and speedup are WITHHELD/UNVERIFIED. No causation/donor-routing claim here.")
+    meas = _PS["ops"].get(name, {}).get("median_ms")
+    print("-" * 104)
+    print(f"{name}  [cdt={cdt}, record={record}@{rev}]")
+    print(f"  correctness (recorded, verbatim): {rec['correctness']}   [{_ATTRIB}]")
+    print(f"  {'M':>4} {'bind':>5} {'ideal_us':>10} {'measured_us':>12} {'off_ceiling':>12}")
+    for i, Mv in enumerate(MS):
+        fl, by = flf(Mv), byf(Mv)
+        t_cc = fl / peak if fl else 0.0
+        ideal = max(by / BW, t_cc)
+        bind = "C" if t_cc > by / BW else "B"
+        if meas:
+            m_us = meas[i] * 1e3
+            off = m_us / (ideal * 1e6) if ideal else float("inf")
+            print(f"  {Mv:>4} {bind:>5} {ideal*1e6:>10.2f} {m_us:>12.1f} {off:>11.1f}x")
+        else:
+            print(f"  {Mv:>4} {bind:>5} {ideal*1e6:>10.2f} {'n/a':>12} {'n/a':>12}")
+    print(f"  plateau: {plateau}")
+print("-" * 104)
+print("off_ceiling is a DIAGNOSTIC vs the NOMINAL roof (not an achievability claim). Streaming ops are DRAM-\n"
+      "BW-wall-bound; tiny ops are latency/dispatch-bound (far from roof by construction). Correctness is the\n"
+      "recorded field VERBATIM (microbench; E2E verification PENDING). Measured latency is sourced from the\n"
+      "raw record above (median of 3, threads bound, one NUMA domain). No causation/donor-routing claim here.")
