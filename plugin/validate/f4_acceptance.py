@@ -44,11 +44,13 @@ def _mod(name, cpp):
 
 # ---- oracle adapters (LOCAL references; conformance vs the published runtime = UNVERIFIED) ----
 def _ora_indexer_logits(q, kv, w):
-    # D1 conformance: the published Indexer.forward scores in BF16 (einsum on bf16 operands), FP32 reduce.
-    # A FP32 oracle is OVER-STRICT and induces spurious near-cutoff selection mismatches (measured: FP32
-    # oracle -> 7 topk mismatches; BF16 oracle -> 0). Conform the adapter to the BF16 boundary.
-    scores = torch.einsum("nhd,nsd->nhs", q.bfloat16().float(), kv.bfloat16().float())
-    return (torch.relu(scores) * w.unsqueeze(-1).float()).sum(1)
+    # Conform to the PUBLISHED Indexer.forward stage boundaries (model.py@60d8d70 L420-421): the einsum runs on
+    # bf16 operands and its OUTPUT is bf16; relu_() and (*weights) and .sum(dim=2) all run in BF16; topk sees
+    # BF16 logits. weights_proj is a bf16 Linear -> weights are BF16 and SIGNED. (q is fp4-quantized UPSTREAM;
+    # that stage is not in this kernel's contract.) The prior FP32-reduce adapter was WRONG: it diverged from
+    # the real bf16 reduction and hid real near-cutoff selection differences under signed weights (P1-F1).
+    scores = torch.einsum("nhd,nsd->nhs", q.bfloat16(), kv.bfloat16())   # bf16 einsum output boundary
+    return (scores.relu_() * w.bfloat16().unsqueeze(-1)).sum(1)          # bf16 relu * bf16 weights, bf16 reduce
 
 
 def _ora_compressor(kv, score, ape):
@@ -89,19 +91,21 @@ def _ora_sparse_bf16(q, kv, sink, scale):
     return (torch.einsum("nhk,nkd->nhd", w, kvb) / denom).bfloat16().float()   # BF16 output
 
 
-# Sparse: the REAL TileLang sparse_attn (bf16 operands, FP32 accumulate, bf16 unnormalized-exp cast, bf16
-# out) differs from ANY higher-precision reference by its own bf16 noise. GPU-measured (H200 job 384502):
-# real-kernel vs fp32 reaches 3.46e-3 @N64; vs the bf16-replica 1.95e-3. So a CPU fp32-accumulate path
-# within ~this band is INDISTINGUISHABLE from the real kernel's precision. Tolerance = the measured floor.
-SPARSE_NOISE_FLOOR = 4.0e-3  # GPU-grounded (job 384502): covers real-kernel-vs-fp32 3.46e-3 with margin
+# Sparse PROPOSED screening threshold (NOT a ratified noise floor — P1-F4). The GPU-oracle comparison (job
+# 384502) used a GLOBALLY-normalized replica (NOT the published 64-block online softmax) and fed the GPU
+# bf16-rounded operands while early CPU diffs used fp32 operands; the ~2-3.5e-3 figures are APPROXIMATION
+# error, NOT characterized hardware noise (repeated GPU runs were not used). 4e-3 is a PROPOSAL for screening
+# only; a ratified threshold needs a source-faithful blockwise replica on matched operands + an independently
+# justified downstream budget. Continuous stays screening -> STATUS never exceeds PARTIAL.
+SPARSE_SCREEN_PROPOSED = 4.0e-3
 ORACLE_CONFORMANCE = "per-op (see ORACLE_CONFORMANCE_BY_OP); local references conformed to the published-op boundary where stated, else PENDING"
 ORACLE_CONFORMANCE_BY_OP = {
-    "indexer_logits": "CONFORMED: BF16 einsum scoring boundary (published Indexer.forward; tp=1 -> TP all-reduce N/A)",
+    "indexer_logits": "CONFORMED to the published BF16 stage boundaries (Indexer.forward model.py L420-421): bf16 einsum output + bf16 relu + bf16 (SIGNED) weights + bf16 reduce over heads -> bf16 logits. Oracle AND candidate epilogue both round to these bf16 stages (prior FP32-reduce adapter was wrong; it hid near-cutoff selection diffs under signed weights -- P1-F1). tp=1 -> TP all-reduce N/A; q fp4-quant is an upstream stage.",
     "indexer_topk": "CONFORMED: torch.topk order-independent membership (published .topk)",
     "compressor": "CONFORMED (pool stage): FP32 softmax-pool after overlap/APE prep; full-compressor state/norm/rotation are declared gaps",
     "sinkhorn": "PARTIAL: SGLang _hc_split_sinkhorn_torch; bitwise conformance to published kernel.py recurrence (eps/iters) PENDING",
     "combine": "CONFORMED: hc_pre multiply+sum(+cast); local einsum is math-equivalent",
-    "sparse": "GPU-VALIDATED (H200 job 384502): the REAL TileLang sparse_attn is BF16 (bf16 operands + bf16 unnormalized-exp cast + bf16 out, FP32 accumulate). The bf16-replica tracks it tighter than fp32 (cos 0.999998 vs 0.999994; mae flat 1.95e-3 vs fp32 growing to 3.46e-3) -> reference dtype = BF16; the FP32 oracle is OVER-STRICT. SHIPPED fp32-accumulate paths (scalar/fp32bmm/bestof) sit AT the kernel's own bf16 noise floor (~2e-3) AND beat torch -> ACCEPTED within SPARSE_NOISE_FLOOR. sparse-AMX is DROPPED (DOMINATED): GPU-measured it drifts to 5.86e-3 @N64 (naive bf16 intermediates the real kernel keeps in fp32) AND is slower than the fp32-bmm donor.",
+    "sparse": "REFERENCE DTYPE = BF16 (GPU oracle H200 job 384502: real TileLang sparse_attn is bf16 operands + bf16 unnormalized-exp cast + bf16 out, FP32 accumulate). CAVEAT (P1-F4): the F4 bf16 replica is GLOBALLY normalized, NOT the published 64-block online softmax, and the SPARSE_SCREEN_PROPOSED=4e-3 figure is APPROXIMATION error on bf16-matched operands, NOT characterized hardware noise -> continuous is SCREENING only (PARTIAL), NOT ratified acceptance; a source-faithful blockwise replica + downstream budget are PENDING. sparse-AMX DROPPED (dominated: drifts further AND slower than the fp32-bmm donor).",
 }
 
 
@@ -170,13 +174,22 @@ def manifest():
     sp = _mod("f4_sp", "sparse_attend.cpp")
     cases = []
 
-    # indexer_logits -> induced selection is the gate; logit error is a diagnostic
+    # indexer_logits -> induced selection is the gate (tie_eps=0); logit error is a diagnostic. Weights are
+    # SIGNED bf16-exact (published weights_proj is a bf16 Linear -> signed, P1-F1); full M-sweep (P1-F5).
+    def _sweight(M):
+        return torch.randn(M, 64).bfloat16().float()      # signed, bf16-exact (the published boundary)
     for d in ("normal", "heavy"):
-        for M in (1, 8, 32):
-            cases.append({"op": "indexer_logits", "path": "tiled", "kind": "logits_select", "dist": d,
-                          "build": (lambda M=M, d=d: (_dist(d, M, 64, 128), _dist(d, M, 1024, 128), torch.rand(M, 64))),
+        for M in (1, 8, 16, 32, 64):
+            cases.append({"op": "indexer_logits", "path": "tiled/signed", "kind": "logits_select", "dist": d,
+                          "build": (lambda M=M, d=d: (_dist(d, M, 64, 128), _dist(d, M, 1024, 128), _sweight(M))),
                           "cand": lambda q, kv, w: il.indexer_logits(q, kv, w),
                           "ora": _ora_indexer_logits, "k": 512, "out": ((lambda M=M: (M, 1024)), torch.float32)})
+    # bf16-KV contract (P1-F5): caller stores the KV cache in bf16; selection must match the bf16 oracle.
+    for M in (1, 32):
+        cases.append({"op": "indexer_logits", "path": "bf16kv/signed", "kind": "logits_select", "dist": "normal",
+                      "build": (lambda M=M: (_dist("normal", M, 64, 128), _dist("normal", M, 1024, 128).bfloat16(), _sweight(M))),
+                      "cand": lambda q, kv, w: il.indexer_logits(q, kv, w),
+                      "ora": _ora_indexer_logits, "k": 512, "out": ((lambda M=M: (M, 1024)), torch.float32)})
 
     # indexer_topk selection (tie_eps=0) + edge cases
     for M in (1, 8, 32):
@@ -340,35 +353,40 @@ def run_case(c, calib):
             return True, f"induced selection: {nonmis} non-tie mismatches"
         return False, f"selection clean; max_err={e_max:.3e} < margin={margin:.3e}"
 
-    if kind == "continuous_sparse":                   # judge vs the GPU-RATIFIED BF16 primitive (job 384502)
+    if kind == "continuous_sparse":                   # SCREENING vs the bf16 replica (PROPOSED threshold, non-gating)
         oc = _check_out(cand, c["out"])
         if oc:
             return True, "; ".join(oc)
         if not _finite_ok(cand):
             return True, "non-finite output"
-        ref_auth = _ora_sparse_bf16(*inp)             # GPU-ratified authoritative reference (bf16)
+        ref_auth = _ora_sparse_bf16(*inp)             # bf16 replica (GLOBAL softmax; NOT the published 64-block)
         ref_diag = _ora_sparse(*inp)                  # FP32 math: diagnostic only
-        m_auth = _screen_continuous(cand, ref_auth, atol=SPARSE_NOISE_FLOOR)
-        m_diag = _screen_continuous(cand, ref_diag, atol=SPARSE_NOISE_FLOOR)
-        dominated = (c["path"] == "amx")              # GPU-measured: amx drifts beyond the kernel's bf16 noise
-        accept = (not dominated) and m_auth["max_abs_err"] <= SPARSE_NOISE_FLOOR
+        if not bool(torch.isfinite(ref_auth).all().item()):
+            return True, "non-finite reference"
+        m_auth = _screen_continuous(cand, ref_auth, atol=SPARSE_SCREEN_PROPOSED)
+        m_diag = _screen_continuous(cand, ref_diag, atol=SPARSE_SCREEN_PROPOSED)
+        dominated = (c["path"] == "amx")              # GPU-measured: amx drifts further (3.9-5.9e-3 @N8/64)
+        within = (not dominated) and m_auth["max_abs_err"] <= SPARSE_SCREEN_PROPOSED
         calib.append({"op": "sparse", "path": c["path"], "dist": c["dist"], "split": c.get("split"),
-                      "accepted": accept, "dominated": dominated, "metric": m_auth, "metric_fp32_diag": m_diag,
-                      "vs": "GPU-ratified BF16 primitive (job 384502); FP32 diag separate"})
-        if accept:
-            return False, (f"ACCEPTED vs GPU-ratified BF16 primitive: max_err={m_auth['max_abs_err']:.3e} "
-                           f"<= floor {SPARSE_NOISE_FLOOR:.1e} (kernel's own bf16 noise, job 384502)")
-        if dominated:
-            return False, (f"DOMINATED (never shipped): amx bf16-intermediate drifts, vs-BF16 max_err="
-                           f"{m_auth['max_abs_err']:.3e}; GPU-measured 5.86e-3 @N64 > fp32-bmm donor (faster AND more faithful)")
-        return False, f"over floor: vs-BF16 max_err={m_auth['max_abs_err']:.3e} > {SPARSE_NOISE_FLOOR:.1e}"
+                      "within_proposed": within, "dominated": dominated, "metric": m_auth, "metric_fp32_diag": m_diag,
+                      "vs": "bf16 replica (GLOBAL, not source-faithful blockwise); PROPOSED screening, not ratified"})
+        # Continuous is SCREENING only -> always non-gating (return False); STATUS stays PARTIAL.
+        tag = "within PROPOSED screen" if within else ("DOMINATED (amx)" if dominated else "over PROPOSED screen")
+        return False, f"{tag}: vs-bf16 max_err={m_auth['max_abs_err']:.3e} (ref {SPARSE_SCREEN_PROPOSED:.1e}, NOT ratified)"
 
     # continuous families
     ref = ora_fn(*inp)
     if kind == "continuous_tuple3":
-        for j, (cv, rv, nm) in enumerate(zip(cand, ref, ("pre", "post", "comb"))):
-            if not _finite_ok(cv):
-                return True, f"{nm} non-finite"
+        if not isinstance(cand, (tuple, list)) or len(cand) != 3:          # P1-F3: structural check BEFORE zip
+            return True, f"tuple structure: expected 3 outputs, got {type(cand).__name__}"
+        for cv, rv, nm in zip(cand, ref, ("pre", "post", "comb")):
+            if not isinstance(cv, torch.Tensor) or tuple(cv.shape) != tuple(rv.shape):
+                sh = tuple(cv.shape) if isinstance(cv, torch.Tensor) else type(cv).__name__
+                return True, f"{nm} shape {sh} != {tuple(rv.shape)}"
+            if cv.dtype != torch.float32:
+                return True, f"{nm} dtype {cv.dtype} != torch.float32"
+            if not _finite_ok(cv) or not bool(torch.isfinite(rv).all().item()):
+                return True, f"{nm} non-finite (cand/ref)"
             m = _screen_continuous(cv, rv, atol=1e-5)
             calib.append({"op": c["op"], "path": nm, "dist": c["dist"], "split": c.get("split"), "metric": m})
         return False, "sinkhorn pre/post/comb collected"
@@ -378,6 +396,8 @@ def run_case(c, calib):
         return True, "; ".join(oc)
     if not _finite_ok(cand):
         return True, "non-finite output"
+    if not bool(torch.isfinite(ref).all().item()):          # P1-F3: cannot conform to a non-finite reference
+        return True, "non-finite reference (out-of-domain input)"
     atol = 1e-5 if c["op"] == "compressor" else (1e-3 if c["op"] == "sparse" else 1e-4)
     m = _screen_continuous(cand, ref, atol=atol)
     calib.append({"op": c["op"], "path": c["path"], "dist": c["dist"], "split": c.get("split"), "metric": m})
@@ -392,6 +412,9 @@ SEED_GROUPS = {"calibration": [0, 1, 2], "held_out": [100, 101]}
 def run(calibrate_path=None):
     cases = manifest()
     calib, failures = [], []
+    if not cases:                                           # P1-F3: an empty inventory is a FAILURE, not a pass
+        print("  STATUS = FAIL  (empty case manifest — no coverage)")
+        return 2
     print(f"F4 acceptance harness — {len(cases)} cases x {sum(len(s) for s in SEED_GROUPS.values())} seeds "
           f"(calibration {SEED_GROUPS['calibration']} + RESERVED held-out {SEED_GROUPS['held_out']}).")
     print(f"  tolerances UNRATIFIED -> verdict is PARTIAL, never PASS.  tie_eps={TIE_EPS} (selection HARD gate).")
@@ -472,10 +495,13 @@ def _downstream_budget(calib):
                    "note": "budget to be set from downstream propagation, NOT from this observed error"}
     sp = [r for r in calib if r.get("op") == "sparse"]
     if sp:
-        out["sparse"] = {"status": "GPU-VALIDATED (job 384502): reference dtype = BF16; shipped fp32-accumulate paths ACCEPTED within the kernel's own bf16 noise floor",
-                         "noise_floor": SPARSE_NOISE_FLOOR,
-                         "vs_BF16_primitive_max_err_calib": max((r["metric"]["max_abs_err"] for r in sp if r.get("split") == "calibration"), default=None),
-                         "shipped_accepted": sorted({r["path"] for r in sp if r.get("accepted")}),
+        sp_paths = {r["path"] for r in sp if "within_proposed" in r}
+        within_all = sorted(p for p in sp_paths if all(r.get("within_proposed") for r in sp if r["path"] == p))
+        out["sparse"] = {"status": "PROPOSED/UNRATIFIED: reference dtype = BF16 (job 384502); continuous is SCREENING only (PARTIAL), NOT ratified acceptance",
+                         "proposed_screen_threshold": SPARSE_SCREEN_PROPOSED,
+                         "threshold_note": "approximation error vs a GLOBALLY-normalized (non-blockwise) replica on bf16-matched operands; NOT characterized hardware noise; downstream budget PENDING",
+                         "vs_bf16_replica_max_err_calib": max((r["metric"]["max_abs_err"] for r in sp if r.get("split") == "calibration"), default=None),
+                         "within_proposed_threshold_ALL_records": within_all,
                          "dominated_dropped": "amx (naive bf16 intermediates drift to 5.86e-3 @N64; slower than fp32-bmm donor)"}
     return out
 

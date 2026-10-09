@@ -11,6 +11,7 @@
 #SBATCH --time=00:20:00
 #SBATCH --output=/scratch/%u/sparse_gpu_oracle_%j.log
 set -x
+set -o pipefail   # P1-F7: so a container failure through the `| tail` pipe is NOT masked as exit 0
 export XDG_RUNTIME_DIR=/tmp/xdg-$(id -u); mkdir -p "$XDG_RUNTIME_DIR" /tmp/podman-runroot; chmod 700 "$XDG_RUNTIME_DIR"
 export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
 nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
@@ -29,4 +30,6 @@ $PODMAN run --rm $DEVARGS --userns=host \
   -e PYTHONPATH=/scratch/bkaul/models/DeepSeek-V4-Flash \
   "$IMG" \
   python /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/test_sparse_gpu_oracle.py 2>&1 | tail -40
-echo "[exit=$?]"
+rc=${PIPESTATUS[0]}   # podman's exit, not tail's (P1-F7)
+echo "[exit=$rc]"
+exit "$rc"

@@ -15,6 +15,7 @@ MQA equivalence to the CPU kernel sparse_attend(q[N,H,D], kv[N,K,D], sink[H], sc
   topk_idxs = arange(K) for every m => every query attends the whole K-row pool. The CPU
   kv[N,K,D] is that same pool broadcast across N (all queries share the gathered set).
 """
+import os
 import sys
 
 import torch
@@ -85,7 +86,19 @@ def run(N, seed=0):
 def main():
     print("torch", torch.__version__, "cuda", torch.cuda.is_available())
     recs = [run(N, seed=s) for N, s in ((1, 0), (8, 1), (64, 2))]
-    torch.save(recs, SAVE)
+    # Provenance stamp (P1-F7): bind the saved io to the exact kernel source + run identity.
+    import hashlib
+    import socket
+    ksrc = "/scratch/bkaul/models/DeepSeek-V4-Flash/inference/kernel.py"
+    try:
+        kern_sha = hashlib.sha256(open(ksrc, "rb").read()).hexdigest()
+    except OSError:
+        kern_sha = "unavailable"
+    prov = {"slurm_job_id": os.environ.get("SLURM_JOB_ID", "interactive"), "host": socket.gethostname(),
+            "torch": torch.__version__, "cuda": torch.version.cuda, "model_snapshot": ksrc,
+            "kernel_py_sha256": kern_sha, "container_image": os.environ.get("ORACLE_IMG", "lmsysorg/sglang:latest")}
+    torch.save({"provenance": prov, "records": recs}, SAVE)
+    print(f"[provenance] {prov}")
     print(f"[saved io -> {SAVE}]")
     # Verdict: the replica with the TIGHTER max-abs-err vs the real kernel is the authoritative dtype.
     worst16 = max(r["bf16_vs_gpu"][1] for r in recs)

@@ -20,6 +20,7 @@ torch::Tensor compressor_softmax_pool(torch::Tensor kv, torch::Tensor score, tor
   auto apc = ape.to(torch::kFloat32).contiguous();
   const int64_t N = kvc.size(0), R = kvc.size(1), D = kvc.size(2);
   auto out = torch::empty({N, D}, torch::kFloat32);
+  if (N == 0 || D == 0) return out;                          // empty batch/channels -> [N,D] (avoid /N below)
   const float* kp = kvc.data_ptr<float>();
   const float* sp = scc.data_ptr<float>();
   const float* ap = apc.data_ptr<float>();

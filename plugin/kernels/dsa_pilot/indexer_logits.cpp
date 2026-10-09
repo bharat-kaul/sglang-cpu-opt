@@ -75,6 +75,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   TORCH_CHECK(weight.size(0) == q.size(0) && weight.size(1) == q.size(1), "weight must be [N,H]");
   TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && weight.device().is_cpu(), "CPU tensors only");
   const int64_t N = q.size(0), H = q.size(1), D = q.size(2), S = kv.size(1);
+  if (N == 0) return torch::empty({0, S}, torch::kFloat32);   // empty batch -> [0,S] (avoid /N below)
   const bool _brk = std::getenv("INDEXER_BREAKDOWN") != nullptr;   // env-gated stage timers (diagnostic)
   auto _now = [] { return std::chrono::high_resolution_clock::now(); };
   auto _t0 = _now();
@@ -141,15 +142,19 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
       at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, C, vnni);
       const float* w = wf[n].data_ptr<float>();
       float* lp = logits[n].data_ptr<float>() + s0;
+      // Published stage boundaries (model.py L420-421): bf16 einsum output, bf16 relu, * bf16 weights,
+      // bf16 reduce over heads -> bf16 logits (topk input). Round each stage to bf16; FP32-accumulate the
+      // head sum (matches torch bf16 .sum) then round the logit to bf16. Store bf16-exact value in fp32.
       for (int64_t r = 0; r < sb; ++r) {
         const float* row = C + r * H;
         float acc = 0.f;
-        #pragma omp simd reduction(+ : acc)
         for (int64_t h = 0; h < H; ++h) {
-          float v = row[h];
-          acc += (v > 0.f ? v : 0.f) * w[h];
+          float v = static_cast<float>(static_cast<at::BFloat16>(row[h]));     // bf16 einsum-output boundary
+          float rv = v > 0.f ? v : 0.f;                                        // relu in bf16 domain
+          float wb = static_cast<float>(static_cast<at::BFloat16>(w[h]));      // bf16 (signed) weight
+          acc += static_cast<float>(static_cast<at::BFloat16>(rv * wb));       // bf16(relu*weight) product
         }
-        lp[r] = acc;
+        lp[r] = static_cast<float>(static_cast<at::BFloat16>(acc));            // bf16 logit (topk input)
       }
     }
     at::native::cpublas::brgemm_release(vnni);
@@ -190,10 +195,14 @@ torch::Tensor indexer_logits_m1(torch::Tensor q, torch::Tensor kv, torch::Tensor
   at::parallel_for(0, S, 0, [&](int64_t s0, int64_t s1) {        // parallel epilogue over S
     for (int64_t s = s0; s < s1; ++s) {
       const float* row = C.data() + s * H;
-      float acc = 0.f;
-      #pragma omp simd reduction(+ : acc)
-      for (int64_t h = 0; h < H; ++h) { float v = row[h]; acc += (v > 0.f ? v : 0.f) * w[h]; }
-      lp[s] = acc;
+      float acc = 0.f;                                          // bf16 stage boundaries (model.py L420-421)
+      for (int64_t h = 0; h < H; ++h) {
+        float v = static_cast<float>(static_cast<at::BFloat16>(row[h]));   // bf16 einsum-output boundary
+        float rv = v > 0.f ? v : 0.f;                                      // relu in bf16 domain
+        float wb = static_cast<float>(static_cast<at::BFloat16>(w[h]));    // bf16 (signed) weight
+        acc += static_cast<float>(static_cast<at::BFloat16>(rv * wb));     // bf16(relu*weight) product
+      }
+      lp[s] = static_cast<float>(static_cast<at::BFloat16>(acc));          // bf16 logit (topk input)
     }
   });
   return logits;
@@ -202,8 +211,16 @@ torch::Tensor indexer_logits_m1(torch::Tensor q, torch::Tensor kv, torch::Tensor
 // Integration entry point: the SINGLE tiled path (brgemm + L1 fused epilogue) for ALL M (F2 — no per-M
 // dispatch, so the numerical contract does not change at a boundary).
 torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
-  // F2: scores stay FP32-accumulated on BOTH paths (tiled brgemm; m1 single brgemm) -> IDENTICAL numerics
-  // across the N==1 boundary (no bf16 score rounding). m1 avoids the tiny-tile overhead that bound N=1.
+  // Validate the COMMON contract HERE so the N==1 specialization cannot bypass it (P1-F2): both the m1 and
+  // tiled paths read raw pointers assuming these hold.
+  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "q/kv must be [N,H,D]/[N,S,D], weight [N,H]");
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && weight.device().is_cpu(), "CPU tensors only");
+  TORCH_CHECK(q.size(0) == kv.size(0), "q/kv batch N mismatch");
+  TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
+  TORCH_CHECK(weight.size(0) == q.size(0) && weight.size(1) == q.size(1), "weight must be [N,H]");
+  if (q.size(0) == 0) return torch::empty({0, kv.size(1)}, torch::kFloat32);   // empty batch -> [0,S]
+  // F2: scores round to the SAME bf16 stage boundaries on BOTH paths (tiled brgemm; m1 single brgemm) ->
+  // IDENTICAL numerics across the N==1 boundary. m1 avoids the tiny-tile overhead that bound N=1.
   if (q.size(0) == 1) return indexer_logits_m1(q, kv, weight);
   return indexer_logits_tiled(q, kv, weight);
 }
