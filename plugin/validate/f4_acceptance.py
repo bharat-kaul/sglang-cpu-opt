@@ -295,12 +295,26 @@ def run_case(c, calib):
     if kind == "composed":                            # topk -> gather -> attend, candidate vs reference
         logits, kv_full, q, sink, Ktop, scale = inp
         tkmod, spmod = cand_fn
-        idx = tkmod.indexer_topk(logits, Ktop)
-        gather = torch.stack([kv_full[n][idx[n]] for n in range(kv_full.shape[0])])
-        cand = spmod.sparse_attend(q, gather, sink, scale)
+        def _comp():
+            ix = tkmod.indexer_topk(logits, Ktop)
+            g = torch.stack([kv_full[n][ix[n]] for n in range(kv_full.shape[0])])
+            return ix, spmod.sparse_attend(q, g, sink, scale)
+        idx, cand = _comp()
+        _, cand2 = _comp()                            # R2-F1: composed must pass the common hard checks too
+        if not isinstance(cand, torch.Tensor) or tuple(cand.shape) != tuple(q.shape):
+            sh = tuple(cand.shape) if isinstance(cand, torch.Tensor) else type(cand).__name__
+            return True, f"composed output shape {sh} != {tuple(q.shape)}"
+        if cand.dtype != torch.float32:
+            return True, f"composed output dtype {cand.dtype} != torch.float32"
+        if not _finite_ok(cand):
+            return True, "composed non-finite output"
+        if not torch.equal(cand, cand2):
+            return True, "composed non-deterministic (repeat differs)"
         ref_idx = torch.topk(logits, Ktop, dim=1, sorted=False).indices
         ref_gather = torch.stack([kv_full[n][ref_idx[n]] for n in range(kv_full.shape[0])])
         ref = _ora_sparse(q, ref_gather, sink, scale)
+        if not bool(torch.isfinite(ref).all().item()):
+            return True, "composed non-finite reference"
         nonmis, ties = _selection_check(idx, logits, Ktop)
         if nonmis:
             return True, f"composed selection: {nonmis} non-tie mismatches"
@@ -311,11 +325,12 @@ def run_case(c, calib):
 
     cand = cand_fn(*inp)
 
-    # layer 0: repeatability determinism (same frozen config)
+    # layer 0: repeatability determinism + candidate ARITY (R2-F1: no truncating zip across calls)
     cand2 = cand_fn(*inp)
-    if isinstance(cand, (tuple, list)):
-        if any(not torch.equal(a, b) for a, b in zip(cand, cand2)):
-            return True, "non-deterministic (repeat run differs)"
+    if isinstance(cand, (tuple, list)) or isinstance(cand2, (tuple, list)):
+        if type(cand) is not type(cand2) or len(cand) != len(cand2) \
+                or any(not torch.equal(a, b) for a, b in zip(cand, cand2)):
+            return True, "non-deterministic or arity mismatch (repeat run differs)"
     elif not torch.equal(cand, cand2):
         return True, "non-deterministic (repeat run differs)"
 
@@ -340,6 +355,8 @@ def run_case(c, calib):
             return True, "non-finite logits"
         k = c["k"]
         ref = ora_fn(*inp)
+        if not bool(torch.isfinite(ref).all().item()):   # R2-F1: reject invalid (non-finite) reference evidence
+            return True, "non-finite reference (out-of-domain input)"
         cand_idx = torch.topk(cand, k, dim=1, sorted=False).indices
         nonmis, ties = _selection_check(cand_idx, ref, k)   # candidate's selection vs REFERENCE logits
         e_max, ref_am = _elem_err(cand, ref)
@@ -407,6 +424,9 @@ def run_case(c, calib):
 # Held-out seeds are RESERVED now and are never used to set thresholds (calibration seeds propose; held-out
 # only validates that the proposal generalizes).
 SEED_GROUPS = {"calibration": [0, 1, 2], "held_out": [100, 101]}
+# Independently-declared expected inventory (R2-F1): the gate is a full qualification only if EVERY op is
+# present; a manifest missing an op (or an empty seed group) is a restricted scope, not a pass.
+_EXPECTED_OPS = {"indexer_logits", "indexer_topk", "compressor", "sparse", "sinkhorn", "combine"}
 
 
 def run(calibrate_path=None):
@@ -414,6 +434,14 @@ def run(calibrate_path=None):
     calib, failures = [], []
     if not cases:                                           # P1-F3: an empty inventory is a FAILURE, not a pass
         print("  STATUS = FAIL  (empty case manifest — no coverage)")
+        return 2
+    present_ops = {c["op"] for c in cases}                  # R2-F1: independently-declared inventory must be complete
+    missing = _EXPECTED_OPS - present_ops
+    if missing:
+        print(f"  STATUS = FAIL  (inventory incomplete — missing ops {sorted(missing)})")
+        return 2
+    if any(len(s) == 0 for s in SEED_GROUPS.values()):
+        print("  STATUS = FAIL  (a seed group is empty — no evaluation)")
         return 2
     print(f"F4 acceptance harness — {len(cases)} cases x {sum(len(s) for s in SEED_GROUPS.values())} seeds "
           f"(calibration {SEED_GROUPS['calibration']} + RESERVED held-out {SEED_GROUPS['held_out']}).")
@@ -500,7 +528,7 @@ def _downstream_budget(calib):
         out["sparse"] = {"status": "PROPOSED/UNRATIFIED: reference dtype = BF16 (job 384502); continuous is SCREENING only (PARTIAL), NOT ratified acceptance",
                          "proposed_screen_threshold": SPARSE_SCREEN_PROPOSED,
                          "threshold_note": "approximation error vs a GLOBALLY-normalized (non-blockwise) replica on bf16-matched operands; NOT characterized hardware noise; downstream budget PENDING",
-                         "vs_bf16_replica_max_err_calib": max((r["metric"]["max_abs_err"] for r in sp if r.get("split") == "calibration"), default=None),
+                         "vs_bf16_replica_max_err_calib": max((r["metric"]["max_abs_err"] for r in sp if r.get("split") == "calibration" and "within_proposed" in r), default=None),
                          "within_proposed_threshold_ALL_records": within_all,
                          "dominated_dropped": "amx (naive bf16 intermediates drift to 5.86e-3 @N64; slower than fp32-bmm donor)"}
     return out
@@ -571,6 +599,49 @@ def selftest():
                 "build": lambda: (torch.randn(2, 1024), 512),
                 "cand": _wrong_sel, "ora": None, "k": 512, "out": ((lambda: (2, 512)), torch.int64)}),
         "REJECTS a below-cutoff selection (reference-owned membership, tie_eps=0)")
+
+    # 8 non-finite REFERENCE in logits_select must fail (R2-F1: reference validity before selection)
+    chk(_fails({"op": "x", "path": "nanref", "kind": "logits_select", "dist": "normal",
+                "build": lambda: (torch.randn(2, 64, 128), torch.randn(2, 1024, 128), torch.randn(2, 64)),
+                "cand": lambda q, kv, w: il.indexer_logits(q, kv, w),
+                "ora": lambda q, kv, w: _ora_indexer_logits(q, kv, w) * float("nan"),
+                "k": 512, "out": ((lambda: (2, 1024)), torch.float32)}),
+        "REJECTS a non-finite reference in logits_select (R2-F1)")
+
+    # 9 repeat-call ARITY mismatch must fail (R2-F1: no truncating zip across calls)
+    _ac = {"n": 0}
+    def _arity(a, b, cc):
+        _ac["n"] += 1
+        base = cp.compressor_softmax_pool(a, b, cc)
+        return (base, base, base) if _ac["n"] == 1 else (base, base)   # 3 outputs then 2
+    chk(_fails({"op": "x", "path": "arity", "kind": "continuous_tuple3", "dist": "normal",
+                "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
+                "cand": _arity, "ora": lambda a, b, cc: (cp.compressor_softmax_pool(a, b, cc),) * 3, "out": None}),
+        "REJECTS a repeat-call arity mismatch (R2-F1)")
+
+    # 10 composed NaN output must fail (R2-F1: composed path runs the common structural/finite checks)
+    class _NanSp:
+        @staticmethod
+        def sparse_attend(q, kv, s, sc):
+            return sp.sparse_attend(q, kv, s, sc) * float("nan")
+    chk(_fails({"op": "x", "path": "compnan", "kind": "composed", "dist": "normal",
+                "build": _build_composed_sparse, "cand": (tk, _NanSp), "ora": None, "out": None}),
+        "REJECTS a NaN composed output (R2-F1)")
+
+    # 11 composed non-deterministic output must fail (R2-F1)
+    class _NdSp:
+        @staticmethod
+        def sparse_attend(q, kv, s, sc):
+            return sp.sparse_attend(q, kv, s, sc) + torch.randn(q.shape[0], q.shape[1], q.shape[2])
+    chk(_fails({"op": "x", "path": "compnd", "kind": "composed", "dist": "normal",
+                "build": _build_composed_sparse, "cand": (tk, _NdSp), "ora": None, "out": None}),
+        "REJECTS a non-deterministic composed output (R2-F1)")
+
+    # 12 incomplete inventory (missing an op) must FAIL via run() (R2-F1)
+    import unittest.mock as _um
+    _orig_manifest = manifest
+    with _um.patch(__name__ + ".manifest", lambda: [cc for cc in _orig_manifest() if cc["op"] != "sparse"]):
+        chk(run() == 2, "REJECTS an incomplete inventory (missing op) through run() (R2-F1)")
 
     # 7 a GOOD case must NOT fail (no false positive)
     chk(not _fails({"op": "compressor", "path": "good", "kind": "continuous", "dist": "normal",

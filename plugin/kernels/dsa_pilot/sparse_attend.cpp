@@ -12,7 +12,7 @@
 // q:[N,H,D]; kv:[N,K,D] (shared k==v latent); sink:[H] -> out:[N,H,D]. scale default = D**-0.5.
 torch::Tensor sparse_attend(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
   TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && sink.device().is_cpu(), "CPU tensors only");
-  TORCH_CHECK(std::isfinite(scale_) || scale_ <= 0, "scale must be finite (pass scale<=0 for the default D**-0.5)");
+  TORCH_CHECK(std::isfinite(scale_), "scale must be finite (pass a finite scale<=0 for the default D**-0.5)");
   TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && sink.dim() == 1, "bad dims");
   TORCH_CHECK(q.size(0) == kv.size(0), "q/kv batch N mismatch");
   TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
@@ -65,7 +65,7 @@ torch::Tensor sparse_attend(torch::Tensor q, torch::Tensor kv, torch::Tensor sin
 // (m,e,denom,w). Bit-conformant with the fp32 oracle (no bf16), so it holds the no-regression floor.
 torch::Tensor sparse_attend_fp32bmm(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
   TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && sink.device().is_cpu(), "CPU tensors only");
-  TORCH_CHECK(std::isfinite(scale_) || scale_ <= 0, "scale must be finite (pass scale<=0 for the default D**-0.5)");
+  TORCH_CHECK(std::isfinite(scale_), "scale must be finite (pass a finite scale<=0 for the default D**-0.5)");
   TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && sink.dim() == 1, "bad dims");
   TORCH_CHECK(q.size(0) == kv.size(0), "q/kv batch N mismatch");
   TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
@@ -110,7 +110,7 @@ torch::Tensor sparse_attend_bestof(torch::Tensor q, torch::Tensor kv, torch::Ten
 // (H=64 is the GEMM M, D=512, K=512) the two matmuls are AMX-tileable, unlike per-query M=1.
 torch::Tensor sparse_attend_amx(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
   TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && sink.device().is_cpu(), "CPU tensors only");
-  TORCH_CHECK(std::isfinite(scale_) || scale_ <= 0, "scale must be finite (pass scale<=0 for the default D**-0.5)");
+  TORCH_CHECK(std::isfinite(scale_), "scale must be finite (pass a finite scale<=0 for the default D**-0.5)");
   TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && sink.dim() == 1, "bad dims");
   TORCH_CHECK(q.size(0) == kv.size(0), "q/kv batch N mismatch");
   TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
