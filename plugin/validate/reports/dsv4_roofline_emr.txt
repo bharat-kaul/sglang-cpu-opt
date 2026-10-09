@@ -12,8 +12,11 @@ REFERENCE-CONFORMANCE + CONTRACT SELFTEST (ref 60d8d707):
   [PASS] main compressor matrices == 0.520 GB (got 0.5201)
   [PASS] indexer compressor matrices == 0.088 GB (got 0.0881)
   [PASS] shared-expert FP8 capacity == 1.082 GB (got 1.0822)
-  [PASS] observed row withholds absolute latency at EVERY M
-  [PASS] observed row links an auditable result record + commit + certified quantity
+  [PASS] observed rows withhold absolute latency at EVERY M
+  [PASS] every observed record LOADS + yields a kept pass (fail-closed)
+  [PASS] top-k observation does NOT publish the discarded 06faec0 revision (H1)
+  [PASS] observations certify correctness only; speedup is author-reported/UNVERIFIED (never certified)
+  [PASS] missing result record FAILS (record is opened, not assumed)
   [PASS] unmodeled row renders a NUMBER at NO M
   [PASS] pool bytes include kv+score (2x FP32 win*D) + out + APE
   [PASS] pool state dtype == FP32 (reference compressor state)
@@ -102,10 +105,16 @@ GEMM/pool/attn times are IDEAL targets (all M). FP32 rows use the AVX-512 FP32 c
 result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is diagnostic only.
 
 --------------------------------------------------------------------------------------------------------------------------------
-AUDITABLE OBSERVATIONS (authored ops) — record + commit + what it certifies (no unsourced absolute latency):
-  DSA indexer topk-512 (over 1024)              @M=32  plugin/validate/results/op_passes/indexer_topk.json@06faec0
-      certifies: set-match 1.0; 7.62x vs torch.topk @M=32 (S=1024)
-  MHC sinkhorn (hc=4, 20 iters)                 @M=32  plugin/validate/results/op_passes/mhc_sinkhorn.json@pending
-      certifies: cos 1.0 (pre/post/comb); 20.84x vs torch @M=32
-  MHC combine (hc_pre reduce)                   @M=32  plugin/validate/results/op_passes/mhc_combine.json@pending
-      certifies: cos 1.0; 2.12x vs torch @M=32
+AUDITABLE OBSERVATIONS (authored ops) — evidence READ + validated from each result record (absolute latency withheld):
+  DSA indexer topk-512 (over 1024)              @M=32  record=results/op_passes/indexer_topk.json  kernel-rev=UNRESOLVED(pending)
+      CERTIFIED correctness: set-match 1.0 all M
+      speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
+  MHC sinkhorn (hc=4, 20 iters)                 @M=32  record=results/op_passes/mhc_sinkhorn.json  kernel-rev=UNRESOLVED(pending)
+      CERTIFIED correctness: cos 1.000000 (pre/post/comb)
+      speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
+  MHC combine (hc_pre reduce)                   @M=32  record=results/op_passes/mhc_combine.json  kernel-rev=UNRESOLVED(pending)
+      CERTIFIED correctness: cos 1.000000
+      speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
+
+  kernel-rev and correctness are DERIVED from the record's kept pass (not hand-typed); a speedup is
+  only a certificate when its kept-pass revision resolves, else it is author-reported/UNVERIFIED.

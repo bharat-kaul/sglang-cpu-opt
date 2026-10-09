@@ -22,6 +22,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import sys
 
 # F5: single centralized reference identifier (pinned HF revision, 40 hex chars).
@@ -29,6 +30,7 @@ REF_REVISION = "60d8d70770c6776ff598c94bb586a859a38244f1"
 
 _DEF = os.path.join(os.path.dirname(__file__), "platforms", "emr.json")
 _TRACKER = os.path.join(os.path.dirname(__file__), "results", "roofline_open_items.json")
+_OPDIR = os.path.join(os.path.dirname(__file__), "results", "op_passes")
 _ap = argparse.ArgumentParser()
 _ap.add_argument("--platform", default=_DEF)
 _ap.add_argument("--selftest", action="store_true")
@@ -134,14 +136,55 @@ def wgemm(name, K, N, prec, layers, lane, impl, groups=1, act="bf16", unmodeled=
               weight_bytes_per_layer=fixed, unmodeled=unmodeled)
 
 
-def observed(name, lane, impl, layers, m_obs, record, commit, certifies):
-    """G2: an AUTHORED-op observation backed by an AUDITABLE RESULT RECORD (op_passes/*.json + commit).
-    The record certifies CORRECTNESS + SPEEDUP-vs-torch at m_obs; an absolute node latency is NOT in the
-    record, so it is WITHHELD (unverified) rather than invented. Rendered n/a in the time columns; the
-    record + what it certifies are printed in the AUDITABLE OBSERVATIONS block."""
+def _rev_resolved(r):
+    return bool(re.fullmatch(r"[0-9a-f]{7,40}", (r or "").strip()))
+
+
+def _rejects_load(record):
+    try:
+        load_record(record)
+        return False
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def load_record(record):
+    """H1: read an EXTERNAL op-pass result record (results/op_passes/<record>) and DERIVE its evidence
+    from the KEPT pass. Fail-closed on missing/malformed/no-kept-pass. Kernel revision and correctness
+    are READ from the record (never hand-typed); the kept-pass speedup ratio is returned as the record
+    states it. The revision is separate from any narrative; unresolved ('pending') => not a certificate."""
+    with open(os.path.join(_OPDIR, record)) as f:      # FileNotFoundError if absent
+        rec = json.load(f)                             # JSONDecodeError if malformed
+    kept = [p for p in rec.get("passes", []) if p.get("kept")]
+    if not kept:
+        raise ValueError(f"op_passes/{record}: no kept pass to certify")
+    k = kept[-1]
+    return {"record": f"results/op_passes/{record}",
+            "kernel_rev": str(k.get("commit", "")).strip(),
+            "correctness": str(k.get("correctness", "")).strip() or "unrecorded",
+            "kept_ratios": k.get("vs_ref", {})}
+
+
+def observation_evidence(op):
+    """H1: validated, externally-derived evidence for an observed row. CORRECTNESS + kernel revision come
+    FROM the record's kept pass. Only correctness is certified (it is context-independent); the speedup is
+    NOT certified here because the records' structured ratios are at a superseded context and the corrected
+    ratios are unstructured prose (a narrative is not a validated run). Absolute latency is always withheld."""
+    rec = load_record(op.record)
+    resolved = _rev_resolved(rec["kernel_rev"])
+    rev = rec["kernel_rev"] if resolved else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
+    return {"record": rec["record"], "kernel_rev": rev, "resolved": resolved,
+            "certified_correctness": rec["correctness"],
+            "speedup": "author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)"}
+
+
+def observed(name, lane, impl, layers, m_obs, record):
+    """G2/H1: an authored-op observation whose evidence is READ + validated from an external result
+    record (results/op_passes/<record>), never hand-typed. Absolute latency withheld; correctness +
+    kernel revision derived from the kept pass; speedup rendered UNVERIFIED unless the revision resolves."""
     return Op(name, lane, impl, "obs", layers, flop=lambda M: 0, byts=lambda M: 0,
-              note=f"observed @M={m_obs}; record={record}@{commit}; certifies={certifies}",
-              kind="observed", m_obs=m_obs, record=record, commit=commit, certifies=certifies)
+              note=f"observed @M={m_obs}; record=results/op_passes/{record}",
+              kind="observed", m_obs=m_obs, record=record)
 
 
 def unmodeled_op(name, lane, impl, layers, why):
@@ -248,9 +291,7 @@ OPS = [
     wgemm("DSA indexer wq_b (1024->8192)", QLORA, IDX_NH * IDX_HD, "fp8", N_IDX, "A", "donor dsv2"),
     wgemm("DSA indexer weights_proj (4096->64)", H, IDX_NH, "bf16", N_IDX, "A", "donor gemm"),
     indexer_fused(),
-    observed("DSA indexer topk-512 (over 1024)", "B", "NEW-C++", N_IDX, 32,
-             "plugin/validate/results/op_passes/indexer_topk.json", "06faec0",
-             "set-match 1.0; 7.62x vs torch.topk @M=32 (S=1024)"),
+    observed("DSA indexer topk-512 (over 1024)", "B", "NEW-C++", N_IDX, 32, "indexer_topk.json"),
     # --- compressors: projections (every token, FP32 state out) + pooling (boundary-amortized) (R2/F2) ---
     wgemm("main compressor wkv+wgate (r4, 4096->2048)", H, 2 * 2 * HD, "bf16", N_IDX, "A", "donor dsv2", act="fp32"),
     wgemm("main compressor wkv+wgate (r128, 4096->1024)", H, 2 * HD, "bf16", N_128, "A", "donor dsv2", act="fp32"),
@@ -260,12 +301,8 @@ OPS = [
     pool("indexer pool (r4 overlap, win=8 D=128)", 8, IDX_HD, N_IDX / 4, "B"),
     # --- MHC (every layer x2 pre + post; head once) ---
     hc_fn(),
-    observed("MHC sinkhorn (hc=4, 20 iters)", "C", "NEW-C++", 2 * L, 32,
-             "plugin/validate/results/op_passes/mhc_sinkhorn.json", "pending",
-             "cos 1.0 (pre/post/comb); 20.84x vs torch @M=32"),
-    observed("MHC combine (hc_pre reduce)", "C", "NEW-C++", 2 * L, 32,
-             "plugin/validate/results/op_passes/mhc_combine.json", "pending",
-             "cos 1.0; 2.12x vs torch @M=32"),
+    observed("MHC sinkhorn (hc=4, 20 iters)", "C", "NEW-C++", 2 * L, 32, "mhc_sinkhorn.json"),
+    observed("MHC combine (hc_pre reduce)", "C", "NEW-C++", 2 * L, 32, "mhc_combine.json"),
     hc_post(),
     hc_head(),
     # --- MoE ---
@@ -374,11 +411,26 @@ def selftest():
     shared_gb = capacity().get("shared-expert (3-matrix, FP8)", 0)
     chk(abs(shared_gb - 1.082196480) < 2e-3, f"shared-expert FP8 capacity == 1.082 GB (got {shared_gb:.4f})")
 
-    # --- G2: observed rows withhold the unsourced absolute; carry an auditable record ---
-    ob = next(o for o in OPS if o.kind == "observed")
-    chk(all(ob.row(M)[2] is NA for M in Ms), "observed row withholds absolute latency at EVERY M")
-    chk(ob.record.endswith(".json") and bool(ob.commit) and bool(ob.certifies),
-        "observed row links an auditable result record + commit + certified quantity")
+    # --- G2/H1: observed rows withhold absolutes; evidence is READ + validated from the record ---
+    obs = [o for o in OPS if o.kind == "observed"]
+    chk(all(o.row(M)[2] is NA for o in obs for M in Ms), "observed rows withhold absolute latency at EVERY M")
+    # every observed record must actually load (fail-closed) and yield derived evidence
+    ev = {}
+    try:
+        ev = {o.name: observation_evidence(o) for o in obs}
+        chk(True, "every observed record LOADS + yields a kept pass (fail-closed)")
+    except Exception as e:  # noqa: BLE001
+        chk(False, f"observation record load FAILED: {e}")
+    # H1: top-k revision is DERIVED from the record (not the discarded 06faec0); mismatch is impossible
+    tk = next(o for o in obs if o.name.startswith("DSA indexer topk"))
+    tk_ev = ev.get(tk.name, {})
+    chk("06faec0" not in tk_ev.get("kernel_rev", ""),
+        "top-k observation does NOT publish the discarded 06faec0 revision (H1)")
+    # H1: speedup is never presented as a certificate (records' ratios are at a superseded context)
+    chk(all("UNVERIFIED" in e["speedup"] for e in ev.values()) and bool(ev),
+        "observations certify correctness only; speedup is author-reported/UNVERIFIED (never certified)")
+    # H1 fail-closed: a missing record raises (records are actually opened)
+    chk(_rejects_load("does_not_exist.json"), "missing result record FAILS (record is opened, not assumed)")
     um = next(o for o in OPS if o.kind == "unmodeled")
     chk(all(um.row(M)[2] is NA for M in Ms), "unmodeled row renders a NUMBER at NO M")
 
@@ -465,10 +517,15 @@ def phaseA():
           "'obs' rows withhold an absolute node latency (no auditable raw record); they are listed with their\n"
           "result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is diagnostic only.")
     print("\n" + "-" * 128)
-    print("AUDITABLE OBSERVATIONS (authored ops) — record + commit + what it certifies (no unsourced absolute latency):")
+    print("AUDITABLE OBSERVATIONS (authored ops) — evidence READ + validated from each result record "
+          "(absolute latency withheld):")
     for op in observations():
-        print(f"  {op.name[:44]:44s}  @M={op.m_obs}  {op.record}@{op.commit}")
-        print(f"      certifies: {op.certifies}")
+        e = observation_evidence(op)
+        print(f"  {op.name[:44]:44s}  @M={op.m_obs}  record={e['record']}  kernel-rev={e['kernel_rev']}")
+        print(f"      CERTIFIED correctness: {e['certified_correctness']}")
+        print(f"      speedup: {e['speedup']}")
+    print("\n  kernel-rev and correctness are DERIVED from the record's kept pass (not hand-typed); a speedup is\n"
+          "  only a certificate when its kept-pass revision resolves, else it is author-reported/UNVERIFIED.")
 
 
 if __name__ == "__main__":

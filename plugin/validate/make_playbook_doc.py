@@ -309,16 +309,41 @@ para("Anti-patterns (each is a silent-failure trap): trusting a parity microbenc
      "wrong instead of capturing it from the published model.", GRAY)
 
 # ---- roofline accounting discipline ----
-h1("Roofline accounting discipline — an invariant-tested, self-consistent model")
-para("An analytical roofline is trustworthy only if its FLOP/byte accounting is internally consistent. "
-     "These rules are model-agnostic and must be encoded as INVARIANT TESTS that GATE report generation "
-     "\u2014 a model that fails an invariant is not published.", bold=True)
+h1("Roofline accounting discipline — REFERENCE-CONFORMANT, fail-closed (self-consistency is NOT the gate)")
+para("An analytical roofline is trustworthy only when every FLOP/byte/dtype/count traces to an EXTERNAL "
+     "reference (above) AND the accounting obeys the rules below. Encode the rules as CONFORMANCE TESTS that "
+     "GATE report generation and FAIL CLOSED \u2014 a model that fails a check, or whose evidence is missing, is "
+     "not published. Internal consistency (a green self-test) is necessary but NEVER sufficient: it proves "
+     "the artifact agrees with itself, not with the model. These rules are model-agnostic.", bold=True)
 bullet("ONE tensor inventory: capacity AND per-op cost derive from the SAME op list \u2014 never a second "
        "hardcoded capacity formula that can drift from the op dimensions.")
 bullet("DECLARE the workload: independent requests vs shared-prefix, what is reused, dtype per tensor. An "
        "optimistic model is acceptable only if the assumption is stated.")
-bullet("Independent-request state (KV, activations) scales with batch M; weights are read once per step "
-       "(M-independent). TEST: independent-request bytes are linear in M.")
+bullet("STATE \u00d7 BATCH is the error that keeps biting: per-request state (KV, activations, scratch) scales "
+       "with batch M; weights stream once per step (M-independent). TEST: independent-request bytes are "
+       "LINEAR in M, weight bytes are FLAT in M. A state term that is accidentally M-independent (or a weight "
+       "term that scales with M) is an accounting bug.", bold_lead="KV\u00d7M \u2014 ")
+bullet("DISTINCT working sets can grow NON-linearly with M: a routed/MoE layer streams the DISTINCT experts "
+       "touched by the batch = E\u00b7(1\u2212(1\u2212k/E)^M) (distinct top-k of E over M tokens), not k\u00b7M and not E. Use "
+       "the with-REPLACEMENT-free form; TEST it equals k at M=1 and saturates toward E.")
+bullet("The per-op READ SET is the reference's ACTUAL access pattern, not the full sequence: sliding-window "
+       "/ sparse / compressed attention reads window+selected positions summed over the per-layer variants "
+       "\u2014 never full-context on every layer, and never a full pass plus a separate selection pass if the "
+       "reference fuses them. Derive positions from the config's per-layer ratios.")
+bullet("ENUMERATE EVERY STREAM an op touches from its I/O contract: a fused op reads ALL its operands (a "
+       "softmax-pool reads BOTH values AND scores), writes its outputs, and reads shared constants once. "
+       "Dropping a stream silently understates traffic. Tag each operand input/output/weight/state + dtype.")
+bullet("SHARED vs PER-REQUEST operands scale differently with M: a tensor read once per call is M-flat; a "
+       "per-request tensor is \u00d7M. Mis-tagging one is an M-scaling bug (it hides until a batch sweep).")
+bullet("BOUNDARY-TRIGGERED ops are AMORTIZED by cadence, not counted \u00d7full-length: an op firing every r "
+       "tokens contributes r-fractional calls/step; an overlap window changes the pooled span. Model the "
+       "amortized calls/step, not one call per token.")
+bullet("FLOPs include REDUCTION ADDS, not just multiplies: a k-term weighted sum is k multiplies + (k\u22121) "
+       "adds; a matmul is 2\u00b7M\u00b7N\u00b7K. Counting only multiplies understates compute.")
+bullet("STORAGE dtype \u2260 COMPUTE dtype. Storage bytes (incl scale/padding) come from the checkpoint header; "
+       "the COMPUTE RESOURCE/peak is selected BY the compute dtype (matrix-engine for bf16/int8, vector unit "
+       "for fp32, \u2026) from a cited datasheet. TEST: a precision change MUST change the computed time; a dtype "
+       "label that leaves the time unchanged is not modeled.", bold_lead="dtype \u2014 ")
 bullet("FUSION removes round-trips, not weights: a fused op counts ALL its matrices (a SwiGLU expert is "
        "three), and a flash/fused op carries NO intermediate-score DRAM. TEST both structurally.")
 bullet("RIDGE crossing solves the REAL arithmetic intensity (weights + activations) and returns "
@@ -327,13 +352,22 @@ bullet("Per-layer INVOCATION counts come from the config (per-layer variants/pha
        "\u00d7num_layers. Verify against the model; print per-call cost, calls/step, and per-step cost.")
 bullet("Include quantization metadata (scale/padding bytes) in traffic AND capacity; low-bit storage is "
        "not native low-bit compute.")
-bullet("Latency rows are MEASURED, justified-analytical, or EXPLICITLY-UNMODELED \u2014 never invented "
-       "floors; zero FLOPs/bytes does not establish latency as the binding resource.")
+bullet("MEASUREMENTS are VALIDATED against their raw record, not asserted: a cited speedup/correctness must "
+       "be READ from a structured result record (load it; fail closed if absent). KERNEL revision and "
+       "RESULT-RECORD revision are SEPARATE fields; the published quantity must match the specific KEPT "
+       "result entry at the stated coordinate. Certify only what the structured record supports (correctness "
+       "is context-independent); WITHHOLD a speedup whose record ratio is at a superseded coordinate or whose "
+       "revision is unresolved. Never hand-type a certification string the generator does not read back.",
+       bold_lead="measurement \u2014 ")
+bullet("Latency rows are MEASURED (validated against a record), justified-analytical, or "
+       "EXPLICITLY-UNMODELED \u2014 never invented floors; an absolute no record contains is WITHHELD, not "
+       "populated; a single observed point is not a batch sweep (render only at its coordinate).")
 bullet("Record hardware-profile PROVENANCE (node, memory type, clock); never mix measurements across "
        "configurations. The ideal roofline is an optimization TARGET, not an achievability claim.")
 bullet("Report latency and useful throughput as PRIMARY; track useful-vs-executed FLOPs/traffic "
        "separately; use distance-from-roof only DIAGNOSTICALLY (a fused kernel can be faster at LOWER "
-       "achieved bandwidth). Emit a roofline-VS-measured join per authored op.")
+       "achieved bandwidth). Emit a roofline-VS-observation join per authored op; draw NO causal "
+       "(overhead-vs-compute) or donor-routing conclusion from distance alone.")
 bullet("PROCESS: read external reviews/commits that touch your area BEFORE building on them \u2014 a rebase "
        "is not a read.")
 h2("Open-item disposition (never silently approximate)")
