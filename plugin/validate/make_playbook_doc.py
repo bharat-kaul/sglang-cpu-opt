@@ -343,11 +343,78 @@ para("Every quantity in the model is exactly one of: MODELED (derived, cite the 
      "hidden inside a number. Prefer MODELED when the reference gives a formula; fall back to "
      "EXPLICITLY-UNMODELED only when it genuinely cannot be derived yet.", GRAY)
 
+# ---- external-reference provenance (the auditability discipline) ----
+h1("External-reference provenance — everything is EXTERNALLY referenced (never self-referenced)")
+para("The single discipline behind every correctness gate: EVERY op semantic, shape, number, dtype, "
+     "invocation count, kernel claim and measurement must trace to an EXTERNAL AUTHORITY that a reviewer "
+     "can open and check \u2014 never to the artifact's own assertion, and never to a plausible reconstruction "
+     "from memory. External-referenced = auditable. Self-referenced = unfalsifiable. A model that only "
+     "agrees with itself is self-consistent, not correct. This is model-agnostic: it holds for any model, "
+     "op, kernel, or hardware.", bold=True)
+para("WHY THIS KEEPS BITING (the recurring failure modes \u2014 each is a self-reference leaking in): a number "
+     "modeled from plausibility instead of transcribed from the source; a LABEL changed (dtype/annotation) "
+     "while the computed consequence is unchanged, and a test that checks the label; a gate that validates "
+     "the artifact against itself and FAILS OPEN when evidence is absent; patching only the counterexample a "
+     "reviewer cited instead of the whole error CLASS; a derived byte/FLOP invented instead of enumerated "
+     "from the op's input/output contract; and an absolute measurement rendered as certified when no raw "
+     "record contains it. All five were caught by an external reviewer that the self-tests could not catch.",
+     GRAY)
+
+h2("The authoritative external references (open one of these, or it is UNVERIFIED)")
+bullet("SEMANTICS + SHAPES: the author's PUBLISHED model definition (model.py / modeling_*.py) PINNED at a "
+       "fixed revision. Cite the source line for each fusion, gate, sink, overlap window, MQA/MHA, per-layer "
+       "variant. The published forward is also the numerical ORACLE.")
+bullet("STORAGE DTYPE: the real CHECKPOINT HEADER (e.g. safetensors header via range request) \u2014 never "
+       "inferred. Storage dtype is a SEPARATE fact from compute dtype (low-bit storage \u2260 low-bit compute).")
+bullet("NUMERIC CONSTANTS: the real config.json (counts, ratios, dims) \u2014 cross-checked against the "
+       "reference's defaults, which are often a TOY example.")
+bullet("DERIVED BYTES/FLOPs: the op's actual INPUT/OUTPUT CONTRACT \u2014 the reference module signature OR the "
+       "benchmark call signature. Enumerate operands from it; tag each (input/output/weight/state, dtype, "
+       "per-request vs shared). Do not invent or drop operands.")
+bullet("COMPUTE RESOURCE: selected BY the compute dtype (bf16\u2192matrix-engine peak, fp32\u2192vector peak, \u2026) "
+       "from a cited HW datasheet/probe. A dtype label that does not change the computed time is not modeled.")
+bullet("MEASUREMENTS: an AUDITABLE raw RESULT RECORD (result file + kernel/bench revision/commit), not a "
+       "filename or a model SHA. Cite what the record actually certifies (coordinate, ownership, dtype, "
+       "correctness, speedup). If no record holds the quantity (e.g. an absolute latency), WITHHOLD it as "
+       "unverified \u2014 do not invent provenance and do not rerun expensive jobs just to populate a table.")
+
+h2("The rules that make it auditable (model-agnostic)")
+num("PROVENANCE TRIPLE on every published quantity: (value, cited external source, derivation). No "
+    "citation \u21d2 EXPLICITLY-UNMODELED, not MODELED. Generalize this from kernel shapes to EVERY number: "
+    "bytes, FLOPs, dtypes, counts, invocation cadence, capacity.", bold_lead="1 \u2014 ")
+num("ASSERT THE CONSEQUENCE, never the label. A conformance test must check the downstream COMPUTED output "
+    "(rendered time, selected peak, byte total, emitted row), not a field/annotation. Counter-test: "
+    "re-injecting the OLD behavior must FAIL the test. A test that can pass while the output is unchanged is "
+    "not a gate.", bold_lead="2 \u2014 ")
+num("REFERENCE-CONFORMANCE, FAIL-CLOSED. The gate compares the artifact to the external reference, not to "
+    "itself, and ABORTS emission on missing / malformed / invalid / incomplete evidence. Exercise the REAL "
+    "validator with invalid inputs (wrong enum, missing identity, dropped coverage, duplicate) \u2014 never a "
+    "re-implementation of the check.", bold_lead="3 \u2014 ")
+num("FIX THE CLASS, not the counterexample. When a review finds one defect, enumerate EVERY sibling of the "
+    "same type and add a class-covering test before resubmitting. Reviewers sample classes; clearing one "
+    "instance invites the same finding on the next instance.", bold_lead="4 \u2014 ")
+num("OBSERVATION \u2260 IDEAL TARGET, and a single point \u2260 a sweep. Render a measurement ONLY at its sourced "
+    "coordinate; never broadcast one constant across a batch sweep; keep measured observations visually "
+    "distinct from analytical targets; withhold any absolute that no record contains.", bold_lead="5 \u2014 ")
+num("PRE-SUBMIT REFERENCE-DIFF. Before publishing, re-derive every number from its external source and diff "
+    "it \u2014 run the reviewer's check yourself. Centralize shared identifiers (one revision constant) so a typo "
+    "cannot diverge across files.", bold_lead="6 \u2014 ")
+para("Why it survives human audit: every value points OUTWARD to a line a reviewer can open; the tests "
+     "assert consequences and fail closed; observations carry a result record or are withheld. The reviewer "
+     "checks FACTS and CITATIONS, not the agent's reading \u2014 which is exactly what a self-referenced artifact "
+     "cannot offer.", GRAY)
+para("Anti-patterns (each re-introduces self-reference): a green self-test as proof of correctness; "
+     "re-guessing a shape/number after one is found wrong instead of capturing it from the reference; "
+     "changing a dtype/label and declaring it fixed; a fail-OPEN gate that passes when the tracker/record is "
+     "absent; citing a filename or model SHA as measurement provenance; and presenting an unsourced absolute "
+     "as certified.", GRAY)
+
 # ---- gates ----
 h1("Gates")
 for g in ["G0 — capacity / precision (every launch)",
           "G1 — coverage / lane (routes Thesis 1 vs 2 per op)",
           "Fusion roofline gate (bytes saved + AI lift + cache-resident; reference oracle where available)",
+          "External-reference provenance gate (every op/shape/number/dtype/kernel/measurement cites an EXTERNAL authority or is EXPLICITLY-UNMODELED/withheld; tests assert consequences and fail closed; before any trust/perf-claim)",
           "Shape-provenance gate (every kernel's shapes CAPTURED from the real forward + human-signed manifest, before trust/perf-claims)",
           "Roofline-accounting gate (invariant self-test passes + one inventory + every quantity MODELED/MEASURED/EXPLICITLY-UNMODELED, before the report is published)",
           "Phase-A ceiling-or-surface (every op at its ceiling, else surface to user)",
