@@ -315,6 +315,39 @@ para("An analytical roofline is trustworthy only when every FLOP/byte/dtype/coun
      "GATE report generation and FAIL CLOSED \u2014 a model that fails a check, or whose evidence is missing, is "
      "not published. Internal consistency (a green self-test) is necessary but NEVER sufficient: it proves "
      "the artifact agrees with itself, not with the model. These rules are model-agnostic.", bold=True)
+h2("Knob\u2013cost coupling discovery — the generative meta-discipline (KV\u00d7M is ONE instance, not the lesson)")
+para("The deepest lesson is not any single rule below \u2014 it is the METHOD that generates them: a cost model "
+     "is cost = f(knobs), and almost every accounting error is a DROPPED COUPLING between a knob and a cost "
+     "term (a term wrongly treated as independent of an axis it actually moves with). KV\u00d7M is one such "
+     "coupling; the goal is a procedure that DISCOVERS the others by construction so a reviewer never has to.",
+     bold=True)
+para("Procedure (do this before ranking anything): (1) ENUMERATE the independent axes \u2014 workload knobs "
+     "(batch M, context/seq S, per-layer sparsity/compression ratio, window, top-k k & expert count E, "
+     "speculative depth, prefill-vs-decode) and hardware knobs (BW, compute peak PER dtype, cache capacity, "
+     "NUMA/TP domain count). (2) Build a KNOB\u00d7COST-TERM matrix: for every cost term (each operand\u2019s bytes, "
+     "each op\u2019s FLOPs, each invocation count) DECLARE its dependence on EACH axis and its functional form \u2014 "
+     "flat / linear / saturating / piecewise / a PRODUCT of two knobs. (3) Hunt the knob-PAIR products "
+     "explicitly \u2014 those are where naive models silently drop a cross-term. (4) SWEEP each axis and assert "
+     "the declared form holds (linear stays linear, flat stays flat); a cross-term that should appear and "
+     "doesn\u2019t, or appears where it shouldn\u2019t, is the bug.", GRAY)
+para("Known couplings (INSTANCES of the matrix \u2014 extend per model/op/HW; each detailed as a rule below):",
+     GRAY)
+bullet("state \u00d7 batch: per-request state (KV/activations) bytes are LINEAR in M; weights are FLAT in M.",
+       bold_lead="KV\u00d7M \u2014 ")
+bullet("distinct-working-set \u00d7 batch: distinct routed experts streamed = E\u00b7(1\u2212(1\u2212k/E)^M) \u2014 SATURATING in M, "
+       "not linear; dense/attention weights amortize flat over the batch.")
+bullet("read-set = context \u00d7 sparsity-ratio: the positions an op reads are seq/ratio (+ window), summed over "
+       "the per-layer ratios \u2014 a PRODUCT of two knobs, not the full sequence.")
+bullet("invocation \u00d7 sequence: boundary-triggered ops fire seq/cadence times \u2014 amortized calls/step, a "
+       "ratio of two knobs, not one-per-token.")
+bullet("dtype \u00d7 compute-resource: the compute peak is SELECTED by the compute dtype (matrix-engine vs "
+       "vector); storage dtype is a separate axis. A precision change that does not move the time is a "
+       "dropped coupling.")
+bullet("ceiling = per-domain-BW \u00d7 domains (with NUMA-local sharding): aggregate bandwidth scales with usable "
+       "domains ONLY when weights are sharded one-rank-per-domain; an unsharded replica is capped at ONE "
+       "domain. Capacity-fit \u00d7 head/expert-divisibility bounds the usable domains below the physical count.")
+para("When a review finds a new miss, add the coupling to the matrix and a sweep-test for its form \u2014 that is "
+     "how the playbook learns a connection once and never re-discovers it by hand.", GRAY)
 bullet("ONE tensor inventory: capacity AND per-op cost derive from the SAME op list \u2014 never a second "
        "hardcoded capacity formula that can drift from the op dimensions.")
 bullet("DECLARE the workload: independent requests vs shared-prefix, what is reused, dtype per tensor. An "
