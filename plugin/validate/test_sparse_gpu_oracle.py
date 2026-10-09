@@ -90,6 +90,38 @@ def main():
     verdict = "BF16 (bf16-replica is the closer reference -> fp32 oracle is over-strict; bf16-AMX is faithful)" \
         if worst16 <= worst32 else "FP32 (fp32 oracle is the closer reference)"
     print(f"[SPARSE ORACLE] worst mae: bf16-replica={worst16:.3e}  fp32-oracle={worst32:.3e} -> reference dtype = {verdict}")
+    coverage()
+
+
+def coverage():
+    """R2-F5 coverage: INDEPENDENT batches (b=N, m=1 -> own kv per request), variable topk K in {128,160,640},
+    and causal SENTINELS (-1 padding entries the kernel masks). Compare the real kernel to the source-faithful
+    blockwise replica on the GATHERED kv (the rows each request actually selects)."""
+    dev = "cuda"
+    print(">>> SPARSE COVERAGE (independent batches + K-unions + sentinels) vs blockwise replica")
+    for Ktop, sent, tag in ((128, 0, "K128"), (160, 0, "K160"), (640, 0, "K640"), (512, 64, "K512+64sentinels")):
+        torch.manual_seed(1000 + Ktop + sent)
+        B, Kpool = 4, max(1024, Ktop + 64)
+        scale = D ** -0.5
+        q = torch.randn(B, 1, H, D, device=dev, dtype=torch.float32)
+        kv = torch.randn(B, Kpool, D, device=dev, dtype=torch.float32)        # INDEPENDENT pool per request
+        sink = torch.randn(H, device=dev, dtype=torch.float32)
+        idxs = torch.empty(B, 1, Ktop, device=dev, dtype=torch.int32)
+        for b in range(B):
+            perm = torch.randperm(Kpool, device=dev)[:Ktop].to(torch.int32)
+            if sent:
+                perm[-sent:] = -1                                            # causal/padding sentinels (masked)
+            idxs[b, 0] = perm
+        o_gpu = sparse_attn(q.bfloat16(), kv.bfloat16(), sink, idxs, scale).reshape(B, H, D).float()
+        # CPU-equivalent gather: each request attends ONLY its valid (non -1) selected rows.
+        maes = []
+        for b in range(B):
+            val = idxs[b, 0][idxs[b, 0] >= 0].long()
+            kvg = kv[b, val].unsqueeze(0)                                     # [1, |val|, D]
+            ref = _ora_sparse_blockwise(q[b, 0].unsqueeze(0), kvg, sink, scale)  # [1,H,D]
+            maes.append((o_gpu[b].unsqueeze(0) - ref).abs().max().item())
+        print(f"    {tag:>18}  B={B} Kpool={Kpool} topk={Ktop} sentinels={sent}  "
+              f"blockwise mae max={max(maes):.3e} mean={sum(maes)/len(maes):.3e}")
 
 
 if __name__ == "__main__":
