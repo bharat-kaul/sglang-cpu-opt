@@ -1,0 +1,6 @@
+Review round 3 — DSv4 roofline gate. Verdict: FAIL (numerical + tracker fixes verified).
+G1 sparse-attention join applies the BF16 ceiling to FP32 work; G2 indexer observation does not match
+its claimed benchmark contract; G3 tracker validation accepts invalid/incomplete entries.
+<<<REVIEW-VERDICT
+{"status": "FAIL", "findings": ["G1 sparse-attn compute ceiling", "G2 indexer observation/contract mismatch", "G3 tracker schema/coverage"], "surface": false, "note": "select compute resource by dtype; reconcile observation boundary; strengthen tracker validation"}
+REVIEW-VERDICT>>>

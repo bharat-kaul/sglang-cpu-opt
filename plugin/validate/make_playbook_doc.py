@@ -552,6 +552,30 @@ for g in ["G0 — capacity / precision (every launch)",
           "Accuracy gate · Human-gate (novel kernels)"]:
     bullet(g)
 
+# ---- automated review-gated progression ----
+h1("Automated review-gated progression — EXECUTOR \u2194 REVIEWER loop (optional orchestration)")
+para("Each gate above can be driven as a two-agent loop: an EXECUTOR agent advances the gate and emits "
+     "artifacts + a response; a DIFFERENT, independent REVIEWER agent audits them against the EXTERNAL "
+     "reference and emits a machine-readable verdict; the orchestrator feeds a FAIL review back to the "
+     "executor and iterates until PASS, a SURFACE-to-user signal, or a round cap. The user picks which model "
+     "runs each role. Reference harness: tools/review_loop (agent-agnostic adapters; stdlib only).", bold=True)
+bullet("SEPARATION OF ROLES: the reviewer must be a DIFFERENT agent/model that did NOT produce the "
+       "artifacts \u2014 the whole point of external-reference provenance is an auditor who checks FACTS and "
+       "CITATIONS, not the author's own reading. Same-agent self-review is self-consistency, not a gate.")
+bullet("MACHINE-READABLE VERDICT CONTRACT: the reviewer emits one block \u2014 status PASS | FAIL | SURFACE, "
+       "plus findings. FAIL -> findings fed back to the executor; SURFACE (or any unparseable/missing/"
+       "malformed verdict) -> STOP and escalate to the user. FAIL-CLOSED: never treat 'no verdict' as pass.")
+bullet("GUARDRAILS: a round cap (then SURFACE), commit between rounds for an audit trail, and a ledger of "
+       "every round's verdict + findings. A gate that cannot converge is SURFACED with its history, not "
+       "forced.")
+bullet("SURFACE-TO-USER is a first-class outcome: when a finding needs a scope/trade-off decision the "
+       "reference cannot settle, the executor or reviewer raises SURFACE and the loop halts for the user \u2014 "
+       "exactly the points where a human call is required.")
+para("The same disciplines apply inside the loop: the executor fixes the CLASS not the cited instance and "
+     "changes CONSEQUENCES not labels; the reviewer runs independent counterexamples and passes only on "
+     "reference-conformance within the declared partial scope. The pilot's 7-round roofline history "
+     "(R\u2192F\u2192G\u2192H \u2192 PASS) replays through this harness as a regression of the loop itself.", GRAY)
+
 # ---- platform card (example instantiation) ----
 h1("Platform card — an INPUT, filled per target by the probe")
 para("The method assumes NO specific values. Below is the pilot's instantiation (produced by the uArch "

@@ -1,0 +1,30 @@
+{
+  "_comment": "review_loop config. Pick the executor + reviewer models here. Each role is an adapter: 'shell' runs a command template (wire in your agent CLI/API), 'mock' replays prepared outputs. The reviewer MUST emit a <<<REVIEW-VERDICT {...} REVIEW-VERDICT>>> block (in stdout or review_output). Placeholders in cmd: {model} {role} {round} {prompt_file} {workdir}.",
+  "task": {
+    "name": "dsv4-roofline-gate",
+    "workdir": "/data/nfs_home/bkaul/dsv4-tree-pilot",
+    "executor_prompt": "prompts/executor_prompt.txt",
+    "reviewer_prompt": "prompts/reviewer_prompt.txt"
+  },
+  "executor": {
+    "adapter": "shell",
+    "model": "Claude Opus 4.8",
+    "workdir": "/data/nfs_home/bkaul/dsv4-tree-pilot",
+    "timeout_s": 5400,
+    "cmd": "copilot --model '{model}' --no-interactive --prompt-file {prompt_file} --cwd {workdir}  # REPLACE with your executor agent CLI/API"
+  },
+  "reviewer": {
+    "adapter": "shell",
+    "model": "GPT Astra 6",
+    "workdir": "/data/nfs_home/bkaul/dsv4-tree-pilot",
+    "timeout_s": 5400,
+    "review_output": "plugin/validate/reports/{name}_review_round{round}.md",
+    "cmd": "copilot --model '{model}' --no-interactive --prompt-file {prompt_file} --cwd {workdir}  # REPLACE with your reviewer agent CLI/API"
+  },
+  "loop": {
+    "max_iterations": 8,
+    "commit_between_rounds": true,
+    "surface_on": ["SURFACE"]
+  },
+  "state_dir": "tools/review_loop/runs/{name}"
+}

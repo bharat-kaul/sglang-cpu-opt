@@ -1,0 +1,7 @@
+Review round 1 — DSv4 roofline gate. Verdict: FAIL.
+Independent counterexamples expose: R1 attention graph/layer counts wrong; R2 compressor not a real
+subgraph; R3 shared experts are FP8 not FP4; R4 MHC hc_fn dim wrong; R5 single-point measurement +
+join byte bugs; R6 stale platform fields; R7 self-test checks self-consistency not reference-conformance.
+<<<REVIEW-VERDICT
+{"status": "FAIL", "findings": ["R1 attention graph/layer counts", "R2 compressor subgraph", "R3 shared=FP8", "R4 hc_fn dim", "R5 single-point+join bytes", "R6 stale platform", "R7 self-consistency not conformance"], "surface": false, "note": "ground every number in the pinned reference; add reference-conformance self-tests that gate emission"}
+REVIEW-VERDICT>>>

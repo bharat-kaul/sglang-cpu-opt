@@ -1,0 +1,4 @@
+EXECUTOR (mock): addressed the previous round's findings at the class level, changed the computed
+consequences (not labels), extended the fail-closed self-tests, regenerated the canonical artifacts,
+and wrote a response mapping each finding to its fix. (In the demo this stub stands in for the real
+executor agent; its output is logged but the loop decision is driven by the reviewer's verdict.)

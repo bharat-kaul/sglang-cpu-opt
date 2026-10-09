@@ -1,0 +1,6 @@
+Review round 6 — DSv4 roofline gate. Verdict: FAIL (label scoped to microbench).
+H1 remains: the status "<metric> certified @ microbench" is constructed UNCONDITIONALLY from free-text
+substring search — it would "certify" an absent or FAIL record. Do not infer a positive result from text.
+<<<REVIEW-VERDICT
+{"status": "FAIL", "findings": ["H1 certification inferred from free text (independent of outcome)"], "surface": false, "note": "report the recorded field VERBATIM under a fixed UNVERIFIED attribution; absent=unrecorded; retain failures; regression-test missing/FAIL/failed-cosine"}
+REVIEW-VERDICT>>>

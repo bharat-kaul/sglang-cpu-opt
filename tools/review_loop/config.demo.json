@@ -1,0 +1,13 @@
+{
+  "_comment": "DEMO config: replays the REAL roofline review history (6 FAIL rounds R/F/G/H -> PASS) with MOCK agents, to prove the loop end-to-end with zero live-agent dependency. Run: python review_loop.py demo",
+  "task": {
+    "name": "dsv4-roofline-gate-demo",
+    "workdir": ".",
+    "executor_prompt": "prompts/executor_prompt.txt",
+    "reviewer_prompt": "prompts/reviewer_prompt.txt"
+  },
+  "executor": {"adapter": "mock", "model": "Claude Opus 4.8 (mock)", "replay": "replay/executor_addressed.out.txt"},
+  "reviewer": {"adapter": "mock", "model": "GPT Astra 6 (mock)", "replay": "replay/reviewer_round{round}.out.txt"},
+  "loop": {"max_iterations": 8, "commit_between_rounds": false},
+  "state_dir": "tools/review_loop/runs/{name}"
+}

@@ -1,0 +1,6 @@
+Review round 5 — DSv4 roofline gate. Verdict: FAIL (record-reading mechanics resolved).
+H1 remains: reports still print "CERTIFIED correctness". A recorded cosine/set-match is not context-
+independent; labeling it certified overstates the evidence.
+<<<REVIEW-VERDICT
+{"status": "FAIL", "findings": ["H1 correctness labeled CERTIFIED despite unresolved revisions / mismatched shapes"], "surface": false, "note": "drop the CERTIFIED label; mark historical/author-reported/UNVERIFIED for the current target"}
+REVIEW-VERDICT>>>

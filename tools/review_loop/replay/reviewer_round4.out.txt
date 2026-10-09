@@ -1,0 +1,6 @@
+Review round 4 — DSv4 roofline gate. Verdict: FAIL (G1/G3 resolved).
+H1: published certification claims are not validated against their records (top-k 06faec0/7.62x cites a
+discarded pass). The generator never opens the records.
+<<<REVIEW-VERDICT
+{"status": "FAIL", "findings": ["H1 observation claims not validated against records"], "surface": false, "note": "read + validate each observation against its result record; separate kernel-rev vs record-rev; withhold unsourced"}
+REVIEW-VERDICT>>>

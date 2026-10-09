@@ -1,0 +1,6 @@
+Review round 2 — DSv4 roofline gate. Verdict: FAIL (R1/R3 verified fixed).
+F1 single-point rendered across all M columns; F2 pool omits score stream + wrong state precision;
+F3 FP32 label still uses the BF16 compute peak; F4 join operands incorrect/omitted; F5 tracker fail-open.
+<<<REVIEW-VERDICT
+{"status": "FAIL", "findings": ["F1 single-point rendering", "F2 pool score stream + FP32 state", "F3 dtype->compute resource", "F4 join operand contracts", "F5 tracker fail-open"], "surface": false, "note": "assert consequences not labels; fail closed"}
+REVIEW-VERDICT>>>

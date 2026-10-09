@@ -1,0 +1,7 @@
+Review round 7 — DSv4 roofline gate. Verdict: PASS within the declared partial analytical scope.
+Historical correctness summaries are no longer promoted to numerical-match certificates; absent =>
+unrecorded; failures retained; revisions resolved; regression checks for missing/FAIL/failed-cosine pass.
+The roofline gate no longer blocks proceeding to implementation review (which remains deferred/separate).
+<<<REVIEW-VERDICT
+{"status": "PASS", "findings": [], "surface": false, "note": "H1 closed via reporting-only verbatim/UNVERIFIED attribution; numerical + tracker fixes remain accepted within the declared partial scope"}
+REVIEW-VERDICT>>>
