@@ -4,6 +4,25 @@
   "baseline_record": "SLURM 384414 (results/perf_sweep.json); nominal EMR BW 358 GB/s, AMX 125 TF, FP32 7.8 TF",
   "f4_gate": "plugin/validate/f4_acceptance.py (tie_eps=0 selection; cosine+relerr continuous; sparse-AMX experimental)",
   "donor_first_rule": "Use existing OneDNN / ATen cpublas (brgemm/pack/bmm, oneDNN-backed) / MKL / vectorized-exp primitives wherever they exist; AUTHOR only the irreducible missing glue (epilogue, dispatch, tiling, fusion). Never hand-roll a matmul a library already provides.",
+  "fusion_precision_gate": {
+    "_rule": "Playbook FUSION + PRECISION/BW gates (cpu-optimization-playbook SKILL). Every kernel must (a) fuse away avoidable DRAM round-trips of intermediates and (b) exploit low-precision STORAGE/IO on BW-bound reads with fp32 accumulate.",
+    "fusion_status": {
+      "indexer_logits": "FUSED — brgemm + relu*weight*sum epilogue in L1; scores never hit DRAM; bf16 convert fused into tile staging. (indexer_logits_fused variant materializes scores to DRAM but is NOT the integration path.)",
+      "compressor": "FUSED — single streaming online-softmax; w[N,R,D] never materialized.",
+      "sparse_attend": "FUSED — scalar flash single-pass; fp32bmm = 2 donor bmms with in-place fused softmax (no m/e/denom/w temps). RESIDUAL: scores[N,H,K] round-trips between the 2 bmms (~8MB @M64); eliminating it needs a hand-written flash-GEMM that forfeits the near-roofline MKL bmm -> IRREDUCIBLE, keep donor.",
+      "sinkhorn": "FUSED — 20 iters per-row, hc*hc L1-resident.",
+      "combine": "FUSED — tiled accumulate-once, no broadcast temp.",
+      "indexer_topk": "N/A — selection only, no intra-op fusion.",
+      "cross_op_candidates_for_phase2": ["indexer_logits->topk (skip logits[N,S] round-trip; low value, tiny tensor)", "sinkhorn->combine (both MHC per-row; low value)"]
+    },
+    "precision_bw_status": {
+      "indexer_logits": "FREE-BW WIN AVAILABLE: the brgemm already rounds kv fp32->bf16 to compute, so storing the KV cache as bf16 is NUMERICALLY IDENTICAL to what the kernel consumes while HALVING the dominant read. Gated only on cache-format=bf16 (caller/integration knob). Compute already bf16-AMX + fp32 accum. QUEUED as a BW lever.",
+      "sparse_attend": "bf16-AMX halves q/kv read AND unlocks 124TF vs 7.78TF fp32, but fails the fp32 oracle (cos 0.9999). CONFORMANCE DECISION: gated on reference dtype — if model.py runs attention in bf16, fp32 is over-precise and bf16-AMX is faithful. Surfaced for oracle-dtype review; fp32-bmm donor holds the floor meanwhile.",
+      "compressor": "bf16 INPUT read (kv/score) -> fp32 upconvert for online-softmax (stability) -> downconvert output. Halves input traffic; needs a numerics check. QUEUED as a BW lever.",
+      "indexer_topk": "KEEP FP32 — selection is cutoff-sensitive (bf16 boundary bit us before).",
+      "sinkhorn_combine": "KEEP FP32 — tiny, not BW-bound, sigmoid/exp/normalize sensitive."
+    }
+  },
   "kernels": [
     {"kernel": "indexer_logits.cpp", "roi_rank": 1, "regime": "BW-bound (50us ideal vs 4.3us compute @M32)",
      "baseline_off_roofline": {"M1": "63.8x", "M32": "10.8x", "M64": "9.1x"},
@@ -61,8 +80,8 @@
        "levers_applied": ["best-of dispatcher sparse_attend_bestof: N==1 -> scalar (3.38x, bit-exact cos=1); N>=2 -> fp32 bmm DONOR (at::bmm) + fused in-place softmax/sink (one parallel pass, avoids ref's 4 temporaries) -> parity-or-better vs torch, bit-conformant", "bf16 AMX kept EXPERIMENTAL/gated (non-conformant, no win)"],
        "correctness": "fp32bmm + bestof cos=1.0 bit-identical to scalar/oracle at every M (local verify); no bf16 in the shipped paths",
        "roofline_note": "fp32 headroom at M>=8 is small (torch ~64% peak); the only path beyond fp32 roofline is bf16 AMX, which costs conformance -> DEFERRED pending a reference-dtype conformance decision (would need the F4 sparse oracle to adopt the published bf16 primitive dtype).",
-       "EMR_64thread_bestof_numbers": "pending job 384xxx (local 8-thread ratios not representative)"},
-     "status": "PASS-1 DONE (best-of dispatch shipped: scalar@M1 3.38x win + fp32-bmm-donor floor@M>=8, all bit-conformant; AMX deferred as non-conformant/no-win). fp32 regime is roofline-bound; bf16 headroom gated on oracle-dtype conformance."},
+       "EMR_64thread_bestof_numbers": "job 384476: cos_bo=1.0 all M; bestof BEATS torch at EVERY M -> bo_x M[1,8,16,32,64]=[3.62x,9.08x,1.59x,1.34x,1.07x]. The fused-softmax fp32-bmm donor does NOT just tie torch at M>=8, it WINS (fusing away ref's 4 temporaries). No-regression floor HELD AND BEATEN everywhere, bit-conformant."},
+     "status": "PASS-1 DONE (best-of dispatch shipped: scalar@M1 3.62x + fp32-bmm-donor fused-softmax BEATS torch at every M 1.07-9.08x, cos=1.0 bit-conformant; AMX dropped as non-conformant/no-win). fp32 regime is near roofline; bf16 headroom gated on oracle-dtype conformance."},
     {"kernel": "sinkhorn.cpp", "roi_rank": 5, "regime": "DISPATCH/latency-bound tiny op — the FLOP roofline is the WRONG ceiling; caption the realistic dispatch floor",
      "baseline_off_roofline": {"note": "2389x @M1 but ABSOLUTE 2-15us; already near the dispatch floor"},
      "root_cause": "86 calls/token x ~2us launch overhead dominates; useful compute ~1-2us; already fused (20 iters in one C++ loop).",

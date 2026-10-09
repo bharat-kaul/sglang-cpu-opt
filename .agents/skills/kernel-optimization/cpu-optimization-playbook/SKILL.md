@@ -69,6 +69,31 @@ condition is met and gating every step against the measured roofline.
 > (distinct source, distinct roofline) — fan them out in parallel (analysis + author + measure), ranked by
 > ROI (`f7_roi_ledger.py`), and keep each ready. Integration (Phase 2) is the serial, one-by-one step.
 >
+> **⛔ FUSION GATE (every kernel, before it is "done").** A BW-bound op that writes an intermediate to
+> DRAM and re-reads it has DOUBLED its traffic for nothing. For each kernel prove there is NO avoidable
+> intermediate round-trip: keep the contraction in the donor GEMM but FUSE the epilogue (relu/scale/
+> weight/softmax/reduction) so intermediates stay L1/L2-resident and never touch DRAM; compose multi-step
+> math as ONE streaming pass (online-softmax, accumulate-once) so no full weight/score/prob tensor is
+> materialized. Record, per kernel, which intermediates are fused-away vs. which residual round-trip
+> remains and WHY it is irreducible (e.g. keeping it would forfeit a near-roofline library GEMM). Also
+> flag CROSS-OP (adjacent-kernel) fusion candidates for Phase-2 integration (they need the caller context).
+>
+> **⛔ PRECISION / BANDWIDTH GATE (every kernel, before it is "done").** Exploit precision to cut the DRAM
+> wall on BW-bound ops: STORE/READ the heavy operands (KV cache, activations, weights) in the LOWEST
+> precision the reference tolerates, UPCONVERT in-cache for compute (bf16 AMX / fp16 with FP32 ACCUMULATE),
+> and DOWNCONVERT on write-out. Two rules make this safe and free:
+>   1. **Free-BW rule:** if the kernel's compute ALREADY rounds an operand (e.g. a bf16 AMX GEMM rounds the
+>      fp32 KV it reads), then STORING that operand at the compute precision is numerically IDENTICAL to
+>      what the kernel already consumes while HALVING its dominant read — take it (gated only on the
+>      cache/operand format, a caller/integration knob). Never read fp32 only to immediately round to bf16.
+>   2. **Accumulate-in-fp32 rule:** keep reductions/softmax/normalization accumulators in FP32 for numerical
+>      stability even when inputs/outputs are low-precision; downconvert only the final store.
+> Precision that changes the reference dtype (e.g. bf16 where the oracle is fp32) is a CONFORMANCE DECISION,
+> not a free lever: the gate is the REFERENCE precision — if model.py runs the op in bf16/fp8, fp32 is
+> over-precise and the low-precision ISA path (bf16 AMX, 124 TF vs 7.78 TF fp32) is the FAITHFUL one;
+> surface it for the oracle-dtype decision rather than shipping a non-conformant "win". Keep selection/
+> cutoff-sensitive ops (topk) and tiny non-BW-bound ops (sinkhorn/combine) in FP32.
+>
 > **⛔ PHASE-1 EXIT = PAUSE FOR REVIEW (do not auto-advance).** Phase 1 is done only when ALL kernels are
 > optimized AND their performance-vs-roofline is RECORDED ACROSS THE SWEEPS (and the no-regression floor
 > holds at every M). At that point STOP and surface for review. Proceed to Phase-2 proxy integration
