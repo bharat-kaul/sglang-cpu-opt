@@ -1,92 +1,89 @@
-DSv4-Flash analytical roofline (Ops + fused Ops) — EMR, roofline=MACHINE PEAK (AMX@1.9GHz), dims grounded in published model.py, generated 2026-10-08T15:33Z
-P0 CAPACITY  platform=emr  domain=504 GB  SNC=False  ridge AI*=348 FLOP/byte
+DSv4-Flash IDEAL roofline — rebuilt against the 10 corrections (verdict); invariant-tested; dims+workload grounded in published model.py. machine-peak basis; measured reference = pcl-sprh02 DDR5-5600.
+
+INVARIANT SELFTEST:
+  [PASS] attention bytes(M=8) == 8*bytes(M=1) (KV scales with M)
+  [PASS] attention has no M-independent (score/weight) byte term
+  [PASS] fused indexer byte/token constant (no score DRAM)
+  [PASS] GEMM per-token bytes == (K+N)*AB
+  [PASS] weights_proj (4096->64) has NO ridge crossing (AI saturates < ridge)
+  [PASS] shared expert FLOPs = 6*H*MOE_I (3 matrices)
+  [PASS] distinct experts at M=1 == TOPK=6 (got 6.0000)
+  [PASS] capacity() derives from the OPS inventory
+  SELFTEST OK
+
 ================================================================================================
-  ROOFLINE CEILING = MACHINE PEAK: BW=358.4 GB/s  AMX bf16=124.6 TFLOP/s  (ridge 348 FLOP/byte)
-  reference FLOOR  = measured:     BW=214.4 GB/s (60% of peak)  AMX bf16=40.3 TFLOP/s (32% of peak)  -> gap = headroom
-  MoE experts(fp4)         132.1 GB
-  shared(fp4)                0.5 GB
-  MLA proj(fp8)              3.3 GB
-  indexer proj(fp8)          1.4 GB
-  embed+lm_head(bf16)        2.1 GB
-  RESIDENT                 139.4 GB  -> FITS one domain (139<504) => tp=1/EP=1
+P0 CAPACITY (from one inventory)  platform=emr  nominal BW=358.4 GB/s  AMX=124.6 TF  ridge=348
+  measured reference (node pcl-sprh02): BW=277 GB/s  AMX=47 TF  (reference obs, not a target/floor)
+================================================================================================
+  MoE experts (gate+up+SiLU+down, MXFP4)           147.17 GB
+  MLA wo_a (grouped 8x 4096->1024)                   2.89 GB
+  MLA wq_b (1024->32768)                             1.44 GB
+  MLA wo_b (8192->4096)                              1.44 GB
+  lm_head (4096->129280)                             1.06 GB
+  shared-expert (3-matrix gate+up+down, MXFP4)       0.57 GB
+  MLA wqkv_a (fused q_a+kv_a, 4096->1536)            0.27 GB
+  DSA indexer wq_b (1024->8192)                      0.17 GB
+  MHC hc_fn (16384->24, x2/layer)                    0.14 GB
+  MoE router gate (4096->256)                        0.09 GB
+  DSA indexer weights_proj (4096->64)                0.01 GB
+  RESIDENT (listed weights only; excl. KV/scales/workspace)   155.25 GB  -> fits one domain (feasibility, not TP-optimality)
 
 ================================================================================================================================
-PHASE A — PER-OP ROOFLINE + BINDING RESOURCE + AI-IMPROVABILITY + CEILING + C++ LANE  (decode, context S=4096; EVERY op, none skipped)
+PHASE A — IDEAL per-op roofline (declared workload; max(B/BW,F/P)); invocation-counted; fused=no-score
 ================================================================================================================================
-ceiling = MACHINE PEAK (BW 358 GB/s, AMX 125 TF); times below are the machine-peak floor each op is optimized toward
-op                                           impl-lane                      prec |       M=1       M=8      M=16      M=32      M=64  binding@M=1->64
+op                                           lane/impl                |       M=1       M=8      M=16      M=32      M=64  bind  cross@ridge
 --------------------------------------------------------------------------------------------------------------------------------
-MLA wqkv_a (fused q_a+kv_a, 4096->1536)      donor dsv2 qkv                 fp8  |   756.2us   765.6us   776.5us   798.1us   841.3us  B->B->B->B->B
-  q_norm RMSNorm(1024)                       donor norm.cpp                 -    |   215.0us   215.0us   215.0us   215.0us   215.0us  L->L->L->L->L
-MLA wq_b (1024->32768)                       donor dsv2                     fp8  |     4.0ms     4.1ms     4.2ms     4.3ms     4.5ms  B->B->B->B->B
-  RoPE (yarn)                                donor rope                     -    |   215.0us   215.0us   215.0us   215.0us   215.0us  L->L->L->L->L
-  kv_norm RMSNorm(512)                       donor norm.cpp                 -    |   215.0us   215.0us   215.0us   215.0us   215.0us  L->L->L->L->L
-MLA attn core (flash MQA /latent 512)        donor intel_amx attn backend   fp8  |   322.4us     1.5ms     3.0ms     5.9ms    11.9ms  B->C->C->C->C
-MLA wo_a (grouped, 32768->1024)              donor dsv2                     fp8  |     4.0ms     4.1ms     4.2ms     4.3ms     4.5ms  B->B->B->B->B
-MLA wo_b (8192->4096)                        donor dsv2                     fp8  |     4.0ms     4.0ms     4.1ms     4.1ms     4.2ms  B->B->B->B->B
-DSA indexer wq (1024->8192)                  donor dsv2                     fp8  |   938.3us   952.7us   969.1us     1.0ms     1.1ms  B->B->B->B->B
-DSA indexer weights_proj (4096->64)          donor gemm                     bf16 |    59.4us    65.9us    73.4us    88.2us   117.9us  B->B->B->B->B
-DSA indexer logits (GEMM+epilogue FUSED)     NEW-C++ (xpu-triton oracle)    bf16 |   177.4us   599.8us     1.1ms     2.0ms     4.0ms  B->B->B->B->B
-DSA indexer topk-512                         NEW-C++ (partial-sort)         -    |     1.6ms     1.6ms     1.6ms     1.6ms     1.6ms  L->L->L->L->L
-DSA compressor (softmax-pool)                NEW-C++                        -    |     1.2ms     1.2ms     1.2ms     1.2ms     1.2ms  L->L->L->L->L
-DSA sparse attend (top-512 KV)               donor dsv2 mla                 fp8  |    43.9us   172.4us   344.7us   689.4us     1.4ms  B->C->C->C->C
-MHC sinkhorn (20 iters)                      NEW-C++                        -    |     2.6ms     2.6ms     2.6ms     2.6ms     2.6ms  L->L->L->L->L
-MHC hash (3 layers)                          NEW-C++                        -    |   860.0us   860.0us   860.0us   860.0us   860.0us  L->L->L->L->L
-MoE router gate (4096->256)                  donor gemm                     bf16 |   240.9us   247.9us   255.8us   271.8us   303.6us  B->B->B->B->B
-MoE experts (gate+up+SiLU+down FUSED, W4A16) donor moe.cpp MXFP4            fp4  |     8.6ms    63.2ms   115.6ms   195.1ms   287.4ms  B->B->B->B->B
-shared-expert (gate+up+SiLU+down, 4096/2048) donor moe.cpp                  fp4  |   481.2us   491.1us   502.3us   524.8us   569.8us  B->B->B->B->B
-embed (VocabParallel lookup)                 donor embed                    -    |    10.0us    10.0us    10.0us    10.0us    10.0us  L->L->L->L->L
-lm_head (4096->129280)                       donor gemm                     bf16 |     3.0ms     3.0ms     3.0ms     3.0ms     3.0ms  B->B->B->B->B
+MLA wqkv_a (fused q_a+kv_a, 4096->1536)      A donor dsv2             |   756.2us   765.7us   776.5us   798.1us   841.4us     B  M≈252
+  q_norm RMSNorm(1024)                       A donor norm.cpp         |   215.0us   215.0us   215.0us   215.0us   215.0us   lat  lat
+MLA wq_b (1024->32768)                       A donor dsv2             |     4.0ms     4.1ms     4.2ms     4.3ms     4.5ms     B  M≈267
+  RoPE (yarn)                                A donor rope             |   215.0us   215.0us   215.0us   215.0us   215.0us   lat  lat
+  kv_norm RMSNorm(512)                       A donor norm.cpp         |   215.0us   215.0us   215.0us   215.0us   215.0us   lat  lat
+MLA attn core (flash MQA, ctx=S)             A donor intel_amx attn   |   518.9us     4.2ms     8.3ms    16.6ms    33.2ms     B  none
+MLA wo_a (grouped 8x 4096->1024)             A donor dsv2 (BF16 CPU)  |     8.1ms     8.1ms     8.2ms     8.4ms     8.7ms     B  M≈604
+MLA wo_b (8192->4096)                        A donor dsv2             |     4.0ms     4.0ms     4.1ms     4.1ms     4.2ms     B  M≈199
+DSA indexer wq_b (1024->8192)                A donor dsv2             |   469.2us   476.4us   484.6us   501.1us   534.0us     B  M≈281
+DSA indexer weights_proj (4096->64)          A donor gemm             |    29.7us    33.0us    36.7us    44.1us    59.0us     B  none
+DSA indexer logits (GEMM+reduce FUSED)       B NEW-C++                |    15.1us   120.9us   241.8us   483.7us   967.3us     B  none
+DSA indexer topk-512 (over ~1024)            B NEW-C++                |   800.0us   800.0us   800.0us   800.0us   800.0us   lat  lat
+DSA compressor (softmax-pool, D=512)         B NEW-C++                |    20.0ms    20.0ms    20.0ms    20.0ms    20.0ms   lat  lat
+DSA sparse attend (top-512 KV)               B donor MLA flash        |    36.6us   292.6us   585.1us     1.2ms     2.3ms     B  none
+MHC hc_fn (16384->24, x2/layer)              C NEW-C++                |   393.2us   503.3us   629.2us   881.0us     1.4ms     B  none
+MHC sinkhorn (hc=4, 20 iters)                C NEW-C++                |     1.3ms     1.3ms     1.3ms     1.3ms     1.3ms   lat  lat
+MHC combine (hc_pre reduce)                  C NEW-C++                |     1.1ms     1.1ms     1.1ms     1.1ms     1.1ms   lat  lat
+MHC hc_post (expand) [UNMODELED-work]        C torch                  |     1.7ms     1.7ms     1.7ms     1.7ms     1.7ms   lat  lat
+MHC hc_head (once) [UNMODELED-work]          C NEW-C++                |    20.0us    20.0us    20.0us    20.0us    20.0us   lat  lat
+MoE router gate (4096->256)                  A donor gemm             |   252.7us   260.0us   268.3us   285.0us   318.4us     B  none
+MoE hash route (3 layers, tid2eid gather)    A donor                  |    15.0us    15.0us    15.0us    15.0us    15.0us   lat  lat
+MoE experts (gate+up+SiLU+down, MXFP4)       A donor moe.cpp          |     9.6ms    71.1ms   129.9ms   218.9ms   321.6ms     B  none
+shared-expert (3-matrix gate+up+down, MXFP4) A donor moe.cpp          |     1.6ms     1.6ms     1.6ms     1.7ms     1.7ms     B  M≈104
+embed (VocabParallel lookup)                 A donor embed            |    10.0us    10.0us    10.0us    10.0us    10.0us   lat  lat
+lm_head (4096->129280)                       A donor gemm             |     3.0ms     3.0ms     3.0ms     3.0ms     3.0ms     B  M≈381
 
-AI across M (regime B=BW C=compute L=latency) + improvability:
-op                                           | AI@1   AI@8   AI@16  AI@32  AI@64   improvable?
+AI (B=BW C=compute lat=measured-latency); fused ops carry no score DRAM; attn/indexer AI is M-invariant.
+op                                           | AI@1   AI@8   AI@16  AI@32  AI@64 
 --------------------------------------------------------------------------------------------------------------------------------
-MLA wqkv_a (fused q_a+kv_a, 4096->1536)      |    2B   16B   31B   61B  115B  ↑M crosses ridge at M≈174
-  q_norm RMSNorm(1024)                       |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-MLA wq_b (1024->32768)                       |    2B   16B   31B   60B  113B  ↑M crosses ridge at M≈174
-  RoPE (yarn)                                |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-  kv_norm RMSNorm(512)                       |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-MLA attn core (flash MQA /latent 512)        |  200B  630C  745C  819C  862C  AI set by context S + flash-fusion, not M
-MLA wo_a (grouped, 32768->1024)              |    2B   16B   31B   60B  113B  ↑M crosses ridge at M≈174
-MLA wo_b (8192->4096)                        |    2B   16B   32B   63B  122B  ↑M crosses ridge at M≈174
-DSA indexer wq (1024->8192)                  |    2B   16B   31B   60B  112B  ↑M crosses ridge at M≈174
-DSA indexer weights_proj (4096->64)          |    1B    7B   13B   21B   32B  ↑M crosses ridge at M≈348
-DSA indexer logits (GEMM+epilogue FUSED)     |   43B  101B  112B  118B  122B  FUSE epilogue -> drop score DRAM round-trip -> AI↑ (primary lever, not M)
-DSA indexer topk-512                         |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-DSA compressor (softmax-pool)                |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-DSA sparse attend (top-512 KV)               |  171B  410C  455C  482C  496C  AI set by context S + flash-fusion, not M
-MHC sinkhorn (20 iters)                      |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-MHC hash (3 layers)                          |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-MoE router gate (4096->256)                  |    1B    8B   15B   28B   51B  ↑M crosses ridge at M≈348
-MoE experts (gate+up+SiLU+down FUSED, W4A16) |    4B    4B    5B    6B    8B  ↑M barely helps (needs avg_M>4 => M>170); lever=EP/grouping, NOT M in {1..64}
-shared-expert (gate+up+SiLU+down, 4096/2048) |    4B   31B   61B  117B  216B  ↑M crosses ridge at M≈87
-embed (VocabParallel lookup)                 |   -     -     -     -     -    fuse/batch dispatch (no AI lever)
-lm_head (4096->129280)                       |    1B    8B   16B   32B   63B  ↑M crosses ridge at M≈348
-
-==============================================================================================================
-FUSION PASS (fusion-analysis: taxonomy | fuse-into | mapping | note)  -- refines the roofline
-==============================================================================================================
-kind        candidate                          fuse into                  mapping                           
---------------------------------------------------------------------------------------------------------------
-vertical    q_norm -> wq_b                     norm into GEMM prologue    COVERED norm.cpp                  
-              -> small; L2-resident
-vertical    kv_norm+RoPE -> attn               prologue into attn         COVERED intel_amx attn            
-              -> position-indexed RoPE: fuse carefully
-horizontal  q_a + kv_a -> wqkv_a               fused QKV GEMM             COVERED (already fused)           
-              -> 1 packed GEMM
-epilogue    gate+up + SiLU*mul -> down         MoE W1 store step          COVERED moe.cpp                   
-              -> the big BW win; already donor-fused
-epilogue    fp4/fp8 dequant+scale -> GEMM      W4A16/W8A16 in-GEMM        COVERED gemm_{fp8,mxfp4}          
-              -> removes a full dequant pass
-epilogue    DSA indexer relu*weight*sum -> GEMM store indexer epilogue           NEW-C++ (xpu-triton+adhoc oracle) 
-              -> drops [M,NH,S] score round-trip: primary indexer lever
-epilogue    KV quant(fp8) + cache write        write kernel               COVERED kvcache.cpp               
-              -> on-write
-vertical    compressor pool -> write           softmax-pool epilogue      NEW-C++                           
-              -> fuse pool into compressed-KV write
-
-Ceiling rule: the roofline ceiling is MACHINE PEAK (theoretical BW/compute from the datasheet), NOT the measured plateau.
-Drive EVERY op/fused-op toward its machine-peak binding ceiling (BW peak / compute peak / latency floor) by exercising ALL levers
-(fusion, tiling, packing, dtype, M/EP operating point, dispatch batching).
-When an op's levers are exhausted and performance PLATEAUS below machine peak, SURFACE the residual gap (measured vs machine peak)
-and STOP optimizing that op (Phase A exit for that op). Phase B (wall-time + Amdahl ordering) begins ONLY after every op has either reached machine peak or been surfaced as plateaued.
+MLA wqkv_a (fused q_a+kv_a, 4096->1536)      |     2B    16B    31B    61B   115B
+  q_norm RMSNorm(1024)                       |   lat    lat    lat    lat    lat 
+MLA wq_b (1024->32768)                       |     2B    16B    31B    60B   113B
+  RoPE (yarn)                                |   lat    lat    lat    lat    lat 
+  kv_norm RMSNorm(512)                       |   lat    lat    lat    lat    lat 
+MLA attn core (flash MQA, ctx=S)             |   124B   124B   124B   124B   124B
+MLA wo_a (grouped 8x 4096->1024)             |     1B     8B    16B    31B    59B
+MLA wo_b (8192->4096)                        |     2B    16B    32B    63B   122B
+DSA indexer wq_b (1024->8192)                |     2B    16B    31B    60B   112B
+DSA indexer weights_proj (4096->64)          |     1B     7B    13B    21B    32B
+DSA indexer logits (GEMM+reduce FUSED)       |    63B    63B    63B    63B    63B
+DSA indexer topk-512 (over ~1024)            |   lat    lat    lat    lat    lat 
+DSA compressor (softmax-pool, D=512)         |   lat    lat    lat    lat    lat 
+DSA sparse attend (top-512 KV)               |   102B   102B   102B   102B   102B
+MHC hc_fn (16384->24, x2/layer)              |     1B     6B    10B    14B    17B
+MHC sinkhorn (hc=4, 20 iters)                |   lat    lat    lat    lat    lat 
+MHC combine (hc_pre reduce)                  |   lat    lat    lat    lat    lat 
+MHC hc_post (expand) [UNMODELED-work]        |   lat    lat    lat    lat    lat 
+MHC hc_head (once) [UNMODELED-work]          |   lat    lat    lat    lat    lat 
+MoE router gate (4096->256)                  |     1B     8B    15B    28B    51B
+MoE hash route (3 layers, tid2eid gather)    |   lat    lat    lat    lat    lat 
+MoE experts (gate+up+SiLU+down, MXFP4)       |     4B     4B     4B     5B     7B
+shared-expert (3-matrix gate+up+down, MXFP4) |     4B    30B    59B   116B   223B
+embed (VocabParallel lookup)                 |   lat    lat    lat    lat    lat 
+lm_head (4096->129280)                       |     1B     8B    16B    32B    63B
