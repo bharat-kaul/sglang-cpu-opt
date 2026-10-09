@@ -3,6 +3,7 @@
   "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1",
   "baseline_record": "SLURM 384414 (results/perf_sweep.json); nominal EMR BW 358 GB/s, AMX 125 TF, FP32 7.8 TF",
   "f4_gate": "plugin/validate/f4_acceptance.py (tie_eps=0 selection; cosine+relerr continuous; sparse-AMX experimental)",
+  "_review_reconciliation": "ROUND-2 REVIEW (1124abf): the per-kernel RESULT strings below use pre-review language ('no-regression floor HELD at every M', 'RESOLVED', 'near DRAM saturation', 'bit-conformant') that the review corrected. AUTHORITATIVE current status = plugin/validate/reports/phase1_kernel_review.md. Specifically: (1) there is NO universal >=1.0 no-regression floor -- it is comparator-dependent (indexer vs a SAME-CONTRACT bf16 fallback is 9.44x@M1 but 0.92x@M64; vs the fp32-nonconformed path 0.97x@M1); (2) sparse is SCREENING/PROPOSED, not RESOLVED/ratified (source-faithful 64-block replica + downstream budget PENDING); (3) 'bit-conformant' = cos=1.0, which is NOT bitwise (only indexer bf16-KV is torch.equal-exact); (4) combine 'DRAM saturation' is cache-resident (M64 ~375GB/s > nominal); (5) speedups are single-generation means, not replicated medians, except indexer job 384526.",
   "donor_first_rule": "Use existing OneDNN / ATen cpublas (brgemm/pack/bmm, oneDNN-backed) / MKL / vectorized-exp primitives wherever they exist; AUTHOR only the irreducible missing glue (epilogue, dispatch, tiling, fusion). Never hand-roll a matmul a library already provides.",
   "fusion_precision_gate": {
     "_rule": "Playbook FUSION + PRECISION/BW gates (cpu-optimization-playbook SKILL). Every kernel must (a) fuse away avoidable DRAM round-trips of intermediates and (b) exploit low-precision STORAGE/IO on BW-bound reads with fp32 accumulate.",
@@ -97,7 +98,7 @@
      "status": "PASS-1 DONE (fused 20-iter per-row; 19-98x torch; cos=1.0; no small-M regression)."},
     {"kernel": "combine.cpp", "roi_rank": 6, "regime": "BW/latency-bound; near roof @M>=8 (1.6x @M32, 1.0x @M64)",
      "baseline_off_roofline": {"M1": "8.7x", "M32": "1.6x", "M64": "1.0x"},
-     "root_cause": "near DRAM-BW saturation at large M; tiled accumulate-once already good; gap @small M is dispatch.",
+     "root_cause": "near DRAM-BW at large M (NOTE R2-F6: warm-buffer microbench shows M64 ~375GB/s > nominal 358 -> partly CACHE-RESIDENT, NOT proven DRAM saturation); tiled accumulate-once already good; gap @small M is dispatch.",
      "donor": "no library donor (custom hc weighted-sum); keep tiled accumulate.",
      "levers_ranked": ["adjacent fusion with sinkhorn (shared MHC path)", "serial-threshold at small M", "verify tile fits L1 across shapes"],
      "target": {"M1": "~8.7x -> reduce dispatch", "M32/M64": "already near roof — hold"},
@@ -105,6 +106,6 @@
      "RESULT_pass1": {"measured_EMR_384480": {"M1": "5.52x", "M8": "2.25x", "M16": "2.31x", "M32": "2.15x", "M64": "1.98x"}, "cos": "1.0 (1.000003@M64 fp reassoc) all M", "no_regression": "HELD at every M (2.0-5.5x; no small-M dispatch regression)", "note": "tiled accumulate-once already near BW roof at large M; 1.98x@M64 is close to the wall"},
      "status": "PASS-1 DONE (tiled accumulate-once; 2.0-5.5x torch; cos=1.0; no regression)."}
   ],
-  "phase1_exit": "ALL kernels implemented + optimized across the M-sweep (and KV knob) with per-op roofline-target-vs-measured recorded AND the no-regression floor vs torch held at every M; compressor R=8 pools measured; sparse AMX conformed or dispatched. THEN PAUSE FOR REVIEW. Only after review -> Phase-2 proxy integration (correctness + progressive wall-time extrapolation).",
+  "phase1_exit": "ALL kernels implemented + optimized across the M-sweep (and KV knob) with per-op roofline-target-vs-measured recorded AND the no-regression posture vs a SAME-CONTRACT fallback stated per M (NOT a claimed universal >=1.0 floor -- it is comparator-dependent, R2-F3); compressor R=8 pools measured; sparse reference=bf16 but acceptance SCREENING/PROPOSED (source-faithful blockwise replica + budget PENDING). THEN PAUSE FOR REVIEW. Only after review -> Phase-2 proxy integration (correctness + progressive wall-time extrapolation).",
   "status": "PHASE-1 KERNELS DONE (all 6 pass no-regression + correctness on EMR; BW lever shipped on indexer bf16-kv bit-exact, compressor bf16 rejected by measurement, sparse bf16-AMX gated on oracle-dtype review) -> PAUSE FOR REVIEW."
 }

@@ -61,10 +61,11 @@ provenance-stamped exception). Treat sub-noise deltas as indicative, not signifi
 | off-roofline (was→now) | — | — | 14.6×→8.6× | 10.8×→**5.1×** | 9.1×→**3.6×** |
 
 - Levers: parallel VNNI pack + **fused per-tile bf16 conversion** (no full bf16 kv copy); L1 fused relu·weight·sum epilogue (scores never hit DRAM). Off-roofline ~halved at large M.
-- **Stage conformance (P1-F1):** the epilogue now rounds to the published **bf16** stage boundaries (bf16 einsum out, bf16 relu, bf16 signed weights, bf16 reduce → bf16 logits), matching `Indexer.forward`. Selection `non_tie=0` across M=1/8/16/32/64 under **signed** weights vs the conformed oracle. The table above is the post-conformance replicated re-measure (job 384526); the bf16 epilogue did not regress perf (M64 cpp_ms stable 0.392–0.421 across trials).
-- **No-regression (corrected, P1-F6):** the floor holds at M≥8; **M=1 is torch parity (0.97–0.98×)**, within the cluster noise but NOT a proven ≥1.0× — a paired non-inferiority test is PENDING.
+- **Stage conformance (P1-F1):** the epilogue now rounds to the published **bf16** stage boundaries (bf16 einsum out, bf16 relu, bf16 signed weights, bf16 reduce → bf16 logits), matching `Indexer.forward`. Output is **fp32 storage holding bf16-rounded values** (the topk interface needs fp32), not a bf16 tensor. Selection `non_tie=0` across M=1/8/16/32/64 under **signed** weights **comes from the F4 gate** (not job 384526, which is timing-only).
+- **No-regression (corrected, R2-F3 — the comparator contract flips the result):** against a **same-contract bf16 fallback**, cpp beats torch at M≤32 (M1 **9.44×**, M32 1.47×) but is **0.92× at M64**; against the fp32-nonconformed path it is **0.97× at M1**. **There is no universal ≥1.0× floor** — the small end-regressions are real and their acceptance is an explicit requirement decision (PENDING), not a relabelled "parity". Set-match vs the same-contract fallback = 1.0 at every M. Replicated paired trials with order variation are PENDING.
+- The M1 path **materializes a full `[S,H]` score buffer** (≈256 KiB at S1024/H64) — the "L1-only, scores never hit DRAM" description holds for the *tiled* path, not m1.
 - **BW lever shipped:** bf16-KV path — `biteq=True` all M vs fp32-kv (the GEMM already rounds kv→bf16), halves the dominant read → **+1.03–1.47×** (job 384482, `torch.equal` on sampled inputs). Kernel accepts fp32 *or* bf16 kv.
-- Correctness: selection `non_tie=0`; logits are bf16 (topk input).
+- Correctness: selection `non_tie=0` (F4 gate, signed weights).
 
 ### #2 sparse attend — fp32-GEMM-bound, near roofline (job 384476; oracle 384502/384505)
 | M | 1 | 8 | 16 | 32 | 64 |
@@ -111,8 +112,8 @@ provenance-stamped exception). Treat sub-noise deltas as indicative, not signifi
 
 ## 3. Fusion & precision gates (mandatory playbook gates — audit result)
 
-- **Fusion:** intra-op fusion done on all 6 (no avoidable DRAM round-trips: indexer L1-resident scores; compressor streaming softmax; sparse in-place fused softmax; sinkhorn/combine per-row). One irreducible residual (sparse scores between the two donor bmms — removing it forfeits the near-roofline MKL bmm). Cross-op fusion deferred to Phase-2.
-- **Precision/BW:** compute is bf16 where GEMM-bound; low-precision **storage/IO** applied where it helps — **shipped** on indexer bf16-KV (free, bit-exact), **rejected** on compressor (not read-BW-bound), **resolved** on sparse (bf16 reference ratified; fp32-accumulate donor shipped). Recorded in [kernel_opt_queue.json](results/kernel_opt_queue.json) `fusion_precision_gate`.
+- **Fusion:** intra-op epilogue fusion is applied on all 6 (compressor streaming softmax; sparse in-place fused softmax; sinkhorn/combine per-row; indexer tiled keeps scores L1-resident — **the m1 path does materialize a full `[S,H]` score buffer**). The sparse scores between the two donor bmms are a residual round-trip; removing it would forfeit the near-roofline MKL bmm, so we keep the donor — but **irreducibility is a design trade-off, not measured/proven**, and a tiled bf16-input/fp32-output library GEMM is an untested alternative. Cross-op fusion deferred to Phase-2.
+- **Precision/BW:** compute is bf16 where GEMM-bound; low-precision **storage/IO** applied where it helps — **shipped** on indexer bf16-KV (free, bit-exact), **rejected by measurement** on compressor (not read-BW-bound), and on sparse the **reference dtype = bf16** (GPU oracle) with the fp32-accumulate donor shipped — but sparse acceptance is **SCREENING/PROPOSED, not ratified/resolved** (source-faithful blockwise replica + downstream budget PENDING). Recorded in [kernel_opt_queue.json](results/kernel_opt_queue.json) `fusion_precision_gate`.
 
 ---
 

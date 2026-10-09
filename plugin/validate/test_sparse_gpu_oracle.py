@@ -86,17 +86,19 @@ def run(N, seed=0):
 def main():
     print("torch", torch.__version__, "cuda", torch.cuda.is_available())
     recs = [run(N, seed=s) for N, s in ((1, 0), (8, 1), (64, 2))]
-    # Provenance stamp (P1-F7): bind the saved io to the exact kernel source + run identity.
+    # Provenance stamp (P1-F7/R2-F4): bind the saved io to the exact kernel source + run identity, and
+    # VALIDATE the source hash fail-closed against the expected pin before trusting the run.
     import hashlib
     import socket
     ksrc = "/scratch/bkaul/models/DeepSeek-V4-Flash/inference/kernel.py"
-    try:
-        kern_sha = hashlib.sha256(open(ksrc, "rb").read()).hexdigest()
-    except OSError:
-        kern_sha = "unavailable"
-    prov = {"slurm_job_id": os.environ.get("SLURM_JOB_ID", "interactive"), "host": socket.gethostname(),
+    kern_sha = hashlib.sha256(open(ksrc, "rb").read()).hexdigest()
+    expect = os.environ.get("ORACLE_KERNEL_SHA")
+    if expect and kern_sha != expect:
+        raise SystemExit(f"FATAL: kernel.py sha {kern_sha} != expected pin {expect}")
+    prov = {"slurm_job_id": os.environ.get("SLURM_JOB_ID") or "interactive", "host": socket.gethostname(),
             "torch": torch.__version__, "cuda": torch.version.cuda, "model_snapshot": ksrc,
-            "kernel_py_sha256": kern_sha, "container_image": os.environ.get("ORACLE_IMG", "lmsysorg/sglang:latest")}
+            "kernel_py_sha256": kern_sha, "kernel_py_sha256_validated": bool(expect) and kern_sha == expect,
+            "container_image": os.environ.get("ORACLE_IMG") or "lmsysorg/sglang:latest(unverified)"}
     torch.save({"provenance": prov, "records": recs}, SAVE)
     print(f"[provenance] {prov}")
     print(f"[saved io -> {SAVE}]")
