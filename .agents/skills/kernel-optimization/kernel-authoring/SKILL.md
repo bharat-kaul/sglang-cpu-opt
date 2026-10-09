@@ -12,6 +12,13 @@ kernel**. The rule is: never invent from a blank file — **adapt the nearest do
 kernel** in the SGLang CPU corpus (see `assets/donor-kernel-map.md`) and change only
 the layer that must change.
 
+> **⛔ DONOR-FIRST, AUTHOR-ONLY-WHEN-MISSING.** Before authoring ANYTHING, check for an existing optimized
+> library primitive: **OneDNN** (eltwise/softmax/reorder/matmul), ATen **cpublas** brgemm + VNNI `pack`
+> (oneDNN/MKL-backed), `at::bmm`, MKL, LIBXSMM/TPP. If one covers the compute contract, USE IT and author
+> only the missing GLUE around it (fused epilogue, dispatch, tiling, gather, online-softmax composition).
+> Hand-write a net-new compute kernel ONLY when NO donor primitive fits — and then build it from the
+> nearest donor, not a blank file. A hand-rolled matmul/softmax that duplicates a library is a defect.
+
 ## The one building block
 Every dense-math CPU kernel is a **batch-reduce GEMM (BRGEMM)**: a register-resident
 C accumulator with A and B *streamed* past it. Source of truth: LIBXSMM/TPP

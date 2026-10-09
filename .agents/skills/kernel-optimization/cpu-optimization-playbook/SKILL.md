@@ -57,6 +57,23 @@ condition is met and gating every step against the measured roofline.
 >
 > Do NOT jump to Phase-2 wall-time optimization while any op is still on a torch fallback or any
 > kernel is below its no-regression floor — fix Phase 1 first.
+>
+> **DONOR-FIRST (do NOT hand-roll what a library already provides).** Wherever an existing optimized
+> primitive exists — **OneDNN** (eltwise/softmax/reorder), ATen **cpublas** brgemm + VNNI `pack` (oneDNN/
+> MKL-backed), `at::bmm`, MKL, LIBXSMM/TPP — USE IT and author only the irreducible missing GLUE (fused
+> epilogue, dispatch, tiling, gather, online-softmax composition). Never re-implement a matmul/softmax a
+> library gives you. Author a net-new kernel ONLY when no donor primitive covers the contract
+> (`kernel-authoring` + `assets/donor-kernel-map.md`); even then, build it from the nearest donor.
+>
+> **RUN PHASE 1 AS A PARALLEL WAVE.** The per-kernel standalone optimizations are INDEPENDENT work items
+> (distinct source, distinct roofline) — fan them out in parallel (analysis + author + measure), ranked by
+> ROI (`f7_roi_ledger.py`), and keep each ready. Integration (Phase 2) is the serial, one-by-one step.
+>
+> **⛔ PHASE-1 EXIT = PAUSE FOR REVIEW (do not auto-advance).** Phase 1 is done only when ALL kernels are
+> optimized AND their performance-vs-roofline is RECORDED ACROSS THE SWEEPS (and the no-regression floor
+> holds at every M). At that point STOP and surface for review. Proceed to Phase-2 proxy integration
+> (fix correctness in-engine + extrapolate wall-time via progressive one-by-one integration) ONLY after
+> the review completes.
 
 > **⛔ CYCLE-EXIT GATE — a perf-optimization cycle is NOT done until the published artifact PAIR
 > exists (auto-emit it as the CLOSING STEP, do not wait to be asked).** The moment the final
