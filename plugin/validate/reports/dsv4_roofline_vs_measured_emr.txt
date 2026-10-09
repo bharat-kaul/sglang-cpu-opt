@@ -1,0 +1,16 @@
+DSv4 roofline-VS-measured (authored ops, M=32, rev 60d8d707)  nominal BW=358 GB/s PEAK=125 TF
+  measured-reference node=pcl-sprh02 (DDR5-5600 (8 channels/socket)) BW=277 GB/s; each meas_us = SINGLE point (not a sweep)
+----------------------------------------------------------------------------------------------------------------
+op                                  ideal_us  bind   meas_us  off_roof note
+----------------------------------------------------------------------------------------------------------------
+indexer logits (q.ck+reduce)            25.3     B     536.0     21.2x  ctx=1024 compressed; bf16 compute, fp32 out; +head-weights
+indexer top-k (512 of 1024)              0.5     B      39.0     71.1x  selection; reads logits[M,1024], writes [M,512] idx
+compressor softmax-pool                 47.0     B     479.0     10.2x  R=128,D=512; per-request out (fp32)
+sparse attend (MQA+sink)               117.0     B    1781.0     15.2x  H=64,K=512,D=512; scalar flash (loses to BLAS)
+MHC sinkhorn (hc=4,20it)                 0.0     B      15.0   1050.0x  tiny 4x4 per row; +plan out
+MHC combine (reduce)                     7.3     B      13.0      1.8x  x[M,4,4096]->y[M,4096]; +comb weights
+----------------------------------------------------------------------------------------------------------------
+off_roof = measured/ideal (distance from the nominal roof; DIAGNOSTIC only, NOT a correctness or
+achievability claim). Each measured value is ONE operating point (M=32) at the stated node/rev; it
+is not a batch sweep. Small ops are overhead-bound (far from roof); sparse-attend's gap confirms
+routing to the donor MLA flash. Track latency/useful-throughput as primary; off-roof explains plateaus.
