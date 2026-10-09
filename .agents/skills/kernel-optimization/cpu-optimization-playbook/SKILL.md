@@ -24,6 +24,40 @@ condition is met and gating every step against the measured roofline.
 > accurate, perf-vs-roofline model in the enablement-certificate. `cpu-serving-integration`
 > is the step that turns authored kernels into that running model.
 
+> **⛔ MANDATORY PHASE ORDER (do PHASE 1 fully before the North-Star wall-time phase).** The North
+> Star is end-to-end WALL TIME — but it is gated behind a hard prerequisite:
+>
+> **PHASE 1 — ALL-KERNELS-IN-OPTIMIZED-C/C++ (a REQUIREMENT, not a nicety).**
+> - EVERY op / fused-op in the model's op graph MUST have a C/C++ kernel (no op left on a torch/
+>   Python fallback). "A torch ref exists" is NOT coverage; authored-C/C++ coverage is the gate
+>   (`coverage-gate` must be 100% in C/C++ before Phase 2).
+> - Each kernel is OPTIMIZED AGAINST ITS KNOBS — the batch/token count **M** AND the **KV-cache**
+>   context (S / topk / page length) — **across the full M-sweep**, toward **as close to roofline as
+>   possible** (`roofline-validation` per op, per M). Publish per-kernel roofline-target-vs-measured.
+> - **NO-REGRESSION FLOOR vs the torch fallback (hard):** at EVERY M the C/C++ kernel must be **≥ the
+>   torch fallback** (faster, or at worst a TIE). At small M (e.g. M=1/M=8) a kernel may not beat
+>   torch — that is acceptable — but it must **never be slower**. A kernel that regresses vs torch at
+>   any M is NOT done; dispatch it (best-of / fall through to the library path at that M) so the floor
+>   holds. Correctness is held throughout by the per-op acceptance gate (`accuracy-oracle` /
+>   `f4_acceptance.py`, tie_eps=0) — a speedup that changes tokens is worthless.
+> - RANK the Phase-1 order by ROI (standalone median × call-count, e.g. `f7_roi_ledger.py`); optimize
+>   the heaviest / farthest-from-roofline kernel first. This is STANDALONE kernel work (microbench +
+>   roofline), the only phase where per-op roofline — not wall time — is the target.
+>
+> **PHASE 2 — NORTH-STAR WALL TIME (only after Phase 1 is complete + reviewed).**
+> - Baseline = the all-C/C++ model with every optimization gate OFF (the kosher baseline). Then
+>   **progressively integrate the kernels/optimizations ONE AT A TIME** (each env-gated default-OFF),
+>   measuring WALL TIME and RECORDING the improvement per toggle (`cpu-serving-integration`).
+> - Do this on the **depth-reduced, full-width DUMMY-weight proxy** (`perf-proxy`) and **scale the
+>   wall time analytically to full depth** (× full_layers/proxy_layers) for per-layer-dominated cost.
+> - When all kernels are integrated, measure the FULL-MODEL (dummy-weight) wall time **including the
+>   systemic-config pathology pass** (`runtime-config-tuning`: threads/affinity/NUMA/prepack), optimize
+>   it, and record the wall-time improvement. CONFIRM on the full model at the end; real weights only
+>   for the accuracy + no-perf-regression finale.
+>
+> Do NOT jump to Phase-2 wall-time optimization while any op is still on a torch fallback or any
+> kernel is below its no-regression floor — fix Phase 1 first.
+
 > **⛔ CYCLE-EXIT GATE — a perf-optimization cycle is NOT done until the published artifact PAIR
 > exists (auto-emit it as the CLOSING STEP, do not wait to be asked).** The moment the final
 > measured per-op profile is in hand, emit BOTH, from that profile, at the labeled machine config:

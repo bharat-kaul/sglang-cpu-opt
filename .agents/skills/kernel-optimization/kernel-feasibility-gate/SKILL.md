@@ -10,6 +10,14 @@ doesn't move the bottleneck. This gate runs BEFORE `kernel-authoring` and refuse
 to let authoring start until the math and a measurement agree — with the user
 signing off on the roofline. Origin lesson: the DSA `index_gemm_kernel_nn` M=16
 "AMX" plan was memory/gather-bound FP32 FMA, so AMX (a compute lever) + staging
+
+> **⛔ PER-KERNEL PHASE-1 TARGET + NO-REGRESSION FLOOR (the acceptance bar for "kernel done").** A
+> kernel is Phase-1 done ONLY when, across the FULL M-sweep AND the KV-cache knob (S / topk / page
+> length): (a) it is optimized as close to its roofline as the regime allows (publish per-op
+> roofline-target-vs-measured), AND (b) it meets a HARD **no-regression floor vs the torch fallback at
+> EVERY M** — faster, or at worst a TIE. Small M (M=1/M=8) MAY not beat torch (acceptable), but it must
+> NEVER be slower; if it would be, DISPATCH (best-of: fall through to the library/torch path at that M)
+> so the floor always holds. Correctness is held by the per-op acceptance gate (tie_eps=0) throughout.
 would have been slower — the roofline caught it before a line was written.
 
 ## Trigger
