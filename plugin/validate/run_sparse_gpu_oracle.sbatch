@@ -17,8 +17,13 @@ nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/n
 IMG=docker.io/lmsysorg/sglang:latest
 nvidia-smi -L
 DEVARGS=""; for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVARGS --device nvidia.com/gpu=$u"; done
+# Dedicated per-job store/runroot off the absent /run/user + cgroupfs + subuid-free overlay + host userns
+# (the bare `podman run` hits '/run/user denied' on these nodes; this is the repo's working incantation).
+LROOT=/scratch/bkaul/podman-stores/${SLURM_JOB_ID}; LRUN=/tmp/podman-runroot-${SLURM_JOB_ID}; mkdir -p "$LROOT" "$LRUN"
+trap 'rm -rf "$LRUN"/* 2>/dev/null' EXIT
+PODMAN="podman --root $LROOT --runroot $LRUN --cgroup-manager=cgroupfs --storage-driver overlay --storage-opt overlay.mount_program=/usr/bin/fuse-overlayfs --storage-opt overlay.ignore_chown_errors=true"
 # PYTHONPATH: the model snapshot (inference/kernel.py = the real TileLang sparse_attn primitive).
-podman run --rm $DEVARGS \
+$PODMAN run --rm $DEVARGS --userns=host \
   --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e PYTHONPATH=/scratch/bkaul/models/DeepSeek-V4-Flash \
