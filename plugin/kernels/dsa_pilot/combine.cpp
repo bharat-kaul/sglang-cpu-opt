@@ -10,7 +10,11 @@
 // Tiled accumulate-once: per h-tile, accumulate over hc into an L1 buffer, read x once, write y once
 // (the naive per-k += pass re-reads/re-writes the whole y row hc times).
 torch::Tensor mhc_combine(torch::Tensor x_flat, torch::Tensor pre, int64_t hc) {
-  TORCH_CHECK(x_flat.dim() == 2 && pre.dim() == 2, "bad dims");
+  TORCH_CHECK(x_flat.dim() == 2 && pre.dim() == 2, "x_flat must be [M,hc*H], pre [M,hc]");
+  TORCH_CHECK(hc > 0, "hc must be > 0");
+  TORCH_CHECK(x_flat.size(0) == pre.size(0) && pre.size(1) == hc, "pre must be [M,hc] matching x_flat rows");
+  TORCH_CHECK(x_flat.size(1) % hc == 0, "x_flat width must be divisible by hc");
+  TORCH_CHECK(x_flat.device().is_cpu() && pre.device().is_cpu(), "CPU tensors only");
   auto xf = x_flat.to(torch::kFloat32).contiguous();
   auto pf = pre.to(torch::kFloat32).contiguous();
   const int64_t M = xf.size(0), HCH = xf.size(1), H = HCH / hc;

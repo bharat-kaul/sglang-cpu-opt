@@ -34,6 +34,8 @@ REFERENCE-CONFORMANCE + CONTRACT SELFTEST (ref 60d8d707):
   [PASS] tracker REJECTS a duplicate item identity
   [PASS] kernel-provenance reconciles with the cost model (cost rows exist; every gap dispositioned)
   [PASS] reconciliation REJECTS a cost row absent from the model (disconnect)
+  [PASS] reconciliation REJECTS a DROPPED kernel entry (F5 coverage)
+  [PASS] reconciliation REJECTS empty cost_rows/gap_dispositions (F5)
   SELFTEST OK
 
 ================================================================================================

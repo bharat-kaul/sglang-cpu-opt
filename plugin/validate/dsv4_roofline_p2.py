@@ -398,9 +398,10 @@ _KPROV = os.path.join(os.path.dirname(__file__), "results", "kernel_provenance.j
 
 def reconcile_kernels(kp=None):
     """Cross-artifact gate: the kernel-provenance record and THIS roofline cost model must describe the
-    SAME ops, not disconnected. Each authored kernel's cost_rows must EXIST in OPS; each FRAGMENT gap must
-    be modeled by another OPS row OR be an EXPLICITLY-UNMODELED tracker item OR a caller op; every observed
-    authored-kernel row must have a provenance entry. Fail-closed on missing/malformed provenance."""
+    SAME ops, not disconnected. REQUIRES an entry for EVERY authored kernel with a NONEMPTY cost_rows and a
+    disposition for EVERY declared fragment gap (F5: reject missing/empty mappings, not just nonexistent row
+    names). Each cost_row must EXIST in OPS; each gap is modeled:<OPS row> / unmodeled:<tracker item> /
+    caller:. Every observed kernel has a provenance entry. Fail-closed on missing/malformed provenance."""
     msgs, ok = [], True
     if kp is None:
         with open(_KPROV) as f:                          # FileNotFoundError / JSONDecodeError => fail-closed
@@ -410,12 +411,22 @@ def reconcile_kernels(kp=None):
     entries = kp.get("roofline_reconciliation", {}).get("entries", [])
     if not entries:
         return False, ["kernel_provenance.json: no roofline_reconciliation.entries"]
+    # F5: EXACT coverage — every authored kernel ID must have an entry with a nonempty mapping.
+    required = {k["kernel"] for k in kp.get("kernels", []) if "kernel" in k}
+    required = {os.path.basename(k) for k in required}
+    seen = {os.path.basename(e.get("kernel", "")) for e in entries}
+    for miss in sorted(required - seen):
+        ok = False; msgs.append(f"reconciliation MISSING a required kernel entry: {miss}")
     blob = json.dumps(kp)
     for op in observations():                            # every costed kernel observation is traced
         if op.record not in blob:
             ok = False; msgs.append(f"observed kernel {op.record} has NO provenance entry")
     for e in entries:
         k = e.get("kernel", "?")
+        if not e.get("cost_rows"):                       # F5: an empty mapping is a DISCONNECT, not a pass
+            ok = False; msgs.append(f"{k}: empty cost_rows (no kernel->cost-row mapping)")
+        if "gap_dispositions" not in e:
+            ok = False; msgs.append(f"{k}: missing gap_dispositions")
         for cr in e.get("cost_rows", []):
             if cr not in ops_names:
                 ok = False; msgs.append(f"{k}: cost_row {cr!r} absent from roofline OPS (DISCONNECTED)")
@@ -434,6 +445,7 @@ def reconcile_kernels(kp=None):
         if not e.get("verdict", "").startswith("CONSISTENT"):
             ok = False; msgs.append(f"{k}: verdict not CONSISTENT ({e.get('verdict')})")
     return ok, msgs
+
 
 
 
@@ -559,6 +571,16 @@ def selftest():
     _bad = {"roofline_reconciliation": {"entries": [
         {"kernel": "probe", "cost_rows": ["NO SUCH ROOFLINE ROW"], "gap_dispositions": [], "verdict": "CONSISTENT"}]}}
     chk(reconcile_kernels(_bad)[0] is False, "reconciliation REJECTS a cost row absent from the model (disconnect)")
+    # F5 negative probes: the reviewer's exact mutations MUST now be rejected (coverage + nonempty mapping)
+    _kp = json.load(open(_KPROV))
+    _drop = json.loads(json.dumps(_kp))
+    _drop["roofline_reconciliation"]["entries"] = [e for e in _drop["roofline_reconciliation"]["entries"]
+                                                   if "compressor" not in e.get("kernel", "")]
+    chk(reconcile_kernels(_drop)[0] is False, "reconciliation REJECTS a DROPPED kernel entry (F5 coverage)")
+    _empty = json.loads(json.dumps(_kp))
+    for _e in _empty["roofline_reconciliation"]["entries"]:
+        _e["cost_rows"], _e["gap_dispositions"] = [], []
+    chk(reconcile_kernels(_empty)[0] is False, "reconciliation REJECTS empty cost_rows/gap_dispositions (F5)")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     return ok

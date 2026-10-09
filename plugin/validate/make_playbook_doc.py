@@ -437,10 +437,12 @@ bullet("Include quantization metadata (scale/padding bytes) in traffic AND capac
        "not native low-bit compute.")
 bullet("SWEEP M=1..64 in BOTH the roofline and the measurement \u2014 never a single point. The analytical "
        "ideal and the measured median must be reported at EVERY M (1/8/16/32/64); a single-M number cannot "
-       "show the plateau or the regime. Expect the measured off-ceiling to CONVERGE toward the achievable "
-       "BW wall as M grows while the small-M points are dispatch/overhead-bound \u2014 that convergence IS the "
-       "best-case-vs-roofline evidence. Measure replicated (median of >=3), threads bound once, one NUMA "
-       "domain, on the roofline's measured-reference node class.", bold_lead="M-sweep \u2014 ")
+       "show the regime. A sweep is EVIDENCE TO INTERPRET, not a verdict to confirm: a falling off-ceiling "
+       "does NOT by itself prove a DRAM wall or exhausted ROI. Before any plateau/no-ROI claim, DISCRIMINATE "
+       "competing causes (N-only parallelism, exp/op throughput, cache residency, conversion/pack/GEMM/"
+       "epilogue split, small-M regressions) with same-work best-path A/Bs, compare useful throughput to the "
+       "measured achievable BW, and publish a call-count-weighted ROI ledger. Measure replicated (median of "
+       ">=3), threads bound once, one NUMA domain, on the measured-reference node class.", bold_lead="M-sweep \u2014 ")
 bullet("MEASUREMENTS are VALIDATED against their raw record, not asserted: a cited speedup/correctness must "
        "be READ from a structured result record (load it; fail closed if absent). KERNEL revision and "
        "RESULT-RECORD revision are SEPARATE fields; the published quantity must match the specific KEPT "

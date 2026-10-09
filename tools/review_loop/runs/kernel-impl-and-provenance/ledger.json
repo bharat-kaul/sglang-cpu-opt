@@ -1,0 +1,15 @@
+{
+  "gate": "kernel-impl-and-provenance",
+  "executor": "Claude Opus 4.8",
+  "reviewer": "GPT Astra 6",
+  "rounds": [
+    {"round": 1, "reviewer_report": "plugin/validate/reports/dsv4_flash_implementation_review.md",
+     "verdict": "FAIL", "findings": ["F1","F2","F3","F4","F5","F6","F7","F8","F9"],
+     "closed": ["F1","F2","F3","F5","F6","F9"], "retracted": ["F7"], "partial": ["F4","F8"],
+     "open_surfaced": ["F4 acceptance-policy+fail-closed-benches", "F7 Amdahl ROI ledger",
+                       "F8 entry-skill routing", "sparse donor-dispatch proof"]}
+  ],
+  "outcome": "SURFACE",
+  "reason": "6 findings closed + F7 retracted + F8 M-sweep fixed; remaining OPEN items need user decisions (acceptance tolerances) or profiling (ROI ledger) before certification. Next: GPT Astra 6 re-review of the closures + OPEN items.",
+  "finished_at": "2026-10-09"
+}

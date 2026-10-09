@@ -27,7 +27,7 @@ BW = MP["mem_bw_gbps"] * 1e9                 # nominal target
 PEAK = MP["amx_bf16_tflops"] * 1e12          # AMX bf16 ceiling
 FP32_PEAK = MP["avx512_fp32_tflops"] * 1e12  # AVX-512 FP32 ceiling
 CPEAK = {"bf16": PEAK, "fp32": FP32_PEAK}    # G1: compute dtype -> compute resource
-B2, B4, I4 = 2.0, 4.0, 4.0                   # bf16 / fp32 / int32 bytes
+B2, B4, I4, I8 = 2.0, 4.0, 4.0, 8.0          # bf16 / fp32 / int32 / int64 bytes
 
 M = 32  # the single observed coordinate
 
@@ -37,23 +37,23 @@ OPS = [
     ("indexer logits (q.ck+reduce)",
      lambda M: 2*M*64*1024*128 + 3*M*64*1024,
      lambda M: M*64*128*B4 + M*1024*128*B4 + M*64*B4 + M*1024*B4,   # q + kv + w + logits (FP32 public boundary)
-     "fp32", "indexer_logits.json",
-     "BW-bound; best-of dispatcher (tiled brgemm M>=8 + bmm M=1), scores cache-resident. Plateau = achievable-vs-nominal DRAM BW wall (~60-77%) + small-M dispatch; not closable by kernel work."),
+     "bf16", "indexer_logits.json",
+     "MIXED precision: FP32 public storage/traffic, but the matmul runs in BF16 (AMX) + FP32 reduce -> compute resource is BF16. Ideal is BW-bound (bytes/BW ~ 50us @M=32) below the BF16 compute floor. OPEN (F7): useful throughput << reference BW and M=1 ~10x vs torch -> ranked ROI hypotheses, NOT a proven plateau."),
     ("indexer top-k (512 of 1024)",
      lambda M: 0,
-     lambda M: M*1024*B4 + M*512*I4,                               # read logits + write 512 idx
+     lambda M: M*1024*B4 + M*512*I8,                              # read logits (fp32) + write 512 idx (INT64, kernel returns kLong)
      "fp32", "indexer_topk.json",
-     "latency/selection-bound (no AMX GEMM primitive); chunked within-row saturates cores at small M. Plateau = tiny absolute (14-39us), dispatch-bound; off-roof diagnostic only."),
+     "latency/selection-bound (no AMX GEMM primitive). OPEN (F7): at S/k=2 the chunk cap gives <=2 first-stage tasks at small M (NOT 64) -> small-S simplification is a ranked ROI hypothesis; off-roof diagnostic only."),
     ("compressor softmax-pool",
      lambda M: 3*M*128*512,
      lambda M: M*128*512*B4 + M*128*512*B4 + M*512*B4 + 128*512*B4,  # kv + score + out + shared APE
      "fp32", "compressor.json",
-     "BW-bound streaming online-softmax pool (no w[N,R,D] temporary). Plateau = DRAM BW wall; off-roof vs nominal is the wall, not a defect."),
+     "BW-bound streaming online-softmax pool (no w[N,R,D] temporary). OPEN (F7): latency is near-flat M=8..32 while bytes grow ~4x, N-only parallelism + 2 exp/channel/window -> channel-tiling / exp-throughput are ranked ROI hypotheses, NOT a proven DRAM wall. Perf measured at R=128/D=512 only; R=8 pools uncharacterized."),
     ("sparse attend (MQA+sink)",
      lambda M: 4*M*64*512*512,
      lambda M: M*512*512*B4 + 2*M*64*512*B4,                       # latent KV + q + out
      "fp32", "sparse_attend.json",
-     "SURFACED: scalar loses to torch BLAS (~0.3x), AMX below correctness tol -> donor MLA flash is the production path. Not optimized further."),
+     "SURFACED candidate (not certified production): scalar MQA+sink; the scalar RETAINS a ~3.55x M=1 advantage over torch (F3). Donor dispatch is NOT yet proven (needs a concrete donor entry + sink/mask/2-source capability + dispatch evidence). AMX variant differs in BF16 rounding."),
     ("MHC sinkhorn (hc=4,20it)",
      lambda M: M*4*4*20*5,
      lambda M: M*24*B4 + 3*B4 + 24*B4 + M*24*B4,                   # mixes + scale + base + pre/post/comb
@@ -68,7 +68,8 @@ OPS = [
 
 # --- fail-closed contract assertions (byte/FLOP + compute-dtype from the bench contracts @ M=32) ---
 _EXPECT = {
-    "indexer logits (q.ck+reduce)": {"bytes": 17_965_056, "cdt": "fp32"},   # G2: FP32 public boundary
+    "indexer logits (q.ck+reduce)": {"bytes": 17_965_056, "cdt": "bf16"},   # F6: FP32 public STORAGE, BF16 matmul COMPUTE
+    "indexer top-k (512 of 1024)": {"bytes": 262_144, "cdt": "fp32"},       # F6: INT64 output (kernel returns kLong)
     "compressor softmax-pool": {"bytes": 17_104_896, "cdt": "fp32"},
     "sparse attend (MQA+sink)": {"cdt": "fp32"},                            # G1: FP32 ceiling, not AMX
     "MHC sinkhorn (hc=4,20it)": {"bytes": 6_252, "cdt": "fp32"},
@@ -114,7 +115,10 @@ for name, flf, byf, cdt, record, plateau in OPS:
             print(f"  {Mv:>4} {bind:>5} {ideal*1e6:>10.2f} {'n/a':>12} {'n/a':>12}")
     print(f"  plateau: {plateau}")
 print("-" * 104)
-print("off_ceiling is a DIAGNOSTIC vs the NOMINAL roof (not an achievability claim). Streaming ops are DRAM-\n"
-      "BW-wall-bound; tiny ops are latency/dispatch-bound (far from roof by construction). Correctness is the\n"
-      "recorded field VERBATIM (microbench; E2E verification PENDING). Measured latency is sourced from the\n"
-      "raw record above (median of 3, threads bound, one NUMA domain). No causation/donor-routing claim here.")
+print("off_ceiling is a DIAGNOSTIC vs the NOMINAL roof (not an achievability claim, and NOT a proof of a DRAM\n"
+      "wall). The measured useful-byte throughput (e.g. ~39 GB/s indexer, ~64 GB/s compressor @M=64) is far\n"
+      "below the reference BW range, so saturation is NOT established; competing causes (N-only parallelism,\n"
+      "exp throughput, cache residency, conversion/pack/GEMM/epilogue split, M=1 regressions) remain OPEN,\n"
+      "ranked ROI hypotheses to discriminate with same-work best-path A/Bs before any plateau claim (F7).\n"
+      "Correctness is the recorded field VERBATIM (microbench; E2E verification PENDING). Measured latency is\n"
+      "sourced from the raw record above (median of 3, threads bound, one NUMA domain). No donor-dispatch claim.")

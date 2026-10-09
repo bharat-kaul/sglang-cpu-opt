@@ -1,13 +1,79 @@
 {
-  "_schema": "Measured kernel latency sweep (median cpp_ms) over M=1/8/16/32/64 for each authored-op microbench, from a single raw record on the roofline's measured-reference node class (DDR5-5600). Keyed by the roofline-vs-measured join op name. Joined with the analytical roofline ideal (dsv4_roofline_vs_measured.py) to produce off-ceiling across the full M sweep. Absolute latency is now SOURCED (raw record below), not withheld. Correctness is MICROBENCH scope (E2E verification PENDING).",
-  "raw_record": "SLURM job 384372, log /scratch/bkaul/dsa_perf_sweep_384372.log, node pcl-sprh11 (DDR5-5600), 2026-10-09; run_dsa_perf_sweep.sbatch; 3 reps/bench (MEDIAN); OMP 64thr bound once (OMP_PROC_BIND=close, OMP_PLACES=cores), numactl NUMA0.",
-  "ms": [1, 8, 16, 32, 64],
+  "_schema": "Measured kernel latency sweep (median cpp_ms) over M=1/8/16/32/64 per authored-op microbench, parsed by NAMED column with an explicit variant key and validated (all M, finite, positive) before writing (F3/F4). Keyed by the roofline-vs-measured join op name.",
+  "raw_record": "SLURM job 384414, log /scratch/bkaul/dsa_perf_sweep_384414.log, node pcl-sprh09.sc.intel.com (DDR5-5600); run_dsa_perf_sweep.sbatch; 3 reps/bench (median); OMP 64thr bound once, numactl NUMA0. Parsed by parse_perf_sweep.py.",
+  "ms": [
+    1,
+    8,
+    16,
+    32,
+    64
+  ],
   "ops": {
-    "indexer logits (q.ck+reduce)": {"bench": "bench_idx_logits.py", "median_ms": [1.023, 0.264, 0.356, 0.540, 0.922]},
-    "indexer top-k (512 of 1024)": {"bench": "bench_topk.py", "median_ms": [0.017, 0.029, 0.032, 0.039, 0.014]},
-    "compressor softmax-pool": {"bench": "bench_compressor.py", "median_ms": [0.360, 0.472, 0.476, 0.476, 0.527]},
-    "sparse attend (MQA+sink)": {"bench": "bench_sparse_attend.py", "variant": "scalar (kept); AMX below correctness tol", "median_ms": [0.245, 0.324, 0.395, 0.555, 0.836]},
-    "MHC sinkhorn (hc=4,20it)": {"bench": "bench_sinkhorn.py", "median_ms": [0.002, 0.014, 0.014, 0.015, 0.015]},
-    "MHC combine (reduce)": {"bench": "bench_combine.py", "median_ms": [0.002, 0.012, 0.012, 0.012, 0.014]}
+    "indexer logits (q.ck+reduce)": {
+      "bench": "bench_idx_logits.py",
+      "variant": "tiled (integration)",
+      "median_ms": [
+        0.1,
+        0.279,
+        0.366,
+        0.54,
+        0.908
+      ]
+    },
+    "indexer top-k (512 of 1024)": {
+      "bench": "bench_topk.py",
+      "variant": "chunked/row-parallel",
+      "median_ms": [
+        0.017,
+        0.028,
+        0.032,
+        0.039,
+        0.014
+      ]
+    },
+    "compressor softmax-pool": {
+      "bench": "bench_compressor.py",
+      "variant": "streaming online-softmax",
+      "median_ms": [
+        0.374,
+        0.49,
+        0.489,
+        0.499,
+        0.571
+      ]
+    },
+    "MHC sinkhorn (hc=4,20it)": {
+      "bench": "bench_sinkhorn.py",
+      "variant": "fused",
+      "median_ms": [
+        0.002,
+        0.014,
+        0.014,
+        0.014,
+        0.015
+      ]
+    },
+    "MHC combine (reduce)": {
+      "bench": "bench_combine.py",
+      "variant": "tiled accumulate-once",
+      "median_ms": [
+        0.002,
+        0.012,
+        0.012,
+        0.012,
+        0.014
+      ]
+    },
+    "sparse attend (MQA+sink)": {
+      "bench": "bench_sparse_attend.py",
+      "variant": "scalar",
+      "median_ms": [
+        0.068,
+        0.46,
+        0.894,
+        1.793,
+        3.64
+      ]
+    }
   }
 }

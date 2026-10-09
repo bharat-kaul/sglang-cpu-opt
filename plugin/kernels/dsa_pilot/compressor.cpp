@@ -10,7 +10,11 @@
 
 // kv,score:[N,R,D] (fp32); ape:[R,D] (fp32) -> out:[N,D] (fp32). Semantics == compress_softmax_pool.
 torch::Tensor compressor_softmax_pool(torch::Tensor kv, torch::Tensor score, torch::Tensor ape) {
-  TORCH_CHECK(kv.dim() == 3 && score.dim() == 3 && ape.dim() == 2, "bad dims");
+  TORCH_CHECK(kv.dim() == 3 && score.dim() == 3 && ape.dim() == 2, "kv/score must be [N,R,D], ape [R,D]");
+  TORCH_CHECK(score.size(0) == kv.size(0) && score.size(1) == kv.size(1) && score.size(2) == kv.size(2),
+              "score shape must equal kv shape");
+  TORCH_CHECK(ape.size(0) == kv.size(1) && ape.size(1) == kv.size(2), "ape must be [R,D] matching kv");
+  TORCH_CHECK(kv.device().is_cpu() && score.device().is_cpu() && ape.device().is_cpu(), "CPU tensors only");
   auto kvc = kv.to(torch::kFloat32).contiguous();
   auto scc = score.to(torch::kFloat32).contiguous();
   auto apc = ape.to(torch::kFloat32).contiguous();
@@ -31,10 +35,13 @@ torch::Tensor compressor_softmax_pool(torch::Tensor kv, torch::Tensor score, tor
         const float* krow = kp + (n * R + r) * D;
         #pragma omp simd
         for (int64_t d = 0; d < D; ++d) {
+          // F1: a MASKED position (score==-inf, e.g. ratio-4 overlap padding) contributes nothing.
+          // corr=0 while the running max is still -inf (nothing accumulated); e=0 for a -inf input.
+          // This avoids the indeterminate exp(-inf - -inf)=NaN that poisoned the pool.
           float x = srow[d] + arow[d];
           float mnew = x > m[d] ? x : m[d];
-          float corr = std::exp(m[d] - mnew);
-          float e = std::exp(x - mnew);
+          float corr = (m[d] == -INFINITY) ? 0.f : std::exp(m[d] - mnew);
+          float e = (x == -INFINITY) ? 0.f : std::exp(x - mnew);
           l[d] = l[d] * corr + e;
           acc[d] = acc[d] * corr + e * krow[d];
           m[d] = mnew;
@@ -42,11 +49,12 @@ torch::Tensor compressor_softmax_pool(torch::Tensor kv, torch::Tensor score, tor
       }
       float* orow = op + n * D;
       #pragma omp simd
-      for (int64_t d = 0; d < D; ++d) orow[d] = acc[d] / l[d];
+      for (int64_t d = 0; d < D; ++d) orow[d] = (l[d] > 0.f) ? acc[d] / l[d] : 0.f;  // all-masked -> 0
     }
   });
   return out;
 }
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("compressor_softmax_pool", &compressor_softmax_pool,

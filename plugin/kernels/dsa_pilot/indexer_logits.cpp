@@ -28,28 +28,36 @@
 #include <vector>
 
 // q:[N,H,D] kv:[N,S,D] weight:[N,H] -> logits:[N,S] (fp32), semantics == indexer_logits ref.
+// NUMERICAL CONTRACT (shared by both dispatch variants, F2): FP32 public inputs are cast to BF16 for the
+// matmul (QAT-faithful: the published indexer runs in bf16/fp4), scores are accumulated in FP32, and the
+// relu*weight*sum reduction is FP32. Both variants keep FP32 scores so the M-dispatch boundary does not
+// change numerics. This is an explicit BF16-matmul approximation of the FP32 public boundary.
 torch::Tensor indexer_logits_fused(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
-  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "bad dims");
+  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "q/kv must be [N,H,D]/[N,S,D], weight [N,H]");
+  TORCH_CHECK(q.size(0) == kv.size(0) && q.size(2) == kv.size(2), "q/kv batch and head_dim must match");
+  TORCH_CHECK(weight.size(0) == q.size(0) && weight.size(1) == q.size(1), "weight must be [N,H]");
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && weight.device().is_cpu(), "CPU tensors only");
   const int64_t N = q.size(0), H = q.size(1), D = q.size(2), S = kv.size(1);
   auto qb = q.to(torch::kBFloat16).contiguous();
   auto kvb = kv.to(torch::kBFloat16).contiguous();
   auto wf = weight.to(torch::kFloat32).contiguous();
   auto logits = torch::empty({N, S}, torch::kFloat32);
 
-  // scores[N,S,H] = bmm(kvb [N,S,D], qb^T [N,D,H])  — one batched bf16 AMX GEMM.
-  auto scores = at::bmm(kvb, qb.transpose(1, 2)).contiguous();   // [N,S,H] bf16
-  const at::BFloat16* sp = scores.data_ptr<at::BFloat16>();
+  // scores[N,S,H] = bmm(kvb [N,S,D], qb^T [N,D,H]) in bf16, upcast to FP32 (F2: same score precision as
+  // the tiled path -> numerically consistent across the dispatch boundary).
+  auto scores = at::bmm(kvb, qb.transpose(1, 2)).to(torch::kFloat32).contiguous();   // [N,S,H] fp32
+  const float* sp = scores.data_ptr<float>();
   const float* wp = wf.data_ptr<float>();
   float* lp = logits.data_ptr<float>();
-  // fused epilogue: one pass over N*S, inner H contiguous, bf16 read (no relu/mul/sum temps).
+  // fused epilogue: one pass over N*S, inner H contiguous, fp32 relu/mul/sum (no temps).
   at::parallel_for(0, N * S, 4096, [&](int64_t i0, int64_t i1) {
     for (int64_t i = i0; i < i1; ++i) {
-      const at::BFloat16* row = sp + i * H;
+      const float* row = sp + i * H;
       const float* w = wp + (i / S) * H;
       float acc = 0.f;
       #pragma omp simd reduction(+ : acc)
       for (int64_t h = 0; h < H; ++h) {
-        float v = static_cast<float>(row[h]);
+        float v = row[h];
         acc += (v > 0.f ? v : 0.f) * w[h];
       }
       lp[i] = acc;
@@ -62,7 +70,10 @@ torch::Tensor indexer_logits_fused(torch::Tensor q, torch::Tensor kv, torch::Ten
 // Per n: pack q[n]^T [D,H] to VNNI once; loop S in Sb-row tiles; brgemm each tile's scores
 // [Sb,H] into an L1 stack buffer; apply relu*weight*sum over H in place -> logits. kv streamed once.
 torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
-  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "bad dims");
+  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "q/kv must be [N,H,D]/[N,S,D], weight [N,H]");
+  TORCH_CHECK(q.size(0) == kv.size(0) && q.size(2) == kv.size(2), "q/kv batch and head_dim must match");
+  TORCH_CHECK(weight.size(0) == q.size(0) && weight.size(1) == q.size(1), "weight must be [N,H]");
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && weight.device().is_cpu(), "CPU tensors only");
   const int64_t N = q.size(0), H = q.size(1), D = q.size(2), S = kv.size(1);
   auto qb = q.to(torch::kBFloat16).contiguous();
   auto kvb = kv.to(torch::kBFloat16).contiguous();
@@ -121,8 +132,10 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
 // tiled (brgemm + L1 fused epilogue) wins for N>=8; at N=1 the op is overhead-bound and bmm
 // is a tie/slightly better. Measured crossover ~N=4-8 on EMR.
 torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
-  return q.size(0) >= 8 ? indexer_logits_tiled(q, kv, weight)
-                        : indexer_logits_fused(q, kv, weight);
+  // F2: integration entry uses ONE matmul path (tiled brgemm, fp32-accumulated scores) for ALL M, so the
+  // numerical contract does NOT change at a dispatch boundary. The bmm 'fused' variant remains separately
+  // benchmarkable but is not the integration path (it rounds scores to bf16 and diverges at small M).
+  return indexer_logits_tiled(q, kv, weight);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

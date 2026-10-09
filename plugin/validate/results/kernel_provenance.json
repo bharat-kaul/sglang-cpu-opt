@@ -3,7 +3,7 @@
   "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1 (inference/model.py)",
   "established_on": "2026-10-08",
   "gate": "kernel-provenance (required; a kernel without FAITHFUL/FRAGMENT external provenance + enumerated gaps is not trusted for perf claims or re-authoring)",
-  "provenance_depth_caveat": "sparse_attn and hc_split_sinkhorn are PRIMITIVES imported `from kernel` in model.py (CUDA/TileLang), not defined in model.py source. Their integration contract (signature + usage) is taken from the published call sites; their exact numerics are taken from the published torch fallbacks / in-tree oracles. So the chain is: published model.py call site (authoritative contract) + torch fallback (authoritative math) -> local CPU reference oracle -> authored kernel.",
+  "provenance_depth_caveat": "CORRECTION (F5): sparse_attn and hc_split_sinkhorn ARE available in the pinned inference/kernel.py (not opaque) — sparse_attn exposes its BF16 operands/intermediate-probability cast, masked indices and sink normalization; hc_split_sinkhorn exposes its epsilon placement. The deepest provenance chain is: published model.py call site + inference/kernel.py primitive (authoritative numerics incl. BF16 rounding) -> authored kernel. The local torch modules are secondary oracles and may differ from the BF16 primitive's rounding sequence.",
   "kernels": [
     {
       "kernel": "plugin/kernels/dsa_pilot/indexer_logits.cpp",
@@ -56,7 +56,7 @@
       "kernel": "plugin/kernels/dsa_pilot/sparse_attend.cpp",
       "op": "MLA sparse attention over gathered latent KV: MQA (one kv latent shared across H heads) + per-head learned softmax SINK (attn_sink[H]) + scale",
       "external_reference": "model.py Attention.forward: o = sparse_attn(q, kv, self.attn_sink, topk_idxs, self.softmax_scale) [primitive imported `from kernel`]; MQA num_key_value_heads=1, head_dim=512; attn_sink[n_local_heads] fp32; softmax_scale = head_dim**-0.5",
-      "numerical_oracle": "intel_cpu_models/dsa_sparse_attention_cpu (torch), validated cos",
+      "numerical_oracle": "bench_sparse_attend.py INLINE torch oracle (MQA + attn_sink); the local intel_cpu_models/dsa_sparse_attention_cpu is STALE (older per-head K/V interface WITHOUT a sink) and must NOT be cited as the oracle (F5). Authoritative numerics: inference/kernel.py sparse_attn (BF16 operands + intermediate probability cast + sink normalization).",
       "stage_covered": "attend-over-already-gathered-KV (the top-k gather itself is upstream)",
       "disposition": "FAITHFUL (attend stage), scalar impl SURFACED",
       "unmodeled_gaps": [

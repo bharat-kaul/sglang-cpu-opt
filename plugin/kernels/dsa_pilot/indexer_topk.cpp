@@ -71,6 +71,10 @@ static inline void topk_chunked(const float* L, int64_t N, int64_t S, int64_t k,
 
 // logits:[N,S] fp32 -> indices:[N,k] int64 (UNSORTED top-k; set matches torch.topk).
 torch::Tensor indexer_topk(torch::Tensor logits, int64_t k) {
+  TORCH_CHECK(logits.dim() == 2, "logits must be 2-D [N,S]");
+  TORCH_CHECK(logits.device().is_cpu(), "CPU tensor only");
+  TORCH_CHECK(logits.scalar_type() == torch::kFloat32, "logits must be float32");
+  TORCH_CHECK(k > 0, "k must be > 0");
   auto lc = logits.contiguous();
   const int64_t N = lc.size(0), S = lc.size(1);
   k = std::min<int64_t>(k, S);

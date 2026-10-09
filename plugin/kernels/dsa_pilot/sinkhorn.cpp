@@ -14,12 +14,17 @@
 std::vector<torch::Tensor> mhc_sinkhorn(torch::Tensor mixes, torch::Tensor hc_scale,
                                         torch::Tensor hc_base, int64_t hc,
                                         int64_t iters, double eps) {
+  TORCH_CHECK(hc > 0 && iters >= 0, "hc>0 and iters>=0 required");
+  TORCH_CHECK(mixes.dim() == 3, "mixes must be [B,S,W]");
+  TORCH_CHECK(mixes.device().is_cpu() && hc_scale.device().is_cpu() && hc_base.device().is_cpu(), "CPU tensors only");
   auto mf = mixes.to(torch::kFloat32).contiguous();
   auto sf = hc_scale.to(torch::kFloat32).contiguous();
   auto bf = hc_base.to(torch::kFloat32).contiguous();
   const int64_t B = mf.size(0), S = mf.size(1), W = mf.size(2);  // W = (2+hc)*hc
   const int64_t rows = B * S;
   TORCH_CHECK(W == (2 + hc) * hc, "mixes width != (2+hc)*hc");
+  TORCH_CHECK(sf.numel() == 3, "hc_scale must have 3 elements");
+  TORCH_CHECK(bf.numel() == W, "hc_base length must be (2+hc)*hc");
   auto pre = torch::empty({B, S, hc}, torch::kFloat32);
   auto post = torch::empty({B, S, hc}, torch::kFloat32);
   auto comb = torch::empty({B, S, hc, hc}, torch::kFloat32);
