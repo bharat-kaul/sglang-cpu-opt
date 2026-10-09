@@ -10,10 +10,10 @@
 #SBATCH --output=/scratch/%u/replicated_all_%j.log
 set -euo pipefail
 source "/scratch/${USER}/venvs/sglang-cpu/bin/activate"
-ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel) || { echo "FATAL: not in a git repo"; exit 1; }
-cd "$ROOT"
+ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"; cd "$ROOT"
+GITSHA=$(git rev-parse HEAD 2>/dev/null) || { echo "FATAL: $ROOT is not a git repo"; exit 1; }
 export OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores
-GITSHA=$(git rev-parse HEAD); DIRTY=$(git status --porcelain | wc -l)
+DIRTY=$(git status --porcelain | wc -l)
 echo "node=$(hostname) git=$GITSHA dirty=$DIRTY OMP=$OMP_NUM_THREADS/$OMP_PROC_BIND torch=$(python -c 'import torch;print(torch.__version__)')"
 echo "affinity=$(python -c 'import os;print(sorted(os.sched_getaffinity(0))[:6],"...")')"
 [ "$DIRTY" -eq 0 ] || echo "WARNING: working tree DIRTY ($DIRTY files) — built object may not match $GITSHA"
