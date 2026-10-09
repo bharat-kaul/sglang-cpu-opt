@@ -329,12 +329,14 @@ def run_case(c, calib):
 
     # layer 0: repeatability determinism + candidate ARITY (R2-F1: no truncating zip across calls)
     cand2 = cand_fn(*inp)
+    def _same_contract(a, b):                         # R3-F1: dtype+shape, not just value equality
+        return isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor) and a.dtype == b.dtype and a.shape == b.shape
     if isinstance(cand, (tuple, list)) or isinstance(cand2, (tuple, list)):
         if type(cand) is not type(cand2) or len(cand) != len(cand2) \
-                or any(not torch.equal(a, b) for a, b in zip(cand, cand2)):
-            return True, "non-deterministic or arity mismatch (repeat run differs)"
-    elif not torch.equal(cand, cand2):
-        return True, "non-deterministic (repeat run differs)"
+                or any(not _same_contract(a, b) or not torch.equal(a, b) for a, b in zip(cand, cand2)):
+            return True, "non-deterministic / arity / dtype-shape mismatch (repeat run differs)"
+    elif not _same_contract(cand, cand2) or not torch.equal(cand, cand2):
+        return True, "non-deterministic / dtype-shape mismatch (repeat run differs)"
 
     if kind in ("selection", "selection_k0"):
         oc = _check_out(cand, c["out"])
@@ -343,6 +345,8 @@ def run_case(c, calib):
         if kind == "selection_k0":
             return False, "k=0 empty selection ok"
         lg = inp[0]
+        if not _finite_ok(lg):                        # R3-F1: all-NaN reference logits are invalid evidence
+            return True, "non-finite reference logits"
         nonmis, ties = _selection_check(cand, lg, c["k"])
         calib.append({"op": c["op"], "path": c["path"], "split": c.get("split"), "selection_non_tie": nonmis, "ties": ties})
         if nonmis:
@@ -389,7 +393,7 @@ def run_case(c, calib):
         within = (not dominated) and m_auth["max_abs_err"] <= SPARSE_SCREEN_PROPOSED
         calib.append({"op": "sparse", "path": c["path"], "dist": c["dist"], "split": c.get("split"),
                       "within_proposed": within, "dominated": dominated, "metric": m_auth, "metric_fp32_diag": m_diag,
-                      "vs": "bf16 replica (GLOBAL, not source-faithful blockwise); PROPOSED screening, not ratified"})
+                      "vs": "bf16 BLOCKWISE (source-faithful) replica + bf16 output boundary; PROPOSED screening, not ratified"})
         # Continuous is SCREENING only -> always non-gating (return False); STATUS stays PARTIAL.
         tag = "within PROPOSED screen" if within else ("DOMINATED (amx)" if dominated else "over PROPOSED screen")
         return False, f"{tag}: vs-bf16 max_err={m_auth['max_abs_err']:.3e} (ref {SPARSE_SCREEN_PROPOSED:.1e}, NOT ratified)"
@@ -397,8 +401,10 @@ def run_case(c, calib):
     # continuous families
     ref = ora_fn(*inp)
     if kind == "continuous_tuple3":
-        if not isinstance(cand, (tuple, list)) or len(cand) != 3:          # P1-F3: structural check BEFORE zip
+        if not isinstance(cand, (tuple, list)) or len(cand) != 3:          # P1-F3: candidate structure BEFORE zip
             return True, f"tuple structure: expected 3 outputs, got {type(cand).__name__}"
+        if not isinstance(ref, (tuple, list)) or len(ref) != 3:            # R3-F1: REFERENCE arity too (no truncating zip)
+            return True, f"reference structure: expected 3 outputs, got {type(ref).__name__}"
         for cv, rv, nm in zip(cand, ref, ("pre", "post", "comb")):
             if not isinstance(cv, torch.Tensor) or tuple(cv.shape) != tuple(rv.shape):
                 sh = tuple(cv.shape) if isinstance(cv, torch.Tensor) else type(cv).__name__
@@ -418,6 +424,8 @@ def run_case(c, calib):
         return True, "non-finite output"
     if not bool(torch.isfinite(ref).all().item()):          # P1-F3: cannot conform to a non-finite reference
         return True, "non-finite reference (out-of-domain input)"
+    if not isinstance(ref, torch.Tensor) or tuple(ref.shape) != tuple(cand.shape):   # R3-F1: ref must match cand (no silent broadcast)
+        return True, f"reference shape {tuple(ref.shape) if isinstance(ref, torch.Tensor) else type(ref).__name__} != candidate {tuple(cand.shape)}"
     atol = 1e-5 if c["op"] == "compressor" else (1e-3 if c["op"] == "sparse" else 1e-4)
     m = _screen_continuous(cand, ref, atol=atol)
     calib.append({"op": c["op"], "path": c["path"], "dist": c["dist"], "split": c.get("split"), "metric": m})
@@ -668,6 +676,38 @@ def selftest():
     chk(_fails({"op": "x", "path": "compnd", "kind": "composed", "dist": "normal", "_expect": "composed non-deterministic",
                 "build": _build_composed_sparse, "cand": (tk, _NdSp), "ora": None, "out": None}),
         "REJECTS a non-deterministic composed output (R2-F1)")
+
+    # 14 reference tuple arity mismatch must fail (R3-F1: validate the REFERENCE structure, not only candidate)
+    chk(_fails({"op": "x", "path": "refarity", "kind": "continuous_tuple3", "dist": "normal", "_expect": "reference structure",
+                "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
+                "cand": lambda a, b, cc: (cp.compressor_softmax_pool(a, b, cc),) * 3,
+                "ora": lambda a, b, cc: (cp.compressor_softmax_pool(a, b, cc),) * 2, "out": None}),
+        "REJECTS a reference with wrong arity (R3-F1)")
+
+    # 15 non-finite REFERENCE logits in a selection case must fail (R3-F1)
+    chk(_fails({"op": "x", "path": "nanlogits", "kind": "selection", "dist": "normal", "_expect": "non-finite reference logits",
+                "build": lambda: (torch.full((2, 1024), float("nan")), 512),
+                "cand": lambda lg, k: torch.arange(512).view(1, 512).expand(2, 512).contiguous(),  # valid distinct
+                "ora": None, "k": 512, "out": ((lambda: (2, 512)), torch.int64)}),
+        "REJECTS non-finite reference logits in a selection case (R3-F1)")
+
+    # 16 scalar/broadcastable REFERENCE in a continuous case must fail (R3-F1: no silent broadcast)
+    chk(_fails({"op": "x", "path": "scalarref", "kind": "continuous", "dist": "normal", "_expect": "reference shape",
+                "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
+                "cand": lambda a, b, cc: cp.compressor_softmax_pool(a, b, cc),
+                "ora": lambda a, b, cc: torch.tensor(0.0), "out": ((lambda: (8, 512)), torch.float32)}),
+        "REJECTS a scalar/broadcast reference (R3-F1)")
+
+    # 17 repeat-call DTYPE flip (fp32 then fp64) must fail (R3-F1: torch.equal can cross dtype)
+    _dc = {"n": 0}
+    def _dtypeflip(a, b, cc):
+        _dc["n"] += 1
+        out = cp.compressor_softmax_pool(a, b, cc)
+        return out if _dc["n"] == 1 else out.double()
+    chk(_fails({"op": "x", "path": "dtypeflip", "kind": "continuous", "dist": "normal", "_expect": "dtype-shape mismatch",
+                "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
+                "cand": _dtypeflip, "ora": _ora_compressor, "out": ((lambda: (8, 512)), torch.float32)}),
+        "REJECTS a repeat-call dtype flip fp32->fp64 (R3-F1)")
 
     # 12 incomplete inventory (missing an op) must FAIL via run() (R2-F1)
     import unittest.mock as _um
