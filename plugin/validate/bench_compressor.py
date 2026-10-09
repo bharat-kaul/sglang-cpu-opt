@@ -25,15 +25,19 @@ def bench(fn, *a, it=50):
 
 
 R, D = 128, 512  # c128 window (ratio-128 non-overlap), head_dim=512 (main attn compressor; published model.py)
-print(f"op#3 compressor softmax-pool  R={R} D={D}")
-print(f"{'M':>4} {'cos':>10} {'ref_ms':>9} {'cpp_ms':>9} {'speedup':>8}")
-for M in (1, 8, 16, 32, 64):
-    kv = torch.randn(M, R, D)
-    score = torch.randn(M, R, D)
-    ape = torch.randn(R, D)
-    ref = compress_softmax_pool(kv, score, ape)
-    got = mod.compressor_softmax_pool(kv, score, ape)
-    cos = torch.nn.functional.cosine_similarity(ref.flatten(), got.flatten(), dim=0).item()
-    t_ref = bench(compress_softmax_pool, kv, score, ape)
-    t_cpp = bench(mod.compressor_softmax_pool, kv, score, ape)
-    print(f"{M:>4} {cos:>10.6f} {t_ref:>9.3f} {t_cpp:>9.3f} {t_ref/t_cpp:>7.2f}x")
+# All 3 costed pool contracts (R2/coverage): main r128/D512, main r4-overlap(win=8)/D512, indexer r4/D128.
+SHAPES = [(128, 512), (8, 512), (8, 128)]
+print(f"op#3 compressor softmax-pool  shapes(R,D)={SHAPES}")
+for R, D in SHAPES:
+    print(f"\n>>> R={R} D={D}")
+    print(f"{'M':>4} {'cos':>10} {'ref_ms':>9} {'cpp_ms':>9} {'speedup':>8}")
+    for M in (1, 8, 16, 32, 64):
+        kv = torch.randn(M, R, D)
+        score = torch.randn(M, R, D)
+        ape = torch.randn(R, D)
+        ref = compress_softmax_pool(kv, score, ape)
+        got = mod.compressor_softmax_pool(kv, score, ape)
+        cos = torch.nn.functional.cosine_similarity(ref.flatten(), got.flatten(), dim=0).item()
+        t_ref = bench(compress_softmax_pool, kv, score, ape)
+        t_cpp = bench(mod.compressor_softmax_pool, kv, score, ape)
+        print(f"{M:>4} {cos:>10.6f} {t_ref:>9.3f} {t_cpp:>9.3f} {t_ref/t_cpp:>7.2f}x")

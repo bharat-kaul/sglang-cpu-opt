@@ -18,6 +18,9 @@
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
 #include <ATen/native/CPUBlas.h>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -71,10 +74,14 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   TORCH_CHECK(weight.size(0) == q.size(0) && weight.size(1) == q.size(1), "weight must be [N,H]");
   TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && weight.device().is_cpu(), "CPU tensors only");
   const int64_t N = q.size(0), H = q.size(1), D = q.size(2), S = kv.size(1);
+  const bool _brk = std::getenv("INDEXER_BREAKDOWN") != nullptr;   // env-gated stage timers (diagnostic)
+  auto _now = [] { return std::chrono::high_resolution_clock::now(); };
+  auto _t0 = _now();
   auto qb = q.to(torch::kBFloat16).contiguous();
   auto kvb = kv.to(torch::kBFloat16).contiguous();
   auto wf = weight.to(torch::kFloat32).contiguous();
   auto logits = torch::empty({N, S}, torch::kFloat32);
+  auto _t1 = _now();
   const bool vnni = at::native::cpublas::could_pack(torch::kBFloat16);
   // Adaptive tile: target ~4*threads tasks so each brgemm M is large (AMX-efficient) yet enough
   // parallelism remains at small N. Sb multiple of 16, clamped [16,256] (Cbuf <= 64KB, L1/L2).
@@ -96,6 +103,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
                   D * H * sizeof(at::BFloat16));
     }
   }
+  auto _t2 = _now();
 
   at::parallel_for(0, N * ntiles, 1, [&](int64_t a, int64_t b) {
     std::vector<float> Cbuf(Sb * H);            // heap C tile (L2-resident), per chunk
@@ -121,6 +129,12 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
     }
     at::native::cpublas::brgemm_release(vnni);
   });
+  if (_brk) {
+    auto _t3 = _now();
+    auto us = [](auto a, auto b) { return std::chrono::duration<double, std::micro>(b - a).count(); };
+    std::fprintf(stderr, "[indexer_breakdown N=%ld S=%ld Sb=%ld ntiles=%ld] convert=%.1fus pack=%.1fus compute=%.1fus\n",
+                 (long)N, (long)S, (long)Sb, (long)ntiles, us(_t0, _t1), us(_t1, _t2), us(_t2, _t3));
+  }
   return logits;
 }
 
