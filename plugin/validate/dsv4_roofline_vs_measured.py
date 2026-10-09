@@ -18,7 +18,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from dsv4_roofline_p2 import REF_REVISION as REV, load_record, _rev_resolved  # centralized ref + record reader
+from dsv4_roofline_p2 import REF_REVISION as REV, load_record, _rev_resolved, _ATTRIB  # centralized ref + record reader
 
 _SPEC = os.path.join(os.path.dirname(__file__), "platforms", "emr.json")
 P = json.load(open(_SPEC))
@@ -99,10 +99,10 @@ for _n, _fl, _by, _cdt, _rec, _nt in OPS:
 print(f"DSv4 roofline-VS-observation (authored ops, M={M})  rev {REV[:8]}  nominal BW={BW/1e9:.0f} GB/s "
       f"AMX={PEAK/1e12:.0f} TF FP32={FP32_PEAK/1e12:.1f} TF")
 print(f"  node={P.get('measurement_node','?')} ({P.get('mem_type','?')}); absolute latency WITHHELD; "
-      f"correctness + kernel-rev READ from each result record (cosine/set-match @ microbench; E2E PENDING)")
+      f"correctness reported VERBATIM from each record (no match/certification inferred)")
 print("-" * 128)
 print(f"{'op':28s} {'ideal_us':>9s} {'bind':>5s} {'cdt':>5s}  {'record':20s} {'kernel-rev':16s} "
-      f"correctness (microbench; E2E PENDING)")
+      f"correctness (recorded, verbatim)")
 print("-" * 128)
 for name, fl, by, cdt, record, note in OPS:
     peak = CPEAK[cdt]
@@ -115,6 +115,6 @@ for name, fl, by, cdt, record, note in OPS:
 print("-" * 128)
 print("ideal_us = max(bytes/BW, FLOPs/peak) with the row's EXPLICIT compute dtype (bf16->AMX, fp32->AVX-512);\n"
       "operands from the cited benchmark's input/output contract (asserted above). kernel-rev + correctness are\n"
-      "READ from each op_passes record's kept pass (not hand-typed). A recorded cosine/set-match is a MICROBENCH\n"
-      "match at the tested shape/dtype/reference; it is NOT a current-target certificate \u2014 E2E verification is\n"
-      "PENDING. Absolute latency and speedup are WITHHELD/UNVERIFIED. No causation/donor-routing claim here.")
+      "READ from each op_passes record's kept pass (not hand-typed); the correctness field is VERBATIM, under:\n"
+      f"  {_ATTRIB}\n"
+      "Absolute latency and speedup are WITHHELD/UNVERIFIED. No causation/donor-routing claim here.")

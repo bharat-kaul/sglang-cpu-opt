@@ -1,7 +1,7 @@
 DSv4 roofline-VS-observation (authored ops, M=32)  rev 60d8d707  nominal BW=358 GB/s AMX=125 TF FP32=7.8 TF
-  node=pcl-sprh02 (DDR5-5600 (8 channels/socket)); absolute latency WITHHELD; correctness + kernel-rev READ from each result record (cosine/set-match @ microbench; E2E PENDING)
+  node=pcl-sprh02 (DDR5-5600 (8 channels/socket)); absolute latency WITHHELD; correctness reported VERBATIM from each record (no match/certification inferred)
 --------------------------------------------------------------------------------------------------------------------------------
-op                            ideal_us  bind   cdt  record               kernel-rev       correctness (microbench; E2E PENDING)
+op                            ideal_us  bind   cdt  record               kernel-rev       correctness (recorded, verbatim)
 --------------------------------------------------------------------------------------------------------------------------------
 indexer logits (q.ck+reduce)      69.8     C  fp32  indexer_logits.json  e3fdcb9          cos 1.000000
 indexer top-k (512 of 1024)        0.5     B  fp32  indexer_topk.json    UNRESOLVED(pending) set-match 1.0 all M
@@ -12,6 +12,6 @@ MHC combine (reduce)               7.3     B  fp32  mhc_combine.json     UNRESOL
 --------------------------------------------------------------------------------------------------------------------------------
 ideal_us = max(bytes/BW, FLOPs/peak) with the row's EXPLICIT compute dtype (bf16->AMX, fp32->AVX-512);
 operands from the cited benchmark's input/output contract (asserted above). kernel-rev + correctness are
-READ from each op_passes record's kept pass (not hand-typed). A recorded cosine/set-match is a MICROBENCH
-match at the tested shape/dtype/reference; it is NOT a current-target certificate — E2E verification is
-PENDING. Absolute latency and speedup are WITHHELD/UNVERIFIED. No causation/donor-routing claim here.
+READ from each op_passes record's kept pass (not hand-typed); the correctness field is VERBATIM, under:
+  Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING
+Absolute latency and speedup are WITHHELD/UNVERIFIED. No causation/donor-routing claim here.

@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 # F5: single centralized reference identifier (pinned HF revision, 40 hex chars).
 REF_REVISION = "60d8d70770c6776ff598c94bb586a859a38244f1"
@@ -157,7 +158,7 @@ def load_record(record):
         rec = json.load(f)                             # JSONDecodeError if malformed
     kept = [p for p in rec.get("passes", []) if p.get("kept")]
     if not kept:
-        raise ValueError(f"op_passes/{record}: no kept pass to certify")
+        raise ValueError(f"op_passes/{record}: no kept pass")
     k = kept[-1]
     return {"record": f"results/op_passes/{record}",
             "kernel_rev": str(k.get("commit", "")).strip(),
@@ -165,21 +166,27 @@ def load_record(record):
             "kept_ratios": k.get("vs_ref", {})}
 
 
-def observation_evidence(op):
-    """H1 / 5th review: evidence read from the record's kept pass. A recorded cosine/set-match is a
-    MICROBENCH numerical match at the tested shape/dtype/reference/tolerance \u2014 it is NOT context-independent
-    and is NOT extended to the current target. So correctness is reported as '<metric> certified @ microbench;
-    E2E verification PENDING', never 'CERTIFIED'. Kernel revision comes from the record (unresolved='pending');
-    speedup is author-reported/UNVERIFIED; absolute latency is withheld."""
-    rec = load_record(op.record)
+# 6th review: a recorded cosine/set-match is reported LITERALLY under this fixed attribution \u2014 never a
+# keyword-derived positive-match / certification claim (which would "certify" an absent or FAIL record).
+_ATTRIB = "Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING"
+
+
+def _evidence_from_record(rec):
+    """Build observation evidence from a loaded record dict. Reports the recorded correctness field
+    VERBATIM (or 'unrecorded') under a fixed UNVERIFIED attribution; infers NO metric/outcome from text."""
     resolved = _rev_resolved(rec["kernel_rev"])
     rev = rec["kernel_rev"] if resolved else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
-    c = rec["correctness"]
-    metric = "cosine" if "cos" in c.lower() else ("set-match" if "set-match" in c.lower() else "match")
-    status = f"{metric} certified @ microbench shape; E2E verification PENDING (current target)"
-    return {"record": rec["record"], "kernel_rev": rev, "resolved": resolved,
-            "correctness": c, "correctness_status": status,
+    return {"record": rec.get("record", ""), "kernel_rev": rev, "resolved": resolved,
+            "correctness": rec["correctness"], "attribution": _ATTRIB,
             "speedup": "author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)"}
+
+
+def observation_evidence(op):
+    """H1 / 6th review: evidence read from the record's kept pass. The recorded correctness field is
+    reported LITERALLY (absent => 'unrecorded'; a reported FAIL is retained as-is) under a fixed
+    UNVERIFIED attribution \u2014 NO positive-match/certification is inferred from free text, and no outcome is
+    asserted. Kernel revision from the record (unresolved='pending'); speedup UNVERIFIED; latency withheld."""
+    return _evidence_from_record(load_record(op.record))
 
 
 def observed(name, lane, impl, layers, m_obs, record):
@@ -430,10 +437,25 @@ def selftest():
     tk_ev = ev.get(tk.name, {})
     chk("06faec0" not in tk_ev.get("kernel_rev", ""),
         "top-k observation does NOT publish the discarded 06faec0 revision (H1)")
-    # H1: speedup is never presented as a certificate (records' ratios are at a superseded context)
-    # H1 / 5th review: correctness is a MICROBENCH match, NOT a current-target certificate
-    chk(all("E2E verification PENDING" in e["correctness_status"] for e in ev.values()) and bool(ev),
-        "correctness labeled '<metric> certified @ microbench; E2E verification PENDING' (never CERTIFIED)")
+    # H1 / 6th review: evidence reports the recorded field LITERALLY under a fixed UNVERIFIED attribution,
+    # and NEVER infers a positive-match/certification from free text (would "certify" an absent/FAIL record)
+    chk(all(e["attribution"] == _ATTRIB and "certif" not in e["attribution"].lower() for e in ev.values())
+        and bool(ev), "correctness carries the fixed UNVERIFIED/E2E-PENDING attribution (no certification claim)")
+    chk(tk_ev.get("correctness") == "set-match 1.0 all M",
+        "top-k correctness is the recorded field VERBATIM (not a derived label)")
+    # regression: missing / explicit-failure / failed-cosine evidence must NEVER yield a certification claim
+    for _corr in (None, "FAIL: numerical mismatch", "cos 0.0; FAIL"):
+        _p = {"kept": True, "commit": "pending"}
+        if _corr is not None:
+            _p["correctness"] = _corr
+        _tf = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        json.dump({"passes": [_p]}, _tf); _tf.close()
+        _e = _evidence_from_record(load_record(os.path.abspath(_tf.name)))
+        os.unlink(_tf.name)
+        _blob = (_e["correctness"] + " " + _e["attribution"]).lower()
+        chk("certif" not in _blob and _e["resolved"] is False
+            and _e["correctness"] == (_corr if _corr else "unrecorded"),
+            f"evidence makes NO certification claim for correctness={_corr!r} (literal field, UNVERIFIED)")
     # H1: speedup is never presented as a certificate (records' ratios are at a superseded context)
     chk(all("UNVERIFIED" in e["speedup"] for e in ev.values()) and bool(ev),
         "speedup is author-reported/UNVERIFIED (never certified)")
@@ -525,16 +547,16 @@ def phaseA():
           "'obs' rows withhold an absolute node latency (no auditable raw record); they are listed with their\n"
           "result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is diagnostic only.")
     print("\n" + "-" * 128)
-    print("AUDITABLE OBSERVATIONS (authored ops) — evidence READ from each result record "
-          "(absolute latency withheld):")
+    print("AUDITABLE OBSERVATIONS (authored ops) — recorded field reported LITERALLY (absolute latency withheld):")
     for op in observations():
         e = observation_evidence(op)
         print(f"  {op.name[:44]:44s}  @M={op.m_obs}  record={e['record']}  kernel-rev={e['kernel_rev']}")
-        print(f"      correctness: {e['correctness']}  [{e['correctness_status']}]")
+        print(f"      correctness (recorded, verbatim): {e['correctness']}")
+        print(f"      {e['attribution']}")
         print(f"      speedup: {e['speedup']}")
-    print("\n  kernel-rev + correctness are DERIVED from the record's kept pass (not hand-typed). A recorded\n"
-          "  cosine/set-match is a MICROBENCH match at the tested shape/dtype/reference; it is NOT a current-\n"
-          "  target certificate \u2014 E2E verification is PENDING. Speedup is author-reported/UNVERIFIED.")
+    print("\n  kernel-rev + correctness are READ from the record's kept pass (not hand-typed). The correctness\n"
+          "  field is reported VERBATIM under the attribution above \u2014 no positive match or certification is\n"
+          "  inferred from it; an absent result is 'unrecorded', a reported failure is retained as-is.")
 
 
 if __name__ == "__main__":
