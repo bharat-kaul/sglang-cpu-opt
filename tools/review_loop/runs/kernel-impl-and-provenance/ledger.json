@@ -7,9 +7,21 @@
      "verdict": "FAIL", "findings": ["F1","F2","F3","F4","F5","F6","F7","F8","F9"],
      "closed": ["F1","F2","F3","F5","F6","F9"], "retracted": ["F7"], "partial": ["F4","F8"],
      "open_surfaced": ["F4 acceptance-policy+fail-closed-benches", "F7 Amdahl ROI ledger",
-                       "F8 entry-skill routing", "sparse donor-dispatch proof"]}
+                       "F8 entry-skill routing", "sparse donor-dispatch proof"]},
+    {"round": 2, "role": "reviewer", "reviewer": "GPT Astra 6",
+     "reviewer_prompt": "tools/review_loop/runs/kernel-impl-and-provenance/reviewer_round2.prompt.txt",
+     "reviewer_report": "plugin/validate/reports/kernel-impl-and-provenance_review_round2.md",
+     "verdict": "PENDING",
+     "audit_scope": {"re_verify_closed": ["F1","F2","F3","F5","F6","F9"],
+                     "confirm_retracted": ["F4-inequality","F7","F8-msweep"],
+                     "not_in_pass_scope": ["F4 acceptance-policy (OPEN, user tolerances)",
+                                           "F7 Amdahl ROI ledger", "F8 entry-skill routing",
+                                           "sparse donor-dispatch proof"]},
+     "triggered_at": "2026-10-09", "base_commit": "db5c5fd"}
   ],
-  "outcome": "SURFACE",
-  "reason": "6 findings closed + F7 retracted + F8 M-sweep fixed; remaining OPEN items need user decisions (acceptance tolerances) or profiling (ROI ledger) before certification. Next: GPT Astra 6 re-review of the closures + OPEN items.",
-  "finished_at": "2026-10-09"
+  "outcome": "RE-REVIEW-PENDING",
+  "reason": "Round 1: 6 findings closed + F7 retracted + F8 M-sweep fixed. Round 2 GPT Astra 6 re-review TRIGGERED to independently re-verify the closures + confirm retractions. F4 (machine-evaluated acceptance policy + tolerances) remains OPEN in the executor todo and is explicitly OUT of round-2 pass-scope pending user decision.",
+  "open_todo": ["F4 acceptance-policy+tolerances (OPEN, awaiting user)", "F7 Amdahl ROI ledger",
+                "F8 entry-skill routing", "sparse donor-dispatch proof"],
+  "updated_at": "2026-10-09"
 }
