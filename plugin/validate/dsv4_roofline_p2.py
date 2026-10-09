@@ -409,6 +409,19 @@ _KERNEL_COST_CONTRACT = {
     "sinkhorn.cpp":       {"MHC sinkhorn (hc=4, 20 iters)"},
     "combine.cpp":        {"MHC combine (hc_pre reduce)"},
 }
+# INDEPENDENT stable gap-ID inventory (R3-F5): each authored kernel's FRAGMENT gaps have FIXED ids that the
+# reconciliation must cover EXACTLY and UNIQUELY. A nonempty list is NOT proof of coverage — a partial,
+# unrelated, or emptied disposition list fails. This requirement lives in-code, so deleting a kernel's
+# declared gaps in the (mutable, under-audit) provenance document cannot also delete the REQUIREMENT that
+# those gaps be dispositioned. Each reconciliation gap_disposition must carry a gap_id from this set.
+_KERNEL_GAP_CONTRACT = {
+    "indexer_logits.cpp": {"wq_b", "weights_proj", "rope_hadamard_quant_compressor_mask"},
+    "indexer_topk.cpp":   {"prefill_mask_offset"},
+    "compressor.cpp":     {"wkv_wgate_r4", "wkv_wgate_r128", "wkv_wgate_idx", "postproc_state"},
+    "sparse_attend.cpp":  {"attention_cost_row", "topk_gather"},
+    "sinkhorn.cpp":       {"mixes_upstream"},
+    "combine.cpp":        {"mixes_upstream"},
+}
 
 
 def _authored_kernel_inventory():
@@ -420,10 +433,14 @@ def reconcile_kernels(kp=None):
     """Cross-artifact gate: the kernel-provenance record and THIS roofline cost model must describe the SAME
     ops, bound to an INDEPENDENT inventory + typed contract (R2-F5), not the document's own assertions.
     REQUIRES: (1) reconciliation entries cover the on-disk authored-kernel inventory EXACTLY and UNIQUELY (no
-    missing, extra, or duplicate); (2) the kernels[] declaration covers the same inventory (can't be gutted);
-    (3) each kernel's cost_rows EQUAL the independent per-kernel contract (wrong/incomplete row => reject);
-    (4) a kernel that DECLARES unmodeled_gaps has a NONEMPTY, fully-dispositioned gap_dispositions list; every
-    cost_row exists in OPS; every modeled/unmodeled gap target resolves; verdict is CONSISTENT. Fail-closed."""
+    missing, extra, or duplicate); (2) the kernels[] declaration covers the same inventory with NO duplicate
+    declaration (can't be gutted or shadow-duplicated); (3) each kernel's cost_rows EQUAL the independent
+    per-kernel contract (wrong/incomplete row => reject); (4) each kernel's gap_dispositions carry gap_ids
+    that EXACTLY and UNIQUELY cover the independent stable gap-ID inventory (a nonempty-but-partial/unrelated
+    list => reject); every cost_row exists in OPS; every modeled/unmodeled gap target resolves; verdict is
+    CONSISTENT. Fail-closed. NOTE: this gate binds kernel identity + row NAMES + gap coverage; it does NOT by
+    itself prove typed-operand/captured-input alignment — that is asserted independently by the join's
+    byte/FLOP contracts and the OPS precision/shape self-tests."""
     msgs, ok = [], True
     if kp is None:
         with open(_KPROV) as f:                              # FileNotFoundError / JSONDecodeError => fail-closed
@@ -433,11 +450,11 @@ def reconcile_kernels(kp=None):
     entries = kp.get("roofline_reconciliation", {}).get("entries", [])
     if not entries:
         return False, ["kernel_provenance.json: no roofline_reconciliation.entries"]
-    # (0) the in-code contract must match the independent on-disk inventory (keeps the contract honest)
+    # (0) the in-code contracts must match the independent on-disk inventory (keeps the contracts honest)
     inv = _authored_kernel_inventory()
-    if inv != set(_KERNEL_COST_CONTRACT):
+    if inv != set(_KERNEL_COST_CONTRACT) or inv != set(_KERNEL_GAP_CONTRACT):
         return False, [f"authored-kernel inventory on disk {sorted(inv)} != in-code contract "
-                       f"{sorted(_KERNEL_COST_CONTRACT)} (update _KERNEL_COST_CONTRACT)"]
+                       f"(cost {sorted(_KERNEL_COST_CONTRACT)} / gap {sorted(_KERNEL_GAP_CONTRACT)})"]
     # (1) entries cover the inventory EXACTLY + UNIQUELY
     entry_keys = [os.path.basename(e.get("kernel", "")) for e in entries]
     counts = {k: entry_keys.count(k) for k in entry_keys}
@@ -448,12 +465,13 @@ def reconcile_kernels(kp=None):
         ok = False; msgs.append(f"reconciliation MISSING a required kernel entry: {miss}")
     for extra in sorted(set(entry_keys) - inv):
         ok = False; msgs.append(f"reconciliation has an UNKNOWN kernel entry: {extra}")
-    # (2) the kernels[] declaration itself must cover the same inventory (can't drop a kernel from both)
-    declared = {os.path.basename(k.get("kernel", "")) for k in kp.get("kernels", []) if k.get("kernel")}
-    if declared != inv:
-        ok = False; msgs.append(f"kernels[] declaration {sorted(declared)} != on-disk inventory {sorted(inv)}")
-    gaps_by_kernel = {os.path.basename(k.get("kernel", "")): k.get("unmodeled_gaps", [])
-                      for k in kp.get("kernels", []) if k.get("kernel")}
+    # (2) the kernels[] declaration must cover the same inventory with NO duplicate (check BEFORE set conversion)
+    declared_list = [os.path.basename(k.get("kernel", "")) for k in kp.get("kernels", []) if k.get("kernel")]
+    ddups = sorted({k for k in declared_list if declared_list.count(k) > 1})
+    if ddups:
+        ok = False; msgs.append(f"duplicate kernel declarations in kernels[]: {ddups}")
+    if set(declared_list) != inv:
+        ok = False; msgs.append(f"kernels[] declaration {sorted(set(declared_list))} != on-disk inventory {sorted(inv)}")
     blob = json.dumps(kp)
     for op in observations():                                # every costed kernel observation is traced
         if op.record not in blob:
@@ -470,10 +488,19 @@ def reconcile_kernels(kp=None):
             ok = False; msgs.append(f"{kbase}: empty cost_rows (no kernel->cost-row mapping)")
         if "gap_dispositions" not in e:
             ok = False; msgs.append(f"{kbase}: missing gap_dispositions")
-        # (4) a kernel that DECLARES unmodeled_gaps must carry a NONEMPTY dispositions list (no gutting)
-        if gaps_by_kernel.get(kbase) and not e.get("gap_dispositions"):
-            ok = False; msgs.append(f"{kbase}: declares {len(gaps_by_kernel[kbase])} unmodeled_gaps but "
-                                    f"gap_dispositions is empty (gaps uncovered)")
+        # (4) gap_ids must EXACTLY + UNIQUELY cover the independent stable gap-ID inventory (R3-F5)
+        want_gaps = _KERNEL_GAP_CONTRACT.get(kbase)
+        if want_gaps is not None:
+            gap_ids = [gd.get("gap_id") for gd in e.get("gap_dispositions", [])]
+            if any(g is None for g in gap_ids):
+                ok = False; msgs.append(f"{kbase}: a gap_disposition is missing a gap_id")
+            present = [g for g in gap_ids if g is not None]
+            gdups = sorted({g for g in present if present.count(g) > 1})
+            if gdups:
+                ok = False; msgs.append(f"{kbase}: duplicate gap_id(s) {gdups}")
+            if set(present) != want_gaps:
+                ok = False; msgs.append(f"{kbase}: gap_ids {sorted(set(present))} != required "
+                                        f"{sorted(want_gaps)} (incomplete/incorrect gap coverage)")
         for cr in e.get("cost_rows", []):
             if cr not in ops_names:
                 ok = False; msgs.append(f"{kbase}: cost_row {cr!r} absent from roofline OPS (DISCONNECTED)")
@@ -648,6 +675,34 @@ def selftest():
             if "compressor" in e.get("kernel", ""):
                 e["cost_rows"] = ["MHC hc_fn (16384->24, FP32)"]
     chk(_mut(_wrong_row) is False, "reconcile REJECTS compressor mapped to the wrong (hc_fn) cost row")
+
+    # R3-F5 negative probes: gap COMPLETENESS (stable gap-ID coverage), not mere nonemptiness
+    def _partial_gaps(d):                                # keep only the first disposition (drop the rest)
+        for e in d["roofline_reconciliation"]["entries"]:
+            if "compressor" in e.get("kernel", ""):
+                e["gap_dispositions"] = e["gap_dispositions"][:1]
+    chk(_mut(_partial_gaps) is False, "reconcile REJECTS partial gap coverage (only 1 of 4 compressor gaps)")
+
+    def _unrelated_gaps(d):                              # replace with an unrelated disposition
+        for e in d["roofline_reconciliation"]["entries"]:
+            if "compressor" in e.get("kernel", ""):
+                e["gap_dispositions"] = [{"gap_id": "unrelated", "gap": "x", "disposition": "caller:"}]
+    chk(_mut(_unrelated_gaps) is False, "reconcile REJECTS unrelated gap_ids (coverage != required set)")
+
+    def _delete_gaps_and_disp(d):                        # delete declared gaps AND dispositions together
+        for k in d["kernels"]:
+            if "compressor" in k.get("kernel", ""):
+                k["unmodeled_gaps"] = []
+        for e in d["roofline_reconciliation"]["entries"]:
+            if "compressor" in e.get("kernel", ""):
+                e["gap_dispositions"] = []
+    chk(_mut(_delete_gaps_and_disp) is False,
+        "reconcile REJECTS deleting declared gaps + dispositions (requirement is in-code, not the doc)")
+
+    def _dup_decl(d):                                    # duplicate the compressor DECLARATION in kernels[]
+        decl = [k for k in d["kernels"] if "compressor" in k.get("kernel", "")][0]
+        d["kernels"].append(json.loads(json.dumps(decl)))
+    chk(_mut(_dup_decl) is False, "reconcile REJECTS a duplicate kernel declaration in kernels[]")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     return ok

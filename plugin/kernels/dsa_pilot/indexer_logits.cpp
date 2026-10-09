@@ -6,7 +6,8 @@
 // from cache, removing the [N,H,S] DRAM round-trip that makes a non-fused port BW-bound.
 //
 // RESULTS vs MACHINE-PEAK roofline (EMR: BW 358.4 GB/s, AMX bf16 124.6 TF @1.9GHz; op is
-// BW-bound at every M). best-of = tiled brgemm (M>=8) + bmm (M=1); set-match cos 1.000000.
+// BW-bound at every M). set-match cos 1.000000. The INTEGRATION entry uses the single tiled path for all M
+// (F2); the separate bmm 'fused' export is BF16-score-rounded and is NOT the integration path.
 // NOTE: the per-M speedup/plateau table previously here was SUPERSEDED and is retired. Current
 // measured latency is the validated SLURM 384414 sweep (plugin/validate/results/perf_sweep.json),
 // joined in dsv4_roofline_vs_measured.py. No plateau/ROI-exhaustion claim is made in source: the
@@ -123,9 +124,8 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   return logits;
 }
 
-// Integration entry point: keep the BEST-performing variant per operating point.
-// tiled (brgemm + L1 fused epilogue) wins for N>=8; at N=1 the op is overhead-bound and bmm
-// is a tie/slightly better. Measured crossover ~N=4-8 on EMR.
+// Integration entry point: the SINGLE tiled path (brgemm + L1 fused epilogue) for ALL M (F2 — no per-M
+// dispatch, so the numerical contract does not change at a boundary).
 torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
   // F2: integration entry uses ONE matmul path (tiled brgemm, fp32-accumulated scores) for ALL M, so the
   // numerical contract does NOT change at a dispatch boundary. The bmm 'fused' variant remains separately
@@ -134,7 +134,7 @@ torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor we
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("indexer_logits", &indexer_logits, "DSA indexer logits (best-of dispatcher, integration entry)");
+  m.def("indexer_logits", &indexer_logits, "DSA indexer logits (single tiled path, integration entry)");
   m.def("indexer_logits_fused", &indexer_logits_fused, "DSA indexer logits (fused epilogue)");
   m.def("indexer_logits_tiled", &indexer_logits_tiled, "DSA indexer logits (tiled brgemm + fused epilogue, no DRAM scores)");
 }

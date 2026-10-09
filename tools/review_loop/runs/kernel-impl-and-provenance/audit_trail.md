@@ -84,3 +84,30 @@ closed, its acceptance-policy remainder folds into F4). **Still OPEN (unchanged)
 (**tolerances await a user decision**), F7 Amdahl ROI ledger, F8 `.agents` entry-skill routing, sparse
 donor-dispatch proof. Round-3 reviewer package emitted → `reviewer_round3.prompt.txt`. Nothing certified;
 microbench scope, E2E verification PENDING.
+
+## Round 3 — verdict: FAIL (GPT Astra 6 re-review returned; commit `48a3312`)
+
+**Review report** → `plugin/validate/reports/kernel-impl-and-provenance_review_round3.md`
+- Reviewer ran the 5 parser + 39 generator self-tests, independent in-memory mutations, raw-log
+  reconstruction, and artifact regeneration comparison. Confirmed-good: R2-F9, R2-F9b, the R2-F3/R2-F5
+  subcases, the R2-P1 source-label fix, the R2-P2 comment fix. Three closures were still incomplete.
+
+**Executor response (standalone)** → `plugin/validate/reports/kernel-impl-and-provenance_response_round3.md`
+(hand this to the reviewer alongside `reviewer_round4.prompt.txt`)
+
+**Collateral + Addressing (executor: Claude Opus 4.8)** — per finding:
+
+| # | Finding | Disposition | What changed (consequence, verified) |
+|---|---------|-------------|--------------------------------------|
+| R3-F3 | Duplicate samples overwrite evidence; invalid value can be overwritten before validation; extra-M silently ignored | **CLOSED** | parser now matches BENCH markers at LINE START only (shell `set -x` echo traces ignored), validates each value the instant it is read (invalid cannot be overwritten), RAISES on a duplicate `(bench,M,rep)` sample, and RAISES on any unexpected M. `--selftest` +4 cases (duplicate / NaN-before-overwrite / extra-M=128 / echo-trace-ignored) — all PASS; real 384414 medians unchanged |
+| R3-F5 | Nonempty gap list ≠ complete coverage; 4 mutations pass; duplicate declaration loses identity | **CLOSED** | added an INDEPENDENT in-code stable gap-ID inventory (`_KERNEL_GAP_CONTRACT`); each entry's `gap_dispositions` must carry `gap_id`s that EXACTLY + UNIQUELY cover it; duplicate `kernels[]` declarations rejected before set conversion. The reviewer's 4 mutations (partial / unrelated / delete-gaps+dispositions / duplicate-declaration) are REJECTED (tested); generator self-test rc=0 (43 PASS) |
+| R3-P1 | Published report retains old identity conflation + stale wording | **CLOSED** | `reports/dsv4_roofline_vs_measured_emr.txt` regenerated (0 stale `@e3fdcb9` labels; 6 historical + 6 current labels); join refactored to `render()` + a `--verify` regeneration guard; build/source digest of job 384414 recorded as explicitly UNRESOLVED (not assigned to HEAD); residual "best-of dispatcher" and combine "minimal traffic achieved" overclaims corrected |
+
+All parser (9) + generator (43) self-tests pass; changed kernels compile; integration==tiled 0.0.
+
+## Outcome: SURFACED to user (round 4 re-review ready)
+
+Three round-3 findings addressed + verified. **Still OPEN (unchanged):** F4 acceptance policy (**tolerances
+await a user decision**), F7 Amdahl ROI ledger, F8 `.agents` entry-skill routing, sparse donor-dispatch
+proof. Round-4 reviewer package emitted → `reviewer_round4.prompt.txt`. Nothing certified; microbench scope,
+E2E verification PENDING.

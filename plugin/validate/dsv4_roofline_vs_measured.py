@@ -65,7 +65,7 @@ OPS = [
      lambda M: M*4096*(4+3),                                       # 4 mul + 3 add per out elem
      lambda M: M*4*4096*B4 + M*4*B4 + M*4096*B4,                   # x + per-request pre + y
      "fp32", "mhc_combine.json",
-     "BW/latency-bound; tiled accumulate-once (x read once, y written once). Near roof at M>=8; plateau = minimal traffic achieved."),
+     "BW/latency-bound; tiled accumulate-once (x read once, y written once). Near roof at M>=8. This bounds USEFUL-byte traffic, NOT executed traffic or ROI -> 'minimum traffic' is a HYPOTHESIS until a discriminating measurement (launch grain / adjacent fusion) supports it."),
 ]
 
 # --- fail-closed contract assertions (byte/FLOP + compute-dtype from the bench contracts @ M=32) ---
@@ -89,40 +89,72 @@ for _n, _flf, _byf, _cdt, _rec, _nt in OPS:
 # measured M-sweep (sourced from a raw record); None if an op has no measurement yet
 _PS = json.load(open(os.path.join(os.path.dirname(__file__), "results", "perf_sweep.json")))
 MS = _PS["ms"]
+_REPORT = os.path.join(os.path.dirname(__file__), "reports", "dsv4_roofline_vs_measured_emr.txt")
 
-print(f"DSv4 roofline-VS-measured (authored ops)  rev {REV[:8]}  M-sweep {MS}  nominal BW={BW/1e9:.0f} GB/s "
+
+def render():
+    """Build the full report text (deterministic) so it can be printed AND verified against the saved file."""
+    out = []
+
+    def p(s=""):
+        out.append(s)
+
+    p(f"DSv4 roofline-VS-measured (authored ops)  rev {REV[:8]}  M-sweep {MS}  nominal BW={BW/1e9:.0f} GB/s "
       f"AMX={PEAK/1e12:.0f} TF FP32={FP32_PEAK/1e12:.1f} TF")
-print(f"  measured: {_PS['raw_record']}")
-print(f"  ideal_us = max(bytes/BW, FLOPs/peak) at the row's compute dtype (nominal peak); off = measured/ideal "
+    p(f"  measured: {_PS['raw_record']}")
+    p("  NOTE (R2-P1/R3-P1): the TIMING identity is the SLURM job/node above; the per-op CORRECTNESS record is "
+      "a SEPARATE historical run. The exact kernel/benchmark BUILD/SOURCE DIGEST of the timing job is "
+      "UNRESOLVED (the launcher records node/time/config, not a source hash) — it is NOT retroactively assigned "
+      "to any commit.")
+    p(f"  ideal_us = max(bytes/BW, FLOPs/peak) at the row's compute dtype (nominal peak); off = measured/ideal "
       f"(vs NOMINAL \u2014 the node reaches ~60-77% of nominal DRAM BW, so a BW-bound op is ~1.3-1.7x off from the wall alone).")
-for name, flf, byf, cdt, record, plateau in OPS:
-    peak = CPEAK[cdt]
-    rec = load_record(record)                                     # H1: evidence READ from record (fail-closed)
-    rev = rec["kernel_rev"] if _rev_resolved(rec["kernel_rev"]) else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
-    meas = _PS["ops"].get(name, {}).get("median_ms")
-    print("-" * 104)
-    print(f"{name}  [compute dtype={cdt}]")
-    print(f"  correctness record (HISTORICAL, separate microbench run): {record} @ kernel-rev {rev}")
-    print(f"    recorded verbatim: {rec['correctness']}   [{_ATTRIB}]")
-    print(f"  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):")
-    print(f"  {'M':>4} {'bind':>5} {'ideal_us':>10} {'measured_us':>12} {'off_ceiling':>12}")
-    for i, Mv in enumerate(MS):
-        fl, by = flf(Mv), byf(Mv)
-        t_cc = fl / peak if fl else 0.0
-        ideal = max(by / BW, t_cc)
-        bind = "C" if t_cc > by / BW else "B"
-        if meas:
-            m_us = meas[i] * 1e3
-            off = m_us / (ideal * 1e6) if ideal else float("inf")
-            print(f"  {Mv:>4} {bind:>5} {ideal*1e6:>10.2f} {m_us:>12.1f} {off:>11.1f}x")
-        else:
-            print(f"  {Mv:>4} {bind:>5} {ideal*1e6:>10.2f} {'n/a':>12} {'n/a':>12}")
-    print(f"  plateau: {plateau}")
-print("-" * 104)
-print("off_ceiling is a DIAGNOSTIC vs the NOMINAL roof (not an achievability claim, and NOT a proof of a DRAM\n"
+    for name, flf, byf, cdt, record, plateau in OPS:
+        peak = CPEAK[cdt]
+        rec = load_record(record)                                     # H1: evidence READ from record (fail-closed)
+        rev = rec["kernel_rev"] if _rev_resolved(rec["kernel_rev"]) else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
+        meas = _PS["ops"].get(name, {}).get("median_ms")
+        p("-" * 104)
+        p(f"{name}  [compute dtype={cdt}]")
+        p(f"  correctness record (HISTORICAL, separate microbench run): {record} @ kernel-rev {rev}")
+        p(f"    recorded verbatim: {rec['correctness']}   [{_ATTRIB}]")
+        p(f"  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):")
+        p(f"  {'M':>4} {'bind':>5} {'ideal_us':>10} {'measured_us':>12} {'off_ceiling':>12}")
+        for i, Mv in enumerate(MS):
+            fl, by = flf(Mv), byf(Mv)
+            t_cc = fl / peak if fl else 0.0
+            ideal = max(by / BW, t_cc)
+            bind = "C" if t_cc > by / BW else "B"
+            if meas:
+                m_us = meas[i] * 1e3
+                off = m_us / (ideal * 1e6) if ideal else float("inf")
+                p(f"  {Mv:>4} {bind:>5} {ideal*1e6:>10.2f} {m_us:>12.1f} {off:>11.1f}x")
+            else:
+                p(f"  {Mv:>4} {bind:>5} {ideal*1e6:>10.2f} {'n/a':>12} {'n/a':>12}")
+        p(f"  plateau: {plateau}")
+    p("-" * 104)
+    p("off_ceiling is a DIAGNOSTIC vs the NOMINAL roof (not an achievability claim, and NOT a proof of a DRAM\n"
       "wall). The measured useful-byte throughput (e.g. ~39 GB/s indexer, ~64 GB/s compressor @M=64) is far\n"
       "below the reference BW range, so saturation is NOT established; competing causes (N-only parallelism,\n"
       "exp throughput, cache residency, conversion/pack/GEMM/epilogue split, M=1 regressions) remain OPEN,\n"
       "ranked ROI hypotheses to discriminate with same-work best-path A/Bs before any plateau claim (F7).\n"
       "Correctness is the recorded field VERBATIM (microbench; E2E verification PENDING). Measured latency is\n"
       "sourced from the raw record above (median of 3, threads bound, one NUMA domain). No donor-dispatch claim.")
+    return "\n".join(out) + "\n"
+
+
+def main():
+    import sys
+    text = render()
+    if len(sys.argv) == 3 and sys.argv[1] == "--verify":
+        saved = open(sys.argv[2]).read() if os.path.exists(sys.argv[2]) else ""
+        if saved != text:
+            sys.stderr.write(f"STALE REPORT: {sys.argv[2]} does not match the current generator output. "
+                             f"Regenerate: dsv4_roofline_vs_measured.py > {sys.argv[2]}\n")
+            sys.exit(2)
+        print(f"report up to date: {sys.argv[2]}")
+        return
+    sys.stdout.write(text)
+
+
+if __name__ == "__main__":
+    main()

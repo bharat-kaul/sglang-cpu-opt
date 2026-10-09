@@ -95,38 +95,38 @@
       {"kernel": "indexer_logits.cpp",
        "cost_rows": ["DSA indexer logits (GEMM+reduce FUSED)"],
        "gap_dispositions": [
-         {"gap": "wq_b query projection", "disposition": "modeled:DSA indexer wq_b (1024->8192)"},
-         {"gap": "weights_proj", "disposition": "modeled:DSA indexer weights_proj (4096->64)"},
-         {"gap": "RoPE + Hadamard + fp4 quant + indexer's own Compressor + prefill mask", "disposition": "unmodeled:indexer compressor key/score proj + RoPE + Hadamard"}
+         {"gap_id": "wq_b", "gap": "wq_b query projection", "disposition": "modeled:DSA indexer wq_b (1024->8192)"},
+         {"gap_id": "weights_proj", "gap": "weights_proj", "disposition": "modeled:DSA indexer weights_proj (4096->64)"},
+         {"gap_id": "rope_hadamard_quant_compressor_mask", "gap": "RoPE + Hadamard + fp4 quant + indexer's own Compressor + prefill mask", "disposition": "unmodeled:indexer compressor key/score proj + RoPE + Hadamard"}
        ], "verdict": "CONSISTENT"},
       {"kernel": "indexer_topk.cpp",
        "cost_rows": ["DSA indexer topk-512 (over 1024)"],
        "gap_dispositions": [
-         {"gap": "prefill masking + offset bookkeeping of topk_idxs", "disposition": "caller:Indexer.forward mask/offset, not the select kernel"}
+         {"gap_id": "prefill_mask_offset", "gap": "prefill masking + offset bookkeeping of topk_idxs", "disposition": "caller:Indexer.forward mask/offset, not the select kernel"}
        ], "verdict": "CONSISTENT"},
       {"kernel": "compressor.cpp",
        "cost_rows": ["main pool (r4 overlap, win=8 D=512)", "main pool (r128, win=128 D=512)", "indexer pool (r4 overlap, win=8 D=128)"],
        "gap_dispositions": [
-         {"gap": "wkv + wgate projections", "disposition": "modeled:main compressor wkv+wgate (r4, 4096->2048)"},
-         {"gap": "wkv + wgate projections (r128)", "disposition": "modeled:main compressor wkv+wgate (r128, 4096->1024)"},
-         {"gap": "wkv + wgate projections (indexer)", "disposition": "modeled:indexer compressor wkv+wgate (r4, 4096->512)"},
-         {"gap": "RMSNorm + RoPE + Hadamard + fp4/act quant + overlap_transform + kv_state/score_state decode buffers + prefill/decode flow", "disposition": "unmodeled:main compressor per-token state write + postprocessing boundary"}
+         {"gap_id": "wkv_wgate_r4", "gap": "wkv + wgate projections", "disposition": "modeled:main compressor wkv+wgate (r4, 4096->2048)"},
+         {"gap_id": "wkv_wgate_r128", "gap": "wkv + wgate projections (r128)", "disposition": "modeled:main compressor wkv+wgate (r128, 4096->1024)"},
+         {"gap_id": "wkv_wgate_idx", "gap": "wkv + wgate projections (indexer)", "disposition": "modeled:indexer compressor wkv+wgate (r4, 4096->512)"},
+         {"gap_id": "postproc_state", "gap": "RMSNorm + RoPE + Hadamard + fp4/act quant + overlap_transform + kv_state/score_state decode buffers + prefill/decode flow", "disposition": "unmodeled:main compressor per-token state write + postprocessing boundary"}
        ], "verdict": "CONSISTENT"},
       {"kernel": "sparse_attend.cpp",
        "cost_rows": ["MLA sparse attention (window+compressed, 43L)"],
        "gap_dispositions": [
-         {"gap": "the roofline COSTS attention via an ASSUMED donor MLA flash row (a modeling choice, NOT proven production); the authored scalar kernel is SURFACED (retains a ~3.55x M=1 win, loses at large M), donor dispatch is UNPROVEN", "disposition": "modeled:MLA sparse attention (window+compressed, 43L)"},
-         {"gap": "top-k gather by topk_idxs feeding the attend", "disposition": "caller:indexer_topk + gather upstream"}
+         {"gap_id": "attention_cost_row", "gap": "the roofline COSTS attention via an ASSUMED donor MLA flash row (a modeling choice, NOT proven production); the authored scalar kernel is SURFACED (retains a ~3.55x M=1 win, loses at large M), donor dispatch is UNPROVEN", "disposition": "modeled:MLA sparse attention (window+compressed, 43L)"},
+         {"gap_id": "topk_gather", "gap": "top-k gather by topk_idxs feeding the attend", "disposition": "caller:indexer_topk + gather upstream"}
        ], "verdict": "CONSISTENT (dual-path: roofline costs attention via an ASSUMED donor flash row (modeling choice, not proven); authored scalar sparse_attend is SURFACED — a join observation only, not the costed path)"},
       {"kernel": "sinkhorn.cpp",
        "cost_rows": ["MHC sinkhorn (hc=4, 20 iters)"],
        "gap_dispositions": [
-         {"gap": "mixes = RMSNorm + F.linear(hc_fn) upstream", "disposition": "modeled:MHC hc_fn (16384->24, FP32)"}
+         {"gap_id": "mixes_upstream", "gap": "mixes = RMSNorm + F.linear(hc_fn) upstream", "disposition": "modeled:MHC hc_fn (16384->24, FP32)"}
        ], "verdict": "CONSISTENT"},
       {"kernel": "combine.cpp",
        "cost_rows": ["MHC combine (hc_pre reduce)"],
        "gap_dispositions": [
-         {"gap": "mixes = RMSNorm + F.linear(hc_fn) upstream", "disposition": "modeled:MHC hc_fn (16384->24, FP32)"}
+         {"gap_id": "mixes_upstream", "gap": "mixes = RMSNorm + F.linear(hc_fn) upstream", "disposition": "modeled:MHC hc_fn (16384->24, FP32)"}
        ], "verdict": "CONSISTENT"}
     ],
     "verdict": "CONSISTENT — every authored kernel maps to real roofline cost rows with matching operands/shapes/dtypes (the join asserts the byte/FLOP contracts); every FRAGMENT gap is either modeled by another roofline row or EXPLICITLY-UNMODELED in the tracker; no gap falls in the crack. Dual-path note: the roofline costs attention via an ASSUMED donor MLA flash row (a modeling choice, NOT a proven serving path), and the authored scalar sparse_attend is SURFACED (retains a ~3.55x M=1 win, loses at large M; not the costed path)."

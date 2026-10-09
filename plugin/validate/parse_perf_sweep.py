@@ -38,9 +38,13 @@ EXPECTED_REPS = {1, 2, 3}
 def parse_ops(text):
     """Parse raw log text -> {op_name: {bench, variant, median_ms[per M]}}. Fail-closed (raises ValueError).
 
-    Collects values as bench -> M -> {rep_id: value} by NAMED header column, then validates exact replica
-    coverage, finiteness/positivity, and exact M coverage before taking medians."""
-    blocks = re.split(r">>> BENCH=(\S+) REP=(\d+)", text)
+    Integrity rules (R2-F3 + R3-F3): bench markers are matched ONLY at line start, so shell `set -x` echo
+    traces (e.g. "+ echo '>>> BENCH=...'") are not mistaken for real runs; each value is validated for
+    finiteness/positivity the instant it is read (before any store, so an invalid sample cannot be silently
+    overwritten by a later block); a repeated real (bench, M, rep) sample RAISES (a dict would otherwise
+    overwrite it); unexpected M coordinates RAISE (exact coverage); and the per-M replica set must equal
+    exactly {1,2,3}."""
+    blocks = re.split(r"(?m)^>>> BENCH=(\S+) REP=(\d+)\s*$", text)   # LINE-START markers only (ignore set -x echo)
     data = {}   # bench -> M -> {rep: value}
     for i in range(1, len(blocks), 3):
         bench, rep, body = blocks[i], int(blocks[i + 1]), blocks[i + 2]
@@ -55,30 +59,36 @@ def parse_ops(text):
             if toks[0] == "M":                                  # header row: name -> column index
                 header = {name: j for j, name in enumerate(toks)}
                 continue
-            if toks[0] in MS_STR and header is not None:
-                if colname not in header:
-                    raise ValueError(f"{bench} REP={rep}: header has no column {colname!r} (cols={list(header)})")
-                ci = header[colname]
-                if ci >= len(toks):
-                    continue                                    # ragged/continuation line, not a data row
-                try:
-                    v = float(toks[ci])
-                except ValueError:
-                    continue
-                M = int(toks[0])
-                data.setdefault(bench, {}).setdefault(M, {})[rep] = v   # unique by (bench,M,rep)
+            if header is None or not toks[0].isdigit():
+                continue
+            if colname not in header:
+                raise ValueError(f"{bench} REP={rep}: header has no column {colname!r} (cols={list(header)})")
+            ci = header[colname]
+            if ci >= len(toks):
+                continue                                        # ragged/continuation line, not a data row
+            try:
+                v = float(toks[ci])
+            except ValueError:
+                continue
+            if not math.isfinite(v) or v <= 0:                  # validate IMMEDIATELY (before store; R3-F3)
+                raise ValueError(f"{bench} M={toks[0]} rep={rep}: non-finite/non-positive time {v}")
+            M = int(toks[0])
+            slot = data.setdefault(bench, {}).setdefault(M, {})
+            if rep in slot:                                     # duplicate REAL sample -> fail (no overwrite)
+                raise ValueError(f"{bench} M={M} rep={rep}: duplicate sample (had {slot[rep]}, got {v})")
+            slot[rep] = v
     ops = {}
     for bench, (opname, colname, variant) in SPEC.items():
         rows = data.get(bench, {})
+        extra = sorted(set(rows) - set(MS))                     # exact coverage: no unexpected coordinates
+        if extra:
+            raise ValueError(f"{bench}: unexpected M coordinate(s) {extra} (expected exactly {MS})")
         med = []
         for M in MS:
             reps = rows.get(M, {})
             got = set(reps)
             if got != EXPECTED_REPS:                            # missing/extra/duplicate replica -> fail
                 raise ValueError(f"{bench} M={M}: replica ids {sorted(got)} != expected {sorted(EXPECTED_REPS)}")
-            for r, v in reps.items():
-                if not math.isfinite(v) or v <= 0:              # NaN / +-inf / <=0 -> fail (R2-F3)
-                    raise ValueError(f"{bench} M={M} rep={r}: non-finite/non-positive time {v}")
             med.append(round(st.median(reps.values()), 4))
         ops[opname] = {"bench": bench, "variant": variant, "median_ms": med}
     return ops
@@ -201,6 +211,38 @@ def selftest():
     def _dropM(bench, rep, rows):
         return [r for r in rows if r[0] != 32] if bench == "bench_topk.py" else rows
     chk(_rejects(lambda: parse_ops(_full(mutate=_dropM))), "REJECTS a missing M coordinate")
+
+    # 6) R3-F3: a duplicate real (bench,M,rep) sample must RAISE (not silently overwrite the median)
+    def _dup_block():
+        txt = _full()
+        extra = _block("bench_sparse_attend.py", 2, good_hdr["bench_sparse_attend.py"],
+                       [(M, [1.0, 1.0, 9.999, 99.0, 8.888, 1.0, 1.0]) for M in MS])   # second REP=2, sc_ms=99
+        return txt + extra
+    chk(_rejects(lambda: parse_ops(_dup_block())), "REJECTS a duplicate (bench,M,rep) sample (no overwrite)")
+
+    # 7) R3-F3: an invalid (NaN) sample is caught IMMEDIATELY even if a later block would overwrite it
+    def _nan_then_valid():
+        bad = _block("bench_compressor.py", 1, good_hdr["bench_compressor.py"],
+                     [(M, [1.0, 9.999, float("nan"), 1.0]) for M in MS])              # REP=1 with NaN first
+        return "node=selftest\n" + bad + _full().split("node=selftest\n", 1)[1]
+    chk(_rejects(lambda: parse_ops(_nan_then_valid())), "REJECTS a NaN sample immediately (before overwrite)")
+
+    # 8) R3-F3: an unexpected extra M coordinate must RAISE (exact coverage)
+    def _extraM(bench, rep, rows):
+        return rows + [(128, _val_row(bench, 128))] if bench == "bench_combine.py" else rows
+    chk(_rejects(lambda: parse_ops(_full(mutate=_extraM))), "REJECTS an unexpected extra M=128 coordinate")
+
+    # 9) R3-F3: a shell `set -x` echo trace of the marker must be IGNORED (not a second run)
+    def _echo_trace():
+        txt = _full()
+        return txt.replace(">>> BENCH=bench_topk.py REP=1",
+                           "+ echo '>>> BENCH=bench_topk.py REP=1'\n>>> BENCH=bench_topk.py REP=1", 1)
+    try:
+        ops = parse_ops(_echo_trace())
+        chk(ops["indexer top-k (512 of 1024)"]["median_ms"] == [round(0.1 * m, 4) for m in MS],
+            "IGNORES a set -x echo-trace marker (line-start anchor; not a duplicate run)")
+    except ValueError as e:
+        chk(False, f"echo-trace case unexpectedly failed: {e}")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     sys.exit(0 if ok else 2)

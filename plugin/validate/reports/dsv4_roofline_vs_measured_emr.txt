@@ -1,19 +1,24 @@
 DSv4 roofline-VS-measured (authored ops)  rev 60d8d707  M-sweep [1, 8, 16, 32, 64]  nominal BW=358 GB/s AMX=125 TF FP32=7.8 TF
-  measured: SLURM job 384414, log /scratch/bkaul/dsa_perf_sweep_384414.log, node pcl-sprh09.sc.intel.com (DDR5-5600); run_dsa_perf_sweep.sbatch; 3 reps/bench (median); OMP 64thr bound once, numactl NUMA0. Parsed by parse_perf_sweep.py.
+  measured: SLURM job 384414, log /scratch/bkaul/dsa_perf_sweep_384414.log, node pcl-sprh09.sc.intel.com (DDR5-5600); run_dsa_perf_sweep.sbatch; 3 reps/bench (median of unique REP ids 1/2/3); OMP 64thr bound once, numactl NUMA0. Parsed by parse_perf_sweep.py (named-column, fail-closed).
+  NOTE (R2-P1/R3-P1): the TIMING identity is the SLURM job/node above; the per-op CORRECTNESS record is a SEPARATE historical run. The exact kernel/benchmark BUILD/SOURCE DIGEST of the timing job is UNRESOLVED (the launcher records node/time/config, not a source hash) — it is NOT retroactively assigned to any commit.
   ideal_us = max(bytes/BW, FLOPs/peak) at the row's compute dtype (nominal peak); off = measured/ideal (vs NOMINAL — the node reaches ~60-77% of nominal DRAM BW, so a BW-bound op is ~1.3-1.7x off from the wall alone).
 --------------------------------------------------------------------------------------------------------
-indexer logits (q.ck+reduce)  [cdt=bf16, record=indexer_logits.json@e3fdcb9]
-  correctness (recorded, verbatim): cos 1.000000   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+indexer logits (q.ck+reduce)  [compute dtype=bf16]
+  correctness record (HISTORICAL, separate microbench run): indexer_logits.json @ kernel-rev e3fdcb9
+    recorded verbatim: cos 1.000000   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):
      M  bind   ideal_us  measured_us  off_ceiling
      1     B       1.57        100.0        63.8x
      8     B      12.53        279.0        22.3x
     16     B      25.06        366.0        14.6x
     32     B      50.13        540.0        10.8x
     64     B     100.25        908.0         9.1x
-  plateau: MIXED precision: FP32 public storage/traffic, but the matmul runs in BF16 (AMX) + FP32 reduce -> compute resource is BF16. Ideal is BW-bound (bytes/BW ~ 50us @M=32) below the BF16 compute floor. OPEN (F7): useful throughput << reference BW and M=1 ~10x vs torch -> ranked ROI hypotheses, NOT a proven plateau.
+  plateau: MIXED precision: FP32 public storage/traffic, but the matmul runs in BF16 (AMX) + FP32 reduce -> compute resource is BF16. BW time (bytes/BW ~50us @M=32) EXCEEDS the BF16 compute floor -> the op is BW-bound. OPEN (F7): useful throughput << reference BW -> ranked ROI hypotheses (conversion/pack/reduction split, larger-M attribution), NOT a proven plateau. (The former M=1 ~10x-vs-torch regression was FIXED by the single tiled contract: M=1 is now 0.100ms.)
 --------------------------------------------------------------------------------------------------------
-indexer top-k (512 of 1024)  [cdt=fp32, record=indexer_topk.json@17dbb0d]
-  correctness (recorded, verbatim): set-match 1.0 all M   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+indexer top-k (512 of 1024)  [compute dtype=fp32]
+  correctness record (HISTORICAL, separate microbench run): indexer_topk.json @ kernel-rev 17dbb0d
+    recorded verbatim: set-match 1.0 all M   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):
      M  bind   ideal_us  measured_us  off_ceiling
      1     B       0.02         17.0       743.8x
      8     B       0.18         28.0       153.1x
@@ -22,8 +27,10 @@ indexer top-k (512 of 1024)  [cdt=fp32, record=indexer_topk.json@17dbb0d]
     64     B       1.46         14.0         9.6x
   plateau: latency/selection-bound (no AMX GEMM primitive). OPEN (F7): at S/k=2 the chunk cap gives <=2 first-stage tasks at small M (NOT 64) -> small-S simplification is a ranked ROI hypothesis; off-roof diagnostic only.
 --------------------------------------------------------------------------------------------------------
-compressor softmax-pool  [cdt=fp32, record=compressor.json@ccded85]
-  correctness (recorded, verbatim): cos 1.000000 (R=128, D=512 real main-compressor dims)   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+compressor softmax-pool  [compute dtype=fp32]
+  correctness record (HISTORICAL, separate microbench run): compressor.json @ kernel-rev ccded85
+    recorded verbatim: cos 1.000000 (R=128, D=512 real main-compressor dims)   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):
      M  bind   ideal_us  measured_us  off_ceiling
      1     B       2.20        374.0       170.0x
      8     B      12.48        490.0        39.3x
@@ -32,8 +39,10 @@ compressor softmax-pool  [cdt=fp32, record=compressor.json@ccded85]
     64     B      94.72        571.0         6.0x
   plateau: BW-bound streaming online-softmax pool (no w[N,R,D] temporary). OPEN (F7): latency is near-flat M=8..32 while bytes grow ~4x, N-only parallelism + 2 exp/channel/window -> channel-tiling / exp-throughput are ranked ROI hypotheses, NOT a proven DRAM wall. Perf measured at R=128/D=512 only; R=8 pools uncharacterized.
 --------------------------------------------------------------------------------------------------------
-sparse attend (MQA+sink)  [cdt=fp32, record=sparse_attend.json@eb4ecdf]
-  correctness (recorded, verbatim): cos 1.000000   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+sparse attend (MQA+sink)  [compute dtype=fp32]
+  correctness record (HISTORICAL, separate microbench run): sparse_attend.json @ kernel-rev eb4ecdf
+    recorded verbatim: cos 1.000000   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):
      M  bind   ideal_us  measured_us  off_ceiling
      1     C       8.62         68.0         7.9x
      8     C      68.99        460.0         6.7x
@@ -42,8 +51,10 @@ sparse attend (MQA+sink)  [cdt=fp32, record=sparse_attend.json@eb4ecdf]
     64     C     551.88       3640.0         6.6x
   plateau: SURFACED candidate (not certified production): scalar MQA+sink; the scalar RETAINS a ~3.55x M=1 advantage over torch (F3). Donor dispatch is NOT yet proven (needs a concrete donor entry + sink/mask/2-source capability + dispatch evidence). AMX variant differs in BF16 rounding.
 --------------------------------------------------------------------------------------------------------
-MHC sinkhorn (hc=4,20it)  [cdt=fp32, record=mhc_sinkhorn.json@ccded85]
-  correctness (recorded, verbatim): cos 1.000000 (pre/post/comb)   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+MHC sinkhorn (hc=4,20it)  [compute dtype=fp32]
+  correctness record (HISTORICAL, separate microbench run): mhc_sinkhorn.json @ kernel-rev ccded85
+    recorded verbatim: cos 1.000000 (pre/post/comb)   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):
      M  bind   ideal_us  measured_us  off_ceiling
      1     B       0.00          2.0      2389.3x
      8     B       0.00         14.0      3052.1x
@@ -52,15 +63,17 @@ MHC sinkhorn (hc=4,20it)  [cdt=fp32, record=mhc_sinkhorn.json@ccded85]
     64     B       0.03         15.0       433.7x
   plateau: dispatch-bound (reference ~40 tiny torch ops/call); fused 20 iters -> ~20x vs torch. Plateau = tiny hc=4 op, latency-bound; off-roof diagnostic only.
 --------------------------------------------------------------------------------------------------------
-MHC combine (reduce)  [cdt=fp32, record=mhc_combine.json@dbfbcfa]
-  correctness (recorded, verbatim): cos 1.000000   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+MHC combine (reduce)  [compute dtype=fp32]
+  correctness record (HISTORICAL, separate microbench run): mhc_combine.json @ kernel-rev dbfbcfa
+    recorded verbatim: cos 1.000000   [Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING]
+  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):
      M  bind   ideal_us  measured_us  off_ceiling
      1     B       0.23          2.0         8.7x
      8     B       1.83         12.0         6.6x
     16     B       3.66         12.0         3.3x
     32     B       7.32         12.0         1.6x
     64     B      14.63         14.0         1.0x
-  plateau: BW/latency-bound; tiled accumulate-once (x read once, y written once). Near roof at M>=8; plateau = minimal traffic achieved.
+  plateau: BW/latency-bound; tiled accumulate-once (x read once, y written once). Near roof at M>=8. This bounds USEFUL-byte traffic, NOT executed traffic or ROI -> 'minimum traffic' is a HYPOTHESIS until a discriminating measurement (launch grain / adjacent fusion) supports it.
 --------------------------------------------------------------------------------------------------------
 off_ceiling is a DIAGNOSTIC vs the NOMINAL roof (not an achievability claim, and NOT a proof of a DRAM
 wall). The measured useful-byte throughput (e.g. ~39 GB/s indexer, ~64 GB/s compressor @M=64) is far
