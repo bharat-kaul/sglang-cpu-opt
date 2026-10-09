@@ -1,0 +1,16 @@
+{
+  "_schema": "Open-item disposition tracker for the DSv4 roofline model. Every quantity is MODELED (derived, cite source), MEASURED (microbench), or EXPLICITLY-UNMODELED (declared + reason + plan, surfaced at review). No silent placeholders. Reviewed at each roofline revision.",
+  "generator": "plugin/validate/dsv4_roofline_p2.py",
+  "invariant_selftest": "8 checks, gate report emission (python dsv4_roofline_p2.py --selftest)",
+  "items": [
+    {"item": "MHC hc_post (post*x + comb@residual)", "disposition": "MODELED", "source": "published model.py Block.hc_post; comb@residual bmm (2*HC^2*H) + post*x elementwise; 2x/layer", "status": "done"},
+    {"item": "MHC hc_head (LM-head mixer)", "disposition": "MODELED", "source": "published model.py hc_head; RMSNorm+linear(hc_fn[HC,HC*H])+sigmoid+weighted-sum, once", "status": "done"},
+    {"item": "compressor / topk / sinkhorn / combine times", "disposition": "MEASURED", "source": "pilot microbenches (bench_*.py) at grounded shapes", "status": "done"},
+    {"item": "norm / rope / embed / hash-route small ops", "disposition": "MEASURED (approx small-op floor)", "source": "donor timings; sub-op, minor share", "status": "acceptable; refine if they surface on the hot path"},
+    {"item": "indexer compressor key/score proj + RoPE + Hadamard (verdict #3 chain)", "disposition": "EXPLICITLY-UNMODELED", "reason": "the indexer's own compressor sub-chain (wkv/wgate proj, norm, rope, hadamard) is not yet itemized; indexer_fused models the logits+reduce only", "plan": "itemize from published Indexer/Compressor modules in the next revision", "status": "open"},
+    {"item": "KV / state / workspace / scale-block capacity beyond listed weights", "disposition": "EXPLICITLY-UNMODELED", "reason": "p0 reports LISTED WEIGHTS only (feasibility); KV pool, activations, dequant shadows, loading peaks not summed", "plan": "add resident-state inventory before claiming full capacity", "status": "open"},
+    {"item": "wo_a FP8-target vs current BF16-CPU storage", "disposition": "MODELED (current BF16)", "source": "verdict #2: CPU wo_a is BF16 (_FP8_WO_A_GEMM=False); FP8 target modeled separately if pursued", "status": "done (current); FP8 target = future"},
+    {"item": "masked shared-pool fallback (executed > useful FLOPs)", "disposition": "EXPLICITLY-UNMODELED", "reason": "the ideal model assumes independent-request useful work; the current _batched_mla_attend gathers a KV union before masking, so executed FLOPs exceed useful", "plan": "model the fallback's executed FLOPs separately when profiling the real path", "status": "open"}
+  ],
+  "surfaced_for_review": true
+}

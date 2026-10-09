@@ -175,6 +175,31 @@ def shared_expert():
 
 
 # ================= tensor inventory (ONE source for OPS + capacity) =================
+HC = 4
+
+
+def hc_post():
+    """MODELED (published model.py hc_post): y = post*x + sum_j comb[.,j,k]*residual[.,j,d].
+    Per token: comb@residual bmm (2*HC*HC*H) + post*x elementwise (HC*H). Runs 2x/layer."""
+    fpt = 2 * HC * HC * H + HC * H
+    bpt = (2 * HC * H + HC * HC + H) * AB
+    return Op("MHC hc_post (post*x + comb@residual)", "C", "NEW-C++", "bf16", 2 * L,
+              flop=lambda M: fpt * M * 2 * L, byts=lambda M: bpt * M * 2 * L,
+              note="MODELED: per-token comb@residual bmm + elementwise", crossing=None)
+
+
+def hc_head():
+    """MODELED (published model.py hc_head): RMSNorm + linear(hc_fn[HC, HC*H]) + sigmoid + weighted-sum.
+    Once at the head. hc_fn weight is HC*HC*H."""
+    w_el = HC * HC * H
+    fpt = 2 * HC * HC * H + HC * H
+    fixed, bpt = w_el * BF16, 2 * HC * H * AB
+    return Op("MHC hc_head (LM-head mixer, once)", "C", "NEW-C++", "bf16", 1,
+              flop=lambda M: fpt * M, byts=lambda M: fixed + bpt * M,
+              note="MODELED: RMSNorm+linear(hc_fn)+sigmoid+weighted-sum, once",
+              crossing=ridge_crossing(fpt, fixed, bpt), weight_bytes_per_layer=fixed)
+
+
 OPS = [
     wgemm("MLA wqkv_a (fused q_a+kv_a, 4096->1536)", H, QLORA + HD, "fp8", L, "A", "donor dsv2"),
     measured("  q_norm RMSNorm(1024)", "A", "donor norm.cpp", 5e-6, L, "RMSNorm, L2-resident"),
@@ -195,8 +220,8 @@ OPS = [
     wgemm("MHC hc_fn (16384->24, x2/layer)", NH * HD, (2 + 4) * 4, "bf16", 2 * L, "C", "NEW-C++"),
     measured("MHC sinkhorn (hc=4, 20 iters)", "C", "NEW-C++", 0.015e-3, 2 * L, "fused per-row iters"),
     measured("MHC combine (hc_pre reduce)", "C", "NEW-C++", 0.013e-3, 2 * L, "tiled accumulate-once"),
-    measured("MHC hc_post (expand) [UNMODELED-work]", "C", "torch", 0.02e-3, 2 * L, "post*x + comb@residual (approx)"),
-    measured("MHC hc_head (once) [UNMODELED-work]", "C", "NEW-C++", 0.02e-3, 1, "LM-head mixer (approx)"),
+    hc_post(),
+    hc_head(),
     # --- MoE ---
     wgemm("MoE router gate (4096->256)", H, E, "bf16", N_MOE, "A", "donor gemm"),
     measured("MoE hash route (3 layers, tid2eid gather)", "A", "donor", 0.005e-3, N_HASH, "lookup, not GEMM"),
@@ -270,7 +295,7 @@ def phaseA():
     print("=" * 128)
     print(f"PHASE A — IDEAL per-op roofline (declared workload; max(B/BW,F/P)); invocation-counted; fused=no-score")
     print("=" * 128)
-    print(f"{'op':44s} {'lane/impl':24s} | " + " ".join(f"{'M='+str(m):>9s}" for m in Ms) + "  bind  cross@ridge")
+    print(f"{'op':44s} {'lane/impl':24s} | " + " ".join(f"{'M='+str(m):>9s}" for m in Ms) + "  calls bind  cross@ridge")
     print("-" * 128)
     for op in OPS:
         cells, regs = [], []
@@ -279,8 +304,9 @@ def phaseA():
             regs.append(reg)
             cells.append(f"{fmt(t):>9s}")
         xs = "lat" if op.kind == "latency" else ("none" if op.crossing is None else f"M≈{op.crossing:.0f}")
-        print(f"{op.name:44s} {(op.lane+' '+op.impl)[:24]:24s} | " + " ".join(cells) + f"  {regs[-1]:>4s}  {xs}")
-    print("\nAI (B=BW C=compute lat=measured-latency); fused ops carry no score DRAM; attn/indexer AI is M-invariant.")
+        print(f"{op.name:44s} {(op.lane+' '+op.impl)[:24]:24s} | " + " ".join(cells) + f"  {op.layers:>5d} {regs[-1]:>4s}  {xs}")
+    print("\ntimes are PER-STEP (= per-call x calls/step); per-call = per-step / calls. "
+          "AI: B=BW C=compute lat=measured; fused=no score DRAM; attn/indexer AI M-invariant.")
     print(f"{'op':44s} | " + " ".join(f"AI@{m:<3d}" for m in Ms))
     print("-" * 128)
     for op in OPS:

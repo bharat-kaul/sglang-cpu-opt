@@ -1,4 +1,4 @@
-DSv4-Flash IDEAL roofline — rebuilt against the 10 corrections (verdict); invariant-tested; dims+workload grounded in published model.py. machine-peak basis; measured reference = pcl-sprh02 DDR5-5600.
+DSv4-Flash IDEAL roofline — invariant-tested (10 corrections); MHC hc_post/hc_head MODELED; open items disposed in results/roofline_open_items.json. machine-peak basis; measured reference pcl-sprh02 DDR5-5600.
 
 INVARIANT SELFTEST:
   [PASS] attention bytes(M=8) == 8*bytes(M=1) (KV scales with M)
@@ -26,40 +26,41 @@ P0 CAPACITY (from one inventory)  platform=emr  nominal BW=358.4 GB/s  AMX=124.6
   MHC hc_fn (16384->24, x2/layer)                    0.14 GB
   MoE router gate (4096->256)                        0.09 GB
   DSA indexer weights_proj (4096->64)                0.01 GB
+  MHC hc_head (LM-head mixer, once)                  0.00 GB
   RESIDENT (listed weights only; excl. KV/scales/workspace)   155.25 GB  -> fits one domain (feasibility, not TP-optimality)
 
 ================================================================================================================================
 PHASE A — IDEAL per-op roofline (declared workload; max(B/BW,F/P)); invocation-counted; fused=no-score
 ================================================================================================================================
-op                                           lane/impl                |       M=1       M=8      M=16      M=32      M=64  bind  cross@ridge
+op                                           lane/impl                |       M=1       M=8      M=16      M=32      M=64  calls bind  cross@ridge
 --------------------------------------------------------------------------------------------------------------------------------
-MLA wqkv_a (fused q_a+kv_a, 4096->1536)      A donor dsv2             |   756.2us   765.7us   776.5us   798.1us   841.4us     B  M≈252
-  q_norm RMSNorm(1024)                       A donor norm.cpp         |   215.0us   215.0us   215.0us   215.0us   215.0us   lat  lat
-MLA wq_b (1024->32768)                       A donor dsv2             |     4.0ms     4.1ms     4.2ms     4.3ms     4.5ms     B  M≈267
-  RoPE (yarn)                                A donor rope             |   215.0us   215.0us   215.0us   215.0us   215.0us   lat  lat
-  kv_norm RMSNorm(512)                       A donor norm.cpp         |   215.0us   215.0us   215.0us   215.0us   215.0us   lat  lat
-MLA attn core (flash MQA, ctx=S)             A donor intel_amx attn   |   518.9us     4.2ms     8.3ms    16.6ms    33.2ms     B  none
-MLA wo_a (grouped 8x 4096->1024)             A donor dsv2 (BF16 CPU)  |     8.1ms     8.1ms     8.2ms     8.4ms     8.7ms     B  M≈604
-MLA wo_b (8192->4096)                        A donor dsv2             |     4.0ms     4.0ms     4.1ms     4.1ms     4.2ms     B  M≈199
-DSA indexer wq_b (1024->8192)                A donor dsv2             |   469.2us   476.4us   484.6us   501.1us   534.0us     B  M≈281
-DSA indexer weights_proj (4096->64)          A donor gemm             |    29.7us    33.0us    36.7us    44.1us    59.0us     B  none
-DSA indexer logits (GEMM+reduce FUSED)       B NEW-C++                |    15.1us   120.9us   241.8us   483.7us   967.3us     B  none
-DSA indexer topk-512 (over ~1024)            B NEW-C++                |   800.0us   800.0us   800.0us   800.0us   800.0us   lat  lat
-DSA compressor (softmax-pool, D=512)         B NEW-C++                |    20.0ms    20.0ms    20.0ms    20.0ms    20.0ms   lat  lat
-DSA sparse attend (top-512 KV)               B donor MLA flash        |    36.6us   292.6us   585.1us     1.2ms     2.3ms     B  none
-MHC hc_fn (16384->24, x2/layer)              C NEW-C++                |   393.2us   503.3us   629.2us   881.0us     1.4ms     B  none
-MHC sinkhorn (hc=4, 20 iters)                C NEW-C++                |     1.3ms     1.3ms     1.3ms     1.3ms     1.3ms   lat  lat
-MHC combine (hc_pre reduce)                  C NEW-C++                |     1.1ms     1.1ms     1.1ms     1.1ms     1.1ms   lat  lat
-MHC hc_post (expand) [UNMODELED-work]        C torch                  |     1.7ms     1.7ms     1.7ms     1.7ms     1.7ms   lat  lat
-MHC hc_head (once) [UNMODELED-work]          C NEW-C++                |    20.0us    20.0us    20.0us    20.0us    20.0us   lat  lat
-MoE router gate (4096->256)                  A donor gemm             |   252.7us   260.0us   268.3us   285.0us   318.4us     B  none
-MoE hash route (3 layers, tid2eid gather)    A donor                  |    15.0us    15.0us    15.0us    15.0us    15.0us   lat  lat
-MoE experts (gate+up+SiLU+down, MXFP4)       A donor moe.cpp          |     9.6ms    71.1ms   129.9ms   218.9ms   321.6ms     B  none
-shared-expert (3-matrix gate+up+down, MXFP4) A donor moe.cpp          |     1.6ms     1.6ms     1.6ms     1.7ms     1.7ms     B  M≈104
-embed (VocabParallel lookup)                 A donor embed            |    10.0us    10.0us    10.0us    10.0us    10.0us   lat  lat
-lm_head (4096->129280)                       A donor gemm             |     3.0ms     3.0ms     3.0ms     3.0ms     3.0ms     B  M≈381
+MLA wqkv_a (fused q_a+kv_a, 4096->1536)      A donor dsv2             |   756.2us   765.7us   776.5us   798.1us   841.4us     43    B  M≈252
+  q_norm RMSNorm(1024)                       A donor norm.cpp         |   215.0us   215.0us   215.0us   215.0us   215.0us     43  lat  lat
+MLA wq_b (1024->32768)                       A donor dsv2             |     4.0ms     4.1ms     4.2ms     4.3ms     4.5ms     43    B  M≈267
+  RoPE (yarn)                                A donor rope             |   215.0us   215.0us   215.0us   215.0us   215.0us     43  lat  lat
+  kv_norm RMSNorm(512)                       A donor norm.cpp         |   215.0us   215.0us   215.0us   215.0us   215.0us     43  lat  lat
+MLA attn core (flash MQA, ctx=S)             A donor intel_amx attn   |   518.9us     4.2ms     8.3ms    16.6ms    33.2ms     43    B  none
+MLA wo_a (grouped 8x 4096->1024)             A donor dsv2 (BF16 CPU)  |     8.1ms     8.1ms     8.2ms     8.4ms     8.7ms     43    B  M≈604
+MLA wo_b (8192->4096)                        A donor dsv2             |     4.0ms     4.0ms     4.1ms     4.1ms     4.2ms     43    B  M≈199
+DSA indexer wq_b (1024->8192)                A donor dsv2             |   469.2us   476.4us   484.6us   501.1us   534.0us     20    B  M≈281
+DSA indexer weights_proj (4096->64)          A donor gemm             |    29.7us    33.0us    36.7us    44.1us    59.0us     20    B  none
+DSA indexer logits (GEMM+reduce FUSED)       B NEW-C++                |    15.1us   120.9us   241.8us   483.7us   967.3us     20    B  none
+DSA indexer topk-512 (over ~1024)            B NEW-C++                |   800.0us   800.0us   800.0us   800.0us   800.0us     20  lat  lat
+DSA compressor (softmax-pool, D=512)         B NEW-C++                |    20.0ms    20.0ms    20.0ms    20.0ms    20.0ms     40  lat  lat
+DSA sparse attend (top-512 KV)               B donor MLA flash        |    36.6us   292.6us   585.1us     1.2ms     2.3ms     20    B  none
+MHC hc_fn (16384->24, x2/layer)              C NEW-C++                |   393.2us   503.3us   629.2us   881.0us     1.4ms     86    B  none
+MHC sinkhorn (hc=4, 20 iters)                C NEW-C++                |     1.3ms     1.3ms     1.3ms     1.3ms     1.3ms     86  lat  lat
+MHC combine (hc_pre reduce)                  C NEW-C++                |     1.1ms     1.1ms     1.1ms     1.1ms     1.1ms     86  lat  lat
+MHC hc_post (post*x + comb@residual)         C NEW-C++                |    17.7us   141.6us   283.2us   566.4us     1.1ms     86    B  none
+MHC hc_head (LM-head mixer, once)            C NEW-C++                |   548.6ns     1.8us     3.3us     6.2us    12.1us      1    B  none
+MoE router gate (4096->256)                  A donor gemm             |   252.7us   260.0us   268.3us   285.0us   318.4us     43    B  none
+MoE hash route (3 layers, tid2eid gather)    A donor                  |    15.0us    15.0us    15.0us    15.0us    15.0us      3  lat  lat
+MoE experts (gate+up+SiLU+down, MXFP4)       A donor moe.cpp          |     9.6ms    71.1ms   129.9ms   218.9ms   321.6ms     43    B  none
+shared-expert (3-matrix gate+up+down, MXFP4) A donor moe.cpp          |     1.6ms     1.6ms     1.6ms     1.7ms     1.7ms     43    B  M≈104
+embed (VocabParallel lookup)                 A donor embed            |    10.0us    10.0us    10.0us    10.0us    10.0us      1  lat  lat
+lm_head (4096->129280)                       A donor gemm             |     3.0ms     3.0ms     3.0ms     3.0ms     3.0ms      1    B  M≈381
 
-AI (B=BW C=compute lat=measured-latency); fused ops carry no score DRAM; attn/indexer AI is M-invariant.
+times are PER-STEP (= per-call x calls/step); per-call = per-step / calls. AI: B=BW C=compute lat=measured; fused=no score DRAM; attn/indexer AI M-invariant.
 op                                           | AI@1   AI@8   AI@16  AI@32  AI@64 
 --------------------------------------------------------------------------------------------------------------------------------
 MLA wqkv_a (fused q_a+kv_a, 4096->1536)      |     2B    16B    31B    61B   115B
@@ -79,8 +80,8 @@ DSA sparse attend (top-512 KV)               |   102B   102B   102B   102B   102
 MHC hc_fn (16384->24, x2/layer)              |     1B     6B    10B    14B    17B
 MHC sinkhorn (hc=4, 20 iters)                |   lat    lat    lat    lat    lat 
 MHC combine (hc_pre reduce)                  |   lat    lat    lat    lat    lat 
-MHC hc_post (expand) [UNMODELED-work]        |   lat    lat    lat    lat    lat 
-MHC hc_head (once) [UNMODELED-work]          |   lat    lat    lat    lat    lat 
+MHC hc_post (post*x + comb@residual)         |     2B     2B     2B     2B     2B
+MHC hc_head (LM-head mixer, once)            |     1B     2B     2B     2B     2B
 MoE router gate (4096->256)                  |     1B     8B    15B    28B    51B
 MoE hash route (3 layers, tid2eid gather)    |   lat    lat    lat    lat    lat 
 MoE experts (gate+up+SiLU+down, MXFP4)       |     4B     4B     4B     5B     7B

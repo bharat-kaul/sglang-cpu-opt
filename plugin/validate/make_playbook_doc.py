@@ -308,12 +308,48 @@ para("Anti-patterns (each is a silent-failure trap): trusting a parity microbenc
      "toy defaults as the real constants; and the cardinal sin \u2014 RE-GUESSING a shape after finding one "
      "wrong instead of capturing it from the published model.", GRAY)
 
+# ---- roofline accounting discipline ----
+h1("Roofline accounting discipline — an invariant-tested, self-consistent model")
+para("An analytical roofline is trustworthy only if its FLOP/byte accounting is internally consistent. "
+     "These rules are model-agnostic and must be encoded as INVARIANT TESTS that GATE report generation "
+     "\u2014 a model that fails an invariant is not published.", bold=True)
+bullet("ONE tensor inventory: capacity AND per-op cost derive from the SAME op list \u2014 never a second "
+       "hardcoded capacity formula that can drift from the op dimensions.")
+bullet("DECLARE the workload: independent requests vs shared-prefix, what is reused, dtype per tensor. An "
+       "optimistic model is acceptable only if the assumption is stated.")
+bullet("Independent-request state (KV, activations) scales with batch M; weights are read once per step "
+       "(M-independent). TEST: independent-request bytes are linear in M.")
+bullet("FUSION removes round-trips, not weights: a fused op counts ALL its matrices (a SwiGLU expert is "
+       "three), and a flash/fused op carries NO intermediate-score DRAM. TEST both structurally.")
+bullet("RIDGE crossing solves the REAL arithmetic intensity (weights + activations) and returns "
+       "\u201cno crossing\u201d when AI saturates below the ridge \u2014 not a weight-only approximation.")
+bullet("Per-layer INVOCATION counts come from the config (per-layer variants/phases), not a uniform "
+       "\u00d7num_layers. Verify against the model; print per-call cost, calls/step, and per-step cost.")
+bullet("Include quantization metadata (scale/padding bytes) in traffic AND capacity; low-bit storage is "
+       "not native low-bit compute.")
+bullet("Latency rows are MEASURED, justified-analytical, or EXPLICITLY-UNMODELED \u2014 never invented "
+       "floors; zero FLOPs/bytes does not establish latency as the binding resource.")
+bullet("Record hardware-profile PROVENANCE (node, memory type, clock); never mix measurements across "
+       "configurations. The ideal roofline is an optimization TARGET, not an achievability claim.")
+bullet("Report latency and useful throughput as PRIMARY; track useful-vs-executed FLOPs/traffic "
+       "separately; use distance-from-roof only DIAGNOSTICALLY (a fused kernel can be faster at LOWER "
+       "achieved bandwidth). Emit a roofline-VS-measured join per authored op.")
+bullet("PROCESS: read external reviews/commits that touch your area BEFORE building on them \u2014 a rebase "
+       "is not a read.")
+h2("Open-item disposition (never silently approximate)")
+para("Every quantity in the model is exactly one of: MODELED (derived, cite the source line), MEASURED "
+     "(microbench), or EXPLICITLY-UNMODELED (declared + tracked + surfaced at review with a reason and a "
+     "plan). No silent placeholders or invented constants. Unmodeled items are listed in the review, never "
+     "hidden inside a number. Prefer MODELED when the reference gives a formula; fall back to "
+     "EXPLICITLY-UNMODELED only when it genuinely cannot be derived yet.", GRAY)
+
 # ---- gates ----
 h1("Gates")
 for g in ["G0 — capacity / precision (every launch)",
           "G1 — coverage / lane (routes Thesis 1 vs 2 per op)",
           "Fusion roofline gate (bytes saved + AI lift + cache-resident; reference oracle where available)",
           "Shape-provenance gate (every kernel's shapes CAPTURED from the real forward + human-signed manifest, before trust/perf-claims)",
+          "Roofline-accounting gate (invariant self-test passes + one inventory + every quantity MODELED/MEASURED/EXPLICITLY-UNMODELED, before the report is published)",
           "Phase-A ceiling-or-surface (every op at its ceiling, else surface to user)",
           "G2 — validate-by-run (confirm the paper model in-engine)",
           "G2.5 — system-pathology (kernel-domination ≥ bar before per-op work)",
