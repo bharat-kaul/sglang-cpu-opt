@@ -1,0 +1,75 @@
+{
+  "gate": "dsv4-roofline-gate-demo",
+  "outcome": "PASS",
+  "rounds": 7,
+  "reason": "",
+  "ledger": [
+    {
+      "round": 1,
+      "status": "FAIL",
+      "findings": [
+        "R1 attention graph/layer counts",
+        "R2 compressor subgraph",
+        "R3 shared=FP8",
+        "R4 hc_fn dim",
+        "R5 single-point+join bytes",
+        "R6 stale platform",
+        "R7 self-consistency not conformance"
+      ],
+      "note": "ground every number in the pinned reference; add reference-conformance self-tests that gate emission"
+    },
+    {
+      "round": 2,
+      "status": "FAIL",
+      "findings": [
+        "F1 single-point rendering",
+        "F2 pool score stream + FP32 state",
+        "F3 dtype->compute resource",
+        "F4 join operand contracts",
+        "F5 tracker fail-open"
+      ],
+      "note": "assert consequences not labels; fail closed"
+    },
+    {
+      "round": 3,
+      "status": "FAIL",
+      "findings": [
+        "G1 sparse-attn compute ceiling",
+        "G2 indexer observation/contract mismatch",
+        "G3 tracker schema/coverage"
+      ],
+      "note": "select compute resource by dtype; reconcile observation boundary; strengthen tracker validation"
+    },
+    {
+      "round": 4,
+      "status": "FAIL",
+      "findings": [
+        "H1 observation claims not validated against records"
+      ],
+      "note": "read + validate each observation against its result record; separate kernel-rev vs record-rev; withhold unsourced"
+    },
+    {
+      "round": 5,
+      "status": "FAIL",
+      "findings": [
+        "H1 correctness labeled CERTIFIED despite unresolved revisions / mismatched shapes"
+      ],
+      "note": "drop the CERTIFIED label; mark historical/author-reported/UNVERIFIED for the current target"
+    },
+    {
+      "round": 6,
+      "status": "FAIL",
+      "findings": [
+        "H1 certification inferred from free text (independent of outcome)"
+      ],
+      "note": "report the recorded field VERBATIM under a fixed UNVERIFIED attribution; absent=unrecorded; retain failures; regression-test missing/FAIL/failed-cosine"
+    },
+    {
+      "round": 7,
+      "status": "PASS",
+      "findings": [],
+      "note": "H1 closed via reporting-only verbatim/UNVERIFIED attribution; numerical + tracker fixes remain accepted within the declared partial scope"
+    }
+  ],
+  "finished_at": "2026-10-09T01:37:47"
+}

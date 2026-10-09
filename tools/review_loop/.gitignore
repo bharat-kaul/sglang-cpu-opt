@@ -1,2 +1,4 @@
-# review_loop run state (ledgers, per-round prompts/outputs) — regenerated, not source
-runs/
+# review_loop run state — raw per-round prompts/outputs are regenerated, not source.
+# The AUDIT TRAIL (audit_trail.md) and ledger.json ARE kept (the recorded audit of collateral->review->addressing).
+runs/**/*.prompt.txt
+runs/**/*.out.txt
