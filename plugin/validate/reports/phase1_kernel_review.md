@@ -9,6 +9,23 @@ Phase-1 requirement: **every op has an optimized C/C++ kernel**, tuned across th
 KV-cache knob) toward roofline, with a **hard no-regression floor vs torch at every M**. This is the
 review checkpoint before any Phase-2 wall-time integration.
 
+> **Review response (reviewer commit `4d8edbf`).** Independent review raised 8 findings (P1-F1..F8); this
+> doc is corrected accordingly and the prior overclaims are fixed inline below. Disposition:
+> - **Fixed in code/harness (commit `2d4d223`):** P1-F1 indexer bf16 stage conformance (oracle + candidate;
+>   signed weights; selection `non_tie=0` across M=1/8/16/32/64 — re-measured job 384526); P1-F2 dispatcher
+>   guards + N==0; P1-F3 F4 structural checks (tuple count/shape/dtype, non-finite-reference hard-fail,
+>   empty-manifest fail); P1-F4 sparse threshold relabelled PROPOSED (not a ratified noise floor) +
+>   ALL-records budget + bf16-matched operands in Part B; P1-F7 `pipefail` + io provenance; P1-F8
+>   non-finite-scale rejection.
+> - **Claims corrected here:** no-regression (indexer M1 is parity 0.94–0.98×, NOT a proven ≥1.0 floor —
+>   confirmed 3-trial job 384526); "bit-identical" (only the bf16-KV experiment uses `torch.equal`;
+>   cosine≈1.0 is not exactness); FP32 utilization varies ~13–74% (not a uniform 64%); combine M64 is
+>   cache-resident (not DRAM-saturated); flash bf16-AMX is not the "only" path.
+> - **Accepted + PENDING (gates Phase-1 sign-off):** replicated medians with full run-identity binding
+>   (P1-F6, partially started); coverage expansion — K128/640/160 unions, independent batches, causal
+>   sentinels, TP-local heads, non-contiguous layouts (P1-F5); a source-faithful 64-block sparse replica +
+>   ratified downstream error budgets (P1-F4). Tracked in the Exit Criteria.
+
 ---
 
 ## 1. Implementations (point of review)
@@ -30,29 +47,34 @@ roofline join (baseline source) [dsv4_roofline_vs_measured.py](dsv4_roofline_vs_
 
 ## 2. Performance vs roofline + no-regression floor (optimized, measured)
 
-Speedup = torch_fallback_latency / cpp_latency (≥1.0 = at-or-above the no-regression floor). Correctness:
-set-match (topk) / cosine (continuous), `tie_eps=0`.
+Speedup = torch_fallback_latency / cpp_latency. **Measurement caveat (P1-F6):** these are single-generation
+runs; each bench averages sequential warm calls (a mean, not a replicated median) and most logs are not yet
+bound to source/build/thread-affinity identity (the indexer re-measure job 384526 is the first replicated,
+provenance-stamped exception). Treat sub-noise deltas as indicative, not significant. Correctness: set-match
+(topk) / cosine (continuous), `tie_eps=0`.
 
-### #1 indexer logits — BW-bound (job 384474 / 384482)
+### #1 indexer logits — BW-bound (replicated job 384526, conformed bf16-stage kernel)
 | M | 1 | 8 | 16 | 32 | 64 |
 |---|---|---|---|---|---|
-| speedup vs torch | 0.96× | 2.79× | 3.88× | 3.64× | 2.56× |
+| cpp_ms (median of 3) | 0.100 | 0.204 | 0.217 | 0.272 | 0.395 |
+| speedup vs torch (median) | 0.97× | 3.03× | 3.85× | 3.29× | 2.51× |
 | off-roofline (was→now) | — | — | 14.6×→8.6× | 10.8×→**5.1×** | 9.1×→**3.6×** |
 
 - Levers: parallel VNNI pack + **fused per-tile bf16 conversion** (no full bf16 kv copy); L1 fused relu·weight·sum epilogue (scores never hit DRAM). Off-roofline ~halved at large M.
-- M=1 at torch parity (launch-overhead-bound; a dedicated M=1 path was NEUTRAL within noise — recorded, not shipped as a win).
-- **BW lever shipped:** bf16-KV path — `biteq=True` all M vs fp32-kv (the GEMM already rounds kv→bf16), halves the dominant read → **+1.03–1.47×** (job 384482). Kernel accepts fp32 *or* bf16 kv.
-- Correctness: cos 1.0; 0 induced-topk non-tie mismatches.
+- **Stage conformance (P1-F1):** the epilogue now rounds to the published **bf16** stage boundaries (bf16 einsum out, bf16 relu, bf16 signed weights, bf16 reduce → bf16 logits), matching `Indexer.forward`. Selection `non_tie=0` across M=1/8/16/32/64 under **signed** weights vs the conformed oracle. The table above is the post-conformance replicated re-measure (job 384526); the bf16 epilogue did not regress perf (M64 cpp_ms stable 0.392–0.421 across trials).
+- **No-regression (corrected, P1-F6):** the floor holds at M≥8; **M=1 is torch parity (0.97–0.98×)**, within the cluster noise but NOT a proven ≥1.0× — a paired non-inferiority test is PENDING.
+- **BW lever shipped:** bf16-KV path — `biteq=True` all M vs fp32-kv (the GEMM already rounds kv→bf16), halves the dominant read → **+1.03–1.47×** (job 384482, `torch.equal` on sampled inputs). Kernel accepts fp32 *or* bf16 kv.
+- Correctness: selection `non_tie=0`; logits are bf16 (topk input).
 
 ### #2 sparse attend — fp32-GEMM-bound, near roofline (job 384476; oracle 384502/384505)
 | M | 1 | 8 | 16 | 32 | 64 |
 |---|---|---|---|---|---|
 | `bestof` speedup vs torch | 3.62× | 9.08× | 1.59× | 1.34× | 1.07× |
 
-- Shipped: **best-of dispatch** — N==1 scalar flash (bit-exact), N≥2 **fp32-bmm donor + in-place fused softmax**. Beats torch at **every** M, cos=1.0.
-- Roofline: at M≥8 this is fp32-GEMM-bound; torch's MKL bmm is already ~**64% of FP32 peak** (5.0/7.78 TF) → the fp32-bmm donor sits near the fp32 ridge.
-- **Conformance RESOLVED via GPU oracle** (H200 job 384502 + EMR diff 384505): the real TileLang `sparse_attn` is **bf16** (bf16 operands + bf16 unnormalized-exp cast + bf16 out, **fp32 accumulate**). The fp32 F4 oracle was over-strict → ratified bf16 oracle (`SPARSE_NOISE_FLOOR=4e-3`, the kernel's own measured noise). The fp32-bmm donor lands **at** the real kernel's bf16 noise (2.0–3.5e-3) *and* beats torch. Naive `sparse_attend_amx` is **DROPPED (dominated)**: drifts to 5.86e-3 @N64 *and* slower.
-- Residual headroom (unblocked, future authoring): a flash bf16-AMX with fp32 accumulate throughout is the only path to the 124 TF ceiling.
+- Shipped: **best-of dispatch** — N==1 scalar flash, N≥2 **fp32-bmm donor + in-place fused softmax**. Beats torch at every M.
+- Roofline (corrected, P1-F8): sparse is dominated by its two **fp32** GEMMs; whole-op FP32 utilization **varies ~13/47/56/66/74%** across M=1/8/16/32/64 (not a uniform 64%). The M8 9.08× figure also reflects **comparator instability** (torch was 1.336 ms in job 384476 vs 0.320 ms in 384474) — the fusion share is not cleanly isolated.
+- **Conformance (corrected, P1-F4):** the GPU oracle (H200 job 384502) establishes the real TileLang `sparse_attn` is **bf16** (bf16 operands + bf16 unnormalized-exp cast + bf16 out, fp32 accumulate). BUT the F4 bf16 replica is **globally** normalized, NOT the published 64-block online softmax, and the 4e-3 threshold is **approximation error on bf16-matched operands, PROPOSED not a ratified noise floor** — sparse continuous is SCREENING only (PARTIAL). A source-faithful blockwise replica + downstream budget are PENDING. Naive `sparse_attend_amx` is DROPPED (drifts further + slower).
+- Residual headroom: a flash bf16-AMX with fp32 accumulate is **one** path to the 124 TF ceiling; a tiled bf16-input/fp32-output library GEMM with the published recurrence is an **untested alternative** (not foreclosed).
 
 ### #3 compressor — BW/grain-bound, 3-shape coverage (job 384474)
 | M | 1 | 8 | 16 | 32 | 64 |
@@ -83,7 +105,7 @@ set-match (topk) / cosine (continuous), `tie_eps=0`.
 |---|---|---|---|---|---|
 | speedup vs torch | 5.52× | 2.25× | 2.31× | 2.15× | 1.98× |
 
-- Tiled accumulate-once (no broadcast temp). cos=1.0. Near the BW roof at large M (1.98×@M64 ≈ the wall).
+- Tiled accumulate-once (no broadcast temp). cos=1.0. Corrected (P1-F8): M64 useful traffic / 14 us ≈ **375 GB/s > nominal 358 GB/s** → warm buffers are partly **cache-resident**; this is NOT proof of DRAM saturation.
 
 ---
 
@@ -109,9 +131,16 @@ set-match (topk) / cosine (continuous), `tie_eps=0`.
 
 ## 5. Review status
 
-- **All 6 kernels**: optimized C/C++, no-regression floor held at every M, correctness clean. ✅
-- **Perf vs roofline**: recorded across the M-sweep (and KV knob) per kernel above. ✅
-- **Open conformance (sparse dtype)**: RESOLVED by GPU oracle (reference = bf16). ✅
-- **Phase-1 exit = PAUSE FOR REVIEW**: not advancing to Phase-2 wall-time integration until this review completes.
+- **All 6 kernels**: optimized C/C++, correctness clean (F4 PARTIAL, no hard-gate failure); no-regression holds at M≥8, **M=1 indexer is parity (0.94–0.96×), not a proven floor** (P1-F6). ⚠️ requalified
+- **Perf vs roofline**: recorded across the M-sweep (single-generation; replicated medians PENDING). ⚠️
+- **Sparse dtype**: reference = bf16 (GPU oracle); acceptance is SCREENING/PROPOSED, not ratified (P1-F4). ⚠️
+- **Phase-1 exit = PAUSE FOR REVIEW**: not advancing to Phase-2 until the Exit Criteria below are met.
 
-Open items for reviewer judgment: (a) ratify the F4 tolerance posture (currently screening → STATUS=PARTIAL, never full PASS; sparse floor is GPU-measured) and the downstream error budgets (PENDING); (b) whether the flash bf16-AMX sparse headroom is worth authoring now or deferring; (c) proceed to Phase-2.
+## Exit criteria (from review `4d8edbf`, tracked)
+
+1. **Done:** source-stage indexer oracle + candidate conformance (signed weights, `non_tie=0`); common guards; F4 rejects malformed structures / non-finite comparison / empty inventory / hard selection failures.
+2. **Pending:** extend acceptance to every required M + captured shapes/layouts (K128/640/160 unions, independent batches, causal sentinels, TP-local heads, non-contiguous); conform the sparse reference on identical operands/output boundaries with a source-faithful 64-block replica; keep approximate budgets explicitly pending until independently justified + ratified.
+3. **Pending:** bind each run to source/build/library/config/input identity; reproduce all M with ≥3 independent trials (medians + variability, randomized/alternated pairing, cold vs steady-state); investigate M1 indexer + M8 sparse comparator behavior before any universal-floor claim; final perf on target HW (GNR), not portable infra.
+4. **Pending:** preserve the historical baseline; publish optimized measurements as a separate versioned record; price remaining opportunities by actual caller workload, not microbench speedup; proceed to captured-integration / full-model gates.
+
+Open items for reviewer judgment: (a) ratify the F4 tolerance posture + downstream budgets; (b) whether the flash bf16-AMX / tiled-bf16-GEMM sparse headroom is worth authoring now; (c) proceed to Phase-2 only after criteria 2–4 close.
