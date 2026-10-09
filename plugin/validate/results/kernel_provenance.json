@@ -1,0 +1,93 @@
+{
+  "_schema": "Kernel-provenance record (DSv4-Flash pilot). Each authored CPU kernel is traced to its EXTERNAL algorithm reference in the PUBLISHED model.py (call site + semantics) at a pinned revision, plus its torch NUMERICAL ORACLE. Disposition is FAITHFUL (implements the referenced stage), FRAGMENT (faithful core of a larger reference subgraph; gaps enumerated), or DIVERGENT. Validation evidence is a microbench op_passes record whose scope is MICROBENCH ONLY (current-target/E2E verification PENDING). No claim is self-referenced: every semantic traces to a line a reviewer can open in the pinned reference. REQUIRED before implementation review / re-authoring.",
+  "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1 (inference/model.py)",
+  "established_on": "2026-10-08",
+  "gate": "kernel-provenance (required; a kernel without FAITHFUL/FRAGMENT external provenance + enumerated gaps is not trusted for perf claims or re-authoring)",
+  "provenance_depth_caveat": "sparse_attn and hc_split_sinkhorn are PRIMITIVES imported `from kernel` in model.py (CUDA/TileLang), not defined in model.py source. Their integration contract (signature + usage) is taken from the published call sites; their exact numerics are taken from the published torch fallbacks / in-tree oracles. So the chain is: published model.py call site (authoritative contract) + torch fallback (authoritative math) -> local CPU reference oracle -> authored kernel.",
+  "kernels": [
+    {
+      "kernel": "plugin/kernels/dsa_pilot/indexer_logits.cpp",
+      "op": "DSA lightning-indexer logits: logits[n,s] = sum_h relu(q[n,h].kv[n,s]) * weight[n,h]",
+      "external_reference": "model.py Indexer.forward: index_score = einsum('bshd,btd->bsht', q, kv_cache); index_score = (index_score.relu_() * weights.unsqueeze(-1)).sum(dim=2); weights = weights_proj(x) * (softmax_scale * n_heads**-0.5)",
+      "numerical_oracle": "intel_cpu_models/dsa_indexer_cpu.indexer_logits_reference (mirrors in-tree fp8_paged_mqa_logits_torch)",
+      "stage_covered": "per-(query,kv) relu-weighted-sum scoring over the compressed index context",
+      "disposition": "FAITHFUL (scoring stage) / FRAGMENT of full Indexer",
+      "unmodeled_gaps": [
+        "wq_b query projection (1024->index_n_heads*index_head_dim)",
+        "RoPE on q (apply_rotary_emb on rope dims)",
+        "Hadamard rotate_activation(q) + fp4_act_quant",
+        "the Indexer's OWN Compressor(rotate=True) that builds the scored compressed KV",
+        "prefill causal mask on index_score"
+      ],
+      "validation": "results/op_passes/indexer_logits.json (microbench; kept pass commit=e3fdcb9; cos 1.000000 at tested shape; MICROBENCH scope, E2E verification PENDING)",
+      "status": "provenance-established; FRAGMENT gaps already EXPLICITLY-UNMODELED in results/roofline_open_items.json"
+    },
+    {
+      "kernel": "plugin/kernels/dsa_pilot/indexer_topk.cpp",
+      "op": "select the top-k KV indices per query from the indexer logits (set, gather is permutation-invariant)",
+      "external_reference": "model.py Indexer.forward: topk_idxs = index_score.topk(min(index_topk, end_pos//ratio), dim=-1)[1]  (index_topk=512)",
+      "numerical_oracle": "intel_cpu_models/dsa_indexer_cpu.indexer_topk == torch.topk(.., sorted=False).indices",
+      "stage_covered": "top-k index selection",
+      "disposition": "FAITHFUL (selection stage; set-match)",
+      "unmodeled_gaps": ["prefill masking + offset bookkeeping of topk_idxs (model.py adds offset / -1 masking) handled by caller, not the kernel"],
+      "validation": "results/op_passes/indexer_topk.json (microbench; kept pass commit=pending UNRESOLVED; set-match 1.0 at tested shape; MICROBENCH scope, E2E verification PENDING)",
+      "status": "provenance-established; kept-pass revision UNRESOLVED (record commit=pending)"
+    },
+    {
+      "kernel": "plugin/kernels/dsa_pilot/compressor.cpp",
+      "op": "softmax-pool: out[n,d] = sum_r softmax_r(score[n,r,d] + ape[r,d]) * kv[n,r,d]",
+      "external_reference": "model.py Compressor.forward pool core: score += ape; kv = (kv * score.softmax(dim=window)).sum(dim=window)",
+      "numerical_oracle": "intel_cpu_models/dsa_compressor_cpu.compress_softmax_pool_reference (mirrors in-tree HIP fallback _compress_forward_c128_fallback)",
+      "stage_covered": "the softmax-weighted pool over a window (ratio) with ape",
+      "disposition": "FAITHFUL (pool stage) / FRAGMENT of full Compressor",
+      "unmodeled_gaps": [
+        "wkv + wgate projections (dim -> coff*head_dim, FP32) that PRODUCE kv and score",
+        "ape is a learned Parameter added INSIDE the module (kernel takes it as input)",
+        "overlap_transform for ratio==4 (overlapping window => pools 2*ratio=8 positions; coff=2)",
+        "RMSNorm(head_dim) on the pooled kv",
+        "apply_rotary_emb (RoPE) on rope dims",
+        "optional rotate_activation (Hadamard) + fp4_act_quant / act_quant",
+        "kv_state / score_state decode-incremental buffers + prefill-vs-decode control flow"
+      ],
+      "validation": "results/op_passes/compressor.json (microbench R=128,D=512; kept pass commit=pending UNRESOLVED; cos 1.000000 at tested shape; MICROBENCH scope, E2E verification PENDING)",
+      "status": "provenance-established; FRAGMENT gaps already EXPLICITLY-UNMODELED in results/roofline_open_items.json"
+    },
+    {
+      "kernel": "plugin/kernels/dsa_pilot/sparse_attend.cpp",
+      "op": "MLA sparse attention over gathered latent KV: MQA (one kv latent shared across H heads) + per-head learned softmax SINK (attn_sink[H]) + scale",
+      "external_reference": "model.py Attention.forward: o = sparse_attn(q, kv, self.attn_sink, topk_idxs, self.softmax_scale) [primitive imported `from kernel`]; MQA num_key_value_heads=1, head_dim=512; attn_sink[n_local_heads] fp32; softmax_scale = head_dim**-0.5",
+      "numerical_oracle": "intel_cpu_models/dsa_sparse_attention_cpu (torch), validated cos",
+      "stage_covered": "attend-over-already-gathered-KV (the top-k gather itself is upstream)",
+      "disposition": "FAITHFUL (attend stage), scalar impl SURFACED",
+      "unmodeled_gaps": [
+        "gather of the top-k KV by topk_idxs is done upstream (indexer_topk + gather); the kernel assumes kv[N,K,D] already gathered",
+        "the published sparse_attn is a `kernel` primitive; numerics taken from the torch oracle, not the binary"
+      ],
+      "validation": "results/op_passes/sparse_attend.json (microbench; kept pass commit=pending UNRESOLVED; SURFACED: at real MQA/D=512/+sink dims neither scalar nor AMX beats torch BLAS einsum -> route to donor MLA flash; MICROBENCH scope, E2E verification PENDING)",
+      "status": "provenance-established; implementation SURFACED (scalar kernel is NOT the production path; donor MLA flash is)"
+    },
+    {
+      "kernel": "plugin/kernels/dsa_pilot/sinkhorn.cpp",
+      "op": "MHC hc-split Sinkhorn: (mixes, scale, base, hc, iters, eps) -> (pre, post, comb) doubly-stochastic plan",
+      "external_reference": "model.py Block.hc_pre: pre, post, comb = hc_split_sinkhorn(mixes, hc_scale, hc_base, hc_mult, hc_sinkhorn_iters, hc_eps) [primitive imported `from kernel`]; hc_mult=4, iters=20, eps=1e-6",
+      "numerical_oracle": "sglang.kernels.ops.layernorm.mhc._hc_split_sinkhorn_torch (torch; eps placement matched EXACTLY per kernel header)",
+      "stage_covered": "the full hc-split Sinkhorn plan computation",
+      "disposition": "FAITHFUL",
+      "unmodeled_gaps": ["published hc_split_sinkhorn is a `kernel` primitive; numerics taken from the sglang torch oracle, not the binary"],
+      "validation": "results/op_passes/mhc_sinkhorn.json (microbench; kept pass commit=pending UNRESOLVED; cos 1.000000 pre/post/comb at tested shape; MICROBENCH scope, E2E verification PENDING)",
+      "status": "provenance-established; kept-pass revision UNRESOLVED (record commit=pending)"
+    },
+    {
+      "kernel": "plugin/kernels/dsa_pilot/combine.cpp",
+      "op": "MHC hc_pre weighted-sum combine: y[m,h] = sum_k pre[m,k] * x[m,k,h]",
+      "external_reference": "model.py Block.hc_pre: y = torch.sum(pre.unsqueeze(-1) * x.view([b,s,hc,d]), dim=2)",
+      "numerical_oracle": "intel_cpu_models _cpu_hc_combine == torch.einsum('mk,mkh->mh', pre, x.reshape(m,hc,H))",
+      "stage_covered": "the hc_pre weighted-sum over hc clusters",
+      "disposition": "FAITHFUL",
+      "unmodeled_gaps": ["the RMSNorm + F.linear(hc_fn) that PRODUCE mixes feeding Sinkhorn are upstream (hc_fn modeled in roofline, not in this kernel)"],
+      "validation": "results/op_passes/mhc_combine.json (microbench; kept pass commit=pending UNRESOLVED; cos 1.000000 at tested shape; MICROBENCH scope, E2E verification PENDING)",
+      "status": "provenance-established; kept-pass revision UNRESOLVED (record commit=pending)"
+    }
+  ],
+  "overall": "All 6 authored CPU kernels have EXTERNAL provenance confirmed against the pinned published model.py: indexer_logits (FRAGMENT core), indexer_topk (FAITHFUL select), compressor (FRAGMENT pool core), sparse_attend (FAITHFUL attend stage, impl SURFACED), sinkhorn (FAITHFUL), combine (FAITHFUL). Two (compressor, indexer) are stage-faithful cores of larger subgraphs whose gaps (projections, RoPE, Hadamard, quant, overlap, decode-state, masking) are enumerated here and already EXPLICITLY-UNMODELED in results/roofline_open_items.json. All correctness is MICROBENCH scope (current-target/E2E verification PENDING); four kept-pass revisions are UNRESOLVED (record commit=pending). Implementation review / re-authoring may proceed with these gaps and the SURFACED sparse-attend path as declared scope."
+}

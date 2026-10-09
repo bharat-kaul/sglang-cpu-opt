@@ -308,6 +308,40 @@ para("Anti-patterns (each is a silent-failure trap): trusting a parity microbenc
      "toy defaults as the real constants; and the cardinal sin \u2014 RE-GUESSING a shape after finding one "
      "wrong instead of capturing it from the published model.", GRAY)
 
+# ---- kernel-algorithm provenance ----
+h1("Kernel-algorithm provenance — trace EVERY authored kernel to the published reference (REQUIRED before impl review)")
+para("A kernel is trusted only when its ALGORITHM traces to an EXTERNAL reference \u2014 the published model\u2019s "
+     "op definition or primitive call site, plus the authoritative numerical oracle \u2014 with an explicit "
+     "FAITHFUL / FRAGMENT / DIVERGENT disposition and ENUMERATED gaps. A green parity microbench proves the "
+     "MATH at the author\u2019s shapes; it does NOT prove the kernel implements the MODEL\u2019s op: a stage-faithful "
+     "FRAGMENT (pool core without the projections/RoPE/Hadamard/quant/decode-state around it) passes cos=1.0 "
+     "while silently omitting most of the subgraph. Establish this BEFORE reviewing or re-authoring "
+     "implementations. Model-agnostic.", bold=True)
+h2("The method (in order)")
+num("PIN the published reference and LOCATE the op: its module/function definition OR its call site + "
+    "signature. For a PRIMITIVE imported from a kernel module (CUDA/TileLang, not in model source), take the "
+    "integration contract from the call site and the NUMERICS from the published torch fallback/oracle \u2014 and "
+    "say so (provenance-depth caveat).", bold_lead="1 \u2014 ")
+num("MAP the kernel to a STAGE of that reference and CLASSIFY: FAITHFUL (implements the stage), FRAGMENT "
+    "(faithful core \u2014 then ENUMERATE every missing sub-op: projections, norm, RoPE, Hadamard, quant, overlap "
+    "window, decode-state buffers, masking, gather), or DIVERGENT (semantics differ \u2014 stop).",
+    bold_lead="2 \u2014 ")
+num("CITE the numerical ORACLE and the microbench EVIDENCE. Correctness is MICROBENCH scope (current-target/"
+    "E2E verification PENDING); record the kept-pass REVISION (UNRESOLVED if the record commit is pending). "
+    "Mark a SURFACED / non-production kernel as such (e.g. a scalar kernel that loses to a donor path).",
+    bold_lead="3 \u2014 ")
+num("RECORD the determination in a structured artifact (one entry per kernel: external_reference, oracle, "
+    "stage, disposition, unmodeled_gaps, validation). CROSS-LIST every gap with the cost model\u2019s "
+    "EXPLICITLY-UNMODELED items so the two artifacts agree.", bold_lead="4 \u2014 ")
+num("GATE: no implementation review, re-authoring, or performance trust for a kernel until it has FAITHFUL "
+    "or FRAGMENT(+enumerated gaps) EXTERNAL provenance recorded. Provenance is a prerequisite, not a "
+    "by-product of optimization.", bold_lead="5 \u2014 ")
+para("Why it survives human audit: the reviewer opens the referenced module line, the oracle, and the "
+     "record; the stage/disposition/gaps are explicit and external. Anti-patterns: a parity microbench taken "
+     "as proof the kernel implements the model\u2019s op; a stage-faithful FRAGMENT reported as the full subgraph; "
+     "gaps left unspoken; citing a locally re-derived reference as the authority instead of the published "
+     "module; and re-authoring before provenance exists.", GRAY)
+
 # ---- roofline accounting discipline ----
 h1("Roofline accounting discipline — REFERENCE-CONFORMANT, fail-closed (self-consistency is NOT the gate)")
 para("An analytical roofline is trustworthy only when every FLOP/byte/dtype/count traces to an EXTERNAL "
@@ -487,6 +521,7 @@ for g in ["G0 — capacity / precision (every launch)",
           "Fusion roofline gate (bytes saved + AI lift + cache-resident; reference oracle where available)",
           "External-reference provenance gate (every op/shape/number/dtype/kernel/measurement cites an EXTERNAL authority or is EXPLICITLY-UNMODELED/withheld; tests assert consequences and fail closed; before any trust/perf-claim)",
           "Shape-provenance gate (every kernel's shapes CAPTURED from the real forward + human-signed manifest, before trust/perf-claims)",
+          "Kernel-provenance gate (every authored kernel traced to the published reference: FAITHFUL/FRAGMENT(+enumerated gaps)/DIVERGENT + oracle + microbench-scope evidence recorded, REQUIRED before implementation review / re-authoring / perf-trust)",
           "Roofline-accounting gate (invariant self-test passes + one inventory + every quantity MODELED/MEASURED/EXPLICITLY-UNMODELED, before the report is published)",
           "Phase-A ceiling-or-surface (every op at its ceiling, else surface to user)",
           "G2 — validate-by-run (confirm the paper model in-engine)",
