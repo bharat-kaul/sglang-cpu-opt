@@ -152,12 +152,48 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   return logits;
 }
 
+// M=1 (N=1) low-overhead path: one brgemm over the whole S (fp32-output -> scores IDENTICAL to the tiled
+// path's bf16-input/fp32-accumulate), then a parallel FP32 relu*weight*sum epilogue over S. Avoids the
+// many-tiny-tile dispatch + per-tile overhead that made N=1 overhead-bound.
+torch::Tensor indexer_logits_m1(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
+  const int64_t H = q.size(1), D = q.size(2), S = kv.size(1);
+  auto qb = q.to(torch::kBFloat16).contiguous();
+  auto kvb = kv.to(torch::kBFloat16).contiguous();
+  auto wf = weight.to(torch::kFloat32).contiguous();
+  auto logits = torch::empty({1, S}, torch::kFloat32);
+  const bool vnni = at::native::cpublas::could_pack(torch::kBFloat16);
+  auto qT = qb[0].transpose(0, 1).contiguous();                 // [D,H]
+  auto qpack = torch::empty({D * H}, torch::kBFloat16);
+  if (vnni) {
+    at::native::cpublas::pack(D, H, H, H, torch::kBFloat16, torch::kBFloat16,
+                              qT.data_ptr<at::BFloat16>(), qpack.data_ptr<at::BFloat16>());
+  } else {
+    std::memcpy(qpack.data_ptr<at::BFloat16>(), qT.data_ptr<at::BFloat16>(), D * H * sizeof(at::BFloat16));
+  }
+  std::vector<float> C(S * H);                                   // [S,H] fp32 scores (L2-resident)
+  at::native::cpublas::brgemm(S, H, D, D, H, H, /*add_C=*/false, kvb[0].data_ptr<at::BFloat16>(),
+                              qpack.data_ptr<at::BFloat16>(), C.data(), vnni);
+  at::native::cpublas::brgemm_release(vnni);
+  const float* w = wf.data_ptr<float>();
+  float* lp = logits.data_ptr<float>();
+  at::parallel_for(0, S, 0, [&](int64_t s0, int64_t s1) {        // parallel epilogue over S
+    for (int64_t s = s0; s < s1; ++s) {
+      const float* row = C.data() + s * H;
+      float acc = 0.f;
+      #pragma omp simd reduction(+ : acc)
+      for (int64_t h = 0; h < H; ++h) { float v = row[h]; acc += (v > 0.f ? v : 0.f) * w[h]; }
+      lp[s] = acc;
+    }
+  });
+  return logits;
+}
+
 // Integration entry point: the SINGLE tiled path (brgemm + L1 fused epilogue) for ALL M (F2 — no per-M
 // dispatch, so the numerical contract does not change at a boundary).
 torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
-  // F2: integration entry uses ONE matmul path (tiled brgemm, fp32-accumulated scores) for ALL M, so the
-  // numerical contract does NOT change at a dispatch boundary. The bmm 'fused' variant remains separately
-  // benchmarkable but is not the integration path (it rounds scores to bf16 and diverges at small M).
+  // F2: scores stay FP32-accumulated on BOTH paths (tiled brgemm; m1 single brgemm) -> IDENTICAL numerics
+  // across the N==1 boundary (no bf16 score rounding). m1 avoids the tiny-tile overhead that bound N=1.
+  if (q.size(0) == 1) return indexer_logits_m1(q, kv, weight);
   return indexer_logits_tiled(q, kv, weight);
 }
 

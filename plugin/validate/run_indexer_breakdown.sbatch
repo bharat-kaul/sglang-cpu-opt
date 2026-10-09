@@ -33,4 +33,7 @@ numactl -N 0 -m 0 python plugin/validate/bench_compressor.py
 echo ">>> INDEXER_LOGITS SWEEP (optimized) — per-M median cpp_ms + torch speedup (no-regression floor)"
 numactl -N 0 -m 0 python plugin/validate/bench_idx_logits.py
 echo ">>> baseline 384414 cpp_ms per M[1,8,16,32,64] = [0.100, 0.279, 0.366, 0.540, 0.908]"
+
+echo ">>> SPARSE ATTEND (scalar vs AMX vs torch — for best-of dispatch + no-regression check)"
+numactl -N 0 -m 0 python plugin/validate/bench_sparse_attend.py
 echo ">>> done"

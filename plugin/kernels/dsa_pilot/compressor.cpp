@@ -25,31 +25,39 @@ torch::Tensor compressor_softmax_pool(torch::Tensor kv, torch::Tensor score, tor
   const float* ap = apc.data_ptr<float>();
   float* op = out.data_ptr<float>();
 
-  at::parallel_for(0, N, 0, [&](int64_t n0, int64_t n1) {
-    std::vector<float> m(D), l(D), acc(D);
-    for (int64_t n = n0; n < n1; ++n) {
-      for (int64_t d = 0; d < D; ++d) { m[d] = -INFINITY; l[d] = 0.f; acc[d] = 0.f; }
+  // Parallelize over N * D-tiles (the softmax is independent per channel) so all cores are used even at
+  // small N (N-only parallelism left cores idle and REGRESSED vs torch at M=1). DT >= 16 (one AVX-512 vec).
+  const int64_t nthr = at::get_num_threads();
+  int64_t dpt = std::max<int64_t>(1, (2 * nthr + N - 1) / N);        // d-tiles per n (target ~2*threads tasks)
+  int64_t DT = std::max<int64_t>(16, (D + dpt - 1) / dpt);
+  DT = (DT + 15) / 16 * 16;                                          // round to an AVX-512 width
+  const int64_t ndt = (D + DT - 1) / DT;
+
+  at::parallel_for(0, N * ndt, 0, [&](int64_t t0, int64_t t1) {
+    std::vector<float> m(DT), l(DT), acc(DT);
+    for (int64_t t = t0; t < t1; ++t) {
+      const int64_t n = t / ndt, dt = t % ndt, d0 = dt * DT;
+      const int64_t dd = std::min(DT, D - d0);
+      for (int64_t j = 0; j < dd; ++j) { m[j] = -INFINITY; l[j] = 0.f; acc[j] = 0.f; }
       for (int64_t r = 0; r < R; ++r) {
-        const float* srow = sp + (n * R + r) * D;
-        const float* arow = ap + r * D;
-        const float* krow = kp + (n * R + r) * D;
+        const float* srow = sp + (n * R + r) * D + d0;
+        const float* arow = ap + r * D + d0;
+        const float* krow = kp + (n * R + r) * D + d0;
         #pragma omp simd
-        for (int64_t d = 0; d < D; ++d) {
-          // F1: a MASKED position (score==-inf, e.g. ratio-4 overlap padding) contributes nothing.
-          // corr=0 while the running max is still -inf (nothing accumulated); e=0 for a -inf input.
-          // This avoids the indeterminate exp(-inf - -inf)=NaN that poisoned the pool.
-          float x = srow[d] + arow[d];
-          float mnew = x > m[d] ? x : m[d];
-          float corr = (m[d] == -INFINITY) ? 0.f : std::exp(m[d] - mnew);
+        for (int64_t j = 0; j < dd; ++j) {
+          // F1: a MASKED position (score==-inf) contributes nothing (corr=0 while running max is -inf; e=0).
+          float x = srow[j] + arow[j];
+          float mnew = x > m[j] ? x : m[j];
+          float corr = (m[j] == -INFINITY) ? 0.f : std::exp(m[j] - mnew);
           float e = (x == -INFINITY) ? 0.f : std::exp(x - mnew);
-          l[d] = l[d] * corr + e;
-          acc[d] = acc[d] * corr + e * krow[d];
-          m[d] = mnew;
+          l[j] = l[j] * corr + e;
+          acc[j] = acc[j] * corr + e * krow[j];
+          m[j] = mnew;
         }
       }
-      float* orow = op + n * D;
+      float* orow = op + n * D + d0;
       #pragma omp simd
-      for (int64_t d = 0; d < D; ++d) orow[d] = (l[d] > 0.f) ? acc[d] / l[d] : 0.f;  // all-masked -> 0
+      for (int64_t j = 0; j < dd; ++j) orow[j] = (l[j] > 0.f) ? acc[j] / l[j] : 0.f;  // all-masked -> 0
     }
   });
   return out;
