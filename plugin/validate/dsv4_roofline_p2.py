@@ -98,11 +98,13 @@ def ridge_crossing(fpt, fixed_bytes, bpt, ridge):
 class Op:
     def __init__(self, name, lane, impl, prec, layers, flop, byts, note,
                  crossing=None, kind="gemm", lat_s=None, m_obs=None, src="",
+                 record="", commit="", certifies="",
                  weight_bytes_per_layer=0.0, unmodeled=""):
         self.name, self.lane, self.impl, self.prec, self.layers = name, lane, impl, prec, layers
         self.flop, self.byts, self.note = flop, byts, note
         self.crossing, self.kind, self.lat_s = crossing, kind, lat_s
         self.m_obs, self.src = m_obs, src
+        self.record, self.commit, self.certifies = record, commit, certifies
         self.peak = COMPUTE_PEAK.get(prec, PEAK)
         self.ridge = self.peak / BW
         self.weight_bytes = weight_bytes_per_layer * layers
@@ -111,11 +113,12 @@ class Op:
     def row(self, M):
         if self.kind == "unmodeled":
             return NA, "n/m", NA                       # never a number
-        if self.kind == "measured":                     # F1: single observed coordinate only
-            return (NA, "meas", self.lat_s) if M == self.m_obs else (NA, "meas", NA)
+        if self.kind == "observed":                     # G2: absolute latency withheld (unverified)
+            return NA, "obs", NA                        # see AUDITABLE OBSERVATIONS block
         fl, by = self.flop(M), self.byts(M)
         ai = fl / by if by else 0.0
         return ai, ("C" if ai > self.ridge else "B"), max(by / BW, fl / self.peak)
+
 
 
 def wgemm(name, K, N, prec, layers, lane, impl, groups=1, act="bf16", unmodeled=""):
@@ -131,12 +134,14 @@ def wgemm(name, K, N, prec, layers, lane, impl, groups=1, act="bf16", unmodeled=
               weight_bytes_per_layer=fixed, unmodeled=unmodeled)
 
 
-def measured(name, lane, impl, lat_per_call, layers, m_obs, src, prov):
-    """F1: ONE observed coordinate. lat rendered ONLY at m_obs (N/A elsewhere); src = benchmark link.
-    Per-step aggregate = lat_per_call x architectural invocation count (count is modeled, lat observed)."""
-    return Op(name, lane, impl, "meas", layers, flop=lambda M: 0, byts=lambda M: 0,
-              note=f"observed @M={m_obs}; {prov}; src={src}", kind="measured",
-              lat_s=lat_per_call * layers, m_obs=m_obs, src=src)
+def observed(name, lane, impl, layers, m_obs, record, commit, certifies):
+    """G2: an AUTHORED-op observation backed by an AUDITABLE RESULT RECORD (op_passes/*.json + commit).
+    The record certifies CORRECTNESS + SPEEDUP-vs-torch at m_obs; an absolute node latency is NOT in the
+    record, so it is WITHHELD (unverified) rather than invented. Rendered n/a in the time columns; the
+    record + what it certifies are printed in the AUDITABLE OBSERVATIONS block."""
+    return Op(name, lane, impl, "obs", layers, flop=lambda M: 0, byts=lambda M: 0,
+              note=f"observed @M={m_obs}; record={record}@{commit}; certifies={certifies}",
+              kind="observed", m_obs=m_obs, record=record, commit=commit, certifies=certifies)
 
 
 def unmodeled_op(name, lane, impl, layers, why):
@@ -230,7 +235,6 @@ def hc_head():
 
 
 # ================= ONE tensor inventory (OPS + capacity) =================
-_BNODE = "pcl-sprh02 DDR5-5600, 64thr NUMA0"
 OPS = [
     wgemm("MLA wqkv_a (fused q_a+kv_a, 4096->1536)", H, QLORA + HD, "fp8", L, "A", "donor dsv2"),
     unmodeled_op("  q_norm RMSNorm(1024)", "A", "donor norm.cpp", L, "no identifiable measured coordinate/source"),
@@ -244,8 +248,9 @@ OPS = [
     wgemm("DSA indexer wq_b (1024->8192)", QLORA, IDX_NH * IDX_HD, "fp8", N_IDX, "A", "donor dsv2"),
     wgemm("DSA indexer weights_proj (4096->64)", H, IDX_NH, "bf16", N_IDX, "A", "donor gemm"),
     indexer_fused(),
-    measured("DSA indexer topk-512 (over 1024)", "B", "NEW-C++", 0.039e-3, N_IDX, 32,
-             "plugin/validate/bench_topk.py", f"{_BNODE}, S=1024, fp32 logits"),
+    observed("DSA indexer topk-512 (over 1024)", "B", "NEW-C++", N_IDX, 32,
+             "plugin/validate/results/op_passes/indexer_topk.json", "06faec0",
+             "set-match 1.0; 7.62x vs torch.topk @M=32 (S=1024)"),
     # --- compressors: projections (every token, FP32 state out) + pooling (boundary-amortized) (R2/F2) ---
     wgemm("main compressor wkv+wgate (r4, 4096->2048)", H, 2 * 2 * HD, "bf16", N_IDX, "A", "donor dsv2", act="fp32"),
     wgemm("main compressor wkv+wgate (r128, 4096->1024)", H, 2 * HD, "bf16", N_128, "A", "donor dsv2", act="fp32"),
@@ -255,10 +260,12 @@ OPS = [
     pool("indexer pool (r4 overlap, win=8 D=128)", 8, IDX_HD, N_IDX / 4, "B"),
     # --- MHC (every layer x2 pre + post; head once) ---
     hc_fn(),
-    measured("MHC sinkhorn (hc=4, 20 iters)", "C", "NEW-C++", 0.015e-3, 2 * L, 32,
-             "plugin/validate/bench_sinkhorn.py", f"{_BNODE}, hc=4"),
-    measured("MHC combine (hc_pre reduce)", "C", "NEW-C++", 0.013e-3, 2 * L, 32,
-             "plugin/validate/bench_combine.py", f"{_BNODE}, hc=4 H=4096"),
+    observed("MHC sinkhorn (hc=4, 20 iters)", "C", "NEW-C++", 2 * L, 32,
+             "plugin/validate/results/op_passes/mhc_sinkhorn.json", "pending",
+             "cos 1.0 (pre/post/comb); 20.84x vs torch @M=32"),
+    observed("MHC combine (hc_pre reduce)", "C", "NEW-C++", 2 * L, 32,
+             "plugin/validate/results/op_passes/mhc_combine.json", "pending",
+             "cos 1.0; 2.12x vs torch @M=32"),
     hc_post(),
     hc_head(),
     # --- MoE ---
@@ -277,30 +284,65 @@ def capacity():
     return {op.name: op.weight_bytes / 1e9 for op in OPS if op.weight_bytes}
 
 
-# ---- F5: STRICT tracker gate (fail-closed, validated) ----
+# ---- G3: STRICT tracker gate (fail-closed, schema + coverage, real validator) ----
 _VALID_DISPOSITIONS = ("MODELED", "MEASURED", "EXPLICITLY-UNMODELED")
+# Known coverage categories that MUST remain disposed (cannot silently disappear between revisions).
+_REQUIRED_COVERAGE = (
+    "KV / state / workspace",
+    "masked shared-pool fallback",
+    "hc_post/hc_head vector work",
+    "indexer compressor",
+    "compressor per-token state write",
+)
 
 
-def load_tracker():
-    """Load + VALIDATE the open-items tracker. Raises on missing/malformed/invalid (fail-closed)."""
-    with open(_TRACKER) as f:                           # raises FileNotFoundError if absent
-        trk = json.load(f)                              # raises JSONDecodeError if malformed
-    if "items" not in trk or not isinstance(trk["items"], list):
+def validate_tracker(trk):
+    """The REAL validator (exercised by the self-test with invalid inputs). Raises ValueError on any
+    schema/coverage violation. Disposition is a BOUNDED ENUM (exact match); qualifiers live in a
+    separate field; identity + disposition-specific evidence are required; coverage must be preserved."""
+    if not isinstance(trk, dict) or not isinstance(trk.get("items"), list):
         raise ValueError("tracker: missing 'items' list")
     if REF_REVISION not in trk.get("reference_revision", ""):
         raise ValueError(f"tracker: reference_revision must contain {REF_REVISION}")
+    seen = set()
     for it in trk["items"]:
-        d = it.get("disposition", "")
-        if not any(d.startswith(v) for v in _VALID_DISPOSITIONS):
-            raise ValueError(f"tracker: invalid disposition {d!r} for item {it.get('item')!r}")
+        if not isinstance(it, dict):
+            raise ValueError("tracker: item is not an object")
+        name = it.get("item")
+        if not name or not isinstance(name, str):
+            raise ValueError(f"tracker: item missing non-empty 'item' identity: {it!r}")
+        if name in seen:
+            raise ValueError(f"tracker: duplicate item identity {name!r}")
+        seen.add(name)
+        d = it.get("disposition")
+        if d not in _VALID_DISPOSITIONS:                 # EXACT enum, not startswith
+            raise ValueError(f"tracker: invalid disposition {d!r} for item {name!r}")
+        if d in ("MODELED", "MEASURED") and not it.get("source"):
+            raise ValueError(f"tracker: {d} item {name!r} needs a non-empty 'source'")
+        if d == "EXPLICITLY-UNMODELED" and not (it.get("reason") and it.get("plan")):
+            raise ValueError(f"tracker: EXPLICITLY-UNMODELED item {name!r} needs 'reason' and 'plan'")
+    for cat in _REQUIRED_COVERAGE:                       # known exclusions cannot silently disappear
+        if not any(cat in it.get("item", "") for it in trk["items"]):
+            raise ValueError(f"tracker: required coverage category missing: {cat!r}")
     return trk
+
+
+def load_tracker(path=_TRACKER):
+    """Load + VALIDATE the open-items tracker. Raises on missing/malformed/invalid (fail-closed)."""
+    with open(path) as f:                               # raises FileNotFoundError if absent
+        trk = json.load(f)                              # raises JSONDecodeError if malformed
+    return validate_tracker(trk)
 
 
 def unmodeled_items(trk):
     live = [(op.name.strip(), op.unmodeled) for op in OPS if op.unmodeled]
-    live += [(it["item"], it.get("reason", it.get("disposition", "")))
-             for it in trk["items"] if it.get("disposition", "").startswith("EXPLICITLY-UNMODELED")]
+    live += [(it["item"], it.get("reason", ""))
+             for it in trk["items"] if it.get("disposition") == "EXPLICITLY-UNMODELED"]
     return live
+
+
+def observations():
+    return [op for op in OPS if op.kind == "observed"]
 
 
 def selftest():
@@ -332,12 +374,11 @@ def selftest():
     shared_gb = capacity().get("shared-expert (3-matrix, FP8)", 0)
     chk(abs(shared_gb - 1.082196480) < 2e-3, f"shared-expert FP8 capacity == 1.082 GB (got {shared_gb:.4f})")
 
-    # --- F1: single-point rendering contract ---
-    tk = next(o for o in OPS if o.name.startswith("DSA indexer topk"))
-    _, _, t32 = tk.row(32)
-    _, _, t16 = tk.row(16)
-    chk(t32 is not NA and t16 is NA, "measured row renders ONLY at its observed M (N/A elsewhere)")
-    chk(tk.src.endswith(".py"), "measured row carries a benchmark source link")
+    # --- G2: observed rows withhold the unsourced absolute; carry an auditable record ---
+    ob = next(o for o in OPS if o.kind == "observed")
+    chk(all(ob.row(M)[2] is NA for M in Ms), "observed row withholds absolute latency at EVERY M")
+    chk(ob.record.endswith(".json") and bool(ob.commit) and bool(ob.certifies),
+        "observed row links an auditable result record + commit + certified quantity")
     um = next(o for o in OPS if o.kind == "unmodeled")
     chk(all(um.row(M)[2] is NA for M in Ms), "unmodeled row renders a NUMBER at NO M")
 
@@ -353,24 +394,32 @@ def selftest():
     cf = wgemm("cf", 8192, 8192, "fp32", 1, "A", "x", act="fp32").row(4096)[2]
     chk(cf > cb * 2, "compute-bound FP32 GEMM is slower than BF16 (FP32 peak < AMX peak)")
 
-    # --- F5: strict tracker gate ---
+    # --- G3: strict tracker validation exercised on the REAL loader/validator ---
     try:
         trk = load_tracker()
-        chk(True, "tracker loads + validates (reference_revision, dispositions)")
+        chk(True, "tracker loads + validates (enum, identity, per-disposition fields, coverage)")
     except Exception as e:  # noqa: BLE001
         trk = None
         chk(False, f"tracker validation FAILED: {e}")
-    if trk is not None:
-        bad = dict(trk["items"][0]); bad["disposition"] = "BOGUS"
-        probe = {"reference_revision": REF_REVISION, "items": [bad]}
+
+    def _rejects(bad):
         try:
-            for it in probe["items"]:
-                if not any(it["disposition"].startswith(v) for v in _VALID_DISPOSITIONS):
-                    raise ValueError
-            caught = False
+            validate_tracker(bad)
+            return False
         except ValueError:
-            caught = True
-        chk(caught, "tracker gate REJECTS an invalid disposition")
+            return True
+
+    base = [dict(it) for it in (trk["items"] if trk else [])]
+    chk(_rejects({"reference_revision": REF_REVISION,
+                  "items": base + [{"item": "probe", "disposition": "MODELED_BOGUS", "source": "s"}]}),
+        "tracker REJECTS a non-enum disposition (MODELED_BOGUS)")
+    chk(_rejects({"reference_revision": REF_REVISION, "items": [{"disposition": "MODELED"}]}),
+        "tracker REJECTS an item with no identity/source")
+    chk(_rejects({"reference_revision": REF_REVISION,
+                  "items": [it for it in base if it.get("disposition") != "EXPLICITLY-UNMODELED"]}),
+        "tracker REJECTS dropping all EXPLICITLY-UNMODELED coverage")
+    chk(base != [] and _rejects({"reference_revision": REF_REVISION, "items": base + [dict(base[0])]}),
+        "tracker REJECTS a duplicate item identity")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     return ok
@@ -396,8 +445,8 @@ def p0(trk):
 
 def phaseA():
     print("\n" + "=" * 128)
-    print("PHASE A — IDEAL per-op roofline (reference-conformant). 'meas'=single observed coordinate "
-          "(N/A off it); 'n/m'=not modeled.")
+    print("PHASE A — IDEAL per-op roofline (reference-conformant). 'obs'=authored-op observation "
+          "(absolute latency WITHHELD; see block below); 'n/m'=not modeled.")
     print("=" * 128)
     print(f"{'op':46s} {'lane/impl':22s} | " + " ".join(f"{'M='+str(m):>9s}" for m in Ms) + "  calls kind cross")
     print("-" * 128)
@@ -407,14 +456,19 @@ def phaseA():
             _, k, t = op.row(M)
             kinds.append(k)
             cells.append(f"{fmt(t):>9s}")
-        xs = {"measured": "obs", "unmodeled": "n/m"}.get(op.kind,
+        xs = {"observed": "obs", "unmodeled": "n/m"}.get(op.kind,
               "none" if op.crossing is None else f"M{op.crossing:.0f}")
         cs = f"{op.layers:.2f}" if isinstance(op.layers, float) else str(op.layers)
         print(f"{op.name[:46]:46s} {(op.lane+' '+op.impl)[:22]:22s} | " + " ".join(cells)
               + f"  {cs:>5s} {kinds[-1]:>4s} {xs}")
-    print("\nGEMM/pool/attn times are IDEAL targets (all M). 'meas' rows are observations rendered only at\n"
-          "their benchmarked M (sources in the op notes); 'n/m' rows are declared not-modeled. FP32 rows use\n"
-          "the AVX-512 FP32 compute ceiling. Distance-from-roof is diagnostic only.")
+    print("\nGEMM/pool/attn times are IDEAL targets (all M). FP32 rows use the AVX-512 FP32 compute ceiling.\n"
+          "'obs' rows withhold an absolute node latency (no auditable raw record); they are listed with their\n"
+          "result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is diagnostic only.")
+    print("\n" + "-" * 128)
+    print("AUDITABLE OBSERVATIONS (authored ops) — record + commit + what it certifies (no unsourced absolute latency):")
+    for op in observations():
+        print(f"  {op.name[:44]:44s}  @M={op.m_obs}  {op.record}@{op.commit}")
+        print(f"      certifies: {op.certifies}")
 
 
 if __name__ == "__main__":

@@ -12,15 +12,18 @@ REFERENCE-CONFORMANCE + CONTRACT SELFTEST (ref 60d8d707):
   [PASS] main compressor matrices == 0.520 GB (got 0.5201)
   [PASS] indexer compressor matrices == 0.088 GB (got 0.0881)
   [PASS] shared-expert FP8 capacity == 1.082 GB (got 1.0822)
-  [PASS] measured row renders ONLY at its observed M (N/A elsewhere)
-  [PASS] measured row carries a benchmark source link
+  [PASS] observed row withholds absolute latency at EVERY M
+  [PASS] observed row links an auditable result record + commit + certified quantity
   [PASS] unmodeled row renders a NUMBER at NO M
   [PASS] pool bytes include kv+score (2x FP32 win*D) + out + APE
   [PASS] pool state dtype == FP32 (reference compressor state)
   [PASS] FP32 and BF16 use DIFFERENT compute peaks
   [PASS] compute-bound FP32 GEMM is slower than BF16 (FP32 peak < AMX peak)
-  [PASS] tracker loads + validates (reference_revision, dispositions)
-  [PASS] tracker gate REJECTS an invalid disposition
+  [PASS] tracker loads + validates (enum, identity, per-disposition fields, coverage)
+  [PASS] tracker REJECTS a non-enum disposition (MODELED_BOGUS)
+  [PASS] tracker REJECTS an item with no identity/source
+  [PASS] tracker REJECTS dropping all EXPLICITLY-UNMODELED coverage
+  [PASS] tracker REJECTS a duplicate item identity
   SELFTEST OK
 
 ================================================================================================
@@ -60,7 +63,7 @@ P0 CAPACITY (one inventory)  platform=emr  nominal BW=358.4 GB/s  AMX-bf16=124.5
     - masked shared-pool fallback (executed > useful FLOPs): the ideal model assumes independent-request useful work; the current _batched_mla_attend gat
 
 ================================================================================================================================
-PHASE A — IDEAL per-op roofline (reference-conformant). 'meas'=single observed coordinate (N/A off it); 'n/m'=not modeled.
+PHASE A — IDEAL per-op roofline (reference-conformant). 'obs'=authored-op observation (absolute latency WITHHELD; see block below); 'n/m'=not modeled.
 ================================================================================================================================
 op                                             lane/impl              |       M=1       M=8      M=16      M=32      M=64  calls kind cross
 --------------------------------------------------------------------------------------------------------------------------------
@@ -75,7 +78,7 @@ MLA wo_b (8192->4096)                          A donor dsv2           |     4.0m
 DSA indexer wq_b (1024->8192)                  A donor dsv2           |   492.6us   500.2us   508.8us   526.1us   560.7us     21    B M281
 DSA indexer weights_proj (4096->64)            A donor gemm           |    31.2us    34.6us    38.5us    46.3us    61.9us     21    B none
 DSA indexer logits (GEMM+reduce FUSED)         B NEW-C++              |    16.6us   132.6us   265.2us   530.4us     1.1ms     21    B none
-DSA indexer topk-512 (over 1024)               B NEW-C++              |       N/A       N/A       N/A   819.0us       N/A     21 meas obs
+DSA indexer topk-512 (over 1024)               B NEW-C++              |       N/A       N/A       N/A       N/A       N/A     21  obs obs
 main compressor wkv+wgate (r4, 4096->2048)     A donor dsv2           |   984.5us   994.6us     1.0ms     1.0ms     1.1ms     21    B M707
 main compressor wkv+wgate (r128, 4096->1024)   A donor dsv2           |   469.3us   477.3us   486.4us   504.7us   541.3us     20    B M2289
 indexer compressor wkv+wgate (r4, 4096->512)   A donor dsv2           |   246.8us   254.4us   263.0us   280.3us   314.9us     21    B none
@@ -83,8 +86,8 @@ main pool (r4 overlap, win=8 D=512)            B NEW-C++              |   750.0n
 main pool (r128, win=128 D=512)                B NEW-C++              |   343.8ns     1.9us     3.8us     7.5us    14.8us   0.16    B none
 indexer pool (r4 overlap, win=8 D=128)         B NEW-C++              |   187.5ns     1.1us     2.1us     4.1us     8.2us   5.25    B none
 MHC hc_fn (16384->24, FP32)                    C NEW-C++              |   393.2us   503.4us   629.4us   881.4us     1.4ms     86    B none
-MHC sinkhorn (hc=4, 20 iters)                  C NEW-C++              |       N/A       N/A       N/A     1.3ms       N/A     86 meas obs
-MHC combine (hc_pre reduce)                    C NEW-C++              |       N/A       N/A       N/A     1.1ms       N/A     86 meas obs
+MHC sinkhorn (hc=4, 20 iters)                  C NEW-C++              |       N/A       N/A       N/A       N/A       N/A     86  obs obs
+MHC combine (hc_pre reduce)                    C NEW-C++              |       N/A       N/A       N/A       N/A       N/A     86  obs obs
 MHC hc_post (post*x + comb@residual)           C NEW-C++              |    35.4us   283.2us   566.4us     1.1ms     2.3ms     86    B none
 MHC hc_head (mixer, once, FP32)                C NEW-C++              |     1.1us     3.7us     6.6us    12.4us    24.1us      1    B none
 MoE router gate (4096->256)                    A donor gemm           |   252.7us   260.0us   268.3us   285.0us   318.4us     43    B none
@@ -94,6 +97,15 @@ shared-expert (3-matrix, FP8)                  A donor moe.cpp        |     3.0m
 embed (VocabParallel lookup)                   A donor embed          |       N/A       N/A       N/A       N/A       N/A      1  n/m n/m
 lm_head (4096->129280)                         A donor gemm           |     3.0ms     3.0ms     3.0ms     3.0ms     3.0ms      1    B M381
 
-GEMM/pool/attn times are IDEAL targets (all M). 'meas' rows are observations rendered only at
-their benchmarked M (sources in the op notes); 'n/m' rows are declared not-modeled. FP32 rows use
-the AVX-512 FP32 compute ceiling. Distance-from-roof is diagnostic only.
+GEMM/pool/attn times are IDEAL targets (all M). FP32 rows use the AVX-512 FP32 compute ceiling.
+'obs' rows withhold an absolute node latency (no auditable raw record); they are listed with their
+result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is diagnostic only.
+
+--------------------------------------------------------------------------------------------------------------------------------
+AUDITABLE OBSERVATIONS (authored ops) — record + commit + what it certifies (no unsourced absolute latency):
+  DSA indexer topk-512 (over 1024)              @M=32  plugin/validate/results/op_passes/indexer_topk.json@06faec0
+      certifies: set-match 1.0; 7.62x vs torch.topk @M=32 (S=1024)
+  MHC sinkhorn (hc=4, 20 iters)                 @M=32  plugin/validate/results/op_passes/mhc_sinkhorn.json@pending
+      certifies: cos 1.0 (pre/post/comb); 20.84x vs torch @M=32
+  MHC combine (hc_pre reduce)                   @M=32  plugin/validate/results/op_passes/mhc_combine.json@pending
+      certifies: cos 1.0; 2.12x vs torch @M=32

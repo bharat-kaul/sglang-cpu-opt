@@ -1,16 +1,16 @@
-DSv4 roofline-VS-measured (authored ops, M=32)  rev 60d8d707  nominal BW=358 GB/s AMX=125 TF FP32=7.8 TF
-  measured-reference node=pcl-sprh02 (DDR5-5600 (8 channels/socket)) BW=277 GB/s; meas_us = ONE observation @M=32 (see src)
-----------------------------------------------------------------------------------------------------------------------
-op                              ideal_us  bind   meas_us  off_roof  src                    note
-----------------------------------------------------------------------------------------------------------------------
-indexer logits (q.ck+reduce)        25.3     B     536.0     21.2x  bench_indexer_logits.py ctx=1024; bf16 projected query+keys, fp32 head-weights+out
-indexer top-k (512 of 1024)          0.5     B      39.0     71.1x  bench_topk.py          selection; reads logits[M,1024], writes [M,512] idx
-compressor softmax-pool             47.7     B     479.0     10.0x  bench_compressor.py    R=128,D=512; FP32 kv+score+APE reads, FP32 out
-sparse attend (MQA+sink)           117.0     B    1781.0     15.2x  bench_sparse_attend.py H=64,K=512,D=512; scalar flash observation
-MHC sinkhorn (hc=4,20it)             0.0     B      15.0    859.9x  bench_sinkhorn.py      mixes[M,24]+scale[3]+base[24] -> pre/post/comb (24/row)
-MHC combine (reduce)                 7.3     B      13.0      1.8x  bench_combine.py       einsum mk,mkh->mh; per-request pre[M,4] weights; +reduction adds
-----------------------------------------------------------------------------------------------------------------------
-off_roof = observation/ideal at M=32 (distance from the nominal roof). It is a DIAGNOSTIC only:
-it does NOT establish overhead vs compute causation, nor validate donor routing or any speedup —
-those are deferred to implementation review. Each row's operands are derived from the cited
-benchmark's input/output contract; bytes/FLOPs are asserted against those contracts above.
+DSv4 roofline-VS-observation (authored ops, M=32)  rev 60d8d707  nominal BW=358 GB/s AMX=125 TF FP32=7.8 TF
+  node=pcl-sprh02 (DDR5-5600 (8 channels/socket)); absolute latency WITHHELD (not in any raw record) — records certify correctness + speedup only
+----------------------------------------------------------------------------------------------------------------------------
+op                              ideal_us  bind   cdt  record@commit                      certifies
+----------------------------------------------------------------------------------------------------------------------------
+indexer logits (q.ck+reduce)        69.8     C  fp32  indexer_logits.json@e3fdcb9        cos 1.0; 1.76x vs torch @M=32 (ctx=1024)
+indexer top-k (512 of 1024)          0.5     B  fp32  indexer_topk.json@06faec0          set-match 1.0; 7.62x vs torch.topk @M=32
+compressor softmax-pool             47.7     B  fp32  compressor.json@pending            cos 1.0; 2.68x vs torch @M=32
+sparse attend (MQA+sink)           275.9     C  fp32  sparse_attend.json@pending         surfaced: torch BLAS wins at real MQA dims -> route to donor flash
+MHC sinkhorn (hc=4,20it)             0.0     B  fp32  mhc_sinkhorn.json@pending          cos 1.0 (pre/post/comb); 20.84x vs torch @M=32
+MHC combine (reduce)                 7.3     B  fp32  mhc_combine.json@pending           cos 1.0; 2.12x vs torch @M=32
+----------------------------------------------------------------------------------------------------------------------------
+ideal_us = max(bytes/BW, FLOPs/peak) with the row's EXPLICIT compute dtype (bf16->AMX, fp32->AVX-512).
+Each row's operands come from the cited benchmark's input/output contract (asserted above). The absolute
+node latency is WITHHELD: no auditable raw record contains it; the linked op_passes record certifies
+correctness + speedup-vs-torch only. No overhead/compute causation or donor-routing claim is made here.
