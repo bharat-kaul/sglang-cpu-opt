@@ -17,10 +17,11 @@ review checkpoint before any Phase-2 wall-time integration.
 >   empty-manifest fail); P1-F4 sparse threshold relabelled PROPOSED (not a ratified noise floor) +
 >   ALL-records budget + bf16-matched operands in Part B; P1-F7 `pipefail` + io provenance; P1-F8
 >   non-finite-scale rejection.
-> - **Claims corrected here:** no-regression (indexer M1 is parity 0.94–0.98×, NOT a proven ≥1.0 floor —
->   confirmed 3-trial job 384526); "bit-identical" (only the bf16-KV experiment uses `torch.equal`;
->   cosine≈1.0 is not exactness); FP32 utilization varies ~13–74% (not a uniform 64%); combine M64 is
->   cache-resident (not DRAM-saturated); flash bf16-AMX is not the "only" path.
+> - **Claims corrected here:** no-regression is **comparator- and thread-dependent** — the authoritative
+>   measure is the replicated 64-thread, order-varied, same-contract rig (`bench_replicated.py`, job 384531):
+>   every kernel is **≥1.0× at every M except indexer M8 ≈ 0.98×** (statistical parity, spread 0.98–1.03).
+>   "bit-identical" only applies to the bf16-KV experiment (`torch.equal`); cosine≈1.0 is not exactness;
+>   FP32 utilization varies ~13–74%; combine M64 is cache-resident; flash bf16-AMX is not the "only" path.
 > - **Accepted + PENDING (gates Phase-1 sign-off):** replicated medians with full run-identity binding
 >   (P1-F6, partially started); coverage expansion — K128/640/160 unions, independent batches, causal
 >   sentinels, TP-local heads, non-contiguous layouts (P1-F5); a source-faithful 64-block sparse replica +
@@ -47,11 +48,23 @@ roofline join (baseline source) [dsv4_roofline_vs_measured.py](dsv4_roofline_vs_
 
 ## 2. Performance vs roofline + no-regression floor (optimized, measured)
 
-Speedup = torch_fallback_latency / cpp_latency. **Measurement caveat (P1-F6):** these are single-generation
-runs; each bench averages sequential warm calls (a mean, not a replicated median) and most logs are not yet
-bound to source/build/thread-affinity identity (the indexer re-measure job 384526 is the first replicated,
-provenance-stamped exception). Treat sub-noise deltas as indicative, not significant. Correctness: set-match
-(topk) / cosine (continuous), `tie_eps=0`.
+**No-regression (authoritative, replicated — job 384531, `bench_replicated.py`).** 64 threads, order-varied
+paired trials vs a **same-contract** fallback (the torch op each kernel replaces, at the kernel's arithmetic
+contract), median of ≥5 trials × 3 process-repeats, identity-bound (node/git/dirty=0/affinity). Speedup = ref/cpp:
+
+| kernel \ M | 1 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|
+| indexer_logits | 11.3× | **0.98×** | 1.49× | 3.06× | 1.75× |
+| sparse_bestof | 3.26× | 2.22× | 1.74× | 1.35× | 3.56× |
+| compressor_R128 | 8.45× | 2.91× | 2.19× | 1.46× | 2.64× |
+| indexer_topk | 2.10× | 4.60× | 11.8× | 25.8× | 28.8× |
+| sinkhorn | 93.7× | 19.4× | 19.7× | 21.0× | 21.5× |
+| combine | 5.18× | 2.39× | 2.35× | 2.24× | 2.07× |
+
+Every kernel holds ≥1.0× at every M **except indexer M8 ≈ 0.98×** (statistical parity; spread 0.98–1.03). At
+**low thread counts** (8t) the parallelism-heavy kernels (indexer/sparse/compressor) regress — they are tuned
+for the 64-thread target config; the floor claim is scoped to that config. Correctness: set-match / cosine,
+`tie_eps=0` (F4 gate).
 
 ### #1 indexer logits — BW-bound (replicated job 384526, conformed bf16-stage kernel)
 | M | 1 | 8 | 16 | 32 | 64 |
