@@ -99,6 +99,19 @@ condition is met and gating every step against the measured roofline.
 > holds at every M). At that point STOP and surface for review. Proceed to Phase-2 proxy integration
 > (fix correctness in-engine + extrapolate wall-time via progressive one-by-one integration) ONLY after
 > the review completes.
+>
+> **BEFORE surfacing, run the `shared/adversarial-self-audit` pre-submit pass (BOTH clusters) — make the
+> reviewer's three moves yourself first:** (1) conform every oracle/reference to the AUTHORITATIVE published
+> op / real kernel at each stage (dtype / accumulation / block structure / output precision), not your own
+> reconstruction; (2) test the ADVERSARIAL domain (signed weights, real shapes/K-values, sentinel/empty,
+> every dispatch branch — coverage must EQUAL the claimed sweep, a benchmark at M is not an acceptance gate
+> at M); (3) attach a CLAIM-EVIDENCE LEDGER (every perf/correctness claim → job+number → estimator
+> [≥3-trial median+spread, never a single sequential mean] → the datum that would falsify it) and strike
+> every inflated word ("bit-exact" w/o `torch.equal`, "noise floor"/"ratified" w/o a source-faithful ref,
+> "every M"/"floor" w/ any sub-1.0 datum, "only/resolved/exhausted" w/o a falsification attempt). Bind each
+> run to source/build/affinity identity and make harnesses fail-closed (pipefail; tested to FAIL on a
+> known-bad run). A finding the reviewer could raise from the published source, the adversarial domain, or a
+> claim-vs-evidence word check is one you were required to find here.
 
 > **⛔ CYCLE-EXIT GATE — a perf-optimization cycle is NOT done until the published artifact PAIR
 > exists (auto-emit it as the CLOSING STEP, do not wait to be asked).** The moment the final
