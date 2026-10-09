@@ -36,4 +36,23 @@ echo ">>> baseline 384414 cpp_ms per M[1,8,16,32,64] = [0.100, 0.279, 0.366, 0.5
 
 echo ">>> SPARSE ATTEND (scalar vs AMX vs torch — for best-of dispatch + no-regression check)"
 numactl -N 0 -m 0 python plugin/validate/bench_sparse_attend.py
+
+echo ">>> INDEXER bf16-KV BW LEVER (bit-exact vs fp32-kv; half the dominant kv read)"
+numactl -N 0 -m 0 python - <<'PY'
+import torch, time
+from torch.utils.cpp_extension import load
+il = load(name="il_bf16kv_emr", sources=["plugin/kernels/dsa_pilot/indexer_logits.cpp"],
+          extra_cflags=["-O3","-fopenmp","-march=native"], verbose=False)
+H,D,S = 64,128,1024
+def bench(fn,*a,it=50):
+    fn(*a); t0=time.perf_counter()
+    for _ in range(it): fn(*a)
+    return (time.perf_counter()-t0)/it*1e3
+print(f"{'M':>4} {'biteq':>6} {'fp32_ms':>8} {'bf16_ms':>8} {'read_x':>7}")
+for M in (1,8,16,32,64):
+    q=torch.randn(M,H,D); kv=torch.randn(M,S,D); w=torch.rand(M,H); kvb=kv.to(torch.bfloat16)
+    biteq = torch.equal(il.indexer_logits(q,kv,w), il.indexer_logits(q,kvb,w))
+    print(f"{M:>4} {str(biteq):>6} {bench(il.indexer_logits,q,kv,w):>8.3f} {bench(il.indexer_logits,q,kvb,w):>8.3f} "
+          f"{bench(il.indexer_logits,q,kv,w)/bench(il.indexer_logits,q,kvb,w):>6.2f}x")
+PY
 echo ">>> done"

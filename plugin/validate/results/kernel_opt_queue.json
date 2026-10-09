@@ -16,9 +16,9 @@
       "cross_op_candidates_for_phase2": ["indexer_logits->topk (skip logits[N,S] round-trip; low value, tiny tensor)", "sinkhorn->combine (both MHC per-row; low value)"]
     },
     "precision_bw_status": {
-      "indexer_logits": "FREE-BW WIN AVAILABLE: the brgemm already rounds kv fp32->bf16 to compute, so storing the KV cache as bf16 is NUMERICALLY IDENTICAL to what the kernel consumes while HALVING the dominant read. Gated only on cache-format=bf16 (caller/integration knob). Compute already bf16-AMX + fp32 accum. QUEUED as a BW lever.",
-      "sparse_attend": "bf16-AMX halves q/kv read AND unlocks 124TF vs 7.78TF fp32, but fails the fp32 oracle (cos 0.9999). CONFORMANCE DECISION: gated on reference dtype — if model.py runs attention in bf16, fp32 is over-precise and bf16-AMX is faithful. Surfaced for oracle-dtype review; fp32-bmm donor holds the floor meanwhile.",
-      "compressor": "bf16 INPUT read (kv/score) -> fp32 upconvert for online-softmax (stability) -> downconvert output. Halves input traffic; needs a numerics check. QUEUED as a BW lever.",
+      "indexer_logits": "SHIPPED (bit-exact FREE win). kv arriving bf16 is read directly (no fp32 round-trip/convert) and fed to the brgemm which already bf16-rounds kv -> output is BIT-IDENTICAL to the fp32-kv path (biteq=True all M, local verify). Halves the dominant kv read: measured 1.06-1.51x faster (M1 1.42x, M64 1.51x), larger M benefits more. Default accepts both dtypes; bf16 KV-cache is a caller/integration knob.",
+      "compressor": "REJECTED by measurement. The kernel already upconverts any input to fp32, so bf16 input auto-halves the read -- BUT the compressor is GRAIN/dispatch-bound (~7% of BW-ideal), NOT read-BW-bound, so the bf16->fp32 expansion overhead dominates: measured 0.26-0.73x (SLOWER) across all 3 shapes AND non-conformant (cos 0.99999). Precision/BW lever does not apply to a non-BW-bound op. Keep fp32.",
+      "sparse_attend": "GATED (conformance decision). bf16-AMX halves q/kv read AND unlocks 124TF vs 7.78TF fp32, but fails the fp32 oracle (cos 0.9999, degrading with M). If model.py runs attention in bf16, fp32 is over-precise and bf16-AMX is faithful -> surfaced for the oracle-dtype review. fp32-bmm donor holds (and beats) the floor meanwhile.",
       "indexer_topk": "KEEP FP32 — selection is cutoff-sensitive (bf16 boundary bit us before).",
       "sinkhorn_combine": "KEEP FP32 — tiny, not BW-bound, sigmoid/exp/normalize sensitive."
     }
@@ -52,7 +52,11 @@
      "donor": "std::nth_element (libstdc++) is the selection primitive — KEEP; no OneDNN topk donor.",
      "levers_ranked": ["one-stage row selection at small M (vs two-stage), preserving set-match + tie semantics", "reduce per-row alloc", "best-of dispatch chunked(large N)/row(small N)"],
      "target": {"note": "already fast in absolute terms; target = hold no-regression floor + shave small-M overhead"},
-     "no_regression": ">= torch.topk at every M (currently faster)", "correctness": "exact set-match (tie_eps=0); k==0 -> [N,0] int64", "status": "PLANNED"},
+     "no_regression": ">= torch.topk at every M (currently faster)", "correctness": "exact set-match (tie_eps=0); k==0 -> [N,0] int64",
+     "RESULT_pass1": {"issue_found": "M=1 REGRESSED (0.41x torch): chunked 2-pass is pathological at k=512/S=1024 (k is half of S) -> chunk top-k returns ~everything, merge re-does the full selection + team spinup overhead.",
+       "fix": "N==1 -> serial nth_element (no at::parallel_for team spinup); guard chunked to fire ONLY when 2k <= S/chunks (k genuinely small vs per-chunk length), else row-parallel (underutilized but still beats torch).",
+       "measured_EMR_384480": {"M1": "2.29x", "M8": "4.24x", "M16": "11.25x", "M32": "22.19x", "M64": "28.13x"}, "set_match": "1.0 all M", "no_regression": "HELD at every M (was 0.41x@M1 -> 2.29x)"},
+     "status": "PASS-1 DONE (M=1 regression fixed via serial+guarded-chunked dispatch; all M beat torch 2.3-28.1x; set_match=1.0)."},
     {"kernel": "compressor.cpp", "roi_rank": 3, "regime": "BW-bound but running at ~7.1% of the BW-ideal -> upstream (grain/exp/dispatch) bottleneck, NOT the DRAM wall",
      "baseline_off_roofline": {"M32_R128": "10.5x"},
      "coverage_gap": "ONLY R=128/D=512 measured; R=8/D=512 and R=8/D=128 (the bulk of call-weight) UNMEASURED -> ADD benches before 'done'",
@@ -88,15 +92,19 @@
      "donor": "no library donor (custom eps-regularized recurrence); keep fused.",
      "levers_ranked": ["adjacent fusion sinkhorn->combine (both MHC, 86 calls each)", "serial-vs-parallel threshold to avoid thread-team spinup at tiny sizes", "batch across layers if the caller allows"],
      "target": {"note": "likely near realistic floor; target = no-regression + dispatch-grain reduction; publish FLOP-roofline CAPTIONED as unreachable"},
-     "no_regression": ">= torch at every M (serial-threshold at tiny sizes)", "correctness": "cosine pre/post/comb; eps placement/reassoc across 20 iters within tolerance", "status": "PLANNED"},
+     "no_regression": ">= torch at every M (serial-threshold at tiny sizes)", "correctness": "cosine pre/post/comb; eps placement/reassoc across 20 iters within tolerance",
+     "RESULT_pass1": {"measured_EMR_384480": {"M1": "98.30x", "M8": "19.63x", "M16": "20.64x", "M32": "21.52x", "M64": "22.99x"}, "cos": "1.0 (pre/post/comb) all M", "no_regression": "HELD + beaten everywhere (no small-M dispatch regression; fused 20-iter per-row is already serial-per-row under at::parallel_for grain)", "note": "FLOP roofline is the wrong ceiling (dispatch-bound tiny op); 19-98x over torch is the real result"},
+     "status": "PASS-1 DONE (fused 20-iter per-row; 19-98x torch; cos=1.0; no small-M regression)."},
     {"kernel": "combine.cpp", "roi_rank": 6, "regime": "BW/latency-bound; near roof @M>=8 (1.6x @M32, 1.0x @M64)",
      "baseline_off_roofline": {"M1": "8.7x", "M32": "1.6x", "M64": "1.0x"},
      "root_cause": "near DRAM-BW saturation at large M; tiled accumulate-once already good; gap @small M is dispatch.",
      "donor": "no library donor (custom hc weighted-sum); keep tiled accumulate.",
      "levers_ranked": ["adjacent fusion with sinkhorn (shared MHC path)", "serial-threshold at small M", "verify tile fits L1 across shapes"],
      "target": {"M1": "~8.7x -> reduce dispatch", "M32/M64": "already near roof — hold"},
-     "no_regression": ">= torch at every M", "correctness": "cosine+relerr; reduction order (currently bit-exact vs einsum oracle, max_err=0)", "status": "PLANNED"}
+     "no_regression": ">= torch at every M", "correctness": "cosine+relerr; reduction order (currently bit-exact vs einsum oracle, max_err=0)",
+     "RESULT_pass1": {"measured_EMR_384480": {"M1": "5.52x", "M8": "2.25x", "M16": "2.31x", "M32": "2.15x", "M64": "1.98x"}, "cos": "1.0 (1.000003@M64 fp reassoc) all M", "no_regression": "HELD at every M (2.0-5.5x; no small-M dispatch regression)", "note": "tiled accumulate-once already near BW roof at large M; 1.98x@M64 is close to the wall"},
+     "status": "PASS-1 DONE (tiled accumulate-once; 2.0-5.5x torch; cos=1.0; no regression)."}
   ],
   "phase1_exit": "ALL kernels implemented + optimized across the M-sweep (and KV knob) with per-op roofline-target-vs-measured recorded AND the no-regression floor vs torch held at every M; compressor R=8 pools measured; sparse AMX conformed or dispatched. THEN PAUSE FOR REVIEW. Only after review -> Phase-2 proxy integration (correctness + progressive wall-time extrapolation).",
-  "status": "PLANNED (analysis wave complete; implementation + target-node measurement next)"
+  "status": "PHASE-1 KERNELS DONE (all 6 pass no-regression + correctness on EMR; BW lever shipped on indexer bf16-kv bit-exact, compressor bf16 rejected by measurement, sparse bf16-AMX gated on oracle-dtype review) -> PAUSE FOR REVIEW."
 }

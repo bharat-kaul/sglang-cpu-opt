@@ -78,8 +78,13 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   const bool _brk = std::getenv("INDEXER_BREAKDOWN") != nullptr;   // env-gated stage timers (diagnostic)
   auto _now = [] { return std::chrono::high_resolution_clock::now(); };
   auto _t0 = _now();
+  // BW lever (free): the brgemm already rounds kv->bf16 to compute, so a bf16 KV cache is numerically
+  // IDENTICAL to what this kernel consumes while HALVING the dominant kv read. If kv arrives bf16, read
+  // it directly (no fp32 round-trip, no per-tile convert); else keep fp32 and convert per-tile in-cache.
+  const bool kv_bf16 = (kv.scalar_type() == torch::kBFloat16);
   auto qb = q.to(torch::kBFloat16).contiguous();
-  auto kvf = kv.to(torch::kFloat32).contiguous();   // keep kv FP32; convert per-tile in-cache (no full bf16 copy)
+  auto kvf = kv_bf16 ? torch::Tensor() : kv.to(torch::kFloat32).contiguous();
+  auto kvb = kv_bf16 ? kv.contiguous() : torch::Tensor();
   auto wf = weight.to(torch::kFloat32).contiguous();
   auto logits = torch::empty({N, S}, torch::kFloat32);
   auto _t1 = _now();
@@ -115,17 +120,23 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
     for (int64_t it = a; it < b; ++it) {
       const int64_t n = it / ntiles, ti = it % ntiles, s0 = ti * Sb;
       const int64_t sb = std::min(Sb, S - s0);
-      const float* Afp = kvf[n].data_ptr<float>() + s0 * D;              // [sb,D] FP32 tile
-      at::BFloat16* A = Abuf.data();
-      const int64_t ne = sb * D;                                         // convert tile -> bf16 in cache
-      int64_t i = 0;
-      constexpr int64_t VW = at::vec::Vectorized<float>::size();
-      for (; i + 2 * VW <= ne; i += 2 * VW) {
-        auto v0 = at::vec::Vectorized<float>::loadu(Afp + i);
-        auto v1 = at::vec::Vectorized<float>::loadu(Afp + i + VW);
-        at::vec::convert_float_bfloat16(v0, v1).store(A + i);
+      const at::BFloat16* A;
+      if (kv_bf16) {
+        A = kvb[n].data_ptr<at::BFloat16>() + s0 * D;                   // bf16 kv read directly (half traffic)
+      } else {
+        const float* Afp = kvf[n].data_ptr<float>() + s0 * D;          // [sb,D] FP32 tile
+        at::BFloat16* Ab = Abuf.data();
+        const int64_t ne = sb * D;                                     // convert tile -> bf16 in cache
+        int64_t i = 0;
+        constexpr int64_t VW = at::vec::Vectorized<float>::size();
+        for (; i + 2 * VW <= ne; i += 2 * VW) {
+          auto v0 = at::vec::Vectorized<float>::loadu(Afp + i);
+          auto v1 = at::vec::Vectorized<float>::loadu(Afp + i + VW);
+          at::vec::convert_float_bfloat16(v0, v1).store(Ab + i);
+        }
+        for (; i < ne; ++i) Ab[i] = static_cast<at::BFloat16>(Afp[i]);
+        A = Ab;
       }
-      for (; i < ne; ++i) A[i] = static_cast<at::BFloat16>(Afp[i]);
       const at::BFloat16* B = qpack[n].data_ptr<at::BFloat16>();          // packed [D,H]
       at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, C, vnni);
       const float* w = wf[n].data_ptr<float>();
