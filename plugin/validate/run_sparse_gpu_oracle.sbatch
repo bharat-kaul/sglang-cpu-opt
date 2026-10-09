@@ -1,0 +1,27 @@
+#!/bin/bash
+# Sparse-attention GPU-oracle parity (1 GPU, podman + official sglang CUDA image): the REAL TileLang
+# sparse_attn (DeepSeek-V4-Flash inference/kernel.py) vs our FP32 + BF16 torch oracle replicas.
+# Resolves the open conformance question (is published sparse_attn bf16?) and saves seeded io so the
+# CPU side can diff our native-AMX sparse_attend against the real kernel. Pattern == run_kda_gpu_oracle.
+#SBATCH --job-name=sparse_gpu_oracle
+#SBATCH --partition=h200
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:h200:1
+#SBATCH --cpus-per-task=16
+#SBATCH --time=00:20:00
+#SBATCH --output=/scratch/%u/sparse_gpu_oracle_%j.log
+set -x
+export XDG_RUNTIME_DIR=/tmp/xdg-$(id -u); mkdir -p "$XDG_RUNTIME_DIR" /tmp/podman-runroot; chmod 700 "$XDG_RUNTIME_DIR"
+export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
+nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
+IMG=docker.io/lmsysorg/sglang:latest
+nvidia-smi -L
+DEVARGS=""; for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVARGS --device nvidia.com/gpu=$u"; done
+# PYTHONPATH: the model snapshot (inference/kernel.py = the real TileLang sparse_attn primitive).
+podman run --rm $DEVARGS \
+  --ipc=host --network=host \
+  -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
+  -e PYTHONPATH=/scratch/bkaul/models/DeepSeek-V4-Flash \
+  "$IMG" \
+  python /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/test_sparse_gpu_oracle.py 2>&1 | tail -40
+echo "[exit=$?]"
