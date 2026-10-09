@@ -15,7 +15,8 @@ REFERENCE-CONFORMANCE + CONTRACT SELFTEST (ref 60d8d707):
   [PASS] observed rows withhold absolute latency at EVERY M
   [PASS] every observed record LOADS + yields a kept pass (fail-closed)
   [PASS] top-k observation does NOT publish the discarded 06faec0 revision (H1)
-  [PASS] observations certify correctness only; speedup is author-reported/UNVERIFIED (never certified)
+  [PASS] correctness labeled '<metric> certified @ microbench; E2E verification PENDING' (never CERTIFIED)
+  [PASS] speedup is author-reported/UNVERIFIED (never certified)
   [PASS] missing result record FAILS (record is opened, not assumed)
   [PASS] unmodeled row renders a NUMBER at NO M
   [PASS] pool bytes include kv+score (2x FP32 win*D) + out + APE
@@ -105,16 +106,17 @@ GEMM/pool/attn times are IDEAL targets (all M). FP32 rows use the AVX-512 FP32 c
 result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is diagnostic only.
 
 --------------------------------------------------------------------------------------------------------------------------------
-AUDITABLE OBSERVATIONS (authored ops) — evidence READ + validated from each result record (absolute latency withheld):
+AUDITABLE OBSERVATIONS (authored ops) — evidence READ from each result record (absolute latency withheld):
   DSA indexer topk-512 (over 1024)              @M=32  record=results/op_passes/indexer_topk.json  kernel-rev=UNRESOLVED(pending)
-      CERTIFIED correctness: set-match 1.0 all M
+      correctness: set-match 1.0 all M  [set-match certified @ microbench shape; E2E verification PENDING (current target)]
       speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
   MHC sinkhorn (hc=4, 20 iters)                 @M=32  record=results/op_passes/mhc_sinkhorn.json  kernel-rev=UNRESOLVED(pending)
-      CERTIFIED correctness: cos 1.000000 (pre/post/comb)
+      correctness: cos 1.000000 (pre/post/comb)  [cosine certified @ microbench shape; E2E verification PENDING (current target)]
       speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
   MHC combine (hc_pre reduce)                   @M=32  record=results/op_passes/mhc_combine.json  kernel-rev=UNRESOLVED(pending)
-      CERTIFIED correctness: cos 1.000000
+      correctness: cos 1.000000  [cosine certified @ microbench shape; E2E verification PENDING (current target)]
       speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
 
-  kernel-rev and correctness are DERIVED from the record's kept pass (not hand-typed); a speedup is
-  only a certificate when its kept-pass revision resolves, else it is author-reported/UNVERIFIED.
+  kernel-rev + correctness are DERIVED from the record's kept pass (not hand-typed). A recorded
+  cosine/set-match is a MICROBENCH match at the tested shape/dtype/reference; it is NOT a current-
+  target certificate — E2E verification is PENDING. Speedup is author-reported/UNVERIFIED.

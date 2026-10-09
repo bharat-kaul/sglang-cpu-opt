@@ -166,15 +166,19 @@ def load_record(record):
 
 
 def observation_evidence(op):
-    """H1: validated, externally-derived evidence for an observed row. CORRECTNESS + kernel revision come
-    FROM the record's kept pass. Only correctness is certified (it is context-independent); the speedup is
-    NOT certified here because the records' structured ratios are at a superseded context and the corrected
-    ratios are unstructured prose (a narrative is not a validated run). Absolute latency is always withheld."""
+    """H1 / 5th review: evidence read from the record's kept pass. A recorded cosine/set-match is a
+    MICROBENCH numerical match at the tested shape/dtype/reference/tolerance \u2014 it is NOT context-independent
+    and is NOT extended to the current target. So correctness is reported as '<metric> certified @ microbench;
+    E2E verification PENDING', never 'CERTIFIED'. Kernel revision comes from the record (unresolved='pending');
+    speedup is author-reported/UNVERIFIED; absolute latency is withheld."""
     rec = load_record(op.record)
     resolved = _rev_resolved(rec["kernel_rev"])
     rev = rec["kernel_rev"] if resolved else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
+    c = rec["correctness"]
+    metric = "cosine" if "cos" in c.lower() else ("set-match" if "set-match" in c.lower() else "match")
+    status = f"{metric} certified @ microbench shape; E2E verification PENDING (current target)"
     return {"record": rec["record"], "kernel_rev": rev, "resolved": resolved,
-            "certified_correctness": rec["correctness"],
+            "correctness": c, "correctness_status": status,
             "speedup": "author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)"}
 
 
@@ -427,8 +431,12 @@ def selftest():
     chk("06faec0" not in tk_ev.get("kernel_rev", ""),
         "top-k observation does NOT publish the discarded 06faec0 revision (H1)")
     # H1: speedup is never presented as a certificate (records' ratios are at a superseded context)
+    # H1 / 5th review: correctness is a MICROBENCH match, NOT a current-target certificate
+    chk(all("E2E verification PENDING" in e["correctness_status"] for e in ev.values()) and bool(ev),
+        "correctness labeled '<metric> certified @ microbench; E2E verification PENDING' (never CERTIFIED)")
+    # H1: speedup is never presented as a certificate (records' ratios are at a superseded context)
     chk(all("UNVERIFIED" in e["speedup"] for e in ev.values()) and bool(ev),
-        "observations certify correctness only; speedup is author-reported/UNVERIFIED (never certified)")
+        "speedup is author-reported/UNVERIFIED (never certified)")
     # H1 fail-closed: a missing record raises (records are actually opened)
     chk(_rejects_load("does_not_exist.json"), "missing result record FAILS (record is opened, not assumed)")
     um = next(o for o in OPS if o.kind == "unmodeled")
@@ -517,15 +525,16 @@ def phaseA():
           "'obs' rows withhold an absolute node latency (no auditable raw record); they are listed with their\n"
           "result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is diagnostic only.")
     print("\n" + "-" * 128)
-    print("AUDITABLE OBSERVATIONS (authored ops) — evidence READ + validated from each result record "
+    print("AUDITABLE OBSERVATIONS (authored ops) — evidence READ from each result record "
           "(absolute latency withheld):")
     for op in observations():
         e = observation_evidence(op)
         print(f"  {op.name[:44]:44s}  @M={op.m_obs}  record={e['record']}  kernel-rev={e['kernel_rev']}")
-        print(f"      CERTIFIED correctness: {e['certified_correctness']}")
+        print(f"      correctness: {e['correctness']}  [{e['correctness_status']}]")
         print(f"      speedup: {e['speedup']}")
-    print("\n  kernel-rev and correctness are DERIVED from the record's kept pass (not hand-typed); a speedup is\n"
-          "  only a certificate when its kept-pass revision resolves, else it is author-reported/UNVERIFIED.")
+    print("\n  kernel-rev + correctness are DERIVED from the record's kept pass (not hand-typed). A recorded\n"
+          "  cosine/set-match is a MICROBENCH match at the tested shape/dtype/reference; it is NOT a current-\n"
+          "  target certificate \u2014 E2E verification is PENDING. Speedup is author-reported/UNVERIFIED.")
 
 
 if __name__ == "__main__":

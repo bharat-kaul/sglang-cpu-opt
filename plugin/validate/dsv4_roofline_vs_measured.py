@@ -4,9 +4,10 @@
 Each row's IDEAL floor (max(bytes/BW, flops/peak)) is derived from the op's ACTUAL benchmark
 INPUT/OUTPUT CONTRACT (F4) at M=32, with an EXPLICIT compute dtype that selects the compute
 resource (G1): bf16 -> AMX, fp32 -> AVX-512 FP32 ceiling. Each row links an AUDITABLE RESULT
-RECORD (results/op_passes/*.json + kernel commit) that certifies correctness + speedup-vs-torch.
-An absolute node latency is NOT present in those records, so it is WITHHELD (unverified) rather
-than invented (G2). No causal/overhead/donor-routing conclusions are drawn here.
+RECORD (results/op_passes/*.json) whose kept pass gives a MICROBENCH cosine/set-match + kernel
+revision. That numerical match is tied to the tested shape/dtype/reference/tolerance; it is NOT a
+current-target certificate -> E2E verification PENDING. Absolute latency and speedup are WITHHELD/
+UNVERIFIED. No causal/overhead/donor-routing conclusions are drawn here.
 
 PROVENANCE: node = pcl-sprh02 (DDR5-5600, 64 threads NUMA0); batch M=32; model revision in REV;
 dtypes + operands per the cited benchmark contract. Contract byte/FLOP expectations are asserted
@@ -98,10 +99,11 @@ for _n, _fl, _by, _cdt, _rec, _nt in OPS:
 print(f"DSv4 roofline-VS-observation (authored ops, M={M})  rev {REV[:8]}  nominal BW={BW/1e9:.0f} GB/s "
       f"AMX={PEAK/1e12:.0f} TF FP32={FP32_PEAK/1e12:.1f} TF")
 print(f"  node={P.get('measurement_node','?')} ({P.get('mem_type','?')}); absolute latency WITHHELD; "
-      f"correctness + kernel-rev READ from each result record (speedup author-reported/UNVERIFIED)")
-print("-" * 126)
-print(f"{'op':28s} {'ideal_us':>9s} {'bind':>5s} {'cdt':>5s}  {'record':20s} {'kernel-rev':16s} CERTIFIED correctness")
-print("-" * 126)
+      f"correctness + kernel-rev READ from each result record (cosine/set-match @ microbench; E2E PENDING)")
+print("-" * 128)
+print(f"{'op':28s} {'ideal_us':>9s} {'bind':>5s} {'cdt':>5s}  {'record':20s} {'kernel-rev':16s} "
+      f"correctness (microbench; E2E PENDING)")
+print("-" * 128)
 for name, fl, by, cdt, record, note in OPS:
     peak = CPEAK[cdt]
     t_bw, t_cc = by / BW, (fl / peak if fl else 0.0)
@@ -110,8 +112,9 @@ for name, fl, by, cdt, record, note in OPS:
     rec = load_record(record)                                   # H1: evidence READ from record (fail-closed)
     rev = rec["kernel_rev"] if _rev_resolved(rec["kernel_rev"]) else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
     print(f"{name:28s} {ideal*1e6:9.1f} {bind:>5s} {cdt:>5s}  {record:20s} {rev:16s} {rec['correctness']}")
-print("-" * 126)
+print("-" * 128)
 print("ideal_us = max(bytes/BW, FLOPs/peak) with the row's EXPLICIT compute dtype (bf16->AMX, fp32->AVX-512);\n"
       "operands from the cited benchmark's input/output contract (asserted above). kernel-rev + correctness are\n"
-      "READ from each op_passes record's kept pass (not hand-typed); absolute latency and speedup are WITHHELD/\n"
-      "UNVERIFIED (records' structured ratios are at a superseded context). No causation/donor-routing claim here.")
+      "READ from each op_passes record's kept pass (not hand-typed). A recorded cosine/set-match is a MICROBENCH\n"
+      "match at the tested shape/dtype/reference; it is NOT a current-target certificate \u2014 E2E verification is\n"
+      "PENDING. Absolute latency and speedup are WITHHELD/UNVERIFIED. No causation/donor-routing claim here.")

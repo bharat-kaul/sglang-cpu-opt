@@ -388,9 +388,11 @@ bullet("Include quantization metadata (scale/padding bytes) in traffic AND capac
 bullet("MEASUREMENTS are VALIDATED against their raw record, not asserted: a cited speedup/correctness must "
        "be READ from a structured result record (load it; fail closed if absent). KERNEL revision and "
        "RESULT-RECORD revision are SEPARATE fields; the published quantity must match the specific KEPT "
-       "result entry at the stated coordinate. Certify only what the structured record supports (correctness "
-       "is context-independent); WITHHOLD a speedup whose record ratio is at a superseded coordinate or whose "
-       "revision is unresolved. Never hand-type a certification string the generator does not read back.",
+       "result entry at the stated coordinate. A recorded cosine/set-match is NOT context-independent \u2014 it is "
+       "scoped to the tested implementation/shape/dtype/layout/reference/tolerance; report it as "
+       "'<metric> certified @ MICROBENCH; E2E verification PENDING', never a current-target certificate. "
+       "WITHHOLD a speedup whose record ratio is at a superseded coordinate or whose revision is unresolved. "
+       "Never hand-type a certification string the generator does not read back.",
        bold_lead="measurement \u2014 ")
 bullet("Latency rows are MEASURED (validated against a record), justified-analytical, or "
        "EXPLICITLY-UNMODELED \u2014 never invented floors; an absolute no record contains is WITHHELD, not "
