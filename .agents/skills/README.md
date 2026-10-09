@@ -50,6 +50,12 @@ Enable a new all-known-kernels model on CPU, no fork. Load in this order:
 Driven by the `model-enablement` agent.
 
 ## `shared/` — used by BOTH legs
+- `adversarial-self-audit` — PRE-SUBMIT gate for ANY reviewed artifact (gate/validator/parser/record/
+  review-response): fix the vulnerability CLASS not the shown instance, validate by FALSIFICATION not
+  confirmation, test adversarial cases through the FULL entry path, and apply provenance to your OWN
+  claims (verify every "closed/all/validated/cited" against the artifact + real source before writing it).
+  Stops the multi-round FAIL spiral where each round only patches the last counterexample. Run its
+  checklist before handing anything to a reviewer.
 - `establish-achievable-performance` — calibrate the node's achievable ceilings (step 0)
 - `roofline-validation` — turn a throughput number into a pass/fail verdict
 - `overhead-attribution` — split a slow run into KERNEL vs unoptimized-TORCH vs FRAMEWORK

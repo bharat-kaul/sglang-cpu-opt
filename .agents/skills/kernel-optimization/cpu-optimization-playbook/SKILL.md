@@ -10,6 +10,13 @@ task. It does not itself optimize; it **routes** the op through a progressive,
 composable library of per-technique skills, loading each only when its trigger
 condition is met and gating every step against the measured roofline.
 
+> **STANDING DISCIPLINE — load `shared/adversarial-self-audit` before submitting ANY gate/validator/
+> record/review-response.** Fix the vulnerability CLASS not the shown instance; validate by
+> FALSIFICATION (red-team unseen sibling cases through the FULL entry path), not confirmation; test
+> adversarial cases end-to-end; and apply provenance to your OWN claims (re-verify every "closed/all/
+> validated/cited" against the artifact + real source before writing it). Stops the multi-round review
+> FAIL spiral (patching the last counterexample while the vulnerability class stays open).
+
 > **North-star deliverable (both legs).** Enablement is "done" ONLY when the new model
 > RUNS end-to-end on CPU, is ACCURACY-parity vs a trusted reference (accuracy-oracle,
 > real weights), AND ships a published ROOFLINE-TARGET-vs-MEASURED perf artifact at a

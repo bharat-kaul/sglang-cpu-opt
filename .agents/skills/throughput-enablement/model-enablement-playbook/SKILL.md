@@ -31,6 +31,13 @@ level). Enablement reuses kernels; optimization writes/improves them.
 Each skill is self-contained (trigger, inputs, procedure, gate) so new models
 reuse them unmodified, and new capabilities are added as new skill folders.
 
+> **STANDING DISCIPLINE — load `shared/adversarial-self-audit` before submitting ANY gate output or
+> review-response (every gated step above).** Fix the vulnerability CLASS not the shown instance;
+> validate by FALSIFICATION (red-team unseen sibling cases through the FULL entry path), not
+> confirmation; and apply provenance to your OWN claims (re-verify every "closed/all/validated/cited"
+> against the artifact + real published source before writing it). This prevents the multi-round
+> review FAIL spiral (patching the last counterexample while the vulnerability class stays open).
+
 ## Decision flow
 
 ```

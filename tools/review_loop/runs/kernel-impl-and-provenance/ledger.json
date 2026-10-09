@@ -53,28 +53,31 @@
     {"round": 6, "role": "reviewer", "reviewer": "GPT Astra 6",
      "reviewer_prompt": "tools/review_loop/runs/kernel-impl-and-provenance/reviewer_round6.prompt.txt",
      "reviewer_report": "plugin/validate/reports/kernel-impl-and-provenance_review_round6.md",
-     "verdict": "PENDING",
-     "audit_scope": {"re_verify_closed": ["R5-F3"],
-                     "not_in_pass_scope": ["F4 acceptance-policy", "F7 Amdahl ROI ledger",
-                                           "F8 entry-skill routing", "sparse donor-dispatch proof"]},
-     "triggered_at": "2026-10-09"}
+     "verdict": "PASS", "review_commit": "d8b8a14",
+     "scope": "R5-F3 closure (partial-scope PASS: 48/48 required + 16 nearby cases reject with zero output writes; 15 self-tests; 30 medians match)",
+     "findings": [],
+     "still_open": ["F4 acceptance-policy (user tolerances; v3 draft)", "F7 Amdahl ROI ledger",
+                    "F8 entry-skill routing (partial: adversarial-self-audit skill added)", "sparse donor-dispatch proof"]}
   ],
   "f4_design_review": {
-    "artifact": "plugin/validate/results/acceptance_policy.json (PROPOSED/UNRATIFIED v2)",
+    "artifact": "plugin/validate/results/acceptance_policy.json (PROPOSED/UNRATIFIED v3)",
     "rounds": [
       {"round": 1, "reviewer": "GPT Astra 6", "verdict": "FAIL", "review_commit": "5b05106",
        "report": "plugin/validate/reports/kernel-impl-and-provenance_F4_policy_review.md",
        "findings": ["F4-D1 wrong indexer oracle (no kernel.py primitive)", "F4-D2 Sinkhorn invariant rejects the reference",
                     "F4-D3 determinism != oracle bit-exactness", "F4-D4 tie/metric/precedence underspecified"],
-       "addressed": "acceptance_policy.json v2 (D1 oracle=model.py Indexer.forward; D2 removed doubly-stochastic bound, residuals diagnostic; D3 split 3 determinism claims; D4 specified tie/metric/precedence + per-op oracle corrections + shape manifest)"},
-      {"round": 2, "reviewer": "GPT Astra 6", "verdict": "PENDING",
-       "reviewer_prompt": "tools/review_loop/runs/kernel-impl-and-provenance/reviewer_F4_round2.prompt.txt"}
+       "addressed": "acceptance_policy.json v2"},
+      {"round": 2, "reviewer": "GPT Astra 6", "verdict": "SURFACE", "review_commit": "d8b8a14",
+       "report": "plugin/validate/reports/kernel-impl-and-provenance_F4_policy_review_round2.md",
+       "result": "D1/D2/D3 DESIGN-CLOSED; D4 partial (metric predicate / nonfinite exceptions / tie-sentinel / layer applicability need explicit resolution); numerical values remain USER decisions",
+       "addressed": "acceptance_policy.json v3: ONE explicit metric predicate e_i<=atol+rtol*|ref| + N/A exceptions; layer_applicability matrix; tie multiset=band-alternative + uniqueness + -inf sentinel + caller-transformation + composed-consumer; indexer TP all-reduce adapter obligation; by-key decisions expanded (14)"}
     ],
-    "status": "v2 emitted for GPT Astra 6 re-review; numerical tolerances still a USER decision"
+    "status": "v3 emitted; D1-D4 design-converged; numerical tolerances + exactness-per-path remain USER ratification (enumerated by key)"
   },
-  "outcome": "RE-REVIEW-PENDING",
-  "reason": "Round 5: R4-F5 + R4-F3 original counterexamples CLOSED by reviewer; R5-F3 (malformed numeric coordinates +1/1.0 hide a NaN sample) addressed + verified (numeric-looking recognizer + integer-coordinate validation; rejected on the real log). F4 design review r1 FAIL (D1-D4) addressed in policy v2. Round 6 + F4 r2 re-reviews TRIGGERED. F4/F7/F8/donor-proof remain OPEN + OUT of pass-scope.",
-  "open_todo": ["F4 acceptance-policy+tolerances (v2 draft; awaiting user + reviewer)", "F7 Amdahl ROI ledger",
-                "F8 entry-skill routing", "sparse donor-dispatch proof"],
+  "outcome": "PARSER-GATE-PASS; F4-DESIGN-CONVERGED (awaiting user ratification)",
+  "reason": "Round 6 PASS closes R5-F3 (the parser ingestion gate); all reviewer-found FINDINGS across rounds 1-6 are now closed. F4 design review r2 SURFACE: D1-D3 closed + D4 clarified in policy v3 — design-converged, the remaining decisions are USER numerical tolerances (enumerated by key). The four declared-OPEN work items were always out of pass-scope. Meta-learning encoded as shared/adversarial-self-audit skill (partial F8).",
+  "open_todo": ["F4 numerical tolerances + exactness-per-path (USER ratification; policy v3 enumerates by key)",
+                "F4 harness implementation (layer-0 + exits + oracle/metric structure can land now)",
+                "F7 Amdahl ROI ledger", "F8 full entry-skill routing of the new gates", "sparse donor-dispatch proof"],
   "updated_at": "2026-10-09"
 }

@@ -1,6 +1,6 @@
 {
   "_schema": "F4 per-op acceptance policy (DSv4-Flash authored kernels). DRAFT v2 for GPT Astra 6 review + USER ratification. Revised per the F4 design review (reports/kernel-impl-and-provenance_F4_policy_review.md): D1 corrected indexer oracle, D2 removed the unreferenced Sinkhorn invariant, D3 split determinism from oracle bit-exactness, D4 specified tie/metric/precedence semantics. Defines how a kernel output is machine-judged acceptable vs its AUTHORITATIVE oracle. NOT YET ENFORCED. Numerical TOLERANCES and the exact-equality requirement are USER decisions; oracle selection, metric STRUCTURE, and layer-0 gates are the executor proposal and may be implemented before tolerances are set.",
-  "status": "PROPOSED / UNRATIFIED (v2, revised per F4 design review 2026-10-09)",
+  "status": "PROPOSED / UNRATIFIED (v3, D4 clarifications per F4 design review round 2, 2026-10-09)",
   "gate": "F4 (machine-evaluated per-op acceptance policy + fail-closed bench/job exits)",
   "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1 (inference/model.py + inference/kernel.py + config.json)",
   "design_review_addressed": "plugin/validate/reports/kernel-impl-and-provenance_F4_policy_review.md (F4-D1..D4 + 7 areas)",
@@ -26,17 +26,20 @@
       ]
     },
     "layer1_numerical_vs_oracle": {
-      "_note": "Tolerances PROPOSED; user ratifies. Evaluated on normal AND heavy-tailed inputs. Metric is cosine PLUS an explicit absolute-and-relative error with a named denominator; near-zero uses the absolute allowance; zero-vector cosine is undefined -> absolute check only.",
-      "metric_structure": {
-        "cosine_floor": "PROPOSED 0.999999 (undefined on zero vectors -> fall back to the absolute check)",
-        "max_abs_error": "USER-RATIFIED absolute allowance (handles near-zero / cancellation)",
-        "max_rel_error": "USER-RATIFIED, denominator = max(|ref|, abs_floor) per output element (NOT a bare ratio); reported per-row, not flattened",
-        "reject_nonfinite_metric": true
+      "_note": "Tolerances PROPOSED; user ratifies. Evaluated on normal AND heavy-tailed inputs. ONE explicit per-output predicate (D4 round 2), NOT a silent choice among variants.",
+      "metric_predicate": {
+        "error": "e_i = abs(candidate_i - ref_i) per output element",
+        "accept": "PROPOSED predicate: e_i <= atol + rtol*abs(ref_i) for EVERY element (combined absolute+relative; atol is the near-zero allowance, rtol the relative slope) AND cosine >= cosine_floor where cosine is DEFINED",
+        "abs_floor": "atol doubles as the near-zero switch: when abs(ref_i) <= atol the relative term is dominated by atol (no separate branch needed)",
+        "reduction": "per-output / per-row max of e_i (NOT flattened); pre/post/comb evaluated SEPARATELY",
+        "cosine_not_applicable": "for either zero-norm vector, cosine is N/A -> use the absolute branch (e_i <= atol) and RECORD cosine=N/A (do NOT evaluate NaN then trip the nonfinite-metric failure)",
+        "masked_domain": "validate reference-owned mask/sentinels SEPARATELY; compute e_i/cosine ONLY over the declared finite domain; all-masked rows -> N/A; identical legal -inf values must NOT be subtracted (no NaN)",
+        "nonfinite_metric": "an UNEXPECTED nonfinite evaluated metric still FAILS; the N/A exceptions above outrank the generic completeness wording"
       },
       "proposed_bounds_UNRATIFIED": {
         "continuous_cosine_floor": 0.999999,
-        "continuous_max_rel_error": 1e-4,
-        "continuous_max_abs_error": "USER (near-zero allowance)",
+        "continuous_rtol": 1e-4,
+        "continuous_atol": "USER (near-zero allowance / abs_floor)",
         "bf16_amx_path_max_rel_error_vs_bf16_primitive": 1e-2,
         "precedence": "USER: does a per-path BF16 bound OVERRIDE the global cosine floor? state explicitly"
       }
@@ -46,11 +49,12 @@
       "rules": [
         "derive the k-th cutoff and gathered scores from the REFERENCE output",
         "require exactly k distinct in-range raw indices; include every score above cutoff + band; exclude every score below cutoff - band; fill remaining slots only from the band",
-        "selected-multiset comparison needs an explicit score-ownership + uniqueness guard (scores [2,2,1] k=2: [0,0] must not pass as [0,1]) and an explicit comparison tolerance",
-        "tie ties on -inf must NOT compute abs(-inf - -inf) (NaN); handle sentinel -inf explicitly",
+        "the selected-score MULTISET check is an ALTERNATIVE implementation of the band rule (NOT a second independent gate); its comparison tolerance = the same tie band; it is paired with the raw-index UNIQUENESS guard (scores [2,2,1] k=2: [0,0] is rejected by uniqueness even though its multiset [2,2] == [0,1]'s)",
+        "at a -inf cutoff: include ALL finite valid scores, fill the remaining raw slots from legal masked positions, and NEVER subtract infinities (abs(-inf - -inf) is forbidden; use the sentinel branch)",
+        "verify the CALLER transformation, not just raw distinctness: valid post-mask ids are unique + correctly offset; repeated -1 is legal; expect k - min(k, valid_count) sentinels when valid scores are finite; keep the int64 fragment distinct from the caller's int32 conversion",
         "k==0 -> validate empty [N,0] int64 and SKIP cutoff/cosine; handle k==S, duplicate scores, invalid k explicitly",
         "published prefill: -inf mask, k=min(512,end_pos//ratio), causally-invalid choices -> -1 + offset only on valid (repeated -1 legal); decode adds offset directly; separate raw distinct indices from post-mask output",
-        "set equivalence does NOT establish ordered sparse-kernel numerical equivalence -> also test the composed consumer (reordering changes 64-entry block boundaries + BF16 accumulation)"
+        "set equivalence does NOT establish ordered sparse-kernel numerical equivalence -> ALSO test the composed sparse consumer (reordering changes 64-entry block boundaries + BF16 accumulation); this composed check is ESSENTIAL, not implied by set equality"
       ],
       "proposed_UNRATIFIED": {"topk_set_match": 1.0, "tie_eps": 1e-6,
         "note": "band width + whether substituting different KV identities is acceptable are USER decisions (equal scores can reference different KV values); any allowed non-tie selection loss is a USER decision"}
@@ -58,7 +62,7 @@
   },
   "per_op": {
     "indexer_logits.cpp": {
-      "oracle": "published model.py Indexer.forward scoring stage (lines ~420-432): BF16 einsum score + BF16 ReLU*weights + BF16 reduction boundary, then caller mask/offset. There is NO indexer primitive in kernel.py (D1).",
+      "oracle": "published model.py Indexer.forward scoring stage (lines ~420-432): BF16 einsum score + BF16 ReLU*weights + BF16 reduction boundary, then the TP ALL-REDUCE (line ~423) BEFORE the caller mask/offset. The adapter MUST include the all-reduce, not merely a rank-local scoring oracle. There is NO indexer primitive in kernel.py (D1).",
       "diagnostic_only": "an FP32 epilogue replay / torch fp8_paged_mqa_logits_torch is a DIAGNOSTIC proxy, not the authority",
       "compute_class": "bf16 matmul + reduce",
       "gate": "the induced top-k SELECTION (layer 2, derived from the reference); raw-logit error is diagnostic (a published-BF16-vs-tiled-FP32 logit difference is NOT evidence the reference is wrong). 511/512 is a MISMATCH under set-match 1.0 unless the differing ids satisfy the ratified tie rule."
@@ -99,17 +103,28 @@
     "phases_cases": ["prefill + decode", "first overlap with leading -inf", "cadence boundaries/remainders", "causal masks", "ring-buffer wrap", "offsets + gather", "multiple batches/contexts", "H=64/D=512 sparse + TP-local"],
     "proxy_vs_gate": "random normal/heavy-tail + FP4-grid are SYNTHETIC PROXIES; runtime-captured real-forward tensors + authoritative full-model all-layer parity remain REQUIRED and are NOT met by K=512 pre-gathered microbench"
   },
+  "layer_applicability": {
+    "_note": "Which layer GATES which op (D4 round 2) — removes the layer-1 vs 'ANY failure' ambiguity. Layer 0 ALWAYS applies. Expected N/A metrics are DISTINCT from missing/failed evaluations.",
+    "continuous_ops": "compressor, sinkhorn, combine, sparse -> layer 0 + layer 1",
+    "indexer_topk": "layer 0 + layer 2 (selection)",
+    "indexer_logits": "layer 0 + layer 2 (selection is the GATE); finite logit-error is a NON-GATING diagnostic unless the user opts it in as an additional gate",
+    "precedence": "explicit exceptions (N/A cosine on zero-norm; masked/all-masked N/A) OUTRANK generic metric-completeness; an unexpected nonfinite metric still fails; the BF16-path-vs-global-cosine precedence remains a USER decision"
+  },
   "user_decisions_required_by_key": {
     "layer1.continuous_cosine_floor": "proposed 0.999999",
     "layer1.continuous_max_abs_error": "undecided (near-zero allowance)",
     "layer1.continuous_max_rel_error": "proposed 1e-4 (with named denominator)",
+    "layer1.atol_abs_floor_near_zero_switch": "undecided (atol doubles as the near-zero switch; set its positive value)",
     "layer1.bf16_amx_path_max_rel_error": "proposed 1e-2",
     "layer1.precedence_bf16_vs_cosine": "undecided",
+    "layer2.topk_set_match": "proposed 1.0 (promoted from the layer-2 object to an explicit ratifiable key)",
     "layer2.tie_eps": "proposed 1e-6",
+    "layer2.selected_multiset_tolerance": "proposed = tie_eps (the multiset check is the band rule's alternative, not a second gate)",
+    "layer2.indexer_logit_error_gating": "undecided (selection-only gate, OR selection + an additional non-gating/gating logit-error diagnostic)",
     "layer2.tie_band_substitutes_different_KV": "undecided (semantic)",
     "layer2.allowed_non_tie_selection_loss": "undecided",
-    "bit_exact_per_path": "undecided (which NAMED frozen paths, if any, require exact oracle equality)",
-    "metric.zero_and_near_zero_handling": "undecided (abs allowance + zero-vector cosine behavior)"
+    "bit_exact_per_path": "undecided (which NAMED frozen paths, if any, require exact oracle equality; define bit-identity vs numerical-equality incl. signed zero)",
+    "metric.zero_and_near_zero_handling": "specified structurally (N/A cosine + atol branch); only the atol VALUE is undecided"
   },
   "implementable_without_tolerances": [
     "layer-0 hard gates (domain-specific finiteness, shape/dtype/layout, input-domain, determinism-claim recording)",

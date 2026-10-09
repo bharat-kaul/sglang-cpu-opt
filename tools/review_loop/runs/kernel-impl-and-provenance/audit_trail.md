@@ -174,3 +174,30 @@ tolerances await a user decision** — now enumerated by key in the policy — +
 ROI ledger, F8 `.agents` entry-skill routing, sparse donor-dispatch proof. Round-6 package →
 `reviewer_round6.prompt.txt`; F4 re-review package → `reviewer_F4_round2.prompt.txt`. Nothing certified;
 microbench scope, E2E verification PENDING.
+
+## Round 6 — verdict: PASS (GPT Astra 6; commit `d8b8a14`) + F4 policy re-review (SURFACE)
+
+**Parser gate CLOSED.** Round 6 is a partial-scope **PASS**: R5-F3 closed — 48/48 required + 16 nearby
+main-path cases reject with ZERO destination writes, 15 self-tests pass, all 30 raw medians match. **All
+reviewer-found findings across rounds 1-6 are now closed.**
+
+**F4 policy design re-review (round 2): SURFACE.** D1/D2/D3 are **design-closed**; D4 was partial
+(metric predicate / nonfinite exceptions / tie-sentinel / layer applicability needed explicit resolution).
+Addressed in **policy v3**: one explicit metric predicate `e_i <= atol + rtol·|ref|` with N/A exceptions
+(zero-norm cosine, masked/all-masked domains, no −inf subtraction); a **layer-applicability matrix**
+(continuous→L1, top-k/indexer→L2 selection, L0 always); tie multiset as the band-rule alternative + raw
+uniqueness + −inf sentinel + caller-transformation + composed-consumer checks; the D1 **TP all-reduce**
+adapter obligation; and the ratifiable decisions expanded to 14 **by key**. The F4 design is now converged;
+the remaining decisions are the **numerical tolerances + per-path exactness — a USER ratification**.
+
+**Meta-learning encoded** (user request): a new shared skill `shared/adversarial-self-audit` captures the
+pre-submit discipline (fix the vulnerability CLASS not the instance; validate by FALSIFICATION through the
+FULL gate; apply provenance to your OWN claims), referenced from the README and both orchestrator playbooks
+(a partial step on F8 routing).
+
+## Outcome: parser gate PASS; F4 design-converged (awaiting user ratification)
+
+All reviewer findings closed. **Remaining declared-OPEN work items** (always out of pass-scope): F4 numerical
+tolerances + exactness-per-path (USER ratification; v3 enumerates them by key) and the harness (layer-0 +
+exits + oracle/metric structure can land now); F7 Amdahl ROI ledger; F8 full entry-skill routing; sparse
+donor-dispatch proof. Nothing certified; microbench scope, E2E verification PENDING.
