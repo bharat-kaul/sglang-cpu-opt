@@ -10,6 +10,34 @@ task. It does not itself optimize; it **routes** the op through a progressive,
 composable library of per-technique skills, loading each only when its trigger
 condition is met and gating every step against the measured roofline.
 
+> **⛔⛔ USER-MANDATED CAMPAIGN REQUIREMENTS — NON-NEGOTIABLE (do NOT relax, defer, or dilute; any
+> model-agnostic / adapter refactor MUST preserve these verbatim as campaign policy).** These are hard
+> gates the user has explicitly required for this enablement; treat each as a blocking prerequisite, not a
+> recommendation:
+> 1. **SCOPE / SHAPE DISCOVERY FIRST.** Discover the model's real op graph, per-op tensor SHAPES/dtypes, the
+>    knobs (batch/token M, KV-cache S/topk/page), and dynamic dispatch branches from the ACTUAL
+>    model/reference — not assumed. Shapes drive roofline, donor choice, and coverage.
+> 2. **PROVENANCE, ALWAYS.** Every authored kernel maps to the PUBLISHED source op at a PINNED revision
+>    (contract: storage/compute/accumulator dtype, intermediate rounding, normalization/block order, masks,
+>    output boundary, state). Every measurement/record binds source+build+config+input+job identity. No
+>    claim without its evidence; conform the reference to the source, never validate against your own
+>    reconstruction (`shared/adversarial-self-audit`).
+> 3. **IDENTIFY OPS *AND* FUSED OPS.** Enumerate every op and every FUSED op in the graph
+>    (`model-op-decomposition` + `fusion-analysis`); a fused op is a first-class kernel target. Coverage is
+>    over the full op/fused-op set, declared independently of what happened to be tested.
+> 4. **ALL KERNELS IN OPTIMIZED C/C++ *BEFORE* END-TO-END (the hard phase gate).** Every op / fused-op has a
+>    C/C++ kernel, each optimized across its knobs (M-sweep + KV) toward roofline, with a no-regression
+>    floor vs the SAME-CONTRACT torch fallback (replicated, order-varied, identity-bound) and correctness
+>    held by the per-op gate (`tie_eps=0` selection / source-conformed continuous). 100% authored-C/C++
+>    coverage + recorded perf-vs-roofline is the gate; ONLY THEN the North-Star end-to-end wall-time phase.
+> 5. **PAUSE FOR REVIEW at the Phase-1 exit**, after the pre-submit self-audit (below). Do NOT auto-advance
+>    to end-to-end integration. Policy/tolerance ratification is the human reviewer's, never the executor's
+>    (never silently widen a tolerance, drop a case, swap a comparator, or relabel uncertainty as parity).
+>
+> The sections below (phase order, donor-first, fusion/precision gates, pre-review falsification pass) are
+> the mechanized enforcement of these mandates. A model-agnostic redesign may re-house them into adapters,
+> but the REQUIREMENTS stay as the DSv4 campaign policy and the executable gates must still enforce them.
+
 > **STANDING DISCIPLINE — load `shared/adversarial-self-audit` before submitting ANY gate/validator/
 > record/review-response.** Fix the vulnerability CLASS not the shown instance; validate by
 > FALSIFICATION (red-team unseen sibling cases through the FULL entry path), not confirmation; test

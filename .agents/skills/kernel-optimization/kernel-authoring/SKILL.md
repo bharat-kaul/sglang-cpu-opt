@@ -111,11 +111,20 @@ cost (it can become the bottleneck) and gate accuracy per precision.
 1b. **Establish a slow-but-correct REFERENCE implementation FIRST — the persistent
    numerical oracle.** Never optimize without a correct fallback to diff against. If a
    donor/external kernel exists, its output is the oracle. If the op is genuinely novel
-   (no donor — e.g. a new DSA kernel), AUTHOR a naive torch/FP32 reference before the
+   (no donor — e.g. a new DSA kernel), AUTHOR a naive torch reference before the
    fast path and KEEP it: every optimized variant is checked against it on random
-   inputs at every step, and it ships alongside the kernel as the correctness gate
-   (and, in make-it-work, it is also what lets the model run end-to-end before the AMX
-   kernel exists). A fast kernel that drifts from the reference is a regression.
+   inputs at every step, and it lets the model run end-to-end before the AMX kernel exists.
+   **CONDITIONAL — a naive FP32 reference is a BRING-UP diagnostic, NOT the acceptance GATE.**
+   The gate is a reference CONFORMED to the PUBLISHED op's stage boundaries (storage/compute/
+   accumulate dtype, intermediate rounding, normalization/block order, output precision). A naive
+   FP32 reference can be WRONG when the published op is lower-precision or differently-ordered (the
+   DSv4 indexer reduces in BF16 with signed weights; an FP32 reference hid real selection diffs, and
+   a candidate agreeing with the wrong reference is false confidence). So: (a) use the naive FP32
+   math as a make-it-work diagnostic to boot the model; (b) BEFORE accepting the kernel, conform the
+   reference to the source (verify each stage's dtype/order against the published module at the pinned
+   revision — `shared/adversarial-self-audit`), and gate correctness against THAT on the adversarial
+   input domain (signed, real shapes/K, sentinels, every dispatch branch). A fast kernel that drifts
+   from the SOURCE-CONFORMED reference is a regression; agreement with a self-made FP32 reference is not.
 2. Pick the donor (table above / asset). Read it fully; identify the 4 layers.
 3. Re-author ONLY the layer(s) that differ; reuse control/packing/epilogue.
 4. Establish the node's achievable ceiling for this op class first.

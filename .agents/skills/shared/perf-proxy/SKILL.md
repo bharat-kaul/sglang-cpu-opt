@@ -22,6 +22,23 @@ loading and running ~`(full_layers / proxy_layers)`× faster — and small enoug
 4. Iterate fixes here (queue-free, minutes). Extrapolate a per-layer-dominated cost to the full
    model by `× (full_layers / proxy_layers)`; CONFIRM on the full model at the end.
 
+## QUALIFY APPLICABILITY (the proxy is faithful for per-layer-dominated cost — NOT universally)
+"Dummy weights + depth reduction is valid for perf" is TRUE for cost that is **per-layer-dominated and
+weight-value-independent**, and must NOT be asserted as a universal equivalence (playbook review #4). Before
+trusting a proxy number, check these axes and VERIFY (don't assume) when any applies:
+- **Data-dependent routing / sparsity** (MoE expert selection, top-k, early-exit): dummy weights change WHICH
+  experts/paths fire and the load balance → per-op cost shifts. Verify routing distribution vs real (or at
+  least note it); a dummy router already misled this repo once.
+- **State evolution over depth** (recurrent / KDA / SSM / running KV): cost/behavior accumulates along depth,
+  so depth reduction is NOT neutral — scale with care and confirm on full depth.
+- **Cache residency**: depth reduction shrinks the total weight/KV footprint → cache-fit can differ from the
+  full model; a warm-buffer microbench above nominal DRAM is cache-resident, not DRAM-bound.
+- **Heterogeneous / position-dependent stages** (first vs later layers, prefill vs decode, sink/mask regimes):
+  the "minimum set covering all op families" must actually include each distinct regime, not a representative one.
+Where these apply, the proxy is a fast HYPOTHESIS generator, not the authoritative number; confirm on the full
+(dummy then real) model. Where cost is plain per-layer GEMM/BW with no routing/state/cache sensitivity, the
+`× (full_layers/proxy_layers)` extrapolation is sound.
+
 ## CRITICAL: shrink DEPTH, not WIDTH (the opposite of the correctness tiny config)
 `cpu-serving-integration`'s *tiny architecturally-faithful* config shrinks WIDTH for **wiring
 correctness** (runs in seconds, exercises the arch switches). That config **MISLEADS
