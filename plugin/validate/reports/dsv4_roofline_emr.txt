@@ -113,15 +113,15 @@ result record below. 'n/m' rows are declared not-modeled. Distance-from-roof is 
 
 --------------------------------------------------------------------------------------------------------------------------------
 AUDITABLE OBSERVATIONS (authored ops) — recorded field reported LITERALLY (absolute latency withheld):
-  DSA indexer topk-512 (over 1024)              @M=32  record=results/op_passes/indexer_topk.json  kernel-rev=UNRESOLVED(pending)
+  DSA indexer topk-512 (over 1024)              @M=32  record=results/op_passes/indexer_topk.json  kernel-rev=17dbb0d
       correctness (recorded, verbatim): set-match 1.0 all M
       Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING
       speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
-  MHC sinkhorn (hc=4, 20 iters)                 @M=32  record=results/op_passes/mhc_sinkhorn.json  kernel-rev=UNRESOLVED(pending)
+  MHC sinkhorn (hc=4, 20 iters)                 @M=32  record=results/op_passes/mhc_sinkhorn.json  kernel-rev=ccded85
       correctness (recorded, verbatim): cos 1.000000 (pre/post/comb)
       Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING
       speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)
-  MHC combine (hc_pre reduce)                   @M=32  record=results/op_passes/mhc_combine.json  kernel-rev=UNRESOLVED(pending)
+  MHC combine (hc_pre reduce)                   @M=32  record=results/op_passes/mhc_combine.json  kernel-rev=dbfbcfa
       correctness (recorded, verbatim): cos 1.000000
       Historical author-reported microbench result; test scope UNVERIFIED; current-target/E2E verification PENDING
       speedup: author-reported; UNVERIFIED (structured ratio at superseded context; see record verdict)

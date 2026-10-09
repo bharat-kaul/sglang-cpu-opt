@@ -4,11 +4,11 @@ DSv4 roofline-VS-observation (authored ops, M=32)  rev 60d8d707  nominal BW=358 
 op                            ideal_us  bind   cdt  record               kernel-rev       correctness (recorded, verbatim)
 --------------------------------------------------------------------------------------------------------------------------------
 indexer logits (q.ck+reduce)      69.8     C  fp32  indexer_logits.json  e3fdcb9          cos 1.000000
-indexer top-k (512 of 1024)        0.5     B  fp32  indexer_topk.json    UNRESOLVED(pending) set-match 1.0 all M
-compressor softmax-pool           47.7     B  fp32  compressor.json      UNRESOLVED(pending) cos 1.000000 (R=128, D=512 real main-compressor dims)
+indexer top-k (512 of 1024)        0.5     B  fp32  indexer_topk.json    17dbb0d          set-match 1.0 all M
+compressor softmax-pool           47.7     B  fp32  compressor.json      ccded85          cos 1.000000 (R=128, D=512 real main-compressor dims)
 sparse attend (MQA+sink)         275.9     C  fp32  sparse_attend.json   UNRESOLVED(pending) cos 1.000000
-MHC sinkhorn (hc=4,20it)           0.0     B  fp32  mhc_sinkhorn.json    UNRESOLVED(pending) cos 1.000000 (pre/post/comb)
-MHC combine (reduce)               7.3     B  fp32  mhc_combine.json     UNRESOLVED(pending) cos 1.000000
+MHC sinkhorn (hc=4,20it)           0.0     B  fp32  mhc_sinkhorn.json    ccded85          cos 1.000000 (pre/post/comb)
+MHC combine (reduce)               7.3     B  fp32  mhc_combine.json     dbfbcfa          cos 1.000000
 --------------------------------------------------------------------------------------------------------------------------------
 ideal_us = max(bytes/BW, FLOPs/peak) with the row's EXPLICIT compute dtype (bf16->AMX, fp32->AVX-512);
 operands from the cited benchmark's input/output contract (asserted above). kernel-rev + correctness are
