@@ -27,6 +27,20 @@ static inline void topk_row_parallel(const float* L, int64_t N, int64_t S, int64
   });
 }
 
+// Serial per-row selection: no at::parallel_for team spinup. For N==1 (and other tiny-total-work cases)
+// a single nth_element is faster than launching a thread team (which REGRESSED vs torch.topk at M=1).
+static inline void topk_serial(const float* L, int64_t N, int64_t S, int64_t k, int64_t* O) {
+  std::vector<int32_t> ord(S);
+  for (int64_t n = 0; n < N; ++n) {
+    const float* lp = L + n * S;
+    std::iota(ord.begin(), ord.end(), 0);
+    std::nth_element(ord.begin(), ord.begin() + k, ord.end(),
+                     [lp](int32_t i, int32_t j) { return lp[i] > lp[j]; });
+    int64_t* op = O + n * k;
+    for (int64_t t = 0; t < k; ++t) op[t] = ord[t];
+  }
+}
+
 // Chunked 2-pass: the global top-k of a row is a subset of the union of per-chunk top-k, so exact.
 static inline void topk_chunked(const float* L, int64_t N, int64_t S, int64_t k, int64_t* O) {
   const int64_t nthr = at::get_num_threads();
@@ -82,8 +96,19 @@ torch::Tensor indexer_topk(torch::Tensor logits, int64_t k) {
   if (k == 0) return out;                               // valid zero-selection (published min(topk,end//ratio)=0)
   const float* L = lc.data_ptr<float>();
   int64_t* O = out.data_ptr<int64_t>();
-  if (N < at::get_num_threads()) topk_chunked(L, N, S, k, O);  // small N -> within-row parallelism
-  else topk_row_parallel(L, N, S, k, O);
+  const int64_t nthr = at::get_num_threads();
+  if (N == 1) {                                        // single row: serial nth_element, no team spinup
+    topk_serial(L, N, S, k, O);
+  } else if (N >= nthr) {                              // enough rows to saturate: one row per thread
+    topk_row_parallel(L, N, S, k, O);
+  } else {
+    // chunked within-row parallelism pays ONLY when k << per-chunk length (real candidate reduction);
+    // when k is a large fraction of S the chunk top-k returns ~everything and the merge is pure overhead
+    // (observed M=1 pathology). Guard it; otherwise row-parallel (underutilized but still beats torch).
+    const int64_t chunks = std::max<int64_t>(1, nthr / N);
+    if (2 * k <= S / chunks) topk_chunked(L, N, S, k, O);
+    else topk_row_parallel(L, N, S, k, O);
+  }
   return out;
 }
 
