@@ -22,30 +22,14 @@ import torch
 import torch.nn.functional as F
 
 sys.path.insert(0, "/scratch/bkaul/models/DeepSeek-V4-Flash")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from inference.kernel import sparse_attn  # noqa: E402  (real TileLang kernel)
+from sparse_ref import (ora_sparse_fp32 as _ora_sparse,          # noqa: E402  (single source of truth)
+                        ora_sparse_bf16_global as _ora_sparse_bf16,
+                        ora_sparse_blockwise as _ora_sparse_blockwise)
 
 H, D, K = 64, 512, 512          # real dims: heads, head_dim, top-k (== kv pool size here)
 SAVE = "/scratch/bkaul/sparse_oracle_io.pt"
-
-
-def _ora_sparse(q, kv, sink, scale):                       # FP32 math (diagnostic)
-    hh = q.shape[1]
-    scores = torch.einsum("nhd,nkd->nhk", q.float(), kv.float()) * scale
-    m = torch.maximum(scores.max(-1, keepdim=True).values, sink.view(1, hh, 1))
-    e = (scores - m).exp()
-    denom = e.sum(-1, keepdim=True) + (sink.view(1, hh, 1) - m).exp()
-    return torch.einsum("nhk,nkd->nhd", e / denom, kv.float())
-
-
-def _ora_sparse_bf16(q, kv, sink, scale):                  # BF16 primitive replica (F4 authoritative)
-    hh = q.shape[1]
-    qb, kvb = q.bfloat16().float(), kv.bfloat16().float()
-    scores = torch.einsum("nhd,nkd->nhk", qb, kvb) * scale
-    m = torch.maximum(scores.max(-1, keepdim=True).values, sink.view(1, hh, 1))
-    e = (scores - m).exp()
-    denom = e.sum(-1, keepdim=True) + (sink.view(1, hh, 1) - m).exp()
-    w = e.bfloat16().float()                                # bf16 cast of unnormalized exp before value GEMM
-    return (torch.einsum("nhk,nkd->nhd", w, kvb) / denom).bfloat16().float()
 
 
 def metrics(ref, got):
@@ -72,15 +56,13 @@ def run(N, seed=0):
     # CPU-equivalent layout: q[N,H,D], kv[N,K,D] = pool broadcast across N.
     qc = q.reshape(N, H, D)
     kvc = kv_pool.reshape(K, D).unsqueeze(0).expand(N, K, D).contiguous()
-    ref_fp32 = _ora_sparse(qc, kvc, sink, scale)
-    ref_bf16 = _ora_sparse_bf16(qc, kvc, sink, scale)
-
-    c32 = metrics(o_gpu, ref_fp32)
-    c16 = metrics(o_gpu, ref_bf16)
-    print(f"N={N:>3}  fp32-oracle vs GPU: cos={c32[0]:.6f} mae={c32[1]:.3e} ratio={c32[2]:.5f}   "
-          f"bf16-replica vs GPU: cos={c16[0]:.6f} mae={c16[1]:.3e} ratio={c16[2]:.5f}")
+    c32 = metrics(o_gpu, _ora_sparse(qc, kvc, sink, scale))
+    c16 = metrics(o_gpu, _ora_sparse_bf16(qc, kvc, sink, scale))
+    cblk = metrics(o_gpu, _ora_sparse_blockwise(qc, kvc, sink, scale))     # SOURCE-FAITHFUL 64-block replica
+    print(f"N={N:>3}  fp32 vs GPU: mae={c32[1]:.3e}   bf16-global vs GPU: mae={c16[1]:.3e}   "
+          f"blockwise vs GPU: cos={cblk[0]:.8f} mae={cblk[1]:.3e} ratio={cblk[2]:.5f}")
     return {"N": N, "scale": scale, "q": qc.cpu(), "kv": kvc.cpu(), "sink": sink.cpu(),
-            "gpu_out": o_gpu.cpu(), "fp32_vs_gpu": c32, "bf16_vs_gpu": c16}
+            "gpu_out": o_gpu.cpu(), "fp32_vs_gpu": c32, "bf16_vs_gpu": c16, "blockwise_vs_gpu": cblk}
 
 
 def main():

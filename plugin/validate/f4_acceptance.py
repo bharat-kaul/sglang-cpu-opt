@@ -27,7 +27,9 @@ import torch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "intel_cpu_models"))
+sys.path.insert(0, HERE)
 from torch.utils.cpp_extension import load
+from sparse_ref import ora_sparse_blockwise as _ora_sparse_blockwise   # source-faithful 64-block replica
 
 _CF = ["-O3", "-fopenmp", "-march=native"]
 _KDIR = os.path.join(HERE, "..", "kernels", "dsa_pilot")
@@ -91,12 +93,12 @@ def _ora_sparse_bf16(q, kv, sink, scale):
     return (torch.einsum("nhk,nkd->nhd", w, kvb) / denom).bfloat16().float()   # BF16 output
 
 
-# Sparse PROPOSED screening threshold (NOT a ratified noise floor — P1-F4). The GPU-oracle comparison (job
-# 384502) used a GLOBALLY-normalized replica (NOT the published 64-block online softmax) and fed the GPU
-# bf16-rounded operands while early CPU diffs used fp32 operands; the ~2-3.5e-3 figures are APPROXIMATION
-# error, NOT characterized hardware noise (repeated GPU runs were not used). 4e-3 is a PROPOSAL for screening
-# only; a ratified threshold needs a source-faithful blockwise replica on matched operands + an independently
-# justified downstream budget. Continuous stays screening -> STATUS never exceeds PARTIAL.
+# Sparse PROPOSED screening threshold (NOT a ratified noise floor — P1-F4/R2-F2). Now measured against the
+# SOURCE-FAITHFUL 64-block replica (sparse_ref.ora_sparse_blockwise) on bf16-MATCHED operands + bf16 output
+# boundary. The blockwise replica tracks the real GPU kernel to 9.8e-4 @N1 / ~1.95e-3 @N>=8 (job 384502 io);
+# that residual is the bf16 op-ORDER floor between any torch replica and the GPU reduction tree, NOT
+# characterized hardware noise. 4e-3 is a PROPOSAL for screening only; a ratified threshold still needs an
+# independently justified downstream budget. Continuous stays screening -> STATUS never exceeds PARTIAL.
 SPARSE_SCREEN_PROPOSED = 4.0e-3
 ORACLE_CONFORMANCE = "per-op (see ORACLE_CONFORMANCE_BY_OP); local references conformed to the published-op boundary where stated, else PENDING"
 ORACLE_CONFORMANCE_BY_OP = {
@@ -105,7 +107,7 @@ ORACLE_CONFORMANCE_BY_OP = {
     "compressor": "CONFORMED (pool stage): FP32 softmax-pool after overlap/APE prep; full-compressor state/norm/rotation are declared gaps",
     "sinkhorn": "PARTIAL: SGLang _hc_split_sinkhorn_torch; bitwise conformance to published kernel.py recurrence (eps/iters) PENDING",
     "combine": "CONFORMED: hc_pre multiply+sum(+cast); local einsum is math-equivalent",
-    "sparse": "REFERENCE DTYPE = BF16 (GPU oracle H200 job 384502: real TileLang sparse_attn is bf16 operands + bf16 unnormalized-exp cast + bf16 out, FP32 accumulate). CAVEAT (P1-F4): the F4 bf16 replica is GLOBALLY normalized, NOT the published 64-block online softmax, and the SPARSE_SCREEN_PROPOSED=4e-3 figure is APPROXIMATION error on bf16-matched operands, NOT characterized hardware noise -> continuous is SCREENING only (PARTIAL), NOT ratified acceptance; a source-faithful blockwise replica + downstream budget are PENDING. sparse-AMX DROPPED (dominated: drifts further AND slower than the fp32-bmm donor).",
+    "sparse": "REFERENCE DTYPE = BF16 (GPU oracle H200 job 384502). F4 now judges vs the SOURCE-FAITHFUL 64-block replica (sparse_ref.ora_sparse_blockwise) on bf16-MATCHED operands + bf16 OUTPUT boundary (R2-F2); it tracks the real kernel to 9.8e-4 @N1 / ~1.95e-3 @N>=8. Continuous is SCREENING only (PARTIAL), NOT ratified acceptance; the residual is the bf16 op-order floor, and a downstream error budget is PENDING. sparse-AMX DROPPED (dominated).",
 }
 
 
@@ -242,7 +244,7 @@ def manifest():
                "amx": lambda q, kv, s, sc: sp.sparse_attend_amx(q, kv, s, sc)}
     for p, fn in _sp_fns.items():
         cases.append({"op": "sparse", "path": p, "kind": "continuous_sparse", "dist": "normal",
-                      "build": (lambda: (torch.randn(8, 64, 512), torch.randn(8, 512, 512), torch.randn(64), 512 ** -0.5)),
+                      "build": (lambda: (torch.randn(8, 64, 512).bfloat16().float(), torch.randn(8, 512, 512).bfloat16().float(), torch.randn(64), 512 ** -0.5)),
                       "cand": fn, "ora": _ora_sparse, "out": ((lambda: (8, 64, 512)), torch.float32)})
     cases.append({"op": "sparse", "path": "composed(topk+gather+attend)", "kind": "composed", "dist": "normal",
                   "build": _build_composed_sparse, "cand": (tk, sp), "ora": None, "out": None})
@@ -376,11 +378,12 @@ def run_case(c, calib):
             return True, "; ".join(oc)
         if not _finite_ok(cand):
             return True, "non-finite output"
-        ref_auth = _ora_sparse_bf16(*inp)             # bf16 replica (GLOBAL softmax; NOT the published 64-block)
+        ref_auth = _ora_sparse_blockwise(*inp)        # SOURCE-FAITHFUL 64-block replica (matched bf16 operands)
         ref_diag = _ora_sparse(*inp)                  # FP32 math: diagnostic only
         if not bool(torch.isfinite(ref_auth).all().item()):
             return True, "non-finite reference"
-        m_auth = _screen_continuous(cand, ref_auth, atol=SPARSE_SCREEN_PROPOSED)
+        cand_b = cand.bfloat16().float()              # match the bf16 OUTPUT boundary (R2-F2)
+        m_auth = _screen_continuous(cand_b, ref_auth, atol=SPARSE_SCREEN_PROPOSED)
         m_diag = _screen_continuous(cand, ref_diag, atol=SPARSE_SCREEN_PROPOSED)
         dominated = (c["path"] == "amx")              # GPU-measured: amx drifts further (3.9-5.9e-3 @N8/64)
         within = (not dominated) and m_auth["max_abs_err"] <= SPARSE_SCREEN_PROPOSED
