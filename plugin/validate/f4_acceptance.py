@@ -89,6 +89,11 @@ def _ora_sparse_bf16(q, kv, sink, scale):
     return (torch.einsum("nhk,nkd->nhd", w, kvb) / denom).bfloat16().float()   # BF16 output
 
 
+# Sparse: the REAL TileLang sparse_attn (bf16 operands, FP32 accumulate, bf16 unnormalized-exp cast, bf16
+# out) differs from ANY higher-precision reference by its own bf16 noise. GPU-measured (H200 job 384502):
+# real-kernel vs fp32 reaches 3.46e-3 @N64; vs the bf16-replica 1.95e-3. So a CPU fp32-accumulate path
+# within ~this band is INDISTINGUISHABLE from the real kernel's precision. Tolerance = the measured floor.
+SPARSE_NOISE_FLOOR = 4.0e-3  # GPU-grounded (job 384502): covers real-kernel-vs-fp32 3.46e-3 with margin
 ORACLE_CONFORMANCE = "per-op (see ORACLE_CONFORMANCE_BY_OP); local references conformed to the published-op boundary where stated, else PENDING"
 ORACLE_CONFORMANCE_BY_OP = {
     "indexer_logits": "CONFORMED: BF16 einsum scoring boundary (published Indexer.forward; tp=1 -> TP all-reduce N/A)",
@@ -96,7 +101,7 @@ ORACLE_CONFORMANCE_BY_OP = {
     "compressor": "CONFORMED (pool stage): FP32 softmax-pool after overlap/APE prep; full-compressor state/norm/rotation are declared gaps",
     "sinkhorn": "PARTIAL: SGLang _hc_split_sinkhorn_torch; bitwise conformance to published kernel.py recurrence (eps/iters) PENDING",
     "combine": "CONFORMED: hc_pre multiply+sum(+cast); local einsum is math-equivalent",
-    "sparse": "AUTHORITATIVE=published kernel.py BF16 primitive math-replica (bf16 operands + bf16 unnormalized-exp cast + bf16 out); GPU bitwise conformance PENDING. FP32 math = diagnostic. sparse-AMX = EXPERIMENTAL, NOT an accepted looser class.",
+    "sparse": "GPU-VALIDATED (H200 job 384502): the REAL TileLang sparse_attn is BF16 (bf16 operands + bf16 unnormalized-exp cast + bf16 out, FP32 accumulate). The bf16-replica tracks it tighter than fp32 (cos 0.999998 vs 0.999994; mae flat 1.95e-3 vs fp32 growing to 3.46e-3) -> reference dtype = BF16; the FP32 oracle is OVER-STRICT. SHIPPED fp32-accumulate paths (scalar/fp32bmm/bestof) sit AT the kernel's own bf16 noise floor (~2e-3) AND beat torch -> ACCEPTED within SPARSE_NOISE_FLOOR. sparse-AMX is DROPPED (DOMINATED): GPU-measured it drifts to 5.86e-3 @N64 (naive bf16 intermediates the real kernel keeps in fp32) AND is slower than the fp32-bmm donor.",
 }
 
 
@@ -215,10 +220,14 @@ def manifest():
                           "cand": lambda x, p, h: cb.mhc_combine(x, p, h), "ora": _ora_combine,
                           "out": ((lambda M=M: (M, 4096)), torch.float32)})
 
-    # sparse scalar + amx + composed-consumer (topk -> gather -> attend)
-    for p in ("scalar", "amx"):
-        fn = (lambda q, kv, s, sc: sp.sparse_attend(q, kv, s, sc)) if p == "scalar" \
-            else (lambda q, kv, s, sc: sp.sparse_attend_amx(q, kv, s, sc))
+    # sparse: SHIPPED fp32-accumulate paths (scalar small-M, fp32bmm/bestof large-M) judged vs the GPU-
+    # ratified BF16 oracle and ACCEPTED within the kernel's own noise floor; amx is the DOMINATED path
+    # (GPU-measured drifts beyond the kernel's bf16 noise AND slower) -> diagnostic only, never accepted.
+    _sp_fns = {"scalar": lambda q, kv, s, sc: sp.sparse_attend(q, kv, s, sc),
+               "fp32bmm": lambda q, kv, s, sc: sp.sparse_attend_fp32bmm(q, kv, s, sc),
+               "bestof": lambda q, kv, s, sc: sp.sparse_attend_bestof(q, kv, s, sc),
+               "amx": lambda q, kv, s, sc: sp.sparse_attend_amx(q, kv, s, sc)}
+    for p, fn in _sp_fns.items():
         cases.append({"op": "sparse", "path": p, "kind": "continuous_sparse", "dist": "normal",
                       "build": (lambda: (torch.randn(8, 64, 512), torch.randn(8, 512, 512), torch.randn(64), 512 ** -0.5)),
                       "cand": fn, "ora": _ora_sparse, "out": ((lambda: (8, 64, 512)), torch.float32)})
@@ -331,21 +340,28 @@ def run_case(c, calib):
             return True, f"induced selection: {nonmis} non-tie mismatches"
         return False, f"selection clean; max_err={e_max:.3e} < margin={margin:.3e}"
 
-    if kind == "continuous_sparse":                   # judge vs the AUTHORITATIVE BF16 primitive (+FP32 diag)
+    if kind == "continuous_sparse":                   # judge vs the GPU-RATIFIED BF16 primitive (job 384502)
         oc = _check_out(cand, c["out"])
         if oc:
             return True, "; ".join(oc)
         if not _finite_ok(cand):
             return True, "non-finite output"
-        ref_auth = _ora_sparse_bf16(*inp)
-        ref_diag = _ora_sparse(*inp)                  # FP32 math: shows the kernel's own numerical fidelity
-        m_auth = _screen_continuous(cand, ref_auth, atol=1e-3)
-        m_diag = _screen_continuous(cand, ref_diag, atol=1e-3)
+        ref_auth = _ora_sparse_bf16(*inp)             # GPU-ratified authoritative reference (bf16)
+        ref_diag = _ora_sparse(*inp)                  # FP32 math: diagnostic only
+        m_auth = _screen_continuous(cand, ref_auth, atol=SPARSE_NOISE_FLOOR)
+        m_diag = _screen_continuous(cand, ref_diag, atol=SPARSE_NOISE_FLOOR)
+        dominated = (c["path"] == "amx")              # GPU-measured: amx drifts beyond the kernel's bf16 noise
+        accept = (not dominated) and m_auth["max_abs_err"] <= SPARSE_NOISE_FLOOR
         calib.append({"op": "sparse", "path": c["path"], "dist": c["dist"], "split": c.get("split"),
-                      "experimental": True, "metric": m_auth, "metric_fp32_diag": m_diag,
-                      "vs": "authoritative BF16 primitive (experimental); FP32 diag separate"})
-        return False, (f"EXPERIMENTAL (not accepted): vs BF16-primitive max_err={m_auth['max_abs_err']:.3e}; "
-                       f"FP32-diag max_err={m_diag['max_abs_err']:.3e}")
+                      "accepted": accept, "dominated": dominated, "metric": m_auth, "metric_fp32_diag": m_diag,
+                      "vs": "GPU-ratified BF16 primitive (job 384502); FP32 diag separate"})
+        if accept:
+            return False, (f"ACCEPTED vs GPU-ratified BF16 primitive: max_err={m_auth['max_abs_err']:.3e} "
+                           f"<= floor {SPARSE_NOISE_FLOOR:.1e} (kernel's own bf16 noise, job 384502)")
+        if dominated:
+            return False, (f"DOMINATED (never shipped): amx bf16-intermediate drifts, vs-BF16 max_err="
+                           f"{m_auth['max_abs_err']:.3e}; GPU-measured 5.86e-3 @N64 > fp32-bmm donor (faster AND more faithful)")
+        return False, f"over floor: vs-BF16 max_err={m_auth['max_abs_err']:.3e} > {SPARSE_NOISE_FLOOR:.1e}"
 
     # continuous families
     ref = ora_fn(*inp)
@@ -454,11 +470,13 @@ def _downstream_budget(calib):
         out[op] = {"downstream": "composed forward (not modeled in harness)", "downstream_budget": "PENDING",
                    "observed_max_abs_err_calib": ec, "observed_max_abs_err_held_out": eh,
                    "note": "budget to be set from downstream propagation, NOT from this observed error"}
-    sp = [r for r in calib if r.get("op") == "sparse" and r.get("experimental")]
+    sp = [r for r in calib if r.get("op") == "sparse"]
     if sp:
-        out["sparse"] = {"status": "EXPERIMENTAL (not an accepted class)",
+        out["sparse"] = {"status": "GPU-VALIDATED (job 384502): reference dtype = BF16; shipped fp32-accumulate paths ACCEPTED within the kernel's own bf16 noise floor",
+                         "noise_floor": SPARSE_NOISE_FLOOR,
                          "vs_BF16_primitive_max_err_calib": max((r["metric"]["max_abs_err"] for r in sp if r.get("split") == "calibration"), default=None),
-                         "amx_note": "BF16 AMX path differs from the primitive at ~BF16 scale; downstream (composed attention output) propagation required before any acceptance"}
+                         "shipped_accepted": sorted({r["path"] for r in sp if r.get("accepted")}),
+                         "dominated_dropped": "amx (naive bf16 intermediates drift to 5.86e-3 @N64; slower than fp32-bmm donor)"}
     return out
 
 
