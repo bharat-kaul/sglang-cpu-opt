@@ -38,56 +38,68 @@ EXPECTED_REPS = {1, 2, 3}
 def parse_ops(text):
     """Parse raw log text -> {op_name: {bench, variant, median_ms[per M]}}. Fail-closed (raises ValueError).
 
-    Integrity rules (R2-F3 + R3-F3): bench markers are matched ONLY at line start, so shell `set -x` echo
-    traces (e.g. "+ echo '>>> BENCH=...'") are not mistaken for real runs; each value is validated for
-    finiteness/positivity the instant it is read (before any store, so an invalid sample cannot be silently
-    overwritten by a later block); a repeated real (bench, M, rep) sample RAISES (a dict would otherwise
-    overwrite it); unexpected M coordinates RAISE (exact coverage); and the per-M replica set must equal
-    exactly {1,2,3}."""
+    Integrity rules (R2-F3 + R3-F3 + R4-F3): bench markers are matched ONLY at line start, so shell `set -x`
+    echo traces are not mistaken for real runs; a SECOND real block for the same (bench, rep) RAISES even if
+    the first yielded no parseable samples (duplicate-run handling is independent of parse outcome); a header
+    with a DUPLICATE column name RAISES (ambiguous selection); inside a recognized table every numeric-
+    coordinate row is validated by GRAMMAR — an unexpected/negative M, a truncated row missing the named
+    column, an unparseable value, or a non-finite/non-positive time all RAISE (they are NOT silently skipped);
+    each value is checked the instant it is read; a repeated (bench, M, rep) sample RAISES; and the per-M
+    replica set must equal exactly {1,2,3}."""
     blocks = re.split(r"(?m)^>>> BENCH=(\S+) REP=(\d+)\s*$", text)   # LINE-START markers only (ignore set -x echo)
-    data = {}   # bench -> M -> {rep: value}
+    coord = re.compile(r"^-?\d+$")                                   # a numeric table coordinate (incl. negative)
+    data = {}            # bench -> M -> {rep: value}
+    seen_blocks = set()  # (bench, rep) real run markers -> a second one is a duplicate run regardless of samples
     for i in range(1, len(blocks), 3):
         bench, rep, body = blocks[i], int(blocks[i + 1]), blocks[i + 2]
         if bench not in SPEC:
             continue
+        if (bench, rep) in seen_blocks:                             # R4-F3: duplicate run marker
+            raise ValueError(f"{bench} REP={rep}: duplicate run marker (second block for the same bench/rep)")
+        seen_blocks.add((bench, rep))
         colname = SPEC[bench][1]
         header = None
         for line in body.splitlines():
             toks = line.split()
             if not toks:
                 continue
-            if toks[0] == "M":                                  # header row: name -> column index
+            if toks[0] == "M":                                      # header row
+                cdups = sorted({n for n in toks if toks.count(n) > 1})
+                if cdups:                                           # R4-F3: ambiguous duplicate column name
+                    raise ValueError(f"{bench} REP={rep}: duplicate header column(s) {cdups}")
                 header = {name: j for j, name in enumerate(toks)}
                 continue
-            if header is None or not toks[0].isdigit():
+            if header is None or not coord.match(toks[0]):          # not a table data row (prose / trace / blank)
                 continue
+            M = int(toks[0])
+            if M not in set(MS):                                    # R4-F3: unexpected/negative coordinate
+                raise ValueError(f"{bench} REP={rep}: unexpected M coordinate {M} (expected {MS})")
             if colname not in header:
                 raise ValueError(f"{bench} REP={rep}: header has no column {colname!r} (cols={list(header)})")
             ci = header[colname]
-            if ci >= len(toks):
-                continue                                        # ragged/continuation line, not a data row
+            if ci >= len(toks):                                     # R4-F3: truncated row in a recognized table
+                raise ValueError(f"{bench} REP={rep} M={M}: truncated row (missing {colname!r} column)")
             try:
                 v = float(toks[ci])
-            except ValueError:
-                continue
-            if not math.isfinite(v) or v <= 0:                  # validate IMMEDIATELY (before store; R3-F3)
-                raise ValueError(f"{bench} M={toks[0]} rep={rep}: non-finite/non-positive time {v}")
-            M = int(toks[0])
+            except ValueError:                                     # R4-F3: unparseable value (do NOT skip)
+                raise ValueError(f"{bench} REP={rep} M={M}: unparseable {colname!r} value {toks[ci]!r}")
+            if not math.isfinite(v) or v <= 0:                     # validate IMMEDIATELY (before store)
+                raise ValueError(f"{bench} M={M} rep={rep}: non-finite/non-positive time {v}")
             slot = data.setdefault(bench, {}).setdefault(M, {})
-            if rep in slot:                                     # duplicate REAL sample -> fail (no overwrite)
+            if rep in slot:                                        # duplicate sample within a block
                 raise ValueError(f"{bench} M={M} rep={rep}: duplicate sample (had {slot[rep]}, got {v})")
             slot[rep] = v
     ops = {}
     for bench, (opname, colname, variant) in SPEC.items():
         rows = data.get(bench, {})
-        extra = sorted(set(rows) - set(MS))                     # exact coverage: no unexpected coordinates
+        extra = sorted(set(rows) - set(MS))                         # exact coverage: no unexpected coordinates
         if extra:
             raise ValueError(f"{bench}: unexpected M coordinate(s) {extra} (expected exactly {MS})")
         med = []
         for M in MS:
             reps = rows.get(M, {})
             got = set(reps)
-            if got != EXPECTED_REPS:                            # missing/extra/duplicate replica -> fail
+            if got != EXPECTED_REPS:                                # missing/extra/duplicate replica -> fail
                 raise ValueError(f"{bench} M={M}: replica ids {sorted(got)} != expected {sorted(EXPECTED_REPS)}")
             med.append(round(st.median(reps.values()), 4))
         ops[opname] = {"bench": bench, "variant": variant, "median_ms": med}
@@ -243,6 +255,40 @@ def selftest():
             "IGNORES a set -x echo-trace marker (line-start anchor; not a duplicate run)")
     except ValueError as e:
         chk(False, f"echo-trace case unexpectedly failed: {e}")
+
+    # 10) R4-F3: a duplicate header column name is ambiguous -> rejected
+    def _dup_header():
+        parts = ["node=selftest\n"]
+        for rep in (1, 2, 3):
+            hdr = ["M", "cos_sc", "cos_amx", "ref_ms", "sc_ms", "sc_ms", "sc_x", "amx_x"]   # sc_ms twice
+            rows = [(M, [1.0, 1.0, 9.999, float("nan"), round(0.1 * M, 4), 1.0, 1.0]) for M in MS]
+            parts.append(_block("bench_sparse_attend.py", rep, hdr, rows))
+        for bench in SPEC:
+            if bench == "bench_sparse_attend.py":
+                continue
+            for rep in (1, 2, 3):
+                parts.append(_block(bench, rep, good_hdr[bench], [(M, _val_row(bench, M)) for M in MS]))
+        return "".join(parts)
+    chk(_rejects(lambda: parse_ops(_dup_header())), "REJECTS a duplicate header column name (ambiguous)")
+
+    # 11) R4-F3: an unparseable value inside a recognized table row -> rejected (not skipped)
+    def _broken(bench, rep, rows):
+        if bench == "bench_compressor.py" and rep == 1:
+            return [(M, ["1.0", "9.999", "BROKEN"]) if M == 8 else (M, vals) for M, vals in rows]
+        return rows
+    chk(_rejects(lambda: parse_ops(_full(mutate=_broken))), "REJECTS an unparseable kernel value in a table row")
+
+    # 12) R4-F3: a truncated row (missing the kernel column) -> rejected
+    def _trunc(bench, rep, rows):
+        if bench == "bench_combine.py" and rep == 2:
+            return [(M, [1.0]) if M == 16 else (M, vals) for M, vals in rows]
+        return rows
+    chk(_rejects(lambda: parse_ops(_full(mutate=_trunc))), "REJECTS a truncated row inside a table")
+
+    # 13) R4-F3: a negative M coordinate -> rejected (not silently ignored by isdigit)
+    def _negM(bench, rep, rows):
+        return rows + [(-1, _val_row(bench, 1))] if bench == "bench_topk.py" else rows
+    chk(_rejects(lambda: parse_ops(_full(mutate=_negM))), "REJECTS a negative M coordinate")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     sys.exit(0 if ok else 2)

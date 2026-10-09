@@ -111,3 +111,37 @@ Three round-3 findings addressed + verified. **Still OPEN (unchanged):** F4 acce
 await a user decision**), F7 Amdahl ROI ledger, F8 `.agents` entry-skill routing, sparse donor-dispatch
 proof. Round-4 reviewer package emitted → `reviewer_round4.prompt.txt`. Nothing certified; microbench scope,
 E2E verification PENDING.
+
+## Round 4 — verdict: FAIL (GPT Astra 6 re-review returned; commit `8874f23`)
+
+**Review report** → `plugin/validate/reports/kernel-impl-and-provenance_review_round4.md`
+- **R3-P1 CLOSED by reviewer** (report regeneration + identity separation + `--verify` drift check verified).
+  Two findings remained: destination binding and parser schema integrity.
+
+**Executor response (standalone)** → `plugin/validate/reports/kernel-impl-and-provenance_response_round4.md`
+(hand this to the reviewer alongside `reviewer_round5.prompt.txt`)
+
+**Collateral + Addressing (executor: Claude Opus 4.8)** — per finding:
+
+| # | Finding | Disposition | What changed (consequence, verified) |
+|---|---------|-------------|--------------------------------------|
+| R4-F5 | Valid gap IDs accept empty / `caller:` / unrelated / wrong-existing destinations; full self-test still passes | **CLOSED** | `_KERNEL_GAP_CONTRACT` is now a gap_id→REQUIRED-DISPOSITION map (not just an id set); each entry's disposition must EQUAL its one required destination; the generic resolver now rejects empty `unmodeled:`/`caller:` and nonexistent targets. The reviewer's 4 repoints (`caller:`, `caller:NO_SUCH_CALLER`, `unmodeled:`, `modeled:hc_fn`) are all REJECTED (tested through the full gate); generator self-test rc=0 (47 PASS) |
+| R4-F3 | Duplicate header name silently selects last; malformed-sample retry disappears; truncated/unparseable rows skipped; negative M ignored | **CLOSED** | parser now rejects a DUPLICATE header column (ambiguous); treats a SECOND real block for the same `(bench,rep)` as a duplicate run REGARDLESS of whether the first parsed; and inside a recognized table RAISES on an unexpected/negative M, a truncated row, an unparseable value, or a non-finite/non-positive time (no silent skip). `--selftest` +4 cases (dup-header / unparseable / truncated / negative-M) — all PASS (13 total); real 384414 medians unchanged |
+
+Parser (13) + generator (47) self-tests pass; report `--verify` rc=0.
+
+## F4 design-review package emitted (user asked to share with the reviewer)
+
+- **DRAFT policy** → `plugin/validate/results/acceptance_policy.json` (PROPOSED / UNRATIFIED): three layers
+  (tolerance-independent hard gates; numerical vs the AUTHORITATIVE oracle; discrete-selection with a tie
+  band), per-op oracle selection, and proposed starting tolerances. Numerical tolerances are a USER decision.
+- **Reviewer ask** → `tools/review_loop/runs/kernel-impl-and-provenance/reviewer_F4.prompt.txt`: 7-point
+  design review (oracle selection, metric adequacy, tie rule, bit-exact classification, fail-closed
+  enforcement, shape coverage, proposed numbers). Reviewer SUGGESTS; user RATIFIES.
+
+## Outcome: SURFACED to user (round 5 re-review ready + F4 draft to share)
+
+Both round-4 findings addressed + verified. **Still OPEN (unchanged):** F4 acceptance policy (DRAFT proposed;
+**tolerances await a user decision** + reviewer suggestions), F7 Amdahl ROI ledger, F8 `.agents` entry-skill
+routing, sparse donor-dispatch proof. Round-5 reviewer package emitted → `reviewer_round5.prompt.txt`.
+Nothing certified; microbench scope, E2E verification PENDING.

@@ -409,18 +409,32 @@ _KERNEL_COST_CONTRACT = {
     "sinkhorn.cpp":       {"MHC sinkhorn (hc=4, 20 iters)"},
     "combine.cpp":        {"MHC combine (hc_pre reduce)"},
 }
-# INDEPENDENT stable gap-ID inventory (R3-F5): each authored kernel's FRAGMENT gaps have FIXED ids that the
-# reconciliation must cover EXACTLY and UNIQUELY. A nonempty list is NOT proof of coverage — a partial,
-# unrelated, or emptied disposition list fails. This requirement lives in-code, so deleting a kernel's
-# declared gaps in the (mutable, under-audit) provenance document cannot also delete the REQUIREMENT that
-# those gaps be dispositioned. Each reconciliation gap_disposition must carry a gap_id from this set.
+# INDEPENDENT stable gap-ID -> REQUIRED-DISPOSITION map (R3-F5 + R4-F5): each authored kernel's FRAGMENT
+# gaps have FIXED ids that the reconciliation must cover EXACTLY and UNIQUELY, AND each id is bound to its
+# ONE permitted disposition (kind + exact destination). A nonempty list is NOT proof of coverage, and a
+# present-but-empty/unrelated/wrong destination is NOT accounting. This requirement lives in-code, so neither
+# the gap set NOR its destinations can be gutted or re-pointed in the (mutable, under-audit) provenance doc.
 _KERNEL_GAP_CONTRACT = {
-    "indexer_logits.cpp": {"wq_b", "weights_proj", "rope_hadamard_quant_compressor_mask"},
-    "indexer_topk.cpp":   {"prefill_mask_offset"},
-    "compressor.cpp":     {"wkv_wgate_r4", "wkv_wgate_r128", "wkv_wgate_idx", "postproc_state"},
-    "sparse_attend.cpp":  {"attention_cost_row", "topk_gather"},
-    "sinkhorn.cpp":       {"mixes_upstream"},
-    "combine.cpp":        {"mixes_upstream"},
+    "indexer_logits.cpp": {
+        "wq_b": "modeled:DSA indexer wq_b (1024->8192)",
+        "weights_proj": "modeled:DSA indexer weights_proj (4096->64)",
+        "rope_hadamard_quant_compressor_mask": "unmodeled:indexer compressor key/score proj + RoPE + Hadamard",
+    },
+    "indexer_topk.cpp": {
+        "prefill_mask_offset": "caller:Indexer.forward mask/offset, not the select kernel",
+    },
+    "compressor.cpp": {
+        "wkv_wgate_r4": "modeled:main compressor wkv+wgate (r4, 4096->2048)",
+        "wkv_wgate_r128": "modeled:main compressor wkv+wgate (r128, 4096->1024)",
+        "wkv_wgate_idx": "modeled:indexer compressor wkv+wgate (r4, 4096->512)",
+        "postproc_state": "unmodeled:main compressor per-token state write + postprocessing boundary",
+    },
+    "sparse_attend.cpp": {
+        "attention_cost_row": "modeled:MLA sparse attention (window+compressed, 43L)",
+        "topk_gather": "caller:indexer_topk + gather upstream",
+    },
+    "sinkhorn.cpp": {"mixes_upstream": "modeled:MHC hc_fn (16384->24, FP32)"},
+    "combine.cpp":  {"mixes_upstream": "modeled:MHC hc_fn (16384->24, FP32)"},
 }
 
 
@@ -488,19 +502,26 @@ def reconcile_kernels(kp=None):
             ok = False; msgs.append(f"{kbase}: empty cost_rows (no kernel->cost-row mapping)")
         if "gap_dispositions" not in e:
             ok = False; msgs.append(f"{kbase}: missing gap_dispositions")
-        # (4) gap_ids must EXACTLY + UNIQUELY cover the independent stable gap-ID inventory (R3-F5)
+        # (4) gap_ids must EXACTLY + UNIQUELY cover the independent inventory, AND each id's disposition must
+        # equal its ONE required destination (R4-F5: reject empty/unrelated/wrong destinations, not just ids)
         want_gaps = _KERNEL_GAP_CONTRACT.get(kbase)
         if want_gaps is not None:
-            gap_ids = [gd.get("gap_id") for gd in e.get("gap_dispositions", [])]
+            gds = e.get("gap_dispositions", [])
+            gap_ids = [gd.get("gap_id") for gd in gds]
             if any(g is None for g in gap_ids):
                 ok = False; msgs.append(f"{kbase}: a gap_disposition is missing a gap_id")
             present = [g for g in gap_ids if g is not None]
             gdups = sorted({g for g in present if present.count(g) > 1})
             if gdups:
                 ok = False; msgs.append(f"{kbase}: duplicate gap_id(s) {gdups}")
-            if set(present) != want_gaps:
+            if set(present) != set(want_gaps):
                 ok = False; msgs.append(f"{kbase}: gap_ids {sorted(set(present))} != required "
                                         f"{sorted(want_gaps)} (incomplete/incorrect gap coverage)")
+            for gd in gds:                                    # each gap_id bound to its ONE required disposition
+                gid, disp = gd.get("gap_id"), gd.get("disposition", "")
+                if gid in want_gaps and disp != want_gaps[gid]:
+                    ok = False; msgs.append(f"{kbase}: gap {gid!r} disposition {disp!r} != required "
+                                            f"{want_gaps[gid]!r} (empty/unrelated/wrong destination)")
         for cr in e.get("cost_rows", []):
             if cr not in ops_names:
                 ok = False; msgs.append(f"{kbase}: cost_row {cr!r} absent from roofline OPS (DISCONNECTED)")
@@ -508,13 +529,16 @@ def reconcile_kernels(kp=None):
             d = gd.get("disposition", "")
             if d.startswith("modeled:"):
                 row = d.split("modeled:", 1)[1]
-                if row not in ops_names:
+                if not row or row not in ops_names:          # nonempty + resolvable
                     ok = False; msgs.append(f"{kbase}: modeled gap row {row!r} absent from roofline OPS")
             elif d.startswith("unmodeled:"):
-                sub = d.split("unmodeled:", 1)[1]
-                if not any(sub in it for it in trk_items):
-                    ok = False; msgs.append(f"{kbase}: unmodeled gap {sub!r} absent from tracker")
-            elif not d.startswith("caller:"):
+                sub = d.split("unmodeled:", 1)[1].strip()
+                if not sub or not any(sub in it for it in trk_items):   # nonempty (empty would match every item)
+                    ok = False; msgs.append(f"{kbase}: unmodeled gap {sub!r} empty or absent from tracker")
+            elif d.startswith("caller:"):
+                if not d.split("caller:", 1)[1].strip():     # caller reference must be explicit/nonempty
+                    ok = False; msgs.append(f"{kbase}: caller disposition has no explicit reference")
+            else:
                 ok = False; msgs.append(f"{kbase}: gap disposition {d!r} not modeled:/unmodeled:/caller:")
         if not e.get("verdict", "").startswith("CONSISTENT"):
             ok = False; msgs.append(f"{kbase}: verdict not CONSISTENT ({e.get('verdict')})")
@@ -703,6 +727,21 @@ def selftest():
         decl = [k for k in d["kernels"] if "compressor" in k.get("kernel", "")][0]
         d["kernels"].append(json.loads(json.dumps(decl)))
     chk(_mut(_dup_decl) is False, "reconcile REJECTS a duplicate kernel declaration in kernels[]")
+
+    # R4-F5 negative probes: a VALID gap_id with an empty / unrelated / wrong destination must be REJECTED
+    def _repoint(dest):
+        def _f(d):
+            for e in d["roofline_reconciliation"]["entries"]:
+                if "compressor" in e.get("kernel", ""):
+                    for gd in e["gap_dispositions"]:
+                        if gd.get("gap_id") == "wkv_wgate_r4":
+                            gd["disposition"] = dest
+        return _f
+    chk(_mut(_repoint("caller:")) is False, "reconcile REJECTS an empty caller: destination on a valid gap_id")
+    chk(_mut(_repoint("caller:NO_SUCH_CALLER")) is False, "reconcile REJECTS an unrelated caller: destination")
+    chk(_mut(_repoint("unmodeled:")) is False, "reconcile REJECTS an empty unmodeled: destination")
+    chk(_mut(_repoint("modeled:MHC hc_fn (16384->24, FP32)")) is False,
+        "reconcile REJECTS a wrong (existing-but-unrelated) modeled: destination")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     return ok

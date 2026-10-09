@@ -1,0 +1,91 @@
+{
+  "_schema": "F4 per-op acceptance policy (DSv4-Flash authored kernels). DRAFT PROPOSAL for GPT Astra 6 review + USER ratification. Defines how a kernel output is machine-judged acceptable vs its AUTHORITATIVE oracle. Three layers: (0) tolerance-independent hard gates; (1) numerical acceptance vs the oracle; (2) discrete-decision/selection acceptance. NOT YET ENFORCED. The numerical TOLERANCES are a user design decision; the oracle selection, metric structure, and layer-0 gates are the executor's proposal and can be implemented before tolerances are set.",
+  "status": "PROPOSED / UNRATIFIED",
+  "gate": "F4 (machine-evaluated per-op acceptance policy + fail-closed bench/job exits)",
+  "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1 (inference/model.py + inference/kernel.py)",
+  "proposed_on": "2026-10-09",
+  "proposed_by": "executor (Claude Opus 4.8)",
+  "design_principles": [
+    "GATE ON THE DECISION THAT MATTERS: for the indexer the acceptance is the induced TOP-K SELECTION, not the raw logit values (reviewer evidence: fused-vs-tiled logits differ 0.045; a published-BF16 stage replay gives 0.092 max diff yet 511/512 selection — a raw-value bound would mis-judge; selection agreement is the real contract).",
+    "JUDGE AGAINST THE AUTHORITATIVE ORACLE: BF16/AMX approximation paths are compared to the published inference/kernel.py BF16 primitive (its rounding is authoritative), NOT the FP32 torch oracle; FP32 scalar paths are compared to the FP32 oracle.",
+    "COSINE ALONE IS INSUFFICIENT: pair cosine with max relative error on BOTH normal and heavy-tailed inputs (a loose cosine once hid a ~2.6e-3 error).",
+    "BIT-EXACT WHERE ACHIEVABLE: FP32 scalar paths are bit-deterministic across thread counts and should be required bit-exact (rel 0), not merely within tolerance.",
+    "FAIL CLOSED: every violation fails BOTH the benchmark and the job (nonzero exit); no print-and-continue."
+  ],
+  "layers": {
+    "layer0_hard_gates_tolerance_independent": {
+      "_note": "Implementable immediately; needs NO user tolerance decision.",
+      "gates": [
+        "output finiteness: no NaN/Inf in any output tensor",
+        "output shape + dtype == the declared op contract",
+        "input-domain guards hold (CPU device, dtype, rank, divisibility, scalar range) — the F9 TORCH_CHECK guards",
+        "thread-count determinism: identical output across {1, N} threads for the same code path",
+        "exit propagation: ANY violation -> nonzero bench exit AND nonzero SLURM job exit"
+      ]
+    },
+    "layer1_numerical_vs_oracle": {
+      "_note": "Tolerances PROPOSED; user ratifies. Evaluated on normal AND heavy-tailed inputs.",
+      "proposed_bounds": {
+        "continuous_cosine_floor": 0.999999,
+        "continuous_max_relerr": 1e-4,
+        "bf16_amx_path_max_relerr_vs_bf16_primitive": 1e-2,
+        "sinkhorn_rowcol_sum_eps": 1e-5,
+        "fp32_scalar_require_bit_exact": true
+      }
+    },
+    "layer2_discrete_selection": {
+      "_note": "The downstream decision. Tie rule PROPOSED; user ratifies.",
+      "proposed": {
+        "topk_set_match": 1.0,
+        "tie_eps": 1e-6,
+        "tie_rule": "indices whose score is within tie_eps of the k-th boundary score are EXEMPT from exact index match; compare the selected score MULTISET instead (prevents legitimate ties from failing)"
+      }
+    }
+  },
+  "per_op": {
+    "indexer_logits.cpp": {
+      "oracle": "published inference/kernel.py BF16 indexer primitive (authoritative rounding); torch fp8_paged_mqa_logits_torch as a secondary check",
+      "compute_class": "bf16/amx matmul, fp32 reduce",
+      "layer1": "cosine + relerr vs the BF16 primitive",
+      "layer2": "GATING criterion = the induced top-k selection agreement (with tie band); raw-logit diff alone is NOT the gate"
+    },
+    "indexer_topk.cpp": {
+      "oracle": "torch.topk(sorted=False).indices",
+      "compute_class": "exact selection",
+      "layer2": "set-match 1.0 with the tie band; k==0 -> empty [N,0] int64"
+    },
+    "compressor.cpp": {
+      "oracle": "intel_cpu_models dsa_compressor_cpu.compress_softmax_pool_reference (FP32)",
+      "compute_class": "fp32 scalar",
+      "layer1": "bit-exact (rel 0) preferred; else cosine+relerr at ALL 3 costed shapes (R=128/D=512, R=8/D=512, R=8/D=128), masked/overlap states included"
+    },
+    "sparse_attend.cpp": {
+      "oracle_scalar": "bench_sparse_attend.py inline FP32 oracle (MQA + attn_sink)",
+      "oracle_amx": "published inference/kernel.py sparse_attn BF16 primitive",
+      "compute_class": "scalar fp32 / amx bf16",
+      "layer1": "scalar tight (reviewer observed 4.3e-7); AMX looser vs the BF16 primitive (reviewer observed 2.5e-3) -> DECLARE the AMX bound; evaluate the full window+compressed 128/640/160 path, not only K=512 pre-gathered"
+    },
+    "sinkhorn.cpp": {
+      "oracle": "sglang.kernels.ops.layernorm.mhc._hc_split_sinkhorn_torch",
+      "compute_class": "fp32",
+      "layer1": "cosine on pre/post/comb + doubly-stochastic row/col-sum constraint within eps"
+    },
+    "combine.cpp": {
+      "oracle": "intel_cpu_models _cpu_hc_combine == torch.einsum('mk,mkh->mh', ...)",
+      "compute_class": "fp32",
+      "layer1": "bit-exact (rel 0) preferred; else cosine+relerr"
+    }
+  },
+  "user_decisions_required": [
+    "the 6 tolerance knobs in layers.layer1_numerical_vs_oracle.proposed_bounds and layers.layer2_discrete_selection.proposed",
+    "confirm FP32 scalar paths must be bit-exact (executor recommends yes)"
+  ],
+  "implementable_without_tolerances": [
+    "layer-0 hard gates",
+    "bench + job nonzero-exit propagation on any failure",
+    "oracle selection per op",
+    "metric structure (cosine + relerr + selection, not cosine alone)",
+    "normal + heavy-tailed distribution coverage"
+  ],
+  "enforcement_plan": "a per-op acceptance harness builds normal + heavy-tailed inputs, runs kernel + oracle, evaluates layers 0-2, and exits nonzero on ANY failure so the SLURM job fails. Layer-0 + exit propagation land immediately; layer-1/2 thresholds read the ratified values from this file once set."
+}
