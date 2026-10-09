@@ -1,0 +1,136 @@
+{
+  "_schema": "F7 provisional Amdahl ROI ledger (authored kernels; standalone-microbench x call-count, NOT in-engine). Ranks the optimization order; confirm with real profiling before any ROI-exhaustion claim. Compressor R=8 pools UNMEASURED.",
+  "raw_record": "SLURM job 384414, log /scratch/bkaul/dsa_perf_sweep_384414.log, node pcl-sprh09.sc.intel.com (DDR5-5600); run_dsa_perf_sweep.sbatch; 3 reps/bench (median of unique REP ids 1/2/3); OMP 64thr bound once, numactl NUMA0. Parsed by parse_perf_sweep.py (named-column, fail-closed).",
+  "levels": {
+    "M=1": {
+      "total_authored_us_per_token": 2927.44,
+      "ranked": [
+        {
+          "op": "indexer logits (q.ck+reduce)",
+          "calls": 21.0,
+          "meas_us_per_call": 100.0,
+          "contrib_us_per_token": 2100.0,
+          "off_roofline": 63.8,
+          "note": "measured @ S=1024",
+          "share": 0.7174,
+          "roi": 0.7062
+        },
+        {
+          "op": "indexer top-k (512 of 1024)",
+          "calls": 21.0,
+          "meas_us_per_call": 17.0,
+          "contrib_us_per_token": 357.0,
+          "off_roofline": 743.8,
+          "note": "measured",
+          "share": 0.1219,
+          "roi": 0.1217
+        },
+        {
+          "op": "MHC sinkhorn (hc=4,20it)",
+          "calls": 86.0,
+          "meas_us_per_call": 2.0,
+          "contrib_us_per_token": 172.0,
+          "off_roofline": 2389.3,
+          "note": "measured",
+          "share": 0.0588,
+          "roi": 0.0588
+        },
+        {
+          "op": "MHC combine (reduce)",
+          "calls": 86.0,
+          "meas_us_per_call": 2.0,
+          "contrib_us_per_token": 172.0,
+          "off_roofline": 8.7,
+          "note": "measured",
+          "share": 0.0588,
+          "roi": 0.052
+        },
+        {
+          "op": "sparse attend (MQA+sink)",
+          "calls": 1.0,
+          "meas_us_per_call": 68.0,
+          "contrib_us_per_token": 68.0,
+          "off_roofline": 7.9,
+          "note": "row aggregates window+compressed 43L; K=512 pre-gathered",
+          "share": 0.0232,
+          "roi": 0.0203
+        },
+        {
+          "op": "compressor softmax-pool",
+          "calls": 0.15625,
+          "meas_us_per_call": 374.0,
+          "contrib_us_per_token": 58.438,
+          "off_roofline": 170.0,
+          "note": "ONLY R=128/D=512 measured; R=8 pools (calls~10.5) UNMEASURED",
+          "share": 0.02,
+          "roi": 0.0199
+        }
+      ]
+    },
+    "M=32": {
+      "total_authored_us_per_token": 16265.97,
+      "ranked": [
+        {
+          "op": "indexer logits (q.ck+reduce)",
+          "calls": 21.0,
+          "meas_us_per_call": 540.0,
+          "contrib_us_per_token": 11340.0,
+          "off_roofline": 10.8,
+          "note": "measured @ S=1024",
+          "share": 0.6972,
+          "roi": 0.6326
+        },
+        {
+          "op": "sparse attend (MQA+sink)",
+          "calls": 1.0,
+          "meas_us_per_call": 1793.0,
+          "contrib_us_per_token": 1793.0,
+          "off_roofline": 6.5,
+          "note": "row aggregates window+compressed 43L; K=512 pre-gathered",
+          "share": 0.1102,
+          "roi": 0.0932
+        },
+        {
+          "op": "MHC sinkhorn (hc=4,20it)",
+          "calls": 86.0,
+          "meas_us_per_call": 14.0,
+          "contrib_us_per_token": 1204.0,
+          "off_roofline": 802.6,
+          "note": "measured",
+          "share": 0.074,
+          "roi": 0.0739
+        },
+        {
+          "op": "indexer top-k (512 of 1024)",
+          "calls": 21.0,
+          "meas_us_per_call": 39.0,
+          "contrib_us_per_token": 819.0,
+          "off_roofline": 53.3,
+          "note": "measured",
+          "share": 0.0504,
+          "roi": 0.0495
+        },
+        {
+          "op": "MHC combine (reduce)",
+          "calls": 86.0,
+          "meas_us_per_call": 12.0,
+          "contrib_us_per_token": 1032.0,
+          "off_roofline": 1.6,
+          "note": "measured",
+          "share": 0.0634,
+          "roi": 0.0238
+        },
+        {
+          "op": "compressor softmax-pool",
+          "calls": 0.15625,
+          "meas_us_per_call": 499.0,
+          "contrib_us_per_token": 77.969,
+          "off_roofline": 10.5,
+          "note": "ONLY R=128/D=512 measured; R=8 pools (calls~10.5) UNMEASURED",
+          "share": 0.0048,
+          "roi": 0.0043
+        }
+      ]
+    }
+  }
+}
