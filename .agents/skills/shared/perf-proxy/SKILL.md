@@ -118,9 +118,12 @@ a final confirm. **Never pay the full-weight load to answer a PERF question.**
    mmlu — `accuracy-oracle`). The per-layer PARITY correctness gate is NOT deferred to here — it ran
    UP FRONT (vs the GPU/HF oracle on a short prefill) and guarded every optimization; a final
    full-depth parity-vs-reference confirm on the real weights is cheap and worth doing, but TASK
-   accuracy is the only thing that REQUIRES this rung. (b) a final confirm that real values don't change perf
-   (they must not — identical shapes/dtypes/code paths; only load time differs, so a perf delta
-   here is a BUG). Expensive load → done LAST, ideally once.
+   accuracy is the only thing that REQUIRES this rung. (b) a final confirm on whether real values change
+   perf. CONDITIONAL (see "QUALIFY APPLICABILITY" above): for per-layer-dominated, weight-value-INDEPENDENT
+   cost (identical shapes/dtypes/code paths, no data-dependent routing/sparsity/state/cache sensitivity) a
+   perf delta vs dummy IS a bug. But where routing/sparsity/state-evolution/cache-residency apply, real
+   values can LEGITIMATELY change perf — there it must be VERIFIED, not assumed identical; do not treat a
+   real-vs-dummy delta as a bug by default. Expensive load → done LAST, ideally once.
 
 ## Where it sits in the workflow (EARLY)
 Run the proxy BEFORE the expensive full-model empirical tier:

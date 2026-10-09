@@ -114,8 +114,13 @@ condition is met and gating every step against the measured roofline.
 >      fp32 KV it reads), then STORING that operand at the compute precision is numerically IDENTICAL to
 >      what the kernel already consumes while HALVING its dominant read — take it (gated only on the
 >      cache/operand format, a caller/integration knob). Never read fp32 only to immediately round to bf16.
->   2. **Accumulate-in-fp32 rule:** keep reductions/softmax/normalization accumulators in FP32 for numerical
->      stability even when inputs/outputs are low-precision; downconvert only the final store.
+>   2. **Accumulate-in-fp32 rule (SOURCE-STAGE semantics govern):** keep reductions/softmax/normalization
+>      accumulators in FP32 for numerical stability even when inputs/outputs are low-precision, and downconvert
+>      only the final store — UNLESS the published op rounds at INTERMEDIATE stage boundaries (e.g. the DSv4
+>      indexer rounds to bf16 after the einsum, after relu, after the weight-multiply, and after the head
+>      reduction). When it does, MATCH those stage boundaries, not a final-only downconvert: the source op's
+>      per-stage dtype/rounding is the acceptance contract (conform the reference to it; a final-only
+>      downconvert would diverge and change selections).
 > Precision that changes the reference dtype (e.g. bf16 where the oracle is fp32) is a CONFORMANCE DECISION,
 > not a free lever: the gate is the REFERENCE precision — if model.py runs the op in bf16/fp8, fp32 is
 > over-precise and the low-precision ISA path (bf16 AMX, 124 TF vs 7.78 TF fp32) is the FAITHFUL one;

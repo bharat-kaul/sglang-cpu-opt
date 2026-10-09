@@ -25,8 +25,8 @@ Agree with all eight. Implemented/encoded now: **#3 (test the workflow with type
 
 ## What I implemented this cycle (concrete)
 
-- **Source-faithful 64-block sparse replica** ([sparse_ref.py](sparse_ref.py)) matching the TileLang kernel's op/rounding order; verified vs the real GPU output and extended to **independent batches + K∈{128,160,640} + sentinels** (job **384532**, sha256-validated provenance): real kernel ↔ blockwise replica **≤1.95e-3** everywhere (the bf16 op-order floor). This closes the "source-faithful reference + coverage" prerequisites.
-- **Replicated, order-varied, same-contract no-regression** across all 6 kernels (job **384531**, identity-bound): ≥1.0× at every M except indexer M8 ≈ 0.98× (parity); floor scoped to the 64-thread target config (kernels regress at 8t — reported honestly).
+- **Source-faithful 64-block sparse replica** ([sparse_ref.py](sparse_ref.py)) matching the TileLang kernel's op/rounding order; verified vs the real GPU output and extended to **independent batches + K∈{128,160,640} + sentinels** (job **384532**, sha256-validated provenance): real kernel ↔ blockwise replica **max-abs discrepancy ≤1.95e-3** on the tested cases (an OBSERVED approximation vs the replica — cause not characterized as intrinsic/hardware noise; not an acceptance bound).
+- **Replicated, order-varied, same-contract no-regression** across all 6 kernels (job **384531**, identity-bound): ≥1.0× at every M EXCEPT indexer M8, whose three process-median speedups are **0.98× / 1.05× / 0.96×** (OBSERVED variability straddling 1.0; not asserted as established equivalence). Floor scoped to the 64-thread target config (kernels regress at 8t — reported honestly).
 - **Typed negative tests + independent coverage inventory** (F4) — the #3 fix, which found real bugs.
 - **USER-MANDATED campaign requirements** encoded as a NON-NEGOTIABLE block at the orchestrator top (scope/shape discovery → provenance → ops *and* fused ops → **all kernels in optimized C/C++ before end-to-end** → pause-for-review under human authority), explicitly immune to any model-agnostic refactor.
 

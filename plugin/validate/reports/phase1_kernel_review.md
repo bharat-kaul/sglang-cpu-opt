@@ -19,7 +19,8 @@ review checkpoint before any Phase-2 wall-time integration.
 >   non-finite-scale rejection.
 > - **Claims corrected here:** no-regression is **comparator- and thread-dependent** — the authoritative
 >   measure is the replicated 64-thread, order-varied, same-contract rig (`bench_replicated.py`, job 384531):
->   every kernel is **≥1.0× at every M except indexer M8 ≈ 0.98×** (statistical parity, spread 0.98–1.03).
+>   every kernel is **≥1.0× at every M except indexer M8** (three process-medians 0.98/1.05/0.96×, OBSERVED
+>   variability straddling 1.0 — not asserted as a tie).
 >   "bit-identical" only applies to the bf16-KV experiment (`torch.equal`); cosine≈1.0 is not exactness;
 >   FP32 utilization varies ~13–74%; combine M64 is cache-resident; flash bf16-AMX is not the "only" path.
 > - **Accepted + PENDING (gates Phase-1 sign-off):** replicated medians with full run-identity binding
@@ -61,7 +62,9 @@ contract), median of ≥5 trials × 3 process-repeats, identity-bound (node/git/
 | sinkhorn | 93.7× | 19.4× | 19.7× | 21.0× | 21.5× |
 | combine | 5.18× | 2.39× | 2.35× | 2.24× | 2.07× |
 
-Every kernel holds ≥1.0× at every M **except indexer M8 ≈ 0.98×** (statistical parity; spread 0.98–1.03). At
+Every kernel holds ≥1.0× at every M **except indexer M8**, whose three process-median speedups are **0.98× /
+1.05× / 0.96×** (OBSERVED variability straddling 1.0 — NOT asserted as established equivalence; a predefined
+same-contract comparison policy + uncertainty assessment are required before calling it a tie). At
 **low thread counts** (8t) the parallelism-heavy kernels (indexer/sparse/compressor) regress — they are tuned
 for the 64-thread target config; the floor claim is scoped to that config. Correctness: set-match / cosine,
 `tie_eps=0` (F4 gate).

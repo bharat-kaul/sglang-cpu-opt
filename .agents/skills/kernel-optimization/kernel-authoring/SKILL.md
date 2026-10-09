@@ -128,15 +128,18 @@ cost (it can become the bottleneck) and gate accuracy per precision.
 2. Pick the donor (table above / asset). Read it fully; identify the 4 layers.
 3. Re-author ONLY the layer(s) that differ; reuse control/packing/epilogue.
 4. Establish the node's achievable ceiling for this op class first.
-5. Implement; verify numerical parity vs an FP32 reference on random inputs.
+5. Implement; verify numerical parity vs the **SOURCE-CONFORMED reference** on random inputs (an FP32-math
+   reference is a bring-up diagnostic ONLY, per step 1b — never the acceptance reference if the published op
+   is lower-precision / differently-ordered).
 6. Verify ISA dispatch; run `roofline-validation`; compare peer-relative to the donor
    at a matching shape. Loop on the gap.
 7. Register the new kernel's capability contract so `coverage-gate` marks the op covered.
 
 ## Gate
-A new kernel ships only when: numerically matches the FP32 reference within tolerance,
-the intended ISA verifiably dispatched, and efficiency ≥ target % of the *achievable*
-(streamed) ceiling AND ≥ 0.90 of a peer kernel of the same class/shape. Record the
+A new kernel ships only when: it numerically matches the **SOURCE-CONFORMED reference** (the published op's
+stage dtype/rounding/order at the pinned revision — NOT a self-made FP32 reference) on the adversarial input
+domain within the gate's tolerance, the intended ISA verifiably dispatched, and efficiency ≥ target % of the
+*achievable* (streamed) ceiling AND ≥ 0.90 of a peer kernel of the same class/shape. Record the
 winning constants (block sizes, accumulator count) as a learned pattern.
 
 ## Worked target (Thesis-2 flagship) — with MEASURED feasibility finding
