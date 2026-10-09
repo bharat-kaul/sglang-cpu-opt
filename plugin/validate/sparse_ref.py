@@ -37,14 +37,15 @@ def ora_sparse_blockwise(q, kv, sink, scale, block=64):
     softmax does not (the published kernel bf16-rounds each block's exponentials separately)."""
     N, H, D = q.shape
     K = kv.shape[1]
+    dev = q.device                     # run the running-state on the inputs' device (CPU or CUDA)
     qb = q.bfloat16().float()          # bf16-rounded operands; the GEMM accumulates these in fp32
     kvb = kv.bfloat16().float()
     sk = sink.float()
-    out = torch.empty(N, H, D, dtype=torch.float32)
+    out = torch.empty(N, H, D, dtype=torch.float32, device=dev)
     for n in range(N):
-        m = torch.full((H,), float("-inf"))
-        l = torch.zeros(H)                                          # running sum_exp
-        acc = torch.zeros(H, D)                                     # running acc_o (fp32)
+        m = torch.full((H,), float("-inf"), device=dev)
+        l = torch.zeros(H, device=dev)                             # running sum_exp
+        acc = torch.zeros(H, D, device=dev)                        # running acc_o (fp32)
         qn = qb[n]
         for s0 in range(0, K, block):
             s1 = min(s0 + block, K)
