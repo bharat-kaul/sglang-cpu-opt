@@ -145,3 +145,32 @@ Both round-4 findings addressed + verified. **Still OPEN (unchanged):** F4 accep
 **tolerances await a user decision** + reviewer suggestions), F7 Amdahl ROI ledger, F8 `.agents` entry-skill
 routing, sparse donor-dispatch proof. Round-5 reviewer package emitted → `reviewer_round5.prompt.txt`.
 Nothing certified; microbench scope, E2E verification PENDING.
+
+## Round 5 — verdict: FAIL (GPT Astra 6; commit `5b05106`) + F4 design review (FAIL)
+
+**Two parallel reviews returned.** Round-5 closure audit: **R4-F5 CLOSED** (11/11 destination mutations
+rejected) and **R4-F3 original counterexamples CLOSED**; one residual — R5-F3. The F4 design review (separate)
+returned FAIL on the DRAFT policy (D1-D4).
+
+**Reports** → `kernel-impl-and-provenance_review_round5.md` (closures) and
+`kernel-impl-and-provenance_F4_policy_review.md` (F4 design).
+
+**Executor response (standalone)** → `plugin/validate/reports/kernel-impl-and-provenance_response_round5.md`
+
+| # | Finding | Disposition | What changed (consequence, verified) |
+|---|---------|-------------|--------------------------------------|
+| R5-F3 | Malformed numeric coordinates (`+1`, `1.0`) treated as prose, hiding a NaN sample and reaching parser output | **CLOSED** | parser now recognizes any numeric-looking first token in a table and validates it as an integer coordinate — `+1`→M=1 (then the NaN/duplicate is caught), `1.0`/`1e0`→rejected as a malformed coordinate, `-1`/`128`→unexpected. Verified on the REAL log: `+1`/`1.0`/`-1`/`01`-with-NaN all REJECTED (zero output writes), unmodified medians unchanged. `--selftest` +2 cases (15 total) |
+| F4-D1 | DRAFT named a non-existent kernel.py BF16 indexer primitive | **CLOSED (policy v2)** | indexer oracle = published model.py `Indexer.forward` scoring stage; FP32 replay demoted to diagnostic |
+| F4-D2 | DRAFT's Sinkhorn doubly-stochastic 1e-5 invariant rejects the reference (finite 20-iter eps-regularized does not converge that tight; counterexample E1) | **CLOSED (policy v2)** | removed the row/col-sum bound; residuals reported as diagnostics only; algorithm eps 1e-6 kept distinct from acceptance tolerance |
+| F4-D3 | DRAFT conflated determinism with oracle bit-exactness | **CLOSED (policy v2)** | split into 3 recorded claims (repeat-run / cross-thread / equality-to-pinned-oracle); exact-to-oracle is a per-frozen-path USER choice |
+| F4-D4 | tie/metric/precedence underspecified | **CLOSED (policy v2)** | tie cutoff + scores derived from the REFERENCE (not candidate logits) with uniqueness + sentinel rules; relerr denominator + near-zero abs allowance + zero-vector-cosine behavior; layer-1-vs-selection precedence stated; per-op oracle corrections + a machine-enumerated shape/case manifest added |
+
+Parser (15) + generator (47) self-tests pass; report `--verify` rc=0.
+
+## Outcome: SURFACED to user (round 6 + F4-round-2 re-reviews ready)
+
+R5-F3 closed; the F4 draft is revised to v2 addressing D1-D4. **Still OPEN (unchanged):** F4 (v2; **numerical
+tolerances await a user decision** — now enumerated by key in the policy — + reviewer re-review), F7 Amdahl
+ROI ledger, F8 `.agents` entry-skill routing, sparse donor-dispatch proof. Round-6 package →
+`reviewer_round6.prompt.txt`; F4 re-review package → `reviewer_F4_round2.prompt.txt`. Nothing certified;
+microbench scope, E2E verification PENDING.

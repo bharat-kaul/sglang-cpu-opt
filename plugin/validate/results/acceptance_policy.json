@@ -1,91 +1,123 @@
 {
-  "_schema": "F4 per-op acceptance policy (DSv4-Flash authored kernels). DRAFT PROPOSAL for GPT Astra 6 review + USER ratification. Defines how a kernel output is machine-judged acceptable vs its AUTHORITATIVE oracle. Three layers: (0) tolerance-independent hard gates; (1) numerical acceptance vs the oracle; (2) discrete-decision/selection acceptance. NOT YET ENFORCED. The numerical TOLERANCES are a user design decision; the oracle selection, metric structure, and layer-0 gates are the executor's proposal and can be implemented before tolerances are set.",
-  "status": "PROPOSED / UNRATIFIED",
+  "_schema": "F4 per-op acceptance policy (DSv4-Flash authored kernels). DRAFT v2 for GPT Astra 6 review + USER ratification. Revised per the F4 design review (reports/kernel-impl-and-provenance_F4_policy_review.md): D1 corrected indexer oracle, D2 removed the unreferenced Sinkhorn invariant, D3 split determinism from oracle bit-exactness, D4 specified tie/metric/precedence semantics. Defines how a kernel output is machine-judged acceptable vs its AUTHORITATIVE oracle. NOT YET ENFORCED. Numerical TOLERANCES and the exact-equality requirement are USER decisions; oracle selection, metric STRUCTURE, and layer-0 gates are the executor proposal and may be implemented before tolerances are set.",
+  "status": "PROPOSED / UNRATIFIED (v2, revised per F4 design review 2026-10-09)",
   "gate": "F4 (machine-evaluated per-op acceptance policy + fail-closed bench/job exits)",
-  "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1 (inference/model.py + inference/kernel.py)",
-  "proposed_on": "2026-10-09",
-  "proposed_by": "executor (Claude Opus 4.8)",
+  "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1 (inference/model.py + inference/kernel.py + config.json)",
+  "design_review_addressed": "plugin/validate/reports/kernel-impl-and-provenance_F4_policy_review.md (F4-D1..D4 + 7 areas)",
+  "revised_on": "2026-10-09",
   "design_principles": [
-    "GATE ON THE DECISION THAT MATTERS: for the indexer the acceptance is the induced TOP-K SELECTION, not the raw logit values (reviewer evidence: fused-vs-tiled logits differ 0.045; a published-BF16 stage replay gives 0.092 max diff yet 511/512 selection — a raw-value bound would mis-judge; selection agreement is the real contract).",
-    "JUDGE AGAINST THE AUTHORITATIVE ORACLE: BF16/AMX approximation paths are compared to the published inference/kernel.py BF16 primitive (its rounding is authoritative), NOT the FP32 torch oracle; FP32 scalar paths are compared to the FP32 oracle.",
-    "COSINE ALONE IS INSUFFICIENT: pair cosine with max relative error on BOTH normal and heavy-tailed inputs (a loose cosine once hid a ~2.6e-3 error).",
-    "BIT-EXACT WHERE ACHIEVABLE: FP32 scalar paths are bit-deterministic across thread counts and should be required bit-exact (rel 0), not merely within tolerance.",
-    "FAIL CLOSED: every violation fails BOTH the benchmark and the job (nonzero exit); no print-and-continue."
+    "ORACLE AUTHORITY FOLLOWS THE PUBLISHED OPERATION, NOT THE CPU BACKEND. The indexer scoring oracle is published model.py Indexer.forward (there is NO indexer primitive in kernel.py, D1); the sparse and Sinkhorn oracles are the published kernel.py primitives; a CPU/FP32 replay is a DIAGNOSTIC PROXY until conformed to the published runtime.",
+    "GATE ON THE DECISION THAT MATTERS: for the indexer the gate is the induced TOP-K SELECTION derived FROM THE REFERENCE (not candidate logits); raw-logit error is diagnostic. Whether logits are an ADDITIONAL gate is a user decision.",
+    "COSINE ALONE IS INSUFFICIENT AND CAN BE UNDEFINED: pair with an explicit per-output max absolute AND relative error (named denominator + near-zero absolute allowance); zero-vector cosine is undefined -> use the absolute check there. Reject non-finite METRICS.",
+    "DETERMINISM != ORACLE BIT-EXACTNESS (D3): repeated-run reproducibility, same-path cross-thread equality, and equality-to-a-pinned-oracle are THREE SEPARATE recorded claims. Exact equality to an oracle is a USER choice for a NAMED frozen path (compiler/runtime/backend recorded), not entailed by FP32-scalar.",
+    "FINITENESS IS DOMAIN-SPECIFIC (layer 0): legal padding/mask positions carry -inf (compressor overlap padding scores; masked indexer logits); reject NaN/+inf only OUTSIDE the documented supported domain.",
+    "FAIL CLOSED: every violation fails BOTH the benchmark AND the job; a nonzero child exit must be propagated to a nonzero job/shell exit (piped logging + final shell commands verified), and a missing oracle / unratified policy / skipped case / exception / NaN-metric must NOT yield a full PASS (layer-0-only runs are labeled PARTIAL)."
   ],
   "layers": {
     "layer0_hard_gates_tolerance_independent": {
-      "_note": "Implementable immediately; needs NO user tolerance decision.",
+      "_note": "Implementable immediately; needs NO tolerance decision. A layer-0-only run is labeled PARTIAL, not PASS.",
       "gates": [
-        "output finiteness: no NaN/Inf in any output tensor",
-        "output shape + dtype == the declared op contract",
-        "input-domain guards hold (CPU device, dtype, rank, divisibility, scalar range) — the F9 TORCH_CHECK guards",
-        "thread-count determinism: identical output across {1, N} threads for the same code path",
-        "exit propagation: ANY violation -> nonzero bench exit AND nonzero SLURM job exit"
+        "output shape + dtype + layout == the declared op contract (int64 fragment vs the caller's int32 conversion kept distinct)",
+        "domain-specific finiteness: outputs finite on the documented supported domain; -inf permitted only at legal padding/mask positions; NaN/+inf and invalid indices/scalars OUTSIDE the contract are rejected (reachability/exclusion of all-masked pool softmax is established, not blanket-blessed to zero)",
+        "input-domain validation: actual device/dtype/rank/divisibility/scalar-range checked (not assumed covered by F9)",
+        "determinism claims recorded SEPARATELY: (a) repeated-run reproducibility, (b) same-path equality across ACTUAL thread counts, (c) [user-optional] equality to a pinned oracle for a NAMED frozen path",
+        "complete expected op/path/case inventory present; a missing oracle, skipped case, exception, or NaN metric fails the gate (never a silent PASS)",
+        "fail-closed exit: a deliberate failure is exercised through the REAL benchmark and the EXACT job wrapper (piped logging, child failures, final shell commands); child nonzero exit MUST propagate to job nonzero exit"
       ]
     },
     "layer1_numerical_vs_oracle": {
-      "_note": "Tolerances PROPOSED; user ratifies. Evaluated on normal AND heavy-tailed inputs.",
-      "proposed_bounds": {
+      "_note": "Tolerances PROPOSED; user ratifies. Evaluated on normal AND heavy-tailed inputs. Metric is cosine PLUS an explicit absolute-and-relative error with a named denominator; near-zero uses the absolute allowance; zero-vector cosine is undefined -> absolute check only.",
+      "metric_structure": {
+        "cosine_floor": "PROPOSED 0.999999 (undefined on zero vectors -> fall back to the absolute check)",
+        "max_abs_error": "USER-RATIFIED absolute allowance (handles near-zero / cancellation)",
+        "max_rel_error": "USER-RATIFIED, denominator = max(|ref|, abs_floor) per output element (NOT a bare ratio); reported per-row, not flattened",
+        "reject_nonfinite_metric": true
+      },
+      "proposed_bounds_UNRATIFIED": {
         "continuous_cosine_floor": 0.999999,
-        "continuous_max_relerr": 1e-4,
-        "bf16_amx_path_max_relerr_vs_bf16_primitive": 1e-2,
-        "sinkhorn_rowcol_sum_eps": 1e-5,
-        "fp32_scalar_require_bit_exact": true
+        "continuous_max_rel_error": 1e-4,
+        "continuous_max_abs_error": "USER (near-zero allowance)",
+        "bf16_amx_path_max_rel_error_vs_bf16_primitive": 1e-2,
+        "precedence": "USER: does a per-path BF16 bound OVERRIDE the global cosine floor? state explicitly"
       }
     },
     "layer2_discrete_selection": {
-      "_note": "The downstream decision. Tie rule PROPOSED; user ratifies.",
-      "proposed": {
-        "topk_set_match": 1.0,
-        "tie_eps": 1e-6,
-        "tie_rule": "indices whose score is within tie_eps of the k-th boundary score are EXEMPT from exact index match; compare the selected score MULTISET instead (prevents legitimate ties from failing)"
-      }
+      "_note": "The downstream decision. Cutoff + gathered scores are derived FROM THE REFERENCE, never candidate logits (D4). Tie rule PROPOSED; user ratifies.",
+      "rules": [
+        "derive the k-th cutoff and gathered scores from the REFERENCE output",
+        "require exactly k distinct in-range raw indices; include every score above cutoff + band; exclude every score below cutoff - band; fill remaining slots only from the band",
+        "selected-multiset comparison needs an explicit score-ownership + uniqueness guard (scores [2,2,1] k=2: [0,0] must not pass as [0,1]) and an explicit comparison tolerance",
+        "tie ties on -inf must NOT compute abs(-inf - -inf) (NaN); handle sentinel -inf explicitly",
+        "k==0 -> validate empty [N,0] int64 and SKIP cutoff/cosine; handle k==S, duplicate scores, invalid k explicitly",
+        "published prefill: -inf mask, k=min(512,end_pos//ratio), causally-invalid choices -> -1 + offset only on valid (repeated -1 legal); decode adds offset directly; separate raw distinct indices from post-mask output",
+        "set equivalence does NOT establish ordered sparse-kernel numerical equivalence -> also test the composed consumer (reordering changes 64-entry block boundaries + BF16 accumulation)"
+      ],
+      "proposed_UNRATIFIED": {"topk_set_match": 1.0, "tie_eps": 1e-6,
+        "note": "band width + whether substituting different KV identities is acceptable are USER decisions (equal scores can reference different KV values); any allowed non-tie selection loss is a USER decision"}
     }
   },
   "per_op": {
     "indexer_logits.cpp": {
-      "oracle": "published inference/kernel.py BF16 indexer primitive (authoritative rounding); torch fp8_paged_mqa_logits_torch as a secondary check",
-      "compute_class": "bf16/amx matmul, fp32 reduce",
-      "layer1": "cosine + relerr vs the BF16 primitive",
-      "layer2": "GATING criterion = the induced top-k selection agreement (with tie band); raw-logit diff alone is NOT the gate"
+      "oracle": "published model.py Indexer.forward scoring stage (lines ~420-432): BF16 einsum score + BF16 ReLU*weights + BF16 reduction boundary, then caller mask/offset. There is NO indexer primitive in kernel.py (D1).",
+      "diagnostic_only": "an FP32 epilogue replay / torch fp8_paged_mqa_logits_torch is a DIAGNOSTIC proxy, not the authority",
+      "compute_class": "bf16 matmul + reduce",
+      "gate": "the induced top-k SELECTION (layer 2, derived from the reference); raw-logit error is diagnostic (a published-BF16-vs-tiled-FP32 logit difference is NOT evidence the reference is wrong). 511/512 is a MISMATCH under set-match 1.0 unless the differing ids satisfy the ratified tie rule."
     },
     "indexer_topk.cpp": {
-      "oracle": "torch.topk(sorted=False).indices",
+      "oracle": "torch.topk (published call uses default sorted order; our kernel returns unsorted) -> scope is ORDER-INDEPENDENT membership",
       "compute_class": "exact selection",
-      "layer2": "set-match 1.0 with the tie band; k==0 -> empty [N,0] int64"
+      "gate": "layer-2 membership/tie rule; k==0 -> [N,0] int64"
     },
     "compressor.cpp": {
-      "oracle": "intel_cpu_models dsa_compressor_cpu.compress_softmax_pool_reference (FP32)",
+      "oracle": "intel_cpu_models/dsa_compressor_cpu.py softmax-weighted FP32 pool, AFTER correctly preparing overlap/APE inputs. This covers ONLY the pool stage, NOT the full compressor (state/cast/norm/rotation/quantization remain declared gaps).",
       "compute_class": "fp32 scalar",
-      "layer1": "bit-exact (rel 0) preferred; else cosine+relerr at ALL 3 costed shapes (R=128/D=512, R=8/D=512, R=8/D=128), masked/overlap states included"
+      "gate": "layer-1 at ALL 3 costed shapes (R=128/D=512, R=8/D=512, R=8/D=128), masked/overlap states (leading -inf padding) included; bit-exact only if the user freezes the path"
     },
     "sparse_attend.cpp": {
-      "oracle_scalar": "bench_sparse_attend.py inline FP32 oracle (MQA + attn_sink)",
-      "oracle_amx": "published inference/kernel.py sparse_attn BF16 primitive",
+      "oracle_serving": "published kernel.py sparse_attn BF16 primitive (lines ~294-350): BF16 tensors + intermediate-probability cast of blockwise UNNORMALIZED exponentials + sink + BF16 output. Authority for BOTH candidate paths.",
+      "oracle_diagnostic": "bench_sparse_attend.py inline FP32 reference (has the sink, but is PRE-GATHERED and LACKS the BF16 unnormalized-exp cast) -> scalar-math diagnostic only; do NOT use the stale no-sink module oracle",
       "compute_class": "scalar fp32 / amx bf16",
-      "layer1": "scalar tight (reviewer observed 4.3e-7); AMX looser vs the BF16 primitive (reviewer observed 2.5e-3) -> DECLARE the AMX bound; evaluate the full window+compressed 128/640/160 path, not only K=512 pre-gathered"
+      "gate": "layer-1 vs the BF16 primitive for serving equivalence; evaluate the full window+compressed path (see shape_coverage), not only K=512 pre-gathered"
     },
     "sinkhorn.cpp": {
-      "oracle": "sglang.kernels.ops.layernorm.mhc._hc_split_sinkhorn_torch",
+      "oracle": "pin + independently conform the SGLang _hc_split_sinkhorn_torch helper to the published kernel.py recurrence (eps placements ~391-423, defaults ~430, hc_mult=4, iters=20, eps=1e-6, pre/post transforms). Its import name alone is NOT authority.",
       "compute_class": "fp32",
-      "layer1": "cosine on pre/post/comb + doubly-stochastic row/col-sum constraint within eps"
+      "gate": "layer-1 cosine + abs/rel on ALL THREE outputs (pre/post/comb) vs the conformed recurrence. NO universal doubly-stochastic row/col-sum bound (D2: the finite 20-iteration eps-regularized algorithm does NOT converge to 1e-5 — counterexample E1 exceeds it ~2400x); report convergence residuals SEPARATELY as diagnostics; keep the algorithm eps 1e-6 DISTINCT from any acceptance tolerance"
     },
     "combine.cpp": {
-      "oracle": "intel_cpu_models _cpu_hc_combine == torch.einsum('mk,mkh->mh', ...)",
+      "oracle": "published model.py Block.hc_pre: multiply then torch.sum, then a dtype cast. The local einsum is mathematically equivalent but is NOT an established bit-exact oracle.",
       "compute_class": "fp32",
-      "layer1": "bit-exact (rel 0) preferred; else cosine+relerr"
+      "gate": "layer-1 cosine + abs/rel; bit-exact only if the user freezes the path (FMA/reduction order need not match torch bits)"
     }
   },
-  "user_decisions_required": [
-    "the 6 tolerance knobs in layers.layer1_numerical_vs_oracle.proposed_bounds and layers.layer2_discrete_selection.proposed",
-    "confirm FP32 scalar paths must be bit-exact (executor recommends yes)"
-  ],
+  "shape_coverage_required": {
+    "_note": "A machine-enumerated case manifest with source/CAPTURE identity (dims, strides, dtypes, backend, phase, batch, TP, mask/state) — naming the shapes in prose is intent only.",
+    "compressor_pools": ["(R=128,D=512)", "(R=8,D=512)", "(R=8,D=128)"],
+    "compressor_note": "ratio==4 => coff=2 => an 8-token overlapping pool, NOT an independent compression ratio 8",
+    "sparse_union_lengths_at_context_4096": {"window_only": 128, "window+compressed": "128+min(512,4096//4)=640", "window+ratio128": "128+4096//128=160",
+      "note": "these are CONTEXT-4096-SPECIFIC, not universal context-independent lengths"},
+    "phases_cases": ["prefill + decode", "first overlap with leading -inf", "cadence boundaries/remainders", "causal masks", "ring-buffer wrap", "offsets + gather", "multiple batches/contexts", "H=64/D=512 sparse + TP-local"],
+    "proxy_vs_gate": "random normal/heavy-tail + FP4-grid are SYNTHETIC PROXIES; runtime-captured real-forward tensors + authoritative full-model all-layer parity remain REQUIRED and are NOT met by K=512 pre-gathered microbench"
+  },
+  "user_decisions_required_by_key": {
+    "layer1.continuous_cosine_floor": "proposed 0.999999",
+    "layer1.continuous_max_abs_error": "undecided (near-zero allowance)",
+    "layer1.continuous_max_rel_error": "proposed 1e-4 (with named denominator)",
+    "layer1.bf16_amx_path_max_rel_error": "proposed 1e-2",
+    "layer1.precedence_bf16_vs_cosine": "undecided",
+    "layer2.tie_eps": "proposed 1e-6",
+    "layer2.tie_band_substitutes_different_KV": "undecided (semantic)",
+    "layer2.allowed_non_tie_selection_loss": "undecided",
+    "bit_exact_per_path": "undecided (which NAMED frozen paths, if any, require exact oracle equality)",
+    "metric.zero_and_near_zero_handling": "undecided (abs allowance + zero-vector cosine behavior)"
+  },
   "implementable_without_tolerances": [
-    "layer-0 hard gates",
-    "bench + job nonzero-exit propagation on any failure",
-    "oracle selection per op",
-    "metric structure (cosine + relerr + selection, not cosine alone)",
-    "normal + heavy-tailed distribution coverage"
+    "layer-0 hard gates (domain-specific finiteness, shape/dtype/layout, input-domain, determinism-claim recording)",
+    "bench + job nonzero-exit propagation verified through the real wrapper (piped logging + final shell commands)",
+    "oracle selection per op (above)",
+    "metric STRUCTURE (cosine + abs + rel with named denominator; reject non-finite metrics)",
+    "the reference-derived selection/tie evaluation plumbing (minus the ratified numbers)",
+    "the machine-enumerated shape/case manifest"
   ],
-  "enforcement_plan": "a per-op acceptance harness builds normal + heavy-tailed inputs, runs kernel + oracle, evaluates layers 0-2, and exits nonzero on ANY failure so the SLURM job fails. Layer-0 + exit propagation land immediately; layer-1/2 thresholds read the ratified values from this file once set."
+  "enforcement_plan": "a per-op acceptance harness builds the manifest cases, runs kernel + the published-operation oracle, evaluates layers 0-2, and exits nonzero on ANY failure; the job wrapper propagates the child exit. Layer-0 + exit propagation + oracle/metric structure + manifest land immediately; layer-1/2 thresholds read the ratified values from user_decisions_required_by_key once set."
 }

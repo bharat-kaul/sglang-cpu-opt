@@ -47,7 +47,7 @@ def parse_ops(text):
     each value is checked the instant it is read; a repeated (bench, M, rep) sample RAISES; and the per-M
     replica set must equal exactly {1,2,3}."""
     blocks = re.split(r"(?m)^>>> BENCH=(\S+) REP=(\d+)\s*$", text)   # LINE-START markers only (ignore set -x echo)
-    coord = re.compile(r"^-?\d+$")                                   # a numeric table coordinate (incl. negative)
+    numlike = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")  # any numeric-looking token (R5-F3)
     data = {}            # bench -> M -> {rep: value}
     seen_blocks = set()  # (bench, rep) real run markers -> a second one is a duplicate run regardless of samples
     for i in range(1, len(blocks), 3):
@@ -69,9 +69,12 @@ def parse_ops(text):
                     raise ValueError(f"{bench} REP={rep}: duplicate header column(s) {cdups}")
                 header = {name: j for j, name in enumerate(toks)}
                 continue
-            if header is None or not coord.match(toks[0]):          # not a table data row (prose / trace / blank)
+            if header is None or not numlike.match(toks[0]):        # genuine prose / shell trace / blank -> skip
                 continue
-            M = int(toks[0])
+            try:                                                    # R5-F3: numeric-looking row IS a table row
+                M = int(toks[0])                                    # accepts '1','01','+1'; rejects '1.0','1e0'
+            except ValueError:
+                raise ValueError(f"{bench} REP={rep}: malformed M coordinate {toks[0]!r} (not an integer)")
             if M not in set(MS):                                    # R4-F3: unexpected/negative coordinate
                 raise ValueError(f"{bench} REP={rep}: unexpected M coordinate {M} (expected {MS})")
             if colname not in header:
@@ -289,6 +292,21 @@ def selftest():
     def _negM(bench, rep, rows):
         return rows + [(-1, _val_row(bench, 1))] if bench == "bench_topk.py" else rows
     chk(_rejects(lambda: parse_ops(_full(mutate=_negM))), "REJECTS a negative M coordinate")
+
+    # 14/15) R5-F3: a malformed numeric-looking coordinate ('+1', '1.0') must NOT hide a sample
+    def _malformed(coordstr):
+        parts = ["node=selftest\n"]
+        for bench in SPEC:
+            for rep in (1, 2, 3):
+                blk = _block(bench, rep, good_hdr[bench], [(M, _val_row(bench, M)) for M in MS])
+                if bench == "bench_sparse_attend.py" and rep == 1:   # inject a malformed-coord row with NaN sc_ms
+                    lines = blk.split("\n")
+                    lines.insert(2, "  " + "  ".join([coordstr, "1.0", "1.0", "9.999", "nan", "8.888", "1.0", "1.0"]))
+                    blk = "\n".join(lines)
+                parts.append(blk)
+        return "".join(parts)
+    chk(_rejects(lambda: parse_ops(_malformed("+1"))), "REJECTS a '+1' numeric coordinate hiding a NaN sample")
+    chk(_rejects(lambda: parse_ops(_malformed("1.0"))), "REJECTS a '1.0' numeric coordinate hiding a NaN sample")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     sys.exit(0 if ok else 2)
