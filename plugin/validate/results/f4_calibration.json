@@ -1,0 +1,400 @@
+{
+  "_schema": "F4 calibration evidence + data-driven threshold PROPOSAL (NOT ratified; NOT widened to fit the current kernels). Per op/path/output observed error + selection mismatches + composed-consumer. Oracle-adapter conformance is UNVERIFIED and separate from candidate accuracy.",
+  "oracle_conformance": "UNVERIFIED vs published inference/model.py + kernel.py runtime (local reference stand-in)",
+  "status": "PARTIAL",
+  "screening": {
+    "rtol": 0.0001,
+    "cosine": 0.999999,
+    "tie_eps": 0.0
+  },
+  "calibration": [
+    {
+      "op": "indexer_logits",
+      "path": "tiled",
+      "dist": "normal",
+      "selection_non_tie": 0,
+      "ties": 1,
+      "logit_diag": {
+        "max_abs_err": 3.0517578125e-05,
+        "ref_absmax": 234.8885955810547
+      }
+    },
+    {
+      "op": "indexer_logits",
+      "path": "tiled",
+      "dist": "normal",
+      "selection_non_tie": 0,
+      "ties": 8,
+      "logit_diag": {
+        "max_abs_err": 4.57763671875e-05,
+        "ref_absmax": 295.789794921875
+      }
+    },
+    {
+      "op": "indexer_logits",
+      "path": "tiled",
+      "dist": "normal",
+      "selection_non_tie": 0,
+      "ties": 32,
+      "logit_diag": {
+        "max_abs_err": 4.57763671875e-05,
+        "ref_absmax": 289.78741455078125
+      }
+    },
+    {
+      "op": "indexer_logits",
+      "path": "tiled",
+      "dist": "heavy",
+      "selection_non_tie": 0,
+      "ties": 1,
+      "logit_diag": {
+        "max_abs_err": 0.000244140625,
+        "ref_absmax": 1357.40966796875
+      }
+    },
+    {
+      "op": "indexer_logits",
+      "path": "tiled",
+      "dist": "heavy",
+      "selection_non_tie": 0,
+      "ties": 8,
+      "logit_diag": {
+        "max_abs_err": 0.00048828125,
+        "ref_absmax": 2563.9423828125
+      }
+    },
+    {
+      "op": "indexer_logits",
+      "path": "tiled",
+      "dist": "heavy",
+      "selection_non_tie": 0,
+      "ties": 32,
+      "logit_diag": {
+        "max_abs_err": 0.000244140625,
+        "ref_absmax": 3084.69921875
+      }
+    },
+    {
+      "op": "indexer_topk",
+      "path": "chunked/row",
+      "selection_non_tie": 0,
+      "ties": 1
+    },
+    {
+      "op": "indexer_topk",
+      "path": "chunked/row",
+      "selection_non_tie": 0,
+      "ties": 8
+    },
+    {
+      "op": "indexer_topk",
+      "path": "chunked/row",
+      "selection_non_tie": 0,
+      "ties": 32
+    },
+    {
+      "op": "indexer_topk",
+      "path": "ties",
+      "selection_non_tie": 0,
+      "ties": 2
+    },
+    {
+      "op": "compressor",
+      "path": "r128d512",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 5.960464477539062e-07,
+        "ref_absmax": 1.1235710382461548,
+        "cosine": 1.0,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "compressor",
+      "path": "r128d512",
+      "dist": "heavy",
+      "metric": {
+        "max_abs_err": 3.814697265625e-06,
+        "ref_absmax": 14.983804702758789,
+        "cosine": 1.0,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "compressor",
+      "path": "r8d512",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 4.76837158203125e-07,
+        "ref_absmax": 2.5643279552459717,
+        "cosine": 0.9999999403953552,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "compressor",
+      "path": "r8d512",
+      "dist": "heavy",
+      "metric": {
+        "max_abs_err": 7.62939453125e-06,
+        "ref_absmax": 34.26182556152344,
+        "cosine": 1.0,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "compressor",
+      "path": "r8d128",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 3.5762786865234375e-07,
+        "ref_absmax": 2.345414161682129,
+        "cosine": 0.9999999403953552,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "compressor",
+      "path": "r8d128",
+      "dist": "heavy",
+      "metric": {
+        "max_abs_err": 9.5367431640625e-07,
+        "ref_absmax": 8.509831428527832,
+        "cosine": 0.9999998807907104,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "compressor",
+      "path": "masked_r128",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 5.960464477539062e-07,
+        "ref_absmax": 1.3358871936798096,
+        "cosine": 0.9999998807907104,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sinkhorn",
+      "path": "pre",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 0.0,
+        "ref_absmax": 0.9315144419670105,
+        "cosine": 1.0000001192092896,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sinkhorn",
+      "path": "post",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 0.0,
+        "ref_absmax": 1.0450737476348877,
+        "cosine": 1.0000001192092896,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sinkhorn",
+      "path": "comb",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 5.960464477539063e-08,
+        "ref_absmax": 0.6634031534194946,
+        "cosine": 0.9999999403953552,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sinkhorn",
+      "path": "pre",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 5.960464477539063e-08,
+        "ref_absmax": 0.9439539909362793,
+        "cosine": 1.0,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sinkhorn",
+      "path": "post",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 2.9802322387695312e-08,
+        "ref_absmax": 1.8541488647460938,
+        "cosine": 1.0,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sinkhorn",
+      "path": "comb",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 1.1920928955078125e-07,
+        "ref_absmax": 0.8282299041748047,
+        "cosine": 1.0,
+        "screen_atol": 1e-05,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "combine",
+      "path": "tiled",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 0.0,
+        "ref_absmax": 3.4486477375030518,
+        "cosine": 0.9999997615814209,
+        "screen_atol": 0.0001,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "combine",
+      "path": "tiled",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 0.0,
+        "ref_absmax": 6.875377178192139,
+        "cosine": 1.000000238418579,
+        "screen_atol": 0.0001,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "combine",
+      "path": "tiled",
+      "dist": "heavy",
+      "metric": {
+        "max_abs_err": 0.0,
+        "ref_absmax": 39.3486213684082,
+        "cosine": 1.0,
+        "screen_atol": 0.0001,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "combine",
+      "path": "tiled",
+      "dist": "heavy",
+      "metric": {
+        "max_abs_err": 0.0,
+        "ref_absmax": 59.818878173828125,
+        "cosine": 1.000000238418579,
+        "screen_atol": 0.0001,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sparse",
+      "path": "scalar",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 7.748603820800781e-07,
+        "ref_absmax": 0.5171536207199097,
+        "cosine": 1.000002384185791,
+        "screen_atol": 0.001,
+        "screen_pass": true
+      }
+    },
+    {
+      "op": "sparse",
+      "path": "amx",
+      "dist": "normal",
+      "metric": {
+        "max_abs_err": 0.003423035144805908,
+        "ref_absmax": 0.4750501215457916,
+        "cosine": 0.9999799132347107,
+        "screen_atol": 0.001,
+        "screen_pass": false
+      }
+    },
+    {
+      "op": "sparse",
+      "path": "composed(topk+gather+attend)",
+      "metric": {
+        "max_abs_err": 7.152557373046875e-07,
+        "ref_absmax": 0.46795132756233215,
+        "cosine": 1.0000008344650269,
+        "screen_atol": 0.001,
+        "screen_pass": true
+      },
+      "selection_non_tie": 0,
+      "ties": 4
+    }
+  ],
+  "threshold_proposal": {
+    "compressor:r128d512": {
+      "observed_worst_abs_err": 3.814697265625e-06,
+      "proposed_atol_hint": 7.629395e-06,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "compressor:r8d512": {
+      "observed_worst_abs_err": 7.62939453125e-06,
+      "proposed_atol_hint": 1.5258789e-05,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "compressor:r8d128": {
+      "observed_worst_abs_err": 9.5367431640625e-07,
+      "proposed_atol_hint": 1.907349e-06,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "compressor:masked_r128": {
+      "observed_worst_abs_err": 5.960464477539062e-07,
+      "proposed_atol_hint": 1.192093e-06,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "sinkhorn:pre": {
+      "observed_worst_abs_err": 5.960464477539063e-08,
+      "proposed_atol_hint": 1.19209e-07,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "sinkhorn:post": {
+      "observed_worst_abs_err": 2.9802322387695312e-08,
+      "proposed_atol_hint": 5.9605e-08,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "sinkhorn:comb": {
+      "observed_worst_abs_err": 1.1920928955078125e-07,
+      "proposed_atol_hint": 2.38419e-07,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "combine:tiled": {
+      "observed_worst_abs_err": 0.0,
+      "proposed_atol_hint": 0.0,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "sparse:scalar": {
+      "observed_worst_abs_err": 7.748603820800781e-07,
+      "proposed_atol_hint": 1.549721e-06,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "sparse:amx": {
+      "observed_worst_abs_err": 0.003423035144805908,
+      "proposed_atol_hint": 0.00684607029,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    },
+    "sparse:composed(topk+gather+attend)": {
+      "observed_worst_abs_err": 7.152557373046875e-07,
+      "proposed_atol_hint": 1.430511e-06,
+      "note": "PROPOSAL only; user ratifies. Do NOT widen to fit \u2014 if worst is large, correct the kernel."
+    }
+  }
+}

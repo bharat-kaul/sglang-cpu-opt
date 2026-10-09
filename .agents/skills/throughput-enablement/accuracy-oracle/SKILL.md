@@ -9,6 +9,19 @@ Correctness is the non-negotiable gate. A plausible-but-wrong model is worse tha
 an unenabled one, so prove parity numerically AND on task, and make failures
 localizable.
 
+> **PER-OP ACCEPTANCE GATE (authored kernels) — run `plugin/validate/run_f4_acceptance.sbatch`
+> (the fail-closed wrapper around `f4_acceptance.py`).** This is the machine-evaluated F4 gate: layer-0
+> hard checks (shape/dtype/layout, domain-specific finiteness, REPEATABILITY determinism) + reference-owned
+> SELECTION membership (tie_eps=0, zero non-tie mismatches) are enforced NOW; continuous elementwise error
+> (e_i=|cand-ref| vs atol+rtol·|ref| + cosine) is COLLECTED for a data-driven threshold proposal
+> (`results/f4_calibration.json`). Thresholds are UNRATIFIED -> the gate returns **PARTIAL**, never a full
+> PASS, and a child nonzero exit MUST propagate to the job. CRITICAL lesson baked in: judge each op against
+> its AUTHORITATIVE oracle (the BF16 indexer einsum boundary, NOT an over-strict FP32 oracle — an FP32
+> adapter induced 7 spurious near-cutoff selection mismatches that vanished against the BF16 oracle); keep
+> ORACLE-ADAPTER CONFORMANCE separate from CANDIDATE accuracy, and NEVER widen a tolerance to fit a kernel
+> (correct the kernel or conform the oracle). Policy: `results/acceptance_policy.json`. Load
+> `shared/adversarial-self-audit` before extending it.
+
 ## ⛔ CORRECTNESS ORDERING (read FIRST — do not gate correctness on a full unoptimized run)
 On freshly-wired, UNOPTIMIZED code the forward is SLOW (unfused torch refs, no AMX/kernel path,
 no batching) — a 512+-token prefill can take >14 min and full generation / a task harness (gsm8k)
