@@ -12,8 +12,7 @@
   ],
   "best": {
     "commit": "e3fdcb9",
-    "verdict": "surfaced-as-plateaued",
-    "residual_gap_cause": "primary lever (drop [N,H,S] score DRAM round-trip via L1/L2-resident tiled epilogue) EXHAUSTED; remaining gap to machine peak = achievable DRAM BW ~60% of 358 GB/s datasheet + sub-ms per-layer dispatch overhead. Not closable by further kernel work on this silicon.",
-    "frac_of_machine_peak": {"M64": "~17%", "M32": "~13%", "M16": "~7.6%"}
+    "verdict": "RE-MEASURED at GROUNDED compressed ctx=1024: cos 1.0; vs torch 2.38/2.12/1.76x @ M=8/16/32, 1.14x @ M=64, 0.09x @ M=1 (overhead on tiny work). The earlier 5.3-6.7x were at the WRONG context (S=4096, 4x too large). Modest real win at priority M; M=1 should use the lighter path or torch.",
+    "shape_grounding_note": "context correction (4096->1024) reduced the win magnitude and flipped M=1 to a loss — same shape-provenance lesson as op3/op4."
   }
 }
