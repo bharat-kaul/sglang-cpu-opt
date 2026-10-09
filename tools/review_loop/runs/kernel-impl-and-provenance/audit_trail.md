@@ -9,6 +9,8 @@
 **Review report (reviewer: GPT Astra 6)** -> `plugin/validate/reports/dsv4_flash_implementation_review.md`
 - 9 findings (F1-F9), several HIGH-severity real bugs, with executed C++/Python counterexamples.
 
+**Executor response (standalone, hand to reviewer)** -> `plugin/validate/reports/kernel-impl-and-provenance_response_round1.md`
+
 **Collateral + Addressing (executor: Claude Opus 4.8)** — per finding:
 
 | # | Finding | Disposition | What changed (consequence, verified) |
