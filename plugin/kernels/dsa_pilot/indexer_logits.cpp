@@ -7,19 +7,12 @@
 //
 // RESULTS vs MACHINE-PEAK roofline (EMR: BW 358.4 GB/s, AMX bf16 124.6 TF @1.9GHz; op is
 // BW-bound at every M). best-of = tiled brgemm (M>=8) + bmm (M=1); set-match cos 1.000000.
-// Measured wall times are unchanged from the achievable-ceiling run; off-ceiling just rescales
-// by 358.4/214.4 = 1.67x. priority M = 16/32/64.
-//   M  | vs torch ref | off achievable-BW | off MACHINE-peak | frac of machine-peak ceiling
-//   64 |    5.34x     |      3.5x          |     5.9x         |   ~17%   (priority)
-//   32 |    5.84x     |      4.6x          |     7.7x         |   ~13%   (priority)
-//   16 |    6.68x     |      7.9x          |    13.2x         |   ~7.6%  (priority)
-//    8 |    5.15x     |     16.8x          |    28.1x         |   ~3.6%
-//    1 |    ~2x       |   overhead-bound (~5us ideal traffic; bmm path) — ratio not meaningful
-// VERDICT (plateau->surface->stop): primary lever (eliminate [N,H,S] score DRAM round-trip via
-// L1/L2-resident tiled epilogue) is EXHAUSTED. Residual gap to machine peak is NOT closable by
-// further kernel work on this silicon: (1) achievable DRAM BW is ~60% of the 358 GB/s datasheet
-// peak (measured 214 GB/s wall) and (2) per-layer op is small (sub-ms, dispatch/alloc overhead
-// at low M). SURFACED as plateaued; best-of kept for integration.
+// NOTE: the per-M speedup/plateau table previously here was SUPERSEDED and is retired. Current
+// measured latency is the validated SLURM 384414 sweep (plugin/validate/results/perf_sweep.json),
+// joined in dsv4_roofline_vs_measured.py. No plateau/ROI-exhaustion claim is made in source: the
+// earlier "primary lever EXHAUSTED / residual gap NOT closable by kernel work" verdict was RETRACTED
+// (F7) — useful byte-throughput is still far below reference BW, so ROI is OPEN with ranked hypotheses
+// (indexer conversion/pack/reduction split, larger-M attribution), NOT a proven wall.
 #include <torch/extension.h>
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
@@ -28,10 +21,11 @@
 #include <vector>
 
 // q:[N,H,D] kv:[N,S,D] weight:[N,H] -> logits:[N,S] (fp32), semantics == indexer_logits ref.
-// NUMERICAL CONTRACT (shared by both dispatch variants, F2): FP32 public inputs are cast to BF16 for the
-// matmul (QAT-faithful: the published indexer runs in bf16/fp4), scores are accumulated in FP32, and the
-// relu*weight*sum reduction is FP32. Both variants keep FP32 scores so the M-dispatch boundary does not
-// change numerics. This is an explicit BF16-matmul approximation of the FP32 public boundary.
+// NUMERICAL CONTRACT (F2): the INTEGRATION entry (indexer_logits) uses the TILED path for ALL M, whose
+// scores stay FP32-accumulated, so the M-dispatch boundary does not change numerics. This 'fused' variant
+// is a SEPARATE export only (not reachable from the dispatcher): it computes scores via a BF16 bmm whose
+// output is BF16-ROUNDED before the FP32 upcast, so its scores are NOT precision-identical to the tiled
+// path (observed max logit diff ~0.045 on the FP4-grid seed-1 input). Do not claim shared score precision.
 torch::Tensor indexer_logits_fused(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
   TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "q/kv must be [N,H,D]/[N,S,D], weight [N,H]");
   TORCH_CHECK(q.size(0) == kv.size(0) && q.size(2) == kv.size(2), "q/kv batch and head_dim must match");
@@ -43,8 +37,9 @@ torch::Tensor indexer_logits_fused(torch::Tensor q, torch::Tensor kv, torch::Ten
   auto wf = weight.to(torch::kFloat32).contiguous();
   auto logits = torch::empty({N, S}, torch::kFloat32);
 
-  // scores[N,S,H] = bmm(kvb [N,S,D], qb^T [N,D,H]) in bf16, upcast to FP32 (F2: same score precision as
-  // the tiled path -> numerically consistent across the dispatch boundary).
+  // scores[N,S,H] = bmm(kvb [N,S,D], qb^T [N,D,H]) in bf16, upcast to FP32. NOTE: the bmm output is
+  // BF16-ROUNDED before this upcast, so these scores are NOT precision-identical to the tiled path (the
+  // integration entry uses tiled only, F2, to avoid this boundary difference).
   auto scores = at::bmm(kvb, qb.transpose(1, 2)).to(torch::kFloat32).contiguous();   // [N,S,H] fp32
   const float* sp = scores.data_ptr<float>();
   const float* wp = wf.data_ptr<float>();

@@ -9,9 +9,11 @@ revision. That numerical match is tied to the tested shape/dtype/reference/toler
 current-target certificate -> E2E verification PENDING. Absolute latency and speedup are WITHHELD/
 UNVERIFIED. No causal/overhead/donor-routing conclusions are drawn here.
 
-PROVENANCE: node = pcl-sprh02 (DDR5-5600, 64 threads NUMA0); batch M=32; model revision in REV;
-dtypes + operands per the cited benchmark contract. Contract byte/FLOP expectations are asserted
-below (fail-closed).
+PROVENANCE (two DISTINCT identities, kept separate — R2-P1): (a) TIMING = the measured M-sweep, sourced
+from results/perf_sweep.json (its own SLURM job/node/build, printed at runtime); (b) CORRECTNESS = each
+op's op_passes/*.json record from a SEPARATE historical microbench run (its own kernel revision). The two
+are NOT the same run and are never conflated into one identity. Contract byte/FLOP expectations are
+asserted below (fail-closed).
 """
 import json
 import os
@@ -38,7 +40,7 @@ OPS = [
      lambda M: 2*M*64*1024*128 + 3*M*64*1024,
      lambda M: M*64*128*B4 + M*1024*128*B4 + M*64*B4 + M*1024*B4,   # q + kv + w + logits (FP32 public boundary)
      "bf16", "indexer_logits.json",
-     "MIXED precision: FP32 public storage/traffic, but the matmul runs in BF16 (AMX) + FP32 reduce -> compute resource is BF16. Ideal is BW-bound (bytes/BW ~ 50us @M=32) below the BF16 compute floor. OPEN (F7): useful throughput << reference BW and M=1 ~10x vs torch -> ranked ROI hypotheses, NOT a proven plateau."),
+     "MIXED precision: FP32 public storage/traffic, but the matmul runs in BF16 (AMX) + FP32 reduce -> compute resource is BF16. BW time (bytes/BW ~50us @M=32) EXCEEDS the BF16 compute floor -> the op is BW-bound. OPEN (F7): useful throughput << reference BW -> ranked ROI hypotheses (conversion/pack/reduction split, larger-M attribution), NOT a proven plateau. (The former M=1 ~10x-vs-torch regression was FIXED by the single tiled contract: M=1 is now 0.100ms.)"),
     ("indexer top-k (512 of 1024)",
      lambda M: 0,
      lambda M: M*1024*B4 + M*512*I8,                              # read logits (fp32) + write 512 idx (INT64, kernel returns kLong)
@@ -99,8 +101,10 @@ for name, flf, byf, cdt, record, plateau in OPS:
     rev = rec["kernel_rev"] if _rev_resolved(rec["kernel_rev"]) else f"UNRESOLVED({rec['kernel_rev'] or 'none'})"
     meas = _PS["ops"].get(name, {}).get("median_ms")
     print("-" * 104)
-    print(f"{name}  [cdt={cdt}, record={record}@{rev}]")
-    print(f"  correctness (recorded, verbatim): {rec['correctness']}   [{_ATTRIB}]")
+    print(f"{name}  [compute dtype={cdt}]")
+    print(f"  correctness record (HISTORICAL, separate microbench run): {record} @ kernel-rev {rev}")
+    print(f"    recorded verbatim: {rec['correctness']}   [{_ATTRIB}]")
+    print(f"  timing (CURRENT, from the perf_sweep raw record above; NOT the correctness run):")
     print(f"  {'M':>4} {'bind':>5} {'ideal_us':>10} {'measured_us':>12} {'off_ceiling':>12}")
     for i, Mv in enumerate(MS):
         fl, by = flf(Mv), byf(Mv)

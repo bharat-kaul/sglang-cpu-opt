@@ -1,6 +1,6 @@
 {
-  "_schema": "Measured kernel latency sweep (median cpp_ms) over M=1/8/16/32/64 per authored-op microbench, parsed by NAMED column with an explicit variant key and validated (all M, finite, positive) before writing (F3/F4). Keyed by the roofline-vs-measured join op name.",
-  "raw_record": "SLURM job 384414, log /scratch/bkaul/dsa_perf_sweep_384414.log, node pcl-sprh09.sc.intel.com (DDR5-5600); run_dsa_perf_sweep.sbatch; 3 reps/bench (median); OMP 64thr bound once, numactl NUMA0. Parsed by parse_perf_sweep.py.",
+  "_schema": "Measured kernel latency sweep (median cpp_ms, sparse=sc_ms) over M=1/8/16/32/64 per authored-op microbench, parsed by NAMED header column with an explicit variant key and validated (exact replica set {1,2,3}, math.isfinite, positive, all M present) before writing (F3/R2-F3). Keyed by the roofline-vs-measured join op name.",
+  "raw_record": "SLURM job 384414, log /scratch/bkaul/dsa_perf_sweep_384414.log, node pcl-sprh09.sc.intel.com (DDR5-5600); run_dsa_perf_sweep.sbatch; 3 reps/bench (median of unique REP ids 1/2/3); OMP 64thr bound once, numactl NUMA0. Parsed by parse_perf_sweep.py (named-column, fail-closed).",
   "ms": [
     1,
     8,

@@ -74,11 +74,12 @@ torch::Tensor indexer_topk(torch::Tensor logits, int64_t k) {
   TORCH_CHECK(logits.dim() == 2, "logits must be 2-D [N,S]");
   TORCH_CHECK(logits.device().is_cpu(), "CPU tensor only");
   TORCH_CHECK(logits.scalar_type() == torch::kFloat32, "logits must be float32");
-  TORCH_CHECK(k > 0, "k must be > 0");
+  TORCH_CHECK(k >= 0, "k must be >= 0");
   auto lc = logits.contiguous();
   const int64_t N = lc.size(0), S = lc.size(1);
   k = std::min<int64_t>(k, S);
   auto out = torch::empty({N, k}, torch::kLong);
+  if (k == 0) return out;                               // valid zero-selection (published min(topk,end//ratio)=0)
   const float* L = lc.data_ptr<float>();
   int64_t* O = out.data_ptr<int64_t>();
   if (N < at::get_num_threads()) topk_chunked(L, N, S, k, O);  // small N -> within-row parallelism

@@ -54,3 +54,33 @@ explicitly OUT of pass-scope:
 
 **Expected reviewer output** → `plugin/validate/reports/kernel-impl-and-provenance_review_round2.md` +
 one `<<<REVIEW-VERDICT {...} REVIEW-VERDICT>>>` block (PASS / FAIL / SURFACE). Awaiting GPT Astra 6.
+
+## Round 2 — verdict: FAIL (GPT Astra 6 re-review returned; commit `33c0b57`)
+
+**Review report (reviewer: GPT Astra 6)** → `plugin/validate/reports/kernel-impl-and-provenance_review_round2.md`
+- Reviewer ran real C++/parser/reconcile probes. Confirmed-good: F1, F2 (scoped), F3 medians, F6 bytes,
+  F7/F8. Six findings showed round-1 closures were not adversarial enough.
+
+**Executor response (standalone)** → `plugin/validate/reports/kernel-impl-and-provenance_response_round2.md`
+(hand this to the reviewer alongside `reviewer_round3.prompt.txt`)
+
+**Collateral + Addressing (executor: Claude Opus 4.8)** — per finding:
+
+| # | Finding | Disposition | What changed (consequence, verified) |
+|---|---------|-------------|--------------------------------------|
+| R2-F3 | Ingestion still positional; accepts 1 rep as "3", admits +inf, reorder picks wrong variant | **CLOSED** | `parse_perf_sweep.py` rewritten: NAMED header column (`cpp_ms`/`sc_ms`), exact replica set {1,2,3}, `math.isfinite`, exact M coverage; `--selftest` runs 5 cases (missing-rep / +inf / reorder / drop-M / happy) — all PASS; real 384414 medians unchanged |
+| R2-F5 | Reconciliation derives required set from the same mutable doc; 4 mutations pass | **CLOSED** | `reconcile_kernels` now binds to an INDEPENDENT on-disk inventory + a per-kernel machine-readable cost-row contract + exact/unique coverage + per-gap nonempty; the reviewer's exact 4 mutations (remove-from-both / gut-gaps / duplicate / wrong-row) are REJECTED (tested); generator self-test rc=0 (39 PASS) |
+| R2-F9 | sparse_attend guards incomplete (excess-batch + meta-device accepted) | **CLOSED** | both sparse entries add CPU-device + q/kv batch-equality guards; probe q[1,2,32]/kv[2,8,32] and meta-device now REJECTED (verified); valid case still works |
+| R2-F9b | top-k guard rejects valid zero selection | **CLOSED** | `indexer_topk` allows `k>=0`; `k==0` returns `[N,0]` int64 == `torch.topk(·,0)` (verified) |
+| R2-P1 | Current timing joined to historical implementation identities | **CLOSED** | join separates CURRENT timing (384414/pcl-sprh09, printed once) from HISTORICAL correctness record (relabeled); `impl_review.json` perf field → 384414/pcl-sprh09 + reverified-commit note; `kernel_provenance.json` sparse overclaims corrected (scalar DOES win M=1 ~3.55×; donor = CANDIDATE, not proven production) |
+| R2-P2 | Batch consistency ≠ published-reference numerics; false "shared precision" comment | **PARTIAL** | false "both variants share score precision" comment corrected (fused BF16-bmm ≠ tiled; verified max diff 0.55); stale "EXHAUSTED/not closable" header verdict removed; F6 BW>compute-floor wording fixed. The authoritative per-op acceptance policy (F4) remains **OPEN** (user tolerances) |
+
+All kernel probes compiled + verified; generator self-test rc=0; parser self-test OK.
+
+## Outcome: SURFACED to user (round 3 re-review ready)
+
+Six round-2 findings addressed + verified (R2-F3, R2-F5, R2-F9, R2-F9b, R2-P1 closed; R2-P2 comment/prose
+closed, its acceptance-policy remainder folds into F4). **Still OPEN (unchanged):** F4 acceptance policy
+(**tolerances await a user decision**), F7 Amdahl ROI ledger, F8 `.agents` entry-skill routing, sparse
+donor-dispatch proof. Round-3 reviewer package emitted → `reviewer_round3.prompt.txt`. Nothing certified;
+microbench scope, E2E verification PENDING.

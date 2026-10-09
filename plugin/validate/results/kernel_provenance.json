@@ -63,8 +63,8 @@
         "gather of the top-k KV by topk_idxs is done upstream (indexer_topk + gather); the kernel assumes kv[N,K,D] already gathered",
         "the published sparse_attn is a `kernel` primitive; numerics taken from the torch oracle, not the binary"
       ],
-      "validation": "results/op_passes/sparse_attend.json (microbench; kept pass commit=pending UNRESOLVED; SURFACED: at real MQA/D=512/+sink dims neither scalar nor AMX beats torch BLAS einsum -> route to donor MLA flash; MICROBENCH scope, E2E verification PENDING)",
-      "status": "provenance-established; implementation SURFACED (scalar kernel is NOT the production path; donor MLA flash is)"
+      "validation": "results/op_passes/sparse_attend.json (microbench; kept pass commit=pending UNRESOLVED; SURFACED: at real MQA/D=512/+sink dims the SCALAR kernel RETAINS a ~3.55x M=1 advantage over the torch BLAS einsum but LOSES at large M; the AMX variant differs in BF16 rounding. A donor MLA flash is a CANDIDATE, not an established production path — dispatch is NOT proven (needs a concrete donor entry + sink/mask/2-source/KV-layout capability + dispatch evidence); MICROBENCH scope, E2E verification PENDING)",
+      "status": "provenance-established; implementation SURFACED (scalar retains an M=1 win; donor MLA flash is a CANDIDATE path, NOT yet proven)"
     },
     {
       "kernel": "plugin/kernels/dsa_pilot/sinkhorn.cpp",
@@ -115,9 +115,9 @@
       {"kernel": "sparse_attend.cpp",
        "cost_rows": ["MLA sparse attention (window+compressed, 43L)"],
        "gap_dispositions": [
-         {"gap": "PRODUCTION attention cost is the DONOR MLA flash (the roofline row), NOT this scalar kernel", "disposition": "modeled:MLA sparse attention (window+compressed, 43L)"},
+         {"gap": "the roofline COSTS attention via an ASSUMED donor MLA flash row (a modeling choice, NOT proven production); the authored scalar kernel is SURFACED (retains a ~3.55x M=1 win, loses at large M), donor dispatch is UNPROVEN", "disposition": "modeled:MLA sparse attention (window+compressed, 43L)"},
          {"gap": "top-k gather by topk_idxs feeding the attend", "disposition": "caller:indexer_topk + gather upstream"}
-       ], "verdict": "CONSISTENT (dual-path: roofline production=donor flash; authored scalar kernel is SURFACED, a join observation only, not the costed path)"},
+       ], "verdict": "CONSISTENT (dual-path: roofline costs attention via an ASSUMED donor flash row (modeling choice, not proven); authored scalar sparse_attend is SURFACED — a join observation only, not the costed path)"},
       {"kernel": "sinkhorn.cpp",
        "cost_rows": ["MHC sinkhorn (hc=4, 20 iters)"],
        "gap_dispositions": [
@@ -129,7 +129,7 @@
          {"gap": "mixes = RMSNorm + F.linear(hc_fn) upstream", "disposition": "modeled:MHC hc_fn (16384->24, FP32)"}
        ], "verdict": "CONSISTENT"}
     ],
-    "verdict": "CONSISTENT \u2014 every authored kernel maps to real roofline cost rows with matching operands/shapes/dtypes (the join asserts the byte/FLOP contracts); every FRAGMENT gap is either modeled by another roofline row or EXPLICITLY-UNMODELED in the tracker; no gap falls in the crack. Dual-path note: the roofline costs attention via the donor MLA flash, and the authored scalar sparse_attend is SURFACED (not the costed path)."
+    "verdict": "CONSISTENT — every authored kernel maps to real roofline cost rows with matching operands/shapes/dtypes (the join asserts the byte/FLOP contracts); every FRAGMENT gap is either modeled by another roofline row or EXPLICITLY-UNMODELED in the tracker; no gap falls in the crack. Dual-path note: the roofline costs attention via an ASSUMED donor MLA flash row (a modeling choice, NOT a proven serving path), and the authored scalar sparse_attend is SURFACED (retains a ~3.55x M=1 win, loses at large M; not the costed path)."
   },
   "overall": "All 6 authored CPU kernels have EXTERNAL provenance confirmed against the pinned published model.py: indexer_logits (FRAGMENT core), indexer_topk (FAITHFUL select), compressor (FRAGMENT pool core), sparse_attend (FAITHFUL attend stage, impl SURFACED), sinkhorn (FAITHFUL), combine (FAITHFUL). Two (compressor, indexer) are stage-faithful cores of larger subgraphs whose gaps (projections, RoPE, Hadamard, quant, overlap, decode-state, masking) are enumerated here and already EXPLICITLY-UNMODELED in results/roofline_open_items.json. All correctness is MICROBENCH scope (current-target/E2E verification PENDING); four kept-pass revisions are UNRESOLVED (record commit=pending). Implementation review / re-authoring may proceed with these gaps and the SURFACED sparse-attend path as declared scope."
 }

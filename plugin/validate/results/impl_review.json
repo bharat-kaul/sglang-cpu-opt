@@ -2,6 +2,7 @@
   "_schema": "Implementation-review record (DSv4-Flash pilot, Phase A). Follows the kernel-provenance + kernel<->cost-model reconciliation gates. Records: (1) CORRECTNESS re-verification of every authored kernel against its EXTERNAL torch oracle, across all costed shapes and both normal + heavier-tailed ('realistic') distributions, at a tight tolerance; (2) the resolved kernel revisions; (3) re-authoring / routing decisions; (4) the PERF-vs-roofline measurement status. Correctness here is MICROBENCH scope (current-target/E2E verification PENDING).",
   "reference_revision": "DeepSeek-V4-Flash HF rev 60d8d70770c6776ff598c94bb586a859a38244f1 (inference/model.py)",
   "reverified_at": "de48f87",
+  "reverified_at_note": "de48f87 is the CORRECTNESS re-verification commit (a SEPARATE identity from the timing job in perf_vs_roofline.raw_record, R2-P1); it binds the oracle re-runs below, not the measured latency.",
   "reverified_on": "2026-10-09",
   "correctness_reverification": {
     "method": "ran each kernel's microbench vs its torch oracle (bench_*.py) on the venv; additionally re-verified the compressor at ALL THREE costed shapes (R=128/D=512, R=8/D=512, R=8/D=128) under normal AND heavy-tailed inputs with tol relerr<=1e-4, cos>=0.999999.",
@@ -23,7 +24,7 @@
   ],
   "perf_vs_roofline": {
     "status": "MEASURED (full M sweep 1/8/16/32/64)",
-    "raw_record": "SLURM job 384372, log /scratch/bkaul/dsa_perf_sweep_384372.log, node pcl-sprh11 (DDR5-5600), 2026-10-09; run_dsa_perf_sweep.sbatch; 3 reps/bench (median); OMP 64thr bound once, numactl NUMA0.",
+    "raw_record": "SLURM job 384414, log /scratch/bkaul/dsa_perf_sweep_384414.log, node pcl-sprh09.sc.intel.com (DDR5-5600), 2026-10-09; run_dsa_perf_sweep.sbatch; 3 reps/bench (median of unique REP ids 1/2/3); OMP 64thr bound once, numactl NUMA0. This is the CURRENT timing identity (R2-P1), distinct from the correctness re-verification commit (reverified_at); the superseded first run (job 384372, node pcl-sprh11) is retained as history only, not joined.",
     "measured_sweep": "results/perf_sweep.json (median cpp_ms per op across M=1/8/16/32/64)",
     "report": "reports/dsv4_roofline_vs_measured_emr.txt (per op: roofline ideal vs measured vs off-ceiling across the full M sweep, with plateau explanation)",
     "ceiling_basis": "NOMINAL machine peak (BW 358.4 GB/s, FP32 7.78 TF / AMX 124.5 TF). off_ceiling = measured_median / nominal_ideal; the node reaches ~60-77% of nominal DRAM BW so a BW-bound op is ~1.3-1.7x off the wall alone; small ops are latency/dispatch-bound (far from roof by construction).",

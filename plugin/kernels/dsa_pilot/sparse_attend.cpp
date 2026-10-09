@@ -11,7 +11,9 @@
 
 // q:[N,H,D]; kv:[N,K,D] (shared k==v latent); sink:[H] -> out:[N,H,D]. scale default = D**-0.5.
 torch::Tensor sparse_attend(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && sink.device().is_cpu(), "CPU tensors only");
   TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && sink.dim() == 1, "bad dims");
+  TORCH_CHECK(q.size(0) == kv.size(0), "q/kv batch N mismatch");
   TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
   TORCH_CHECK(sink.size(0) == q.size(1), "sink must be [H]");
   auto qc = q.to(torch::kFloat32).contiguous();
@@ -58,7 +60,11 @@ torch::Tensor sparse_attend(torch::Tensor q, torch::Tensor kv, torch::Tensor sin
 // bf16 AMX batched GEMM: score=bmm(q,kv^T) then softmax(+sink) then out=bmm(w,kv). At real dims
 // (H=64 is the GEMM M, D=512, K=512) the two matmuls are AMX-tileable, unlike per-query M=1.
 torch::Tensor sparse_attend_amx(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && sink.device().is_cpu(), "CPU tensors only");
   TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && sink.dim() == 1, "bad dims");
+  TORCH_CHECK(q.size(0) == kv.size(0), "q/kv batch N mismatch");
+  TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
+  TORCH_CHECK(sink.size(0) == q.size(1), "sink must be [H]");
   const int64_t N = q.size(0), H = q.size(1), D = q.size(2), K = kv.size(1);
   const double scale = scale_ > 0 ? scale_ : 1.0 / std::sqrt((double)D);
   auto qb = q.to(torch::kBFloat16).contiguous();
