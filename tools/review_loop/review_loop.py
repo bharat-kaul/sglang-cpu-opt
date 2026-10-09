@@ -28,6 +28,10 @@ Verdict contract (the reviewer MUST emit exactly one of these blocks in its outp
 Usage:
   review_loop.py run    --config config.json         # drive real agents per the config adapters
   review_loop.py demo                                # replay the real 7-round history with mock agents
+
+NOTE: the automated self-driving loop is currently DISABLED (set REVIEW_LOOP_ENABLE=1 to override).
+Rounds are driven MANUALLY in separate session windows; the prompts/ledger.json/audit_trail.md artifacts
+remain the system of record.
 """
 from __future__ import annotations
 
@@ -171,7 +175,27 @@ def _write_audit(state_dir, name, ex, rv, audit, outcome=None, reason=""):
     open(os.path.join(state_dir, "audit_trail.md"), "w").write("\n".join(lines))
 
 
+# The automated executor<->reviewer driver is DISABLED by default: the multi-round auto-closure cycle is
+# not operating reliably, so rounds are driven MANUALLY in separate session windows (emit the round prompt,
+# hand it to the other agent, record the verdict in ledger.json/audit_trail.md by hand). The artifacts
+# (prompts, ledger, audit trail) remain usable; only the self-driving loop is gated off. Set the env var
+# REVIEW_LOOP_ENABLE=1 to re-enable the automation once it is trusted again.
+_DISABLED_MSG = (
+    "review_loop automation is DISABLED (the executor<->reviewer auto-closure cycle is not working). "
+    "Drive rounds MANUALLY in separate session windows and record verdicts in ledger.json / audit_trail.md. "
+    "Set REVIEW_LOOP_ENABLE=1 to override once the loop is trusted again."
+)
+
+
+def _automation_enabled():
+    return os.environ.get("REVIEW_LOOP_ENABLE", "").strip() in ("1", "true", "yes", "on")
+
+
 def loop(cfg):
+    if not _automation_enabled():
+        print("[review_loop] " + _DISABLED_MSG)
+        return {"gate": cfg.get("task", {}).get("name", "?"), "outcome": "DISABLED",
+                "rounds": 0, "reason": _DISABLED_MSG}
     task = cfg["task"]
     name = task["name"]
     workdir = task.get("workdir", ".")
@@ -251,7 +275,6 @@ def main():
     a = ap.parse_args()
     s = _demo() if a.cmd == "demo" else loop(json.load(open(a.config)))
     sys.exit(0 if s["outcome"] == "PASS" else 2)
-
 
 if __name__ == "__main__":
     main()
