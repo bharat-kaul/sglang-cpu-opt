@@ -51,16 +51,17 @@ roofline join (baseline source) [dsv4_roofline_vs_measured.py](dsv4_roofline_vs_
 
 **No-regression (authoritative, replicated — job 384531, `bench_replicated.py`).** 64 threads, order-varied
 paired trials vs a **same-contract** fallback (the torch op each kernel replaces, at the kernel's arithmetic
-contract), median of ≥5 trials × 3 process-repeats, identity-bound (node/git/dirty=0/affinity). Speedup = ref/cpp:
+contract). Speedup = **median of the 3 process summaries** (each itself the median of 5 trial-means); brackets
+would span the 3 process summaries (see the review's reconstruction). Identity-bound (node/git/dirty=0/affinity).
 
 | kernel \ M | 1 | 8 | 16 | 32 | 64 |
 |---|---|---|---|---|---|
-| indexer_logits | 11.3× | **0.98×** | 1.49× | 3.06× | 1.75× |
-| sparse_bestof | 3.26× | 2.22× | 1.74× | 1.35× | 3.56× |
-| compressor_R128 | 8.45× | 2.91× | 2.19× | 1.46× | 2.64× |
-| indexer_topk | 2.10× | 4.60× | 11.8× | 25.8× | 28.8× |
-| sinkhorn | 93.7× | 19.4× | 19.7× | 21.0× | 21.5× |
-| combine | 5.18× | 2.39× | 2.35× | 2.24× | 2.07× |
+| indexer_logits | 11.5× | **0.98×** | 1.49× | 3.06× | 1.75× |
+| sparse_bestof | 3.54× | 2.24× | 1.78× | 1.42× | 3.72× |
+| compressor_R128 | 8.26× | 2.75× | 2.16× | 1.47× | 2.79× |
+| indexer_topk | 2.08× | 4.67× | 13.3× | 25.8× | 28.8× |
+| sinkhorn | 94.4× | 19.4× | 19.7× | 21.1× | 21.6× |
+| combine | 5.12× | 2.32× | 2.34× | 2.24× | 2.07× |
 
 Every kernel holds ≥1.0× at every M **except indexer M8**, whose three process-median speedups are **0.98× /
 1.05× / 0.96×** (OBSERVED variability straddling 1.0 — NOT asserted as established equivalence; a predefined

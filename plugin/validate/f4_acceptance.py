@@ -243,9 +243,10 @@ def manifest():
                "bestof": lambda q, kv, s, sc: sp.sparse_attend_bestof(q, kv, s, sc),
                "amx": lambda q, kv, s, sc: sp.sparse_attend_amx(q, kv, s, sc)}
     for p, fn in _sp_fns.items():
-        cases.append({"op": "sparse", "path": p, "kind": "continuous_sparse", "dist": "normal",
-                      "build": (lambda: (torch.randn(8, 64, 512).bfloat16().float(), torch.randn(8, 512, 512).bfloat16().float(), torch.randn(64), 512 ** -0.5)),
-                      "cand": fn, "ora": _ora_sparse, "out": ((lambda: (8, 64, 512)), torch.float32)})
+        for Msp in (1, 8):                            # R3-F2: cover the best-of N==1 scalar branch AND N>=2 bmm
+            cases.append({"op": "sparse", "path": f"{p}/M{Msp}", "kind": "continuous_sparse", "dist": "normal",
+                          "build": (lambda Msp=Msp: (torch.randn(Msp, 64, 512).bfloat16().float(), torch.randn(Msp, 512, 512).bfloat16().float(), torch.randn(64), 512 ** -0.5)),
+                          "cand": fn, "ora": _ora_sparse, "out": ((lambda Msp=Msp: (Msp, 64, 512)), torch.float32)})
     cases.append({"op": "sparse", "path": "composed(topk+gather+attend)", "kind": "composed", "dist": "normal",
                   "build": _build_composed_sparse, "cand": (tk, sp), "ora": None, "out": None})
     return cases
@@ -314,13 +315,15 @@ def run_case(c, calib):
             return True, "composed non-deterministic (repeat differs)"
         ref_idx = torch.topk(logits, Ktop, dim=1, sorted=False).indices
         ref_gather = torch.stack([kv_full[n][ref_idx[n]] for n in range(kv_full.shape[0])])
-        ref = _ora_sparse(q, ref_gather, sink, scale)
+        # R3-F2: screen the composed consumer against the SOURCE-FAITHFUL 64-block replica on bf16-matched
+        # operands (not a global FP32 math reference) so block grouping + intermediate bf16 rounding are tested.
+        ref = _ora_sparse_blockwise(q.bfloat16().float(), ref_gather.bfloat16().float(), sink, scale)
         if not bool(torch.isfinite(ref).all().item()):
             return True, "composed non-finite reference"
         nonmis, ties = _selection_check(idx, logits, Ktop)
         if nonmis:
             return True, f"composed selection: {nonmis} non-tie mismatches"
-        m = _screen_continuous(cand, ref, atol=1e-3)
+        m = _screen_continuous(cand.bfloat16().float(), ref, atol=SPARSE_SCREEN_PROPOSED)   # match bf16 output boundary
         calib.append({"op": "sparse", "path": c["path"], "split": c.get("split"), "metric": m,
                       "selection_non_tie": nonmis, "ties": ties})
         return False, f"composed ok (screen_pass={m['screen_pass']}, selection clean)"
@@ -389,7 +392,7 @@ def run_case(c, calib):
         cand_b = cand.bfloat16().float()              # match the bf16 OUTPUT boundary (R2-F2)
         m_auth = _screen_continuous(cand_b, ref_auth, atol=SPARSE_SCREEN_PROPOSED)
         m_diag = _screen_continuous(cand, ref_diag, atol=SPARSE_SCREEN_PROPOSED)
-        dominated = (c["path"] == "amx")              # GPU-measured: amx drifts further (3.9-5.9e-3 @N8/64)
+        dominated = c["path"].startswith("amx")      # GPU-measured: amx drifts further (3.9-5.9e-3 @N8/64)
         within = (not dominated) and m_auth["max_abs_err"] <= SPARSE_SCREEN_PROPOSED
         calib.append({"op": "sparse", "path": c["path"], "dist": c["dist"], "split": c.get("split"),
                       "within_proposed": within, "dominated": dominated, "metric": m_auth, "metric_fp32_diag": m_diag,
