@@ -182,13 +182,13 @@ def manifest():
         return torch.randn(M, 64).bfloat16().float()      # signed, bf16-exact (the published boundary)
     for d in ("normal", "heavy"):
         for M in (1, 8, 16, 32, 64):
-            cases.append({"op": "indexer_logits", "path": "tiled/signed", "kind": "logits_select", "dist": d,
+            cases.append({"op": "indexer_logits", "path": "tiled/signed", "kind": "logits_select", "dist": d, "M": M,
                           "build": (lambda M=M, d=d: (_dist(d, M, 64, 128), _dist(d, M, 1024, 128), _sweight(M))),
                           "cand": lambda q, kv, w: il.indexer_logits(q, kv, w),
                           "ora": _ora_indexer_logits, "k": 512, "out": ((lambda M=M: (M, 1024)), torch.float32)})
     # bf16-KV contract (P1-F5): caller stores the KV cache in bf16; selection must match the bf16 oracle.
     for M in (1, 32):
-        cases.append({"op": "indexer_logits", "path": "bf16kv/signed", "kind": "logits_select", "dist": "normal",
+        cases.append({"op": "indexer_logits", "path": "bf16kv/signed", "kind": "logits_select", "dist": "normal", "M": M,
                       "build": (lambda M=M: (_dist("normal", M, 64, 128), _dist("normal", M, 1024, 128).bfloat16(), _sweight(M))),
                       "cand": lambda q, kv, w: il.indexer_logits(q, kv, w),
                       "ora": _ora_indexer_logits, "k": 512, "out": ((lambda M=M: (M, 1024)), torch.float32)})
@@ -427,9 +427,14 @@ def run_case(c, calib):
 # Held-out seeds are RESERVED now and are never used to set thresholds (calibration seeds propose; held-out
 # only validates that the proposal generalizes).
 SEED_GROUPS = {"calibration": [0, 1, 2], "held_out": [100, 101]}
-# Independently-declared expected inventory (R2-F1): the gate is a full qualification only if EVERY op is
-# present; a manifest missing an op (or an empty seed group) is a restricted scope, not a pass.
+# Independently-declared expected inventory (R2-F1 / playbook #3): the gate is a FULL qualification only if
+# every REQUIRED (op, kind) is present AND the indexer covers its full signed M-sweep. A manifest missing any
+# of these is a RESTRICTED scope, not a pass. Declared here, NOT derived from whatever tests happened to run.
 _EXPECTED_OPS = {"indexer_logits", "indexer_topk", "compressor", "sparse", "sinkhorn", "combine"}
+_REQUIRED_COVERAGE = {("indexer_logits", "logits_select"), ("indexer_topk", "selection"),
+                      ("compressor", "continuous"), ("sparse", "continuous_sparse"),
+                      ("sparse", "composed"), ("sinkhorn", "continuous_tuple3"), ("combine", "continuous")}
+_REQUIRED_INDEXER_M = {1, 8, 16, 32, 64}         # the signed-weight M-sweep must be gated, not just benchmarked
 
 
 def run(calibrate_path=None):
@@ -442,6 +447,15 @@ def run(calibrate_path=None):
     missing = _EXPECTED_OPS - present_ops
     if missing:
         print(f"  STATUS = FAIL  (inventory incomplete — missing ops {sorted(missing)})")
+        return 2
+    present_cov = {(c["op"], c["kind"]) for c in cases}     # (op, kind) coverage contract (playbook #3)
+    miss_cov = _REQUIRED_COVERAGE - present_cov
+    if miss_cov:
+        print(f"  STATUS = FAIL  (coverage incomplete — missing (op,kind) {sorted(miss_cov)})")
+        return 2
+    idx_M = {c.get("M") for c in cases if c["op"] == "indexer_logits" and c.get("M") is not None}
+    if not _REQUIRED_INDEXER_M.issubset(idx_M):
+        print(f"  STATUS = FAIL  (indexer M-sweep incomplete — have {sorted(idx_M)}, need {sorted(_REQUIRED_INDEXER_M)})")
         return 2
     if any(len(s) == 0 for s in SEED_GROUPS.values()):
         print("  STATUS = FAIL  (a seed group is empty — no evaluation)")
@@ -546,47 +560,62 @@ def selftest():
         ok = ok and bool(c)
         print(f"  [{'PASS' if c else 'FAIL'}] {m}")
 
-    def _fails(case):
+    def _eval(case):                                  # mirror run()'s exception handling: test the FULL gate
         calib = []
         try:
-            hf, _ = run_case(case, calib)
-            return hf
-        except Exception:
+            return run_case(case, calib)
+        except Exception as e:
+            return True, f"EXCEPTION: {type(e).__name__}: {e}"
+
+    def _fails(case):
+        """Negative test (playbook #3): must hard-reject AND for the INTENDED reason (case['_expect'] must be a
+        substring of the note). An unrelated error (e.g. a NameError in setup) is an INFRASTRUCTURE failure,
+        NOT a successful rejection. A case with no '_expect' is a POSITIVE control (assert NOT hard-rejected)."""
+        hf, note = _eval(case)
+        exp = case.get("_expect")
+        if exp is None:
+            return hf                                 # positive control: used as `not _fails(good_case)`
+        if hf and exp in note:
             return True
+        print(f"       (reason mismatch: hard_fail={hf} note={note!r} expected~{exp!r})")
+        return False
 
     tk = _mod("f4_tk", "indexer_topk.cpp")
     cp = _mod("f4_cp", "compressor.cpp")
+    il = _mod("f4_il_st", "indexer_logits.cpp")     # (typed-reason tests exposed these were never loaded)
+    sp = _mod("f4_sp_st", "sparse_attend.cpp")
 
     # 1 wrong shape
-    chk(_fails({"op": "x", "path": "wrongshape", "kind": "continuous", "dist": "normal",
+    chk(_fails({"op": "x", "path": "wrongshape", "kind": "continuous", "dist": "normal", "_expect": "shape",
                 "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
                 "cand": lambda a, b, c: cp.compressor_softmax_pool(a, b, c)[:, :10],   # truncated -> wrong shape
                 "ora": _ora_compressor, "out": ((lambda: (8, 512)), torch.float32)}),
         "REJECTS a wrong output shape")
 
-    # 2 NaN output
-    chk(_fails({"op": "x", "path": "nan", "kind": "continuous", "dist": "normal",
+    # 2 non-finite output (use +inf: deterministic, so it reaches the finiteness gate -- nan would trip the
+    #   repeatability check first since nan!=nan)
+    chk(_fails({"op": "x", "path": "nan", "kind": "continuous", "dist": "normal", "_expect": "non-finite",
                 "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
-                "cand": lambda a, b, c: cp.compressor_softmax_pool(a, b, c) * float("nan"),
+                "cand": lambda a, b, c: cp.compressor_softmax_pool(a, b, c) + float("inf"),
                 "ora": _ora_compressor, "out": ((lambda: (8, 512)), torch.float32)}),
-        "REJECTS a NaN output")
+        "REJECTS a non-finite (inf) output")
 
     # 3 duplicate selection
-    chk(_fails({"op": "x", "path": "dupsel", "kind": "selection", "dist": "normal",
+    chk(_fails({"op": "x", "path": "dupsel", "kind": "selection", "dist": "normal", "_expect": "mismatch",
                 "build": lambda: (torch.randn(2, 1024), 512),
                 "cand": lambda lg, k: torch.zeros(2, k, dtype=torch.int64),   # all-zero -> non-distinct
                 "ora": None, "k": 512, "out": ((lambda: (2, 512)), torch.int64)}),
         "REJECTS a duplicate/degenerate selection")
 
     # 4 non-determinism
-    chk(_fails({"op": "x", "path": "nondet", "kind": "continuous", "dist": "normal",
+    chk(_fails({"op": "x", "path": "nondet", "kind": "continuous", "dist": "normal", "_expect": "non-deterministic",
                 "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
                 "cand": lambda a, b, c: cp.compressor_softmax_pool(a, b, c) + torch.randn(8, 512),
                 "ora": _ora_compressor, "out": ((lambda: (8, 512)), torch.float32)}),
         "REJECTS a non-deterministic kernel (repeat differs)")
 
     # 5 exception / missing (oracle raises)
-    chk(_fails({"op": "x", "path": "exc", "kind": "continuous", "dist": "normal",
+    chk(_fails({"op": "x", "path": "exc", "kind": "continuous", "dist": "normal", "_expect": "EXCEPTION",
                 "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
                 "cand": lambda a, b, c: cp.compressor_softmax_pool(a, b, c),
                 "ora": (lambda *a: (_ for _ in ()).throw(RuntimeError("no oracle"))),
@@ -598,13 +627,13 @@ def selftest():
         idx = tk.indexer_topk(lg, k)
         idx[0, 0] = int(torch.topk(lg[0], lg.shape[1], largest=False).indices[0])  # force the global MIN in
         return idx
-    chk(_fails({"op": "x", "path": "belowcutoff", "kind": "selection", "dist": "normal",
+    chk(_fails({"op": "x", "path": "belowcutoff", "kind": "selection", "dist": "normal", "_expect": "mismatch",
                 "build": lambda: (torch.randn(2, 1024), 512),
                 "cand": _wrong_sel, "ora": None, "k": 512, "out": ((lambda: (2, 512)), torch.int64)}),
         "REJECTS a below-cutoff selection (reference-owned membership, tie_eps=0)")
 
     # 8 non-finite REFERENCE in logits_select must fail (R2-F1: reference validity before selection)
-    chk(_fails({"op": "x", "path": "nanref", "kind": "logits_select", "dist": "normal",
+    chk(_fails({"op": "x", "path": "nanref", "kind": "logits_select", "dist": "normal", "_expect": "non-finite reference",
                 "build": lambda: (torch.randn(2, 64, 128), torch.randn(2, 1024, 128), torch.randn(2, 64)),
                 "cand": lambda q, kv, w: il.indexer_logits(q, kv, w),
                 "ora": lambda q, kv, w: _ora_indexer_logits(q, kv, w) * float("nan"),
@@ -617,7 +646,7 @@ def selftest():
         _ac["n"] += 1
         base = cp.compressor_softmax_pool(a, b, cc)
         return (base, base, base) if _ac["n"] == 1 else (base, base)   # 3 outputs then 2
-    chk(_fails({"op": "x", "path": "arity", "kind": "continuous_tuple3", "dist": "normal",
+    chk(_fails({"op": "x", "path": "arity", "kind": "continuous_tuple3", "dist": "normal", "_expect": "arity",
                 "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
                 "cand": _arity, "ora": lambda a, b, cc: (cp.compressor_softmax_pool(a, b, cc),) * 3, "out": None}),
         "REJECTS a repeat-call arity mismatch (R2-F1)")
@@ -627,7 +656,7 @@ def selftest():
         @staticmethod
         def sparse_attend(q, kv, s, sc):
             return sp.sparse_attend(q, kv, s, sc) * float("nan")
-    chk(_fails({"op": "x", "path": "compnan", "kind": "composed", "dist": "normal",
+    chk(_fails({"op": "x", "path": "compnan", "kind": "composed", "dist": "normal", "_expect": "composed non-finite",
                 "build": _build_composed_sparse, "cand": (tk, _NanSp), "ora": None, "out": None}),
         "REJECTS a NaN composed output (R2-F1)")
 
@@ -636,7 +665,7 @@ def selftest():
         @staticmethod
         def sparse_attend(q, kv, s, sc):
             return sp.sparse_attend(q, kv, s, sc) + torch.randn(q.shape[0], q.shape[1], q.shape[2])
-    chk(_fails({"op": "x", "path": "compnd", "kind": "composed", "dist": "normal",
+    chk(_fails({"op": "x", "path": "compnd", "kind": "composed", "dist": "normal", "_expect": "composed non-deterministic",
                 "build": _build_composed_sparse, "cand": (tk, _NdSp), "ora": None, "out": None}),
         "REJECTS a non-deterministic composed output (R2-F1)")
 
@@ -645,6 +674,13 @@ def selftest():
     _orig_manifest = manifest
     with _um.patch(__name__ + ".manifest", lambda: [cc for cc in _orig_manifest() if cc["op"] != "sparse"]):
         chk(run() == 2, "REJECTS an incomplete inventory (missing op) through run() (R2-F1)")
+
+    # 13 META (playbook #3): a negative test that hits an unrelated error (NameError in setup) while CLAIMING
+    # to test a shape rejection must NOT be counted as a successful shape rejection -> _fails returns False.
+    chk(not _fails({"op": "x", "path": "infra", "kind": "continuous", "dist": "normal", "_expect": "shape",
+                    "build": lambda: (_ for _ in ()).throw(NameError("setup typo")),
+                    "cand": lambda *a: None, "ora": None, "out": None}),
+        "an infra error (NameError) is NOT counted as the intended rejection (typed reason)")
 
     # 7 a GOOD case must NOT fail (no false positive)
     chk(not _fails({"op": "compressor", "path": "good", "kind": "continuous", "dist": "normal",
