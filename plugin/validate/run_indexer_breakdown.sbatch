@@ -29,4 +29,8 @@ PY
 
 echo ">>> COMPRESSOR 3-SHAPE COVERAGE (R=128/D512, R=8/D512, R=8/D128)"
 numactl -N 0 -m 0 python plugin/validate/bench_compressor.py
+
+echo ">>> INDEXER_LOGITS SWEEP (optimized) — per-M median cpp_ms + torch speedup (no-regression floor)"
+numactl -N 0 -m 0 python plugin/validate/bench_idx_logits.py
+echo ">>> baseline 384414 cpp_ms per M[1,8,16,32,64] = [0.100, 0.279, 0.366, 0.540, 0.908]"
 echo ">>> done"
