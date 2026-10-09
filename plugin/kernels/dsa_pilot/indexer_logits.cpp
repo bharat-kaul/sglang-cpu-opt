@@ -17,6 +17,7 @@
 #include <torch/extension.h>
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
+#include <ATen/cpu/vec/vec.h>
 #include <ATen/native/CPUBlas.h>
 #include <chrono>
 #include <cstdio>
@@ -78,7 +79,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   auto _now = [] { return std::chrono::high_resolution_clock::now(); };
   auto _t0 = _now();
   auto qb = q.to(torch::kBFloat16).contiguous();
-  auto kvb = kv.to(torch::kBFloat16).contiguous();
+  auto kvf = kv.to(torch::kFloat32).contiguous();   // keep kv FP32; convert per-tile in-cache (no full bf16 copy)
   auto wf = weight.to(torch::kFloat32).contiguous();
   auto logits = torch::empty({N, S}, torch::kFloat32);
   auto _t1 = _now();
@@ -93,25 +94,38 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
 
   // Pack B = q[n]^T [D,H] (VNNI) once per n; reused by every S-tile of that n.
   auto qpack = torch::empty({N, D * H}, torch::kBFloat16);
-  for (int64_t n = 0; n < N; ++n) {
-    auto qT = qb[n].transpose(0, 1).contiguous();   // [D,H]
-    if (vnni) {
-      at::native::cpublas::pack(D, H, H, H, torch::kBFloat16, torch::kBFloat16,
-                                qT.data_ptr<at::BFloat16>(), qpack[n].data_ptr<at::BFloat16>());
-    } else {
-      std::memcpy(qpack[n].data_ptr<at::BFloat16>(), qT.data_ptr<at::BFloat16>(),
-                  D * H * sizeof(at::BFloat16));
+  at::parallel_for(0, N, 0, [&](int64_t n0, int64_t n1) {   // parallel over n (serial pack was a large-M bottleneck)
+    for (int64_t n = n0; n < n1; ++n) {
+      auto qT = qb[n].transpose(0, 1).contiguous();   // [D,H]
+      if (vnni) {
+        at::native::cpublas::pack(D, H, H, H, torch::kBFloat16, torch::kBFloat16,
+                                  qT.data_ptr<at::BFloat16>(), qpack[n].data_ptr<at::BFloat16>());
+      } else {
+        std::memcpy(qpack[n].data_ptr<at::BFloat16>(), qT.data_ptr<at::BFloat16>(),
+                    D * H * sizeof(at::BFloat16));
+      }
     }
-  }
+  });
   auto _t2 = _now();
 
   at::parallel_for(0, N * ntiles, 1, [&](int64_t a, int64_t b) {
     std::vector<float> Cbuf(Sb * H);            // heap C tile (L2-resident), per chunk
+    std::vector<at::BFloat16> Abuf(Sb * D);     // per-tile bf16 staging (fused convert; kv read FP32 once)
     float* C = Cbuf.data();
     for (int64_t it = a; it < b; ++it) {
       const int64_t n = it / ntiles, ti = it % ntiles, s0 = ti * Sb;
       const int64_t sb = std::min(Sb, S - s0);
-      const at::BFloat16* A = kvb[n].data_ptr<at::BFloat16>() + s0 * D;   // [sb,D]
+      const float* Afp = kvf[n].data_ptr<float>() + s0 * D;              // [sb,D] FP32 tile
+      at::BFloat16* A = Abuf.data();
+      const int64_t ne = sb * D;                                         // convert tile -> bf16 in cache
+      int64_t i = 0;
+      constexpr int64_t VW = at::vec::Vectorized<float>::size();
+      for (; i + 2 * VW <= ne; i += 2 * VW) {
+        auto v0 = at::vec::Vectorized<float>::loadu(Afp + i);
+        auto v1 = at::vec::Vectorized<float>::loadu(Afp + i + VW);
+        at::vec::convert_float_bfloat16(v0, v1).store(A + i);
+      }
+      for (; i < ne; ++i) A[i] = static_cast<at::BFloat16>(Afp[i]);
       const at::BFloat16* B = qpack[n].data_ptr<at::BFloat16>();          // packed [D,H]
       at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, C, vnni);
       const float* w = wf[n].data_ptr<float>();
