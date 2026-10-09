@@ -35,18 +35,21 @@ def bench(fn, *a, it=20):
 
 
 print(f"op#4 MLA sparse attend (MQA+sink)  H={H} Ktop={Ktop} D={D}")
-print(f"{'M':>4} {'cos_sc':>9} {'cos_amx':>9} {'ref_ms':>8} {'sc_ms':>8} {'amx_ms':>8} {'sc_x':>6} {'amx_x':>6}")
+print(f"{'M':>4} {'cos_sc':>9} {'cos_bmm':>9} {'cos_bo':>9} {'ref_ms':>8} {'sc_ms':>8} {'bmm_ms':>8} {'bo_ms':>8} {'bmm_x':>6} {'bo_x':>6}")
 for M in (1, 8, 16, 32, 64):
     q = torch.randn(M, H, D)
     kv = torch.randn(M, Ktop, D)          # MQA: one latent kv shared across H heads
     sink = torch.randn(H)
     ref = ref_sparse_attn(q, kv, sink, SCALE)
     sc = mod.sparse_attend(q, kv, sink, SCALE)
-    amx = mod.sparse_attend_amx(q, kv, sink, SCALE)
+    bmm = mod.sparse_attend_fp32bmm(q, kv, sink, SCALE)
+    bo = mod.sparse_attend_bestof(q, kv, sink, SCALE)
     cos_sc = torch.nn.functional.cosine_similarity(ref.flatten(), sc.flatten(), dim=0).item()
-    cos_amx = torch.nn.functional.cosine_similarity(ref.flatten(), amx.flatten(), dim=0).item()
+    cos_bmm = torch.nn.functional.cosine_similarity(ref.flatten(), bmm.flatten(), dim=0).item()
+    cos_bo = torch.nn.functional.cosine_similarity(ref.flatten(), bo.flatten(), dim=0).item()
     t_ref = bench(ref_sparse_attn, q, kv, sink, SCALE)
     t_sc = bench(mod.sparse_attend, q, kv, sink, SCALE)
-    t_amx = bench(mod.sparse_attend_amx, q, kv, sink, SCALE)
-    print(f"{M:>4} {cos_sc:>9.6f} {cos_amx:>9.6f} {t_ref:>8.3f} {t_sc:>8.3f} {t_amx:>8.3f} "
-          f"{t_ref/t_sc:>5.2f}x {t_ref/t_amx:>5.2f}x")
+    t_bmm = bench(mod.sparse_attend_fp32bmm, q, kv, sink, SCALE)
+    t_bo = bench(mod.sparse_attend_bestof, q, kv, sink, SCALE)
+    print(f"{M:>4} {cos_sc:>9.6f} {cos_bmm:>9.6f} {cos_bo:>9.6f} {t_ref:>8.3f} {t_sc:>8.3f} {t_bmm:>8.3f} {t_bo:>8.3f} "
+          f"{t_ref/t_bmm:>5.2f}x {t_ref/t_bo:>5.2f}x")
