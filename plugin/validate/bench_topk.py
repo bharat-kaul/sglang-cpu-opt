@@ -12,7 +12,7 @@ torch.manual_seed(0)
 K = os.path.join(os.path.dirname(__file__), "..", "kernels", "dsa_pilot", "indexer_topk.cpp")
 mod = load(name="indexer_topk_pilot", sources=[K], extra_cflags=["-O3", "-fopenmp", "-march=native"], verbose=False)
 
-S, k = 4096, 512
+S, k = 1024, 512  # compressed index context (~seqlen/ratio4), verdict #6
 
 
 def setmatch(a, b):
