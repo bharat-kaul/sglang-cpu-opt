@@ -341,6 +341,22 @@ para("Why it survives human audit: the reviewer opens the referenced module line
      "as proof the kernel implements the model\u2019s op; a stage-faithful FRAGMENT reported as the full subgraph; "
      "gaps left unspoken; citing a locally re-derived reference as the authority instead of the published "
      "module; and re-authoring before provenance exists.", GRAY)
+h2("Kernel \u2194 cost-model reconciliation (the two artifacts must not be disconnected)")
+para("The kernel provenance (what each kernel COMPUTES) and the roofline cost model (what each op is COSTED "
+     "as) are two artifacts describing the SAME ops. They must RECONCILE or the roofline is costing something "
+     "the kernels don\u2019t compute (or vice-versa). Make this a fail-closed cross-check, not a hope.", bold=True)
+num("MAP every authored kernel to the cost row(s) that cost it; assert each named cost row EXISTS in the "
+    "model\u2019s op inventory (a rename/drop on either side must BREAK the check).", bold_lead="1 \u2014 ")
+num("DISPOSITION every FRAGMENT gap against the cost model: each gap is modeled by ANOTHER cost row, OR is "
+    "an EXPLICITLY-UNMODELED tracker item, OR is a caller op \u2014 never nothing. A gap that is none of these is "
+    "a DISCONNECT.", bold_lead="2 \u2014 ")
+num("CHECK operand/shape/dtype agreement: the cost row\u2019s operands and FLOP structure must match the kernel\u2019s "
+    "I/O contract (the same benchmark contract the provenance cites as oracle).", bold_lead="3 \u2014 ")
+num("NAME dual paths explicitly: if the costed path differs from an authored kernel (e.g. the model costs a "
+    "DONOR flash while an authored scalar kernel is SURFACED), record both so they are not conflated.",
+    bold_lead="4 \u2014 ")
+num("ENCODE it as a self-test the report emission depends on: load the provenance record + the op inventory "
+    "+ the unmodeled tracker and assert 1\u20134; fail closed on a missing record.", bold_lead="5 \u2014 ")
 
 # ---- roofline accounting discipline ----
 h1("Roofline accounting discipline — REFERENCE-CONFORMANT, fail-closed (self-consistency is NOT the gate)")
@@ -522,6 +538,7 @@ for g in ["G0 — capacity / precision (every launch)",
           "External-reference provenance gate (every op/shape/number/dtype/kernel/measurement cites an EXTERNAL authority or is EXPLICITLY-UNMODELED/withheld; tests assert consequences and fail closed; before any trust/perf-claim)",
           "Shape-provenance gate (every kernel's shapes CAPTURED from the real forward + human-signed manifest, before trust/perf-claims)",
           "Kernel-provenance gate (every authored kernel traced to the published reference: FAITHFUL/FRAGMENT(+enumerated gaps)/DIVERGENT + oracle + microbench-scope evidence recorded, REQUIRED before implementation review / re-authoring / perf-trust)",
+          "Kernel\u2194cost-model reconciliation gate (every kernel maps to existing cost rows; every FRAGMENT gap is modeled-elsewhere / EXPLICITLY-UNMODELED / caller; dual paths named; enforced by a fail-closed self-test so the provenance and roofline cannot drift apart)",
           "Roofline-accounting gate (invariant self-test passes + one inventory + every quantity MODELED/MEASURED/EXPLICITLY-UNMODELED, before the report is published)",
           "Phase-A ceiling-or-surface (every op at its ceiling, else surface to user)",
           "G2 — validate-by-run (confirm the paper model in-engine)",

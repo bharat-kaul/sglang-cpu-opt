@@ -393,6 +393,50 @@ def observations():
     return [op for op in OPS if op.kind == "observed"]
 
 
+_KPROV = os.path.join(os.path.dirname(__file__), "results", "kernel_provenance.json")
+
+
+def reconcile_kernels(kp=None):
+    """Cross-artifact gate: the kernel-provenance record and THIS roofline cost model must describe the
+    SAME ops, not disconnected. Each authored kernel's cost_rows must EXIST in OPS; each FRAGMENT gap must
+    be modeled by another OPS row OR be an EXPLICITLY-UNMODELED tracker item OR a caller op; every observed
+    authored-kernel row must have a provenance entry. Fail-closed on missing/malformed provenance."""
+    msgs, ok = [], True
+    if kp is None:
+        with open(_KPROV) as f:                          # FileNotFoundError / JSONDecodeError => fail-closed
+            kp = json.load(f)
+    ops_names = {op.name.strip() for op in OPS}
+    trk_items = [it.get("item", "") for it in load_tracker()["items"]]
+    entries = kp.get("roofline_reconciliation", {}).get("entries", [])
+    if not entries:
+        return False, ["kernel_provenance.json: no roofline_reconciliation.entries"]
+    blob = json.dumps(kp)
+    for op in observations():                            # every costed kernel observation is traced
+        if op.record not in blob:
+            ok = False; msgs.append(f"observed kernel {op.record} has NO provenance entry")
+    for e in entries:
+        k = e.get("kernel", "?")
+        for cr in e.get("cost_rows", []):
+            if cr not in ops_names:
+                ok = False; msgs.append(f"{k}: cost_row {cr!r} absent from roofline OPS (DISCONNECTED)")
+        for gd in e.get("gap_dispositions", []):
+            d = gd.get("disposition", "")
+            if d.startswith("modeled:"):
+                row = d.split("modeled:", 1)[1]
+                if row not in ops_names:
+                    ok = False; msgs.append(f"{k}: modeled gap row {row!r} absent from roofline OPS")
+            elif d.startswith("unmodeled:"):
+                sub = d.split("unmodeled:", 1)[1]
+                if not any(sub in it for it in trk_items):
+                    ok = False; msgs.append(f"{k}: unmodeled gap {sub!r} absent from tracker")
+            elif not d.startswith("caller:"):
+                ok = False; msgs.append(f"{k}: gap disposition {d!r} not modeled:/unmodeled:/caller:")
+        if not e.get("verdict", "").startswith("CONSISTENT"):
+            ok = False; msgs.append(f"{k}: verdict not CONSISTENT ({e.get('verdict')})")
+    return ok, msgs
+
+
+
 def selftest():
     """REFERENCE-CONFORMANCE + reporting-contract checks (R7/F1-F5). Gates report emission."""
     ok = True
@@ -502,6 +546,19 @@ def selftest():
         "tracker REJECTS dropping all EXPLICITLY-UNMODELED coverage")
     chk(base != [] and _rejects({"reference_revision": REF_REVISION, "items": base + [dict(base[0])]}),
         "tracker REJECTS a duplicate item identity")
+
+    # --- kernel-provenance <-> cost-model reconciliation (cross-artifact, fail-closed) ---
+    try:
+        rok, rmsgs = reconcile_kernels()
+        for m in rmsgs:
+            print(f"      ! {m}")
+        chk(rok, "kernel-provenance reconciles with the cost model (cost rows exist; every gap dispositioned)")
+    except Exception as e:  # noqa: BLE001
+        chk(False, f"kernel reconciliation FAILED: {e}")
+    # negative probe: a bogus cost row (a disconnect) MUST be rejected
+    _bad = {"roofline_reconciliation": {"entries": [
+        {"kernel": "probe", "cost_rows": ["NO SUCH ROOFLINE ROW"], "gap_dispositions": [], "verdict": "CONSISTENT"}]}}
+    chk(reconcile_kernels(_bad)[0] is False, "reconciliation REJECTS a cost row absent from the model (disconnect)")
 
     print(f"  SELFTEST {'OK' if ok else 'FAILED'}")
     return ok

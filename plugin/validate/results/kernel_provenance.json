@@ -89,5 +89,48 @@
       "status": "provenance-established; kept-pass revision UNRESOLVED (record commit=pending)"
     }
   ],
+  "roofline_reconciliation": {
+    "_what": "Cross-verifies that the KERNEL ALGORITHM (above) and the ROOFLINE COST MODEL describe the SAME op \u2014 not disconnected. For each authored kernel: cost_rows = the roofline rows (dsv4_roofline_p2.py OPS) that cost this op; gap_dispositions = where each FRAGMENT gap is accounted for (modeled:<another OPS row> | unmodeled:<roofline_open_items.json item substring> | caller:<done by the caller, not a kernel>). Validated fail-closed by reconcile_kernels() in the generator self-test: every cost_row must EXIST in OPS, every 'unmodeled:' gap must match a tracker item, every observed authored-kernel roofline row must have a provenance entry. A rename/drop on either side breaks the gate.",
+    "entries": [
+      {"kernel": "indexer_logits.cpp",
+       "cost_rows": ["DSA indexer logits (GEMM+reduce FUSED)"],
+       "gap_dispositions": [
+         {"gap": "wq_b query projection", "disposition": "modeled:DSA indexer wq_b (1024->8192)"},
+         {"gap": "weights_proj", "disposition": "modeled:DSA indexer weights_proj (4096->64)"},
+         {"gap": "RoPE + Hadamard + fp4 quant + indexer's own Compressor + prefill mask", "disposition": "unmodeled:indexer compressor key/score proj + RoPE + Hadamard"}
+       ], "verdict": "CONSISTENT"},
+      {"kernel": "indexer_topk.cpp",
+       "cost_rows": ["DSA indexer topk-512 (over 1024)"],
+       "gap_dispositions": [
+         {"gap": "prefill masking + offset bookkeeping of topk_idxs", "disposition": "caller:Indexer.forward mask/offset, not the select kernel"}
+       ], "verdict": "CONSISTENT"},
+      {"kernel": "compressor.cpp",
+       "cost_rows": ["main pool (r4 overlap, win=8 D=512)", "main pool (r128, win=128 D=512)", "indexer pool (r4 overlap, win=8 D=128)"],
+       "gap_dispositions": [
+         {"gap": "wkv + wgate projections", "disposition": "modeled:main compressor wkv+wgate (r4, 4096->2048)"},
+         {"gap": "wkv + wgate projections (r128)", "disposition": "modeled:main compressor wkv+wgate (r128, 4096->1024)"},
+         {"gap": "wkv + wgate projections (indexer)", "disposition": "modeled:indexer compressor wkv+wgate (r4, 4096->512)"},
+         {"gap": "RMSNorm + RoPE + Hadamard + fp4/act quant + overlap_transform + kv_state/score_state decode buffers + prefill/decode flow", "disposition": "unmodeled:main compressor per-token state write + postprocessing boundary"}
+       ], "verdict": "CONSISTENT"},
+      {"kernel": "sparse_attend.cpp",
+       "cost_rows": ["MLA sparse attention (window+compressed, 43L)"],
+       "gap_dispositions": [
+         {"gap": "PRODUCTION attention cost is the DONOR MLA flash (the roofline row), NOT this scalar kernel", "disposition": "modeled:MLA sparse attention (window+compressed, 43L)"},
+         {"gap": "top-k gather by topk_idxs feeding the attend", "disposition": "caller:indexer_topk + gather upstream"}
+       ], "verdict": "CONSISTENT (dual-path: roofline production=donor flash; authored scalar kernel is SURFACED, a join observation only, not the costed path)"},
+      {"kernel": "sinkhorn.cpp",
+       "cost_rows": ["MHC sinkhorn (hc=4, 20 iters)"],
+       "gap_dispositions": [
+         {"gap": "mixes = RMSNorm + F.linear(hc_fn) upstream", "disposition": "modeled:MHC hc_fn (16384->24, FP32)"}
+       ], "verdict": "CONSISTENT"},
+      {"kernel": "combine.cpp",
+       "cost_rows": ["MHC combine (hc_pre reduce)"],
+       "gap_dispositions": [
+         {"gap": "mixes = RMSNorm + F.linear(hc_fn) upstream", "disposition": "modeled:MHC hc_fn (16384->24, FP32)"}
+       ], "verdict": "CONSISTENT"}
+    ],
+    "verdict": "CONSISTENT \u2014 every authored kernel maps to real roofline cost rows with matching operands/shapes/dtypes (the join asserts the byte/FLOP contracts); every FRAGMENT gap is either modeled by another roofline row or EXPLICITLY-UNMODELED in the tracker; no gap falls in the crack. Dual-path note: the roofline costs attention via the donor MLA flash, and the authored scalar sparse_attend is SURFACED (not the costed path)."
+  },
   "overall": "All 6 authored CPU kernels have EXTERNAL provenance confirmed against the pinned published model.py: indexer_logits (FRAGMENT core), indexer_topk (FAITHFUL select), compressor (FRAGMENT pool core), sparse_attend (FAITHFUL attend stage, impl SURFACED), sinkhorn (FAITHFUL), combine (FAITHFUL). Two (compressor, indexer) are stage-faithful cores of larger subgraphs whose gaps (projections, RoPE, Hadamard, quant, overlap, decode-state, masking) are enumerated here and already EXPLICITLY-UNMODELED in results/roofline_open_items.json. All correctness is MICROBENCH scope (current-target/E2E verification PENDING); four kept-pass revisions are UNRESOLVED (record commit=pending). Implementation review / re-authoring may proceed with these gaps and the SURFACED sparse-attend path as declared scope."
 }
+
