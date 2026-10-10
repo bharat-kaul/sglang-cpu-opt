@@ -1,6 +1,6 @@
 ---
 name: adversarial-self-audit
-description: "Use BEFORE submitting ANY gate/validator/record/review-response/perf-or-correctness claim for review (both legs). Encodes the pre-submit discipline that stops the multi-round FAIL spiral — TWO clusters: (A) structural (fix the CLASS not the instance; falsify not confirm; provenance of your OWN claims; test through the full gate) and (B) measurement/conformance (conform to the AUTHORITATIVE source boundary not your reconstruction; test the ADVERSARIAL domain not the convenient one; a Claim-Evidence Ledger with banned inflated words; replicated-median + run-identity provenance; measurement-physics sanity). Run it as a hard pre-submit self-audit so the reviewer finds nothing you could have found yourself."
+description: "Use BEFORE submitting ANY gate/validator/record/review-response/perf-or-correctness claim for review (both legs). Encodes the pre-submit discipline that stops the multi-round FAIL spiral — THREE clusters: (A) structural (fix the CLASS not the instance; falsify not confirm; provenance of your OWN claims; test through the full gate); (B) measurement/conformance (conform to the AUTHORITATIVE source boundary not your reconstruction; test the ADVERSARIAL domain; a Claim-Evidence Ledger with banned inflated words; replicated-median + run-identity provenance; measurement-physics sanity); and (C) evidence validity & disposition (validate BOTH sides and reject invalid-not-just-imprecise evidence; bind checks to the EVALUATED artifact not a preliminary sample; bind evidence to expected identity + coordinate consistency not a producer flag; closure != promotion and a measured loss/neutral is a valid disposition). Run it as a hard pre-submit self-audit so the reviewer finds nothing you could have found yourself."
 ---
 
 # Adversarial Self-Audit (pre-submit gate for any reviewed artifact)
@@ -111,6 +111,50 @@ clean review = make all three moves YOURSELF first. The audit question is not "d
     utilization VARIES across M — never report one point as uniform; roofline = `max(bytes/BW, flops/peak)`
     at the op's ACTUAL dtype; a warm-cache microbench is not DRAM traffic.
 
+## Third cluster — EVIDENCE VALIDITY, EVALUATED-ARTIFACT BINDING & IDENTITY (what the later rounds found)
+
+> **Anti-pattern that actually happened (DSv4 rounds 4-6).** Each round the reviewer took the SAME rule one
+> notch deeper: a replay bound evidence to a producer's own `validated=TRUE` flag (not the expected source
+> **sha**/canonical **job** field); it checked record **key presence** but not **value consistency** (an
+> M1 record **relabelled N=64** was accepted → M1 run reported as M64); it then checked shapes but not
+> tensor **contents** (a **NaN** oracle output passed and printed NaN metrics as if valid); and a
+> required-coordinate check validated a **preflight build** while a stateful builder handed `run_case` a
+> **different** tuple. Every one was a sibling of "the validator trusts its input."
+
+11. **VALIDATE EVIDENCE ON BOTH SIDES, AND REJECT INVALID — NOT JUST IMPRECISE.** The reference/oracle is
+    evidence too: validate its **arity, shape==candidate, dtype, device, finiteness** before comparing, and
+    reject **invalid** inputs (NaN/+inf tensor contents, a non-finite reference OR candidate output,
+    non-finite cos/mae) as a **hard failure** — invalid evidence is not an approximation exceeding a
+    tolerance, and a gate must never print NaN metrics as if valid. Distinguish a **legal domain value**
+    (e.g. a published `-inf` causal mask) from an **invalid** one (NaN/+inf) with an explicit,
+    field-specific policy; add a **valid positive control** alongside each invalid-input negative.
+
+12. **BIND VALIDATION TO THE ACTUAL EVALUATED ARTIFACT, NOT A PRELIMINARY SAMPLE.** A preflight build, a
+    first call, or a separate sample does not establish the shape/dtype of the tuple actually passed to the
+    candidate and reference — a stateful/dynamic builder drifts. Build **once per evaluation**, validate
+    **that** tuple, use it for **both** sides, on **every** seed; keep a declaration-presence check separate
+    from execution evidence, and add a **builder-drift** negative control that fails for the coordinate
+    mismatch itself.
+
+13. **BIND EVIDENCE TO EXPECTED IDENTITY & COORDINATE CONSISTENCY, NOT A PRODUCER FLAG OR MERE PRESENCE.**
+    A producer's own "validated" boolean cannot bind evidence to the consumer's EXPECTED source — compare
+    the expected **content hash** and the producer's **canonical** run-identity field (reject a conflicting
+    legacy **alias**, don't let it override). Validate **coordinate consistency** (declared `N` == the
+    actual tensor batch of every tensor; full shape relationships; finite positive scalars) not just key
+    presence, and enforce required coverage as the **joint coordinate** (op×path×distribution×M×shape),
+    un-removable and proven by a through-`run()` removal control — presence of a label is not evidence the
+    shape was evaluated.
+
+14. **CLOSURE ≠ PROMOTION; A MEASURED LOSS/NEUTRAL IS A VALID DISPOSITION.** Keep **arithmetic acceptance
+    separate from speed**: prove a "bit-exact" change by building OLD and NEW and diffing outputs (not
+    cosine), screen a non-bit-exact variant separately, and never let a performance result flip an
+    UNRATIFIED correctness threshold or a BLOCKED promotion gate. **Attribute before you change** (a
+    neutral measurement means the compiler/library already does it — revert, don't ship an unmeasured
+    micro-opt); classify the **regime** (BW / compute / dispatch) first; a precision or blockwise lever only
+    pays when the op is in the matching regime (vector-exp can be slower than scalar; many small packed
+    GEMMs can lose to two large library GEMMs). Record a rejection/neutral with its number and mechanism —
+    it is a legitimate completion, not a failure to be hidden.
+
 ## Pre-submit checklist (run before handing any artifact to review)
 
 - [ ] For each change: the **invariant** it must guarantee is written, and enforced
@@ -132,6 +176,17 @@ clean review = make all three moves YOURSELF first. The audit question is not "d
       claim; runs bound to source/build/affinity identity; harness tested to FAIL on a known-bad run.
 - [ ] **Physics sane:** no bandwidth above DRAM called "saturation"; no single point reported as uniform
       utilization; roofline uses the op's actual dtype.
+- [ ] **Evidence validity (both sides):** reference AND candidate validated for arity/shape/dtype/device/
+      finiteness; invalid (NaN/+inf) rejected as a hard failure (not a tolerance miss); legal domain values
+      (published −inf masks) distinguished with an explicit policy + a valid positive control.
+- [ ] **Evaluated-artifact binding:** the coordinate/shape check runs on the SAME tuple passed to candidate
+      and reference, every seed (not a preflight sample); a builder-drift control fails for the mismatch.
+- [ ] **Identity & coordinate consistency:** evidence bound to the expected content hash + canonical run-id
+      (conflicting alias rejected), declared N == tensor batch, required coverage is the joint coordinate
+      and un-removable (through-`run()` control).
+- [ ] **Closure ≠ promotion:** arithmetic acceptance kept separate from speed; bit-exact proven by diff not
+      cosine; neutral/loss dispositions recorded with number+mechanism; no UNRATIFIED threshold or BLOCKED
+      gate flipped by a perf result.
 
 ## Scope
 
