@@ -1,0 +1,26 @@
+{
+  "_schema": "Standalone-optimization measured dispositions (review b51d1eb experiments). Candidate = working tree; baseline = pre-opt commit 020f429. Speedup = old/new (candidate faster), ORDER-VARIED paired trials, cross-process MEDIAN of 3 process replicates' per-coordinate paired-speedup medians. Correctness: I1/C1 proven BIT-EXACT vs baseline C++ (worst abs diff 0); I2 is representation-equivalent. Arithmetic acceptance (F4) is SEPARATE from these speed numbers and unchanged (PARTIAL). Standalone closure is NOT promotion.",
+  "provenance": {"job": 384621, "node": "pcl-sprh10", "head": "595c609", "baseline_ref": "020f429",
+    "config": "EMR --constraint=ddr5600 --exclusive, OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores, numactl -N0 -m0",
+    "estimator": "per coordinate: median of 5 order-varied paired (new,old) 30-call means per process; cross-process = median of the 3 process medians; spread = per-process [min,max] in the raw log",
+    "raw_log": "/scratch/bkaul/standalone_opt_384621.log"},
+  "I1_indexer_bf16kv_drop_unused_alloc": {
+    "change": "allocate the Sb*D BF16 staging buffer only on the FP32-KV path (unused when KV arrives BF16)",
+    "correctness": "BIT-EXACT vs baseline (bf16-KV and fp32-KV paths, full M-sweep, worst abs diff 0)",
+    "speedup_median_old_over_new": {"M1": 1.004, "M8": 1.007, "M16": 1.016, "M32": 1.037, "M64": 1.029},
+    "disposition": "KEEP. Small but repeatable at large M (~3-4% M32/M64), neutral within noise at small M; free, reversible, zero numerical change. NOT a large win; magnitude was unknown and is small as the review anticipated."},
+  "I2_indexer_bf16kv_storage_contract": {
+    "change": "NONE (qualifies the existing BF16-KV path). Same bf16-rounded KV supplied as FP32 vs BF16; FP32 output in both.",
+    "correctness": "representation-equivalent (bf16-KV path already proven bit-exact to fp32-KV at the kernel's bf16 boundary)",
+    "speedup_median_bf16kv_over_fp32kv": {"M1": 1.438, "M8": 1.089, "M16": 1.107, "M32": 1.145, "M64": 1.511},
+    "disposition": "CONDITIONAL win (1.09-1.51x; largest at M1 1.44x and M64 1.51x) that realizes the ~46.7% KV-read reduction. REQUIRES the caller to supply BF16 KV -> an integration decision, DEFERRED. The FP32-input contract retains its own result; this is NOT a free speedup for every caller."},
+  "C1_compressor_one_exp": {
+    "change": "one std::exp per online update (the non-surviving softmax factor is exp(0)=1, hardcoded)",
+    "correctness": "BIT-EXACT vs baseline C++ over 60 trials x 3 shapes incl masked/all-masked/ties (worst abs diff 0); F4 compressor max_err unchanged ~3.6e-7/5.96e-7",
+    "speedup_median_old_over_new": {
+      "r128d512": {"M1": 1.289, "M8": 1.510, "M16": 1.522, "M32": 1.425, "M64": 1.620},
+      "r8d512": {"M1": 1.008, "M8": 1.080, "M16": 1.148, "M32": 1.190, "M64": 1.210},
+      "r8d128": {"M1": 1.009, "M8": 1.027, "M16": 1.049, "M32": 1.085, "M64": 1.161}},
+    "disposition": "KEEP. Gain scales with R (exp count): R128 strong (1.29-1.62x), R8 moderate-to-small (1.0-1.21x), near-neutral at R8/M1 (fixed-cost bound). All medians >= ~1.0 (no regression; sub-1.0 only within the [min,max] spread). Bit-exact -> pure speed."},
+  "_next": "Low-cost grounded tests (I1, I2, C1) DONE with measured dispositions. Remaining per review step 3 (CONDITIONAL, larger): I3 (hoist invariant per-head weight bf16 round -- ATTRIBUTE via stage timers + codegen first), C2 (ATen vector-exp), C3 (stable multipass pooling), S1 (two BF16-in/FP32-out GEMMs per 64-block sparse via cpublas::brgemm). Each: bit-exact-or-qualified, full coord sweep, paired replicated, measured loss is a valid disposition. No dispatch tuning / E2E this phase."
+}
