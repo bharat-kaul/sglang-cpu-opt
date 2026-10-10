@@ -117,7 +117,6 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   at::parallel_for(0, N * ntiles, 1, [&](int64_t a, int64_t b) {
     std::vector<float> Cbuf(Sb * H);            // heap C tile (L2-resident), per chunk
     std::vector<at::BFloat16> Abuf(kv_bf16 ? 0 : Sb * D);   // I1: staging only needed to convert FP32 KV
-    std::vector<float> wbf(H);                  // I3: bf16-rounded weights, hoisted (invariant across rows)
     float* C = Cbuf.data();
     for (int64_t it = a; it < b; ++it) {
       const int64_t n = it / ntiles, ti = it % ntiles, s0 = ti * Sb;
@@ -143,8 +142,6 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
       at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, C, vnni);
       const float* w = wf[n].data_ptr<float>();
       float* lp = logits[n].data_ptr<float>() + s0;
-      for (int64_t h = 0; h < H; ++h)
-        wbf[h] = static_cast<float>(static_cast<at::BFloat16>(w[h]));         // I3: bf16(weight) once per task
       // Published stage boundaries (model.py L420-421): bf16 einsum output, bf16 relu, * bf16 weights,
       // bf16 reduce over heads -> bf16 logits (topk input). Round each stage to bf16; FP32-accumulate the
       // head sum (matches torch bf16 .sum) then round the logit to bf16. Store bf16-exact value in fp32.
@@ -154,7 +151,8 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
         for (int64_t h = 0; h < H; ++h) {
           float v = static_cast<float>(static_cast<at::BFloat16>(row[h]));     // bf16 einsum-output boundary
           float rv = v > 0.f ? v : 0.f;                                        // relu in bf16 domain
-          acc += static_cast<float>(static_cast<at::BFloat16>(rv * wbf[h]));   // bf16(relu*weight) product
+          float wb = static_cast<float>(static_cast<at::BFloat16>(w[h]));      // bf16 (signed) weight
+          acc += static_cast<float>(static_cast<at::BFloat16>(rv * wb));       // bf16(relu*weight) product
         }
         lp[r] = static_cast<float>(static_cast<at::BFloat16>(acc));            // bf16 logit (topk input)
       }

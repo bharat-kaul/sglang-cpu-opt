@@ -22,5 +22,28 @@
       "r8d512": {"M1": 1.008, "M8": 1.080, "M16": 1.148, "M32": 1.190, "M64": 1.210},
       "r8d128": {"M1": 1.009, "M8": 1.027, "M16": 1.049, "M32": 1.085, "M64": 1.161}},
     "disposition": "KEEP. Gain scales with R (exp count): R128 strong (1.29-1.62x), R8 moderate-to-small (1.0-1.21x), near-neutral at R8/M1 (fixed-cost bound). All medians >= ~1.0 (no regression; sub-1.0 only within the [min,max] spread). Bit-exact -> pure speed."},
-  "_next": "Low-cost grounded tests (I1, I2, C1) DONE with measured dispositions. Remaining per review step 3 (CONDITIONAL, larger): I3 (hoist invariant per-head weight bf16 round -- ATTRIBUTE via stage timers + codegen first), C2 (ATen vector-exp), C3 (stable multipass pooling), S1 (two BF16-in/FP32-out GEMMs per 64-block sparse via cpublas::brgemm). Each: bit-exact-or-qualified, full coord sweep, paired replicated, measured loss is a valid disposition. No dispatch tuning / E2E this phase."
+  "step3": {
+    "_provenance": {"jobs": [384675, 384676], "node": "pcl-sprh10", "config": "EMR OMP64 close/cores numactl -N0 -m0",
+      "raw_logs": ["/scratch/bkaul/standalone_opt3_384675.log", "/scratch/bkaul/sparse_s1_384676.log"],
+      "estimator": "cross-process median of 3 process replicates' per-coordinate order-varied paired medians"},
+    "I3_indexer_weight_hoist": {
+      "change": "hoist the invariant per-head bf16 weight rounding out of the score-row loop (bit-exact)",
+      "speedup_median_old_over_new": {"bf16kv": "~1.00 all M", "fp32kv": "~1.00 all M"},
+      "disposition": "NEUTRAL -> REVERTED. No measurable benefit (compiler already hoists / cost is immaterial vs GEMM+convert). Per the review's stopping rule (keep only on a repeatable measured benefit) the change was reverted; the shipped indexer is the I1-only version. ATTRIBUTION OUTCOME: the epilogue weight-rounding is NOT a material standalone cost."},
+    "C2_compressor_vector_exp": {
+      "change": "vectorized one-exp online-softmax via ATen vec exp (NOT bit-exact; F4-screened <=7e-7 vs oracle)",
+      "speedup_median_C1_over_C2": {"r128d512": "0.62-0.83 (SLOWER)", "r8d512": "0.70-0.99 (SLOWER)", "r8d128": "0.80-1.01 (SLOWER)"},
+      "disposition": "REJECTED. ATen Vectorized::exp is SLOWER than scalar std::exp at every coordinate (blendv overhead + the vector polynomial is not a win here). Retain the scalar C1. Function kept as a labelled EXPERIMENTAL variant (not in the shipped path), matching the amx precedent."},
+    "C3_compressor_multipass": {
+      "change": "stable two-pass pooling (max over R, one exp/elem, divide once; NOT bit-exact; screened <=7e-7)",
+      "speedup_median_C1_over_C3": {"r128d512": {"M1": 1.0, "M8": 1.02, "M16": 1.03, "M32": 1.08, "M64": 1.10}, "r8d512": "~1.0, M64 ~1.10", "r8d128": "~0.98-1.01 (neutral)"},
+      "disposition": "NOT PROMOTED. A small win only at R128 large-M (~1.08-1.14x); neutral or slight loss at R8 and small M. Does not DECISIVELY beat the stronger (bit-exact) C1 baseline, and it is not bit-exact -> retain C1. Function kept as a labelled EXPERIMENTAL variant."},
+    "S1_sparse_blockwise_bf16": {
+      "change": "source-faithful 64-block bf16-in/fp32-out brgemm flash (sparse_attend_blockbf16); F4-screened within 4e-3 vs the blockwise ref (worst mae 3.9e-3, cos ~0.9999)",
+      "speedup_median_fp32bmm_over_S1": {"M1": "0.08-0.16", "M8": "0.12-0.19", "M16": "0.22-0.29", "M32": "0.37-0.39", "M64": "0.47-0.65"},
+      "note": "spd<1 => S1 SLOWER; S1 is 1.6x (K160/M64) to 12.8x (K640/M1) SLOWER than the shipped fp32-bmm donor at EVERY (M,K).",
+      "disposition": "REJECTED (measured loss, the review's anticipated outcome). The per-64-block transpose + two packs + two small brgemms (x K/64 blocks) plus per-block fp32 rescale overwhelm the two large MKL bmms of the fp32-bmm donor at these dims. Retain the shipped best-of (scalar/fp32bmm). The AMX pack ukernel caps N at 64, forcing the transposed framing and many micro-GEMMs -- a concrete structural reason blockwise bf16 does not pay off standalone here. Kept as a labelled EXPERIMENTAL + correctness-screened path (like amx), not wired into dispatch."}
+  },
+  "_summary": "Step 2 kept: I1 (small large-M), I2 (conditional bf16-KV), C1 (bit-exact exp halving). Step 3: I3 NEUTRAL (reverted), C2 REJECTED (slower), C3 NOT PROMOTED (marginal, non-bit-exact), S1 REJECTED (1.6-12.8x slower). Shipped kernels carry only measured wins (I1+C1). C2/C3/S1 retained as labelled experimental+screened variants, out of the shipped dispatch. F4 PARTIAL unchanged; standalone closure != promotion; no dispatch tuning / E2E this phase."
 }
+
