@@ -235,9 +235,10 @@ def manifest():
                           "cand": lambda x, p, h: cb.mhc_combine(x, p, h), "ora": _ora_combine,
                           "out": ((lambda M=M: (M, 4096)), torch.float32)})
 
-    # sparse: SHIPPED fp32-accumulate paths (scalar small-M, fp32bmm/bestof large-M) judged vs the GPU-
-    # ratified BF16 oracle and ACCEPTED within the kernel's own noise floor; amx is the DOMINATED path
-    # (GPU-measured drifts beyond the kernel's bf16 noise AND slower) -> diagnostic only, never accepted.
+    # sparse: SHIPPED fp32-accumulate paths (scalar small-M, fp32bmm/bestof large-M) SCREENED vs the BF16
+    # blockwise replica (reference DTYPE from GPU oracle job 384502); within the PROPOSED, UNRATIFIED screen
+    # threshold only (NOT acceptance authority). amx is the DOMINATED path (GPU-measured drifts further AND
+    # slower) -> diagnostic only, never accepted. A ratified downstream budget is PENDING.
     _sp_fns = {"scalar": lambda q, kv, s, sc: sp.sparse_attend(q, kv, s, sc),
                "fp32bmm": lambda q, kv, s, sc: sp.sparse_attend_fp32bmm(q, kv, s, sc),
                "bestof": lambda q, kv, s, sc: sp.sparse_attend_bestof(q, kv, s, sc),
@@ -475,6 +476,23 @@ _REQUIRED_SPARSE_PATHS = {"scalar", "fp32bmm", "bestof"}      # amx is dominated
 _REQUIRED_SPARSE_M = {1, 8, 16, 32, 64}          # R4-A5: each shipped sparse path must cover the full M-sweep
 
 
+def _required_joint_coords():
+    """R4-F3: independently-declared REQUIRED joint coordinates. Presence of a path/M alone is NOT enough -- the
+    distribution AND the exact built-tensor shape must be covered, else a required (dist, M, shape) can be
+    silently removed while path/M presence checks still pass. Each spec is matched by (op, path, dist, M) and
+    its BUILT input tensor is checked against the declared shape."""
+    req = []
+    for d in ("normal", "heavy"):                  # the full signed M-sweep under BOTH distributions
+        for M in sorted(_REQUIRED_INDEXER_M):
+            req.append({"key": ("indexer_logits", "tiled/signed", d, M),
+                        "verify": (lambda inp, M=M: tuple(inp[0].shape) == (M, 64, 128))})
+    for (R, D) in ((128, 512), (8, 512), (8, 128)):   # all three costed compressor shapes under BOTH distributions
+        for d in ("normal", "heavy"):
+            req.append({"key": ("compressor", f"r{R}d{D}", d, None),
+                        "verify": (lambda inp, R=R, D=D: tuple(inp[0].shape) == (8, R, D))})
+    return req
+
+
 def run(calibrate_path=None):
     cases = manifest()
     calib, failures = [], []
@@ -510,6 +528,18 @@ def run(calibrate_path=None):
     if sp_miss:
         print(f"  STATUS = FAIL  (sparse M-sweep incomplete per path — missing {sp_miss})")
         return 2
+    by_coord = {}                                          # R4-F3: joint (op,path,dist,M) coordinate -> case
+    for c in cases:
+        by_coord.setdefault((c["op"], c["path"], c.get("dist"), c.get("M")), c)
+    for spec in _required_joint_coords():
+        c = by_coord.get(spec["key"])
+        if c is None:
+            print(f"  STATUS = FAIL  (required joint coordinate missing — {spec['key']})")
+            return 2
+        inp = c["build"]()                                 # verify the BUILT tensor matches the declared coordinate
+        if not spec["verify"](inp):
+            print(f"  STATUS = FAIL  (required coordinate tensor mismatch — {spec['key']}: built {tuple(inp[0].shape)})")
+            return 2
     if any(len(s) == 0 for s in SEED_GROUPS.values()):
         print("  STATUS = FAIL  (a seed group is empty — no evaluation)")
         return 2
@@ -808,6 +838,13 @@ def selftest():
         chk(run() == 2, "REJECTS removal of the masked-compressor coordinate through run() (R4-A5)")
     with _um.patch(__name__ + ".manifest", _drop(lambda cc: cc["op"] == "sparse" and cc["path"].endswith("/M16"))):
         chk(run() == 2, "REJECTS removal of the sparse M16 coordinate through run() (R4-A5)")
+
+    # 23 required JOINT coordinate (distribution + compressor shape) must FAIL via run() (R4-F3): path/M
+    #    presence alone is insufficient -- a required (dist, M) or compressor (R,D) shape must be un-removable.
+    with _um.patch(__name__ + ".manifest", _drop(lambda cc: cc["op"] == "indexer_logits" and cc.get("dist") == "heavy" and cc.get("M") == 64)):
+        chk(run() == 2, "REJECTS removal of the heavy-tailed indexer M64 coordinate through run() (R4-F3)")
+    with _um.patch(__name__ + ".manifest", _drop(lambda cc: cc["op"] == "compressor" and cc["path"] == "r8d128")):
+        chk(run() == 2, "REJECTS removal of the compressor R8/D128 shape through run() (R4-F3)")
 
     # 13 META (playbook #3): a negative test that hits an unrelated error (NameError in setup) while CLAIMING
     # to test a shape rejection must NOT be counted as a successful shape rejection -> _fails returns False.
