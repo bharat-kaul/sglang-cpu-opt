@@ -158,6 +158,51 @@ For each experiment, preserve the current native baseline, measure at all requir
 
 **Completion criterion for this standalone phase:** each of the three open kernel families has a measured disposition for its justified opportunities, complete standalone measurement coverage, and honestly scoped numerical evidence. This is not a requirement to hit nominal peak and not a requirement to conduct end-to-end runs now. Performance closure does not waive the separate correctness/acceptance gates.
 
+## F4 Correctness Companion
+
+This addition is grounded in [the F4 harness](../f4_acceptance.py) at `0376948`. Its source now includes joint normal/heavy indexer coordinates and all three compressor shapes, alongside the shipped sparse M sweep. This is not a fresh independent closure review of that commit. The last independently executed full gate in [the round-4 assessment](phase1_kernel_implementation_review_round4_assessment.md) was at `38b9484`: 48 cases x 5 seeds, no hard failures, **PARTIAL**, with 24 selftest checks passing. Do not relabel that result as validation of a newer revision or a new kernel variant.
+
+### Hard Checks Versus Numerical Screening
+
+- **Hard failures:** wrong tensor/output contract, invalid reference evidence, non-repeatable output, missing required cases, exceptions, or non-tie selection mismatches. Validate both repeated outputs and both sides of every reference comparison. Check actual tensor dimensions/dtypes, not only case labels.
+- **Mask-aware validity:** supported `-inf` masks are not NaN/+inf failures. Include valid masked positive controls as well as invalid-input negatives. State the all-masked/empty-selection/sentinel contract explicitly; do not silently choose a new output convention.
+- **Discrete acceptance:** indexer-induced top-k and top-k membership require zero non-tie mismatches (`tie_eps=0`). Cosine or small average error cannot replace this check. Candidate ordering must remain visible in the blockwise sparse-consumer comparison.
+- **Continuous screening:** record maximum absolute error, relative/scale context, cosine where meaningful, and repeatability. Existing thresholds are PROPOSED/UNRATIFIED; neither a good screen nor return code 0 is a production PASS. The current harness returns 0 for PARTIAL when no hard check fails.
+- **Independent evidence identity:** bind reference revision, candidate source/build, library/runtime, shape/dtype/layout, seed/split, and thread configuration to correctness and timing records. For saved GPU evidence, validate expected source/run identity and record-to-tensor coordinate consistency before comparing.
+
+### Checks for Each Proposed Experiment
+
+The following is the required experimental coverage, not a claim that the current manifest already implements every coordinate. Extend the existing harness and helpers rather than creating disconnected, self-consistent microbench certificates.
+
+| Experiment | Required standalone F4 evidence | Acceptance interpretation |
+|---|---|---|
+| I1 unused staging allocation | Exact output/metadata equality to the unchanged native path, all M, BF16 KV, tails/layouts, repeated calls | No arithmetic change is intended; numerical drift is a defect, not a reason to loosen tolerance |
+| I2 existing BF16-KV path | Compare the same BF16-rounded KV values represented as FP32 versus BF16; all M; signed normal/heavy weights; BF16 score/product/logit boundaries and induced selections | Expect exact representation-equivalent outputs and zero non-tie mismatches; keep the storage-contract distinction in performance results |
+| I3 preparation/epilogue work | Exact baseline comparison for invariant conversion hoisting; near-cutoff signed cases, tails, repeated outputs, and published-stage reference | Do not remove rounding stages or accept a changed reduction tree solely because cosine is high |
+| C1 one-exp recurrence | Native baseline and independent pool reference at all M x (R,D)=(128,512),(8,512),(8,128); normal/heavy/extreme inputs, equal maxima, first-valid and masked prefixes | Seek exact preservation of the unchanged recurrence first; the PyTorch factor sanity check is not native parity. Any observed drift must be explained and separately qualified |
+| C2 vector-exp / C3 multipass | Same shape/distribution/mask matrix; record full output error against both baseline and reference; preserve FP32 state and valid all-masked policy | Different exp implementations or reduction order may alter rounding. Keep results provisional under the continuous policy; never fit tolerance to the candidate's worst error |
+| S1 blockwise BF16 GEMMs | Matched BF16 operands/output; FP32 accumulation; 64-entry blocks and unnormalized probability casts; source sink placement; all M, K128/160/512/640, required heads and layouts; published-order reference plus candidate-order composition | Reference-boundary agreement and scoped errors are required. Neither exact GPU equality nor a numerical budget is invented by this report; retain separate candidate-vs-replica and replica-vs-GPU evidence |
+| Optional top-k / Sinkhorn / combine changes | Selection/ties/masks for top-k; fixed iterations/epsilon placement for Sinkhorn; published multiply/sum/cast boundaries for combine; all affected shapes and output contracts | A provisional performance stopping point is not a correctness waiver. Arithmetic-preserving changes should preserve baseline outputs; arithmetic changes need explicit qualification |
+
+### Prove the Gate Can Reject the Fault
+
+Before using a new case to qualify an optimization, run its positive control and an intended-reason negative control. Relevant faults include an omitted BF16 rounding stage that changes selection, valid masked input wrongly rejected, repeat-output dtype change, malformed reference tuple, wrong archive identity, mislabeled tensor shape, or removal of a required distribution/shape coordinate. Verify inventory failures through `run()`, not only the case evaluator; an unrelated setup exception is not proof that the intended check works.
+
+Calibration may propose an error envelope; freeze it before reserved validation. Keep validation inputs untouched by tuning, preserve failing cases, and do not pool away a bad M or shape. The previously observed sparse error of about 0.00195 is not a universal bound: expanded screening has exposed 0.00390625 at M16. These are sample discrepancies, not ratified budgets or intrinsic noise floors.
+
+From the workspace root, the existing no-output-file checks are:
+
+```bash
+OMP_NUM_THREADS=1 MAX_JOBS=2 /scratch/bkaul/venvs/sglang-cpu/bin/python -B plugin/validate/f4_acceptance.py --selftest
+OMP_NUM_THREADS=1 MAX_JOBS=2 /scratch/bkaul/venvs/sglang-cpu/bin/python -B plugin/validate/f4_acceptance.py
+```
+
+These are cheap iteration checks, not substitutes for validating the thread configuration used by the standalone performance result. Confirm the new candidate is actually wired into the tested cases, then retain correctness evidence for the same build and relevant thread count before reporting a kept performance result. No dispatch tuning or end-to-end run is required by this procedure.
+
+### Standalone Closure Is Not Promotion
+
+A candidate can be **performance-beneficial, with standalone hard checks clean and continuous qualification still PARTIAL**. Record those dimensions separately. Do not call it accepted for deployment or alter the policy to make the performance result green. Numerical budgets and any later full-model qualification remain separate obligations; [the promotion gate](../promotion_gate.py) must not interpret PARTIAL as PASS. This section authorizes no budget, experiment launch, phase-dependency change, or end-to-end work.
+
 ## Evidence Limits
 
 This report includes source inspection of all six kernels and a cheap arithmetic sanity check, not new performance measurements. Existing timings and their three-process reconstruction were previously checked against the raw log. The 46.7% boundary-byte reduction, 8 MiB/16 KiB score sizes, and cited floor ratios were recomputed for this report. Proposed gains remain unmeasured; no expensive jobs, model runs, dispatch changes, native-code edits, policy changes, or modifications to the concurrent F4 work were made.
