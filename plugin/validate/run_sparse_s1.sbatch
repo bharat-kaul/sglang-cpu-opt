@@ -11,8 +11,8 @@
 set -euo pipefail
 source "/scratch/${USER}/venvs/sglang-cpu/bin/activate"
 REPO="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || true)"   # R6-F3
-[[ -n "$REPO" && -d "$REPO/.git" ]] || REPO="${SLURM_SUBMIT_DIR:-$PWD}"
-git -C "$REPO" rev-parse --show-toplevel >/dev/null 2>&1 || { echo "FATAL: cannot resolve a git repository (REPO=$REPO)"; exit 1; }
+[[ -n "$REPO" ]] || REPO="$(git -C "${SLURM_SUBMIT_DIR:-$PWD}" rev-parse --show-toplevel 2>/dev/null || true)"   # R7-F2: canonical ROOT (rev-parse already validates; .git may be a worktree file)
+[[ -n "$REPO" ]] || { echo "FATAL: cannot resolve a git repository root"; exit 1; }
 cd "$REPO"
 export OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores
 echo "node=$(hostname) git=$(git rev-parse --short HEAD) dirty=$(git status --porcelain | wc -l)"

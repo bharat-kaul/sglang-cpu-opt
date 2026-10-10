@@ -99,7 +99,8 @@ def main():
     if os.environ.get("ROOFLINE_JSON"):
         prov = {"head": sha, "node": os.uname().nodename, "threads": torch.get_num_threads(),
                 "omp": os.environ.get("OMP_NUM_THREADS"), "bind": os.environ.get("OMP_PROC_BIND"),
-                "slurm_job_id": os.environ.get("SLURM_JOB_ID"), "torch": torch.__version__,
+                "slurm_job_id": os.environ.get("SLURM_JOB_ID"), "process_index": os.environ.get("ROOFLINE_PROC"),
+                "torch": torch.__version__,
                 "peak_nominal": {"mem_bw_gbps": 358.4, "amx_bf16_tflops": 124.5184, "avx512_fp32_tflops": 7.7824,
                                  "note": "NOMINAL @1.9GHz base, NOT measured achievable BW/clock"}}
         json.dump({"_provenance": prov, "kernels": out}, open(os.environ["ROOFLINE_JSON"], "w"), indent=1)

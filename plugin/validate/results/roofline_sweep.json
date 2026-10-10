@@ -1,24 +1,31 @@
 {
- "_schema": "Performance-vs-roofline M-sweep, all shipped authored kernels. Per (kernel,M): the 3 PROCESS medians (each a median of five 30-call means, warm/reused tensors, seed 0), their median+[min,max] spread, the per-M roofline FLOOR = max(bytes/BW, flops/peak) from the byte/FLOP contract vs the NOMINAL-REFERENCE machine peak (NOT a measured achievable ceiling), and achieved_pct = floor/median computed BEFORE display rounding. achieved_pct is a fraction of the NOMINAL REFERENCE, not of an absolute hardware ceiling. regime = which theoretical term is larger (diagnostic, NOT a measured bottleneck; cache-resident rows are not DRAM-saturated). FLOP counts are simplified (compressor omits exp/recurrence cost). Timing-only; correctness is the F4 gate's job; this does NOT isolate I1's incremental effect (FP32-KV contract only).",
+ "_schema": "Performance-vs-roofline M-sweep. Per (kernel,M): process medians + [min,max] spread, UNROUNDED floor = max(bytes/BW, flops/peak) vs NOMINAL reference peak (1.9GHz base, NOT a measured ceiling), achieved_pct = floor/median of the NOMINAL reference (pre-rounding). regime = larger theoretical term (diagnostic, not a measured bottleneck; cache rows not DRAM-saturated). Simplified FLOPs (compressor omits exp). Timing-only; FP32-KV indexer contract (does NOT isolate I1's incremental effect).",
  "provenance": {
-  "job": 384677,
-  "node": "pcl-sprh11.sc.intel.com",
-  "source_sha": "aaccef6",
-  "dirty": 0,
-  "config": "EMR 8592+ DDR5-5600 --exclusive, OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores, numactl -N0 -m0",
-  "estimator": "per process: median of 5x(30-call mean); published = median of the 3 process medians; spread=[min,max] of the 3",
+  "status": "LEGACY_RECONSTRUCTED: unstamped scratch inputs; top-level provenance reconstructed from the raw log, NOT producer-stamped",
+  "replicates": 3,
+  "process_ids": null,
+  "process_provenance": [
+   null,
+   null,
+   null
+  ],
+  "aggregator": "aggregate_roofline.py",
+  "reconstructed_from_log": {
+   "job": 384677,
+   "node": "pcl-sprh11.sc.intel.com",
+   "source_sha": "aaccef6",
+   "dirty": 0,
+   "config": "EMR 8592+ DDR5-5600 --exclusive, OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores, numactl -N0 -m0",
+   "estimator": "per process: median of 5x(30-call mean); published = median of the 3 process medians; spread=[min,max]",
+   "raw_log": "/scratch/bkaul/roofline_sweep_384677.log",
+   "note": "RECONSTRUCTED from the raw log (scratch inputs predate per-process provenance stamping); NOT producer-stamped. Future runs are stamped + validated by the non-legacy path."
+  },
   "machine_peak_nominal": {
    "mem_bw_gbps": 358.4,
    "amx_bf16_tflops": 124.5184,
    "avx512_fp32_tflops": 7.7824,
-   "note": "DATASHEET/NOMINAL-BASE-CLOCK (1.9GHz) reference, NOT measured loaded/max frequency or achievable BW. Prior OBSERVED on a DIFFERENT node (pcl-sprh02): ~277GB/s, ~47TF AMX -- priors, not ceilings for this run."
-  },
-  "raw_log": "/scratch/bkaul/roofline_sweep_384677.log",
-  "process_inputs": [
-   "roofline_sweep_p1.json",
-   "p2",
-   "p3"
-  ]
+   "note": "NOMINAL @1.9GHz base, NOT measured achievable BW/clock. Prior OBSERVED on a DIFFERENT node (pcl-sprh02): ~277GB/s/~47TF -- priors, not ceilings for this run."
+  }
  },
  "kernels": {
   "indexer_logits/tiled": {
@@ -35,8 +42,7 @@
     ],
     "floor_us": 1.5664,
     "achieved_pct": 1.57,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "8": {
     "process_meas_us": [
@@ -51,8 +57,7 @@
     ],
     "floor_us": 12.5314,
     "achieved_pct": 6.23,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "16": {
     "process_meas_us": [
@@ -67,8 +72,7 @@
     ],
     "floor_us": 25.0629,
     "achieved_pct": 12.2,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "32": {
     "process_meas_us": [
@@ -83,8 +87,7 @@
     ],
     "floor_us": 50.1257,
     "achieved_pct": 19.12,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "64": {
     "process_meas_us": [
@@ -99,8 +102,7 @@
     ],
     "floor_us": 100.2514,
     "achieved_pct": 25.34,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    }
   },
   "indexer_topk": {
@@ -117,8 +119,7 @@
     ],
     "floor_us": 0.0229,
     "achieved_pct": 0.67,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "8": {
     "process_meas_us": [
@@ -133,8 +134,7 @@
     ],
     "floor_us": 0.1829,
     "achieved_pct": 1.56,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "16": {
     "process_meas_us": [
@@ -149,8 +149,7 @@
     ],
     "floor_us": 0.3657,
     "achieved_pct": 3.08,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "32": {
     "process_meas_us": [
@@ -165,8 +164,7 @@
     ],
     "floor_us": 0.7314,
     "achieved_pct": 6.05,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "64": {
     "process_meas_us": [
@@ -181,8 +179,7 @@
     ],
     "floor_us": 1.4629,
     "achieved_pct": 10.59,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    }
   },
   "compressor/r128d512": {
@@ -199,8 +196,7 @@
     ],
     "floor_us": 2.2,
     "achieved_pct": 11.09,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "8": {
     "process_meas_us": [
@@ -215,8 +211,7 @@
     ],
     "floor_us": 12.48,
     "achieved_pct": 24.22,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "16": {
     "process_meas_us": [
@@ -231,8 +226,7 @@
     ],
     "floor_us": 24.2286,
     "achieved_pct": 26.46,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "32": {
     "process_meas_us": [
@@ -247,8 +241,7 @@
     ],
     "floor_us": 47.7257,
     "achieved_pct": 25.23,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "64": {
     "process_meas_us": [
@@ -263,8 +256,7 @@
     ],
     "floor_us": 94.72,
     "achieved_pct": 26.24,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    }
   },
   "compressor/r8d512": {
@@ -281,8 +273,7 @@
     ],
     "floor_us": 0.1429,
     "achieved_pct": 0.88,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "8": {
     "process_meas_us": [
@@ -297,8 +288,7 @@
     ],
     "floor_us": 0.8229,
     "achieved_pct": 4.51,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "16": {
     "process_meas_us": [
@@ -313,8 +303,7 @@
     ],
     "floor_us": 1.6,
     "achieved_pct": 7.46,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "32": {
     "process_meas_us": [
@@ -329,8 +318,7 @@
     ],
     "floor_us": 3.1543,
     "achieved_pct": 12.67,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "64": {
     "process_meas_us": [
@@ -345,8 +333,7 @@
     ],
     "floor_us": 6.2629,
     "achieved_pct": 17.6,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    }
   },
   "compressor/r8d128": {
@@ -363,8 +350,7 @@
     ],
     "floor_us": 0.0357,
     "achieved_pct": 0.27,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "8": {
     "process_meas_us": [
@@ -379,8 +365,7 @@
     ],
     "floor_us": 0.2057,
     "achieved_pct": 1.46,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "16": {
     "process_meas_us": [
@@ -395,8 +380,7 @@
     ],
     "floor_us": 0.4,
     "achieved_pct": 2.75,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "32": {
     "process_meas_us": [
@@ -411,8 +395,7 @@
     ],
     "floor_us": 0.7886,
     "achieved_pct": 5.07,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "64": {
     "process_meas_us": [
@@ -427,8 +410,7 @@
     ],
     "floor_us": 1.5657,
     "achieved_pct": 8.9,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    }
   },
   "sparse/bestof": {
@@ -445,8 +427,7 @@
     ],
     "floor_us": 8.6232,
     "achieved_pct": 12.89,
-    "regime": "compute",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "compute"
    },
    "8": {
     "process_meas_us": [
@@ -461,8 +442,7 @@
     ],
     "floor_us": 68.9853,
     "achieved_pct": 46.13,
-    "regime": "compute",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "compute"
    },
    "16": {
     "process_meas_us": [
@@ -477,8 +457,7 @@
     ],
     "floor_us": 137.9705,
     "achieved_pct": 57.0,
-    "regime": "compute",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "compute"
    },
    "32": {
     "process_meas_us": [
@@ -493,8 +472,7 @@
     ],
     "floor_us": 275.9411,
     "achieved_pct": 66.33,
-    "regime": "compute",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "compute"
    },
    "64": {
     "process_meas_us": [
@@ -509,8 +487,7 @@
     ],
     "floor_us": 551.8821,
     "achieved_pct": 71.81,
-    "regime": "compute",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "compute"
    }
   },
   "sinkhorn": {
@@ -527,8 +504,7 @@
     ],
     "floor_us": 0.0008,
     "achieved_pct": 0.02,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "8": {
     "process_meas_us": [
@@ -543,8 +519,7 @@
     ],
     "floor_us": 0.0046,
     "achieved_pct": 0.03,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "16": {
     "process_meas_us": [
@@ -559,8 +534,7 @@
     ],
     "floor_us": 0.0089,
     "achieved_pct": 0.06,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "32": {
     "process_meas_us": [
@@ -575,8 +549,7 @@
     ],
     "floor_us": 0.0174,
     "achieved_pct": 0.11,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "64": {
     "process_meas_us": [
@@ -591,8 +564,7 @@
     ],
     "floor_us": 0.0346,
     "achieved_pct": 0.2,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    }
   },
   "combine": {
@@ -609,8 +581,7 @@
     ],
     "floor_us": 0.2286,
     "achieved_pct": 7.14,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "8": {
     "process_meas_us": [
@@ -625,8 +596,7 @@
     ],
     "floor_us": 1.8289,
     "achieved_pct": 13.16,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "16": {
     "process_meas_us": [
@@ -641,8 +611,7 @@
     ],
     "floor_us": 3.6579,
     "achieved_pct": 26.94,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "32": {
     "process_meas_us": [
@@ -657,8 +626,7 @@
     ],
     "floor_us": 7.3157,
     "achieved_pct": 53.75,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    },
    "64": {
     "process_meas_us": [
@@ -673,8 +641,7 @@
     ],
     "floor_us": 14.6314,
     "achieved_pct": 97.54,
-    "regime": "BW",
-    "regime_note": "theoretical-larger-term diagnostic, not a measured bottleneck"
+    "regime": "BW"
    }
   }
  }
