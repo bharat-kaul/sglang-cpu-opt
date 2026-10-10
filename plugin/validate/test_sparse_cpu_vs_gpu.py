@@ -15,6 +15,12 @@ IO = "/scratch/bkaul/sparse_oracle_io.pt"
 # PROPOSED reference (NOT ratified): bf16-replica-vs-GPU worst max-err (job 384502). It is approximation
 # error vs a globally-normalized replica, not characterized hardware noise (repeated GPU runs not used).
 PROPOSED_REF = 1.953e-3
+# R4-A4: the EXPECTED published source identity this replay is qualified against. A producer's own
+# "validated" flag cannot bind evidence to the consumer's expected source -> we compare the hash here.
+# Overridable per run via env so it is not permanently hardcoded to one job.
+EXPECTED_KERNEL_SHA = os.environ.get("ORACLE_KERNEL_SHA",
+                                     "59b325083d7103975cba025bd0d60ea343bb82d8fff53088afb7c04bd380c0c2")
+EXPECTED_JOB = os.environ.get("ORACLE_JOB")   # optional caller-supplied run identity
 
 K = os.path.join(os.path.dirname(__file__), "..", "kernels", "dsa_pilot", "sparse_attend.cpp")
 mod = load(name="sparse_cpu_vs_gpu", sources=[K], extra_cflags=["-O3", "-fopenmp", "-march=native"], verbose=False)
@@ -39,8 +45,19 @@ def main():
     prov = blob["provenance"]
     if not prov.get("kernel_py_sha256_validated"):
         raise SystemExit(f"FATAL: saved io provenance has UNVALIDATED kernel sha ({prov.get('kernel_py_sha256')!r})")
-    print(f"[provenance] {prov}")
+    if prov.get("kernel_py_sha256") != EXPECTED_KERNEL_SHA:   # R4-A4: bind to the EXPECTED source, not just a truthy flag
+        raise SystemExit(f"FATAL: saved io kernel sha {prov.get('kernel_py_sha256')!r} != expected {EXPECTED_KERNEL_SHA!r}")
+    if EXPECTED_JOB is not None and str(prov.get("job")) != str(EXPECTED_JOB):
+        raise SystemExit(f"FATAL: saved io job {prov.get('job')!r} != expected run identity {EXPECTED_JOB!r}")
     recs = blob["records"]
+    if not isinstance(recs, list) or len(recs) == 0:         # R4-A4: an empty archive qualifies nothing
+        raise SystemExit("FATAL: io archive has an EMPTY record inventory — no case to qualify")
+    _REQ = {"N", "scale", "sink", "gpu_out", "q", "kv"}      # required per-record coordinates before any compare
+    for i, r in enumerate(recs):
+        miss = _REQ - set(r)
+        if miss:
+            raise SystemExit(f"FATAL: record {i} missing required coordinates {sorted(miss)}")
+    print(f"[provenance] {prov}  (records={len(recs)})")
     print(f"PROPOSED reference (approx-err vs the SOURCE-FAITHFUL 64-block replica's GPU out; NOT a ratified "
           f"hardware-noise floor) = {PROPOSED_REF:.3e}")
     print(f"{'N':>4} {'path':>10} {'operands':>10} {'cos_vs_gpu':>11} {'mae_vs_gpu':>11}")

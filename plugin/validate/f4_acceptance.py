@@ -96,9 +96,9 @@ def _ora_sparse_bf16(q, kv, sink, scale):
 # Sparse PROPOSED screening threshold (NOT a ratified noise floor — P1-F4/R2-F2). Now measured against the
 # SOURCE-FAITHFUL 64-block replica (sparse_ref.ora_sparse_blockwise) on bf16-MATCHED operands + bf16 output
 # boundary. The blockwise replica tracks the real GPU kernel to 9.8e-4 @N1 / ~1.95e-3 @N>=8 (job 384502 io);
-# that residual is the bf16 op-ORDER floor between any torch replica and the GPU reduction tree, NOT
-# characterized hardware noise. 4e-3 is a PROPOSAL for screening only; a ratified threshold still needs an
-# independently justified downstream budget. Continuous stays screening -> STATUS never exceeds PARTIAL.
+# that is the OBSERVED residual between this torch replica and the GPU reduction tree — NOT a proven minimum
+# attainable error and NOT characterized hardware noise. 4e-3 is a PROPOSAL for screening only; a ratified
+# threshold still needs an independently justified downstream budget. Continuous stays screening -> PARTIAL.
 SPARSE_SCREEN_PROPOSED = 4.0e-3
 ORACLE_CONFORMANCE = "per-op (see ORACLE_CONFORMANCE_BY_OP); local references conformed to the published-op boundary where stated, else PENDING"
 ORACLE_CONFORMANCE_BY_OP = {
@@ -107,7 +107,7 @@ ORACLE_CONFORMANCE_BY_OP = {
     "compressor": "CONFORMED (pool stage): FP32 softmax-pool after overlap/APE prep; full-compressor state/norm/rotation are declared gaps",
     "sinkhorn": "PARTIAL: SGLang _hc_split_sinkhorn_torch; bitwise conformance to published kernel.py recurrence (eps/iters) PENDING",
     "combine": "CONFORMED: hc_pre multiply+sum(+cast); local einsum is math-equivalent",
-    "sparse": "REFERENCE DTYPE = BF16 (GPU oracle H200 job 384502). F4 now judges vs the SOURCE-FAITHFUL 64-block replica (sparse_ref.ora_sparse_blockwise) on bf16-MATCHED operands + bf16 OUTPUT boundary (R2-F2); it tracks the real kernel to 9.8e-4 @N1 / ~1.95e-3 @N>=8. Continuous is SCREENING only (PARTIAL), NOT ratified acceptance; the residual is the bf16 op-order floor, and a downstream error budget is PENDING. sparse-AMX DROPPED (dominated).",
+    "sparse": "REFERENCE DTYPE = BF16 (GPU oracle H200 job 384502). F4 now judges vs the SOURCE-FAITHFUL 64-block replica (sparse_ref.ora_sparse_blockwise) on bf16-MATCHED operands + bf16 OUTPUT boundary (R2-F2); it tracks the real kernel to 9.8e-4 @N1 / ~1.95e-3 @N>=8. Continuous is SCREENING only (PARTIAL), NOT ratified acceptance; the residual is the OBSERVED replica-vs-GPU discrepancy (NOT a proven minimum attainable error), and a downstream error budget is PENDING. sparse-AMX DROPPED (dominated).",
 }
 
 
@@ -243,7 +243,8 @@ def manifest():
                "bestof": lambda q, kv, s, sc: sp.sparse_attend_bestof(q, kv, s, sc),
                "amx": lambda q, kv, s, sc: sp.sparse_attend_amx(q, kv, s, sc)}
     for p, fn in _sp_fns.items():
-        for Msp in (1, 8):                            # R3-F2: cover the best-of N==1 scalar branch AND N>=2 bmm
+        sweep = (1, 8, 16, 32, 64) if p != "amx" else (1, 8)   # R4-A5: shipped paths cover the full M-sweep
+        for Msp in sweep:                             # R3-F2: cover the best-of N==1 scalar branch AND N>=2 bmm
             cases.append({"op": "sparse", "path": f"{p}/M{Msp}", "kind": "continuous_sparse", "dist": "normal",
                           "build": (lambda Msp=Msp: (torch.randn(Msp, 64, 512).bfloat16().float(), torch.randn(Msp, 512, 512).bfloat16().float(), torch.randn(64), 512 ** -0.5)),
                           "cand": fn, "ora": _ora_sparse, "out": ((lambda Msp=Msp: (Msp, 64, 512)), torch.float32)})
@@ -282,6 +283,17 @@ def _check_out(cand, out_contract):
     return errs
 
 
+def _same_contract(a, b):                             # R3-F1/R4-A3: dtype + shape + device, not just value equality
+    return (isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor)
+            and a.dtype == b.dtype and a.shape == b.shape and a.device == b.device)
+
+
+def _invalid_evidence(t):
+    # R4-A1: NaN and +inf are invalid selection/reference evidence; -inf is a LEGAL causal/padding mask (the
+    # published Indexer.forward adds -inf to masked positions BEFORE top-k), so -inf is explicitly allowed.
+    return bool((torch.isnan(t) | (t == float("inf"))).any().item())
+
+
 def _finite_ok(t, allow_neg_inf_mask=None):
     if allow_neg_inf_mask is None:
         return bool(torch.isfinite(t).all().item())
@@ -298,12 +310,13 @@ def run_case(c, calib):
     if kind == "composed":                            # topk -> gather -> attend, candidate vs reference
         logits, kv_full, q, sink, Ktop, scale = inp
         tkmod, spmod = cand_fn
-        def _comp():
-            ix = tkmod.indexer_topk(logits, Ktop)
-            g = torch.stack([kv_full[n][ix[n]] for n in range(kv_full.shape[0])])
-            return ix, spmod.sparse_attend(q, g, sink, scale)
+        qb = q.bfloat16().float()                     # R4-A2: feed the candidate the SAME bf16 operands the
+        def _comp():                                  #        reference sees, so the screen measures the kernel's
+            ix = tkmod.indexer_topk(logits, Ktop)     #        arithmetic, NOT input quantization.
+            g = torch.stack([kv_full[n][ix[n]] for n in range(kv_full.shape[0])]).bfloat16().float()
+            return ix, spmod.sparse_attend(qb, g, sink, scale)
         idx, cand = _comp()
-        _, cand2 = _comp()                            # R2-F1: composed must pass the common hard checks too
+        idx2, cand2 = _comp()                         # R2-F1: composed must pass the common hard checks too
         if not isinstance(cand, torch.Tensor) or tuple(cand.shape) != tuple(q.shape):
             sh = tuple(cand.shape) if isinstance(cand, torch.Tensor) else type(cand).__name__
             return True, f"composed output shape {sh} != {tuple(q.shape)}"
@@ -311,29 +324,35 @@ def run_case(c, calib):
             return True, f"composed output dtype {cand.dtype} != torch.float32"
         if not _finite_ok(cand):
             return True, "composed non-finite output"
-        if not torch.equal(cand, cand2):
-            return True, "composed non-deterministic (repeat differs)"
-        ref_idx = torch.topk(logits, Ktop, dim=1, sorted=False).indices
-        ref_gather = torch.stack([kv_full[n][ref_idx[n]] for n in range(kv_full.shape[0])])
-        # R3-F2: screen the composed consumer against the SOURCE-FAITHFUL 64-block replica on bf16-matched
-        # operands (not a global FP32 math reference) so block grouping + intermediate bf16 rounding are tested.
-        ref = _ora_sparse_blockwise(q.bfloat16().float(), ref_gather.bfloat16().float(), sink, scale)
+        if not _same_contract(cand, cand2) or not torch.equal(cand, cand2):   # R4-A3: dtype+shape+device, not bare equal
+            return True, "composed non-deterministic / dtype-shape mismatch (repeat differs)"
+        # R4-A2: AUTHORITATIVE reference uses the PUBLISHED top-k ordering (default sorted=True), builds its
+        # 64-entry blocks from that order, and consumes bf16-matched operands via the source-faithful replica.
+        # The candidate deliberately keeps its OWN selection order (idx), so the ordering consequence on the
+        # blockwise online-softmax is MEASURED (not hidden by a sorted=False reference that matched membership).
+        ref_idx = torch.topk(logits, Ktop, dim=1, sorted=True).indices
+        ref_gather = torch.stack([kv_full[n][ref_idx[n]] for n in range(kv_full.shape[0])]).bfloat16().float()
+        ref = _ora_sparse_blockwise(qb, ref_gather, sink, scale)
         if not bool(torch.isfinite(ref).all().item()):
             return True, "composed non-finite reference"
         nonmis, ties = _selection_check(idx, logits, Ktop)
         if nonmis:
             return True, f"composed selection: {nonmis} non-tie mismatches"
         m = _screen_continuous(cand.bfloat16().float(), ref, atol=SPARSE_SCREEN_PROPOSED)   # match bf16 output boundary
+        # Separately-labelled DIAGNOSTIC: original-FP32-input path (not the matched comparison), to keep the
+        # input-quantization effect distinguishable from the kernel arithmetic effect.
+        g_fp32 = torch.stack([kv_full[n][idx[n]] for n in range(kv_full.shape[0])])
+        m_fp32in = _screen_continuous(spmod.sparse_attend(q, g_fp32, sink, scale), _ora_sparse(q, g_fp32, sink, scale),
+                                      atol=SPARSE_SCREEN_PROPOSED)
         calib.append({"op": "sparse", "path": c["path"], "split": c.get("split"), "metric": m,
-                      "selection_non_tie": nonmis, "ties": ties})
+                      "metric_fp32in_diag": m_fp32in, "selection_non_tie": nonmis, "ties": ties,
+                      "vs": "bf16-matched operands, PUBLISHED sorted-order reference, candidate keeps own order"})
         return False, f"composed ok (screen_pass={m['screen_pass']}, selection clean)"
 
     cand = cand_fn(*inp)
 
     # layer 0: repeatability determinism + candidate ARITY (R2-F1: no truncating zip across calls)
     cand2 = cand_fn(*inp)
-    def _same_contract(a, b):                         # R3-F1: dtype+shape, not just value equality
-        return isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor) and a.dtype == b.dtype and a.shape == b.shape
     if isinstance(cand, (tuple, list)) or isinstance(cand2, (tuple, list)):
         if type(cand) is not type(cand2) or len(cand) != len(cand2) \
                 or any(not _same_contract(a, b) or not torch.equal(a, b) for a, b in zip(cand, cand2)):
@@ -348,8 +367,8 @@ def run_case(c, calib):
         if kind == "selection_k0":
             return False, "k=0 empty selection ok"
         lg = inp[0]
-        if not _finite_ok(lg):                        # R3-F1: all-NaN reference logits are invalid evidence
-            return True, "non-finite reference logits"
+        if _invalid_evidence(lg):                     # R4-A1: reject NaN/+inf, ALLOW -inf causal/padding masks
+            return True, "non-finite reference logits (NaN/+inf; -inf masks allowed)"
         nonmis, ties = _selection_check(cand, lg, c["k"])
         calib.append({"op": c["op"], "path": c["path"], "split": c.get("split"), "selection_non_tie": nonmis, "ties": ties})
         if nonmis:
@@ -414,6 +433,8 @@ def run_case(c, calib):
                 return True, f"{nm} shape {sh} != {tuple(rv.shape)}"
             if cv.dtype != torch.float32:
                 return True, f"{nm} dtype {cv.dtype} != torch.float32"
+            if not isinstance(rv, torch.Tensor) or rv.dtype != cv.dtype or rv.device != cv.device:   # R4-A3: reference contract
+                return True, f"{nm} reference contract {getattr(rv, 'dtype', type(rv).__name__)} != candidate {cv.dtype}"
             if not _finite_ok(cv) or not bool(torch.isfinite(rv).all().item()):
                 return True, f"{nm} non-finite (cand/ref)"
             m = _screen_continuous(cv, rv, atol=1e-5)
@@ -429,6 +450,8 @@ def run_case(c, calib):
         return True, "non-finite reference (out-of-domain input)"
     if not isinstance(ref, torch.Tensor) or tuple(ref.shape) != tuple(cand.shape):   # R3-F1: ref must match cand (no silent broadcast)
         return True, f"reference shape {tuple(ref.shape) if isinstance(ref, torch.Tensor) else type(ref).__name__} != candidate {tuple(cand.shape)}"
+    if ref.dtype != cand.dtype or ref.device != cand.device:        # R4-A3: reference dtype/device contract (an equal-valued fp64 ref is NOT a match)
+        return True, f"reference contract dtype={ref.dtype}/dev={ref.device} != candidate dtype={cand.dtype}/dev={cand.device}"
     atol = 1e-5 if c["op"] == "compressor" else (1e-3 if c["op"] == "sparse" else 1e-4)
     m = _screen_continuous(cand, ref, atol=atol)
     calib.append({"op": c["op"], "path": c["path"], "dist": c["dist"], "split": c.get("split"), "metric": m})
@@ -443,9 +466,13 @@ SEED_GROUPS = {"calibration": [0, 1, 2], "held_out": [100, 101]}
 # of these is a RESTRICTED scope, not a pass. Declared here, NOT derived from whatever tests happened to run.
 _EXPECTED_OPS = {"indexer_logits", "indexer_topk", "compressor", "sparse", "sinkhorn", "combine"}
 _REQUIRED_COVERAGE = {("indexer_logits", "logits_select"), ("indexer_topk", "selection"),
-                      ("compressor", "continuous"), ("sparse", "continuous_sparse"),
+                      ("compressor", "continuous"), ("compressor", "continuous_masked"),
+                      ("sparse", "continuous_sparse"),
                       ("sparse", "composed"), ("sinkhorn", "continuous_tuple3"), ("combine", "continuous")}
 _REQUIRED_INDEXER_M = {1, 8, 16, 32, 64}         # the signed-weight M-sweep must be gated, not just benchmarked
+_REQUIRED_INDEXER_PATHS = {"tiled/signed", "bf16kv/signed"}   # R4-A5: the bf16-KV contract is REQUIRED, not optional
+_REQUIRED_SPARSE_PATHS = {"scalar", "fp32bmm", "bestof"}      # amx is dominated/diagnostic, not required
+_REQUIRED_SPARSE_M = {1, 8, 16, 32, 64}          # R4-A5: each shipped sparse path must cover the full M-sweep
 
 
 def run(calibrate_path=None):
@@ -467,6 +494,21 @@ def run(calibrate_path=None):
     idx_M = {c.get("M") for c in cases if c["op"] == "indexer_logits" and c.get("M") is not None}
     if not _REQUIRED_INDEXER_M.issubset(idx_M):
         print(f"  STATUS = FAIL  (indexer M-sweep incomplete — have {sorted(idx_M)}, need {sorted(_REQUIRED_INDEXER_M)})")
+        return 2
+    idx_paths = {c["path"] for c in cases if c["op"] == "indexer_logits"}   # R4-A5: required coordinate inventory
+    if not _REQUIRED_INDEXER_PATHS.issubset(idx_paths):
+        print(f"  STATUS = FAIL  (indexer path coverage incomplete — have {sorted(idx_paths)}, need {sorted(_REQUIRED_INDEXER_PATHS)})")
+        return 2
+    sp_cov = {}                                            # R4-A5: each shipped sparse path must span the full M-sweep
+    for c in cases:
+        if c["op"] == "sparse" and c["kind"] == "continuous_sparse":
+            pre, _, mm = c["path"].partition("/M")
+            if mm.isdigit():
+                sp_cov.setdefault(pre, set()).add(int(mm))
+    sp_miss = {p: sorted(_REQUIRED_SPARSE_M - sp_cov.get(p, set())) for p in _REQUIRED_SPARSE_PATHS
+               if not _REQUIRED_SPARSE_M.issubset(sp_cov.get(p, set()))}
+    if sp_miss:
+        print(f"  STATUS = FAIL  (sparse M-sweep incomplete per path — missing {sp_miss})")
         return 2
     if any(len(s) == 0 for s in SEED_GROUPS.values()):
         print("  STATUS = FAIL  (a seed group is empty — no evaluation)")
@@ -555,7 +597,7 @@ def _downstream_budget(calib):
         within_all = sorted(p for p in sp_paths if all(r.get("within_proposed") for r in sp if r["path"] == p))
         out["sparse"] = {"status": "PROPOSED/UNRATIFIED: reference dtype = BF16 (job 384502); continuous is SCREENING only (PARTIAL), NOT ratified acceptance",
                          "proposed_screen_threshold": SPARSE_SCREEN_PROPOSED,
-                         "threshold_note": "approximation error vs a GLOBALLY-normalized (non-blockwise) replica on bf16-matched operands; NOT characterized hardware noise; downstream budget PENDING",
+                         "threshold_note": "approximation error vs the SOURCE-FAITHFUL 64-block (blockwise) replica on bf16-matched operands + bf16 output boundary; an OBSERVED replica-vs-GPU discrepancy, NOT a proven minimum error and NOT characterized hardware noise; downstream budget PENDING",
                          "vs_bf16_replica_max_err_calib": max((r["metric"]["max_abs_err"] for r in sp if r.get("split") == "calibration" and "within_proposed" in r), default=None),
                          "within_proposed_threshold_ALL_records": within_all,
                          "dominated_dropped": "amx (naive bf16 intermediates drift to 5.86e-3 @N64; slower than fp32-bmm donor)"}
@@ -712,11 +754,60 @@ def selftest():
                 "cand": _dtypeflip, "ora": _ora_compressor, "out": ((lambda: (8, 512)), torch.float32)}),
         "REJECTS a repeat-call dtype flip fp32->fp64 (R3-F1)")
 
+    # 18 valid -inf MASKED selection is a SUPPORTED domain and must NOT be rejected (R4-A1 positive control:
+    #    the published Indexer adds -inf to causal/padding positions before top-k).
+    def _masked_lg():
+        lg = torch.randn(2, 1024)
+        lg[:, 512:] = float("-inf")                 # legal mask on half the window
+        return (lg, 512)
+    chk(not _fails({"op": "indexer_topk", "path": "maskedsel", "kind": "selection", "dist": "normal",
+                    "build": _masked_lg, "cand": lambda lg, k: tk.indexer_topk(lg, k),
+                    "ora": None, "k": 512, "out": ((lambda: (2, 512)), torch.int64)}),
+        "ACCEPTS a valid -inf masked selection (R4-A1: -inf masks are a supported domain)")
+
+    # 19 NaN selection evidence is still INVALID and must be rejected (R4-A1 negative control retained)
+    chk(_fails({"op": "x", "path": "nanmasksel", "kind": "selection", "dist": "normal", "_expect": "non-finite reference logits",
+                "build": lambda: (torch.full((2, 1024), float("nan")), 512),
+                "cand": lambda lg, k: torch.arange(512).view(1, 512).expand(2, 512).contiguous(),
+                "ora": None, "k": 512, "out": ((lambda: (2, 512)), torch.int64)}),
+        "REJECTS NaN selection evidence even though -inf is allowed (R4-A1)")
+
+    # 20 an equal-valued FP64 REFERENCE in a continuous case must fail (R4-A3: reference dtype contract)
+    chk(_fails({"op": "x", "path": "refdtype", "kind": "continuous", "dist": "normal", "_expect": "reference contract",
+                "build": lambda: (torch.randn(8, 128, 512), torch.randn(8, 128, 512), torch.randn(128, 512)),
+                "cand": lambda a, b, cc: cp.compressor_softmax_pool(a, b, cc),
+                "ora": lambda a, b, cc: _ora_compressor(a, b, cc).double(), "out": ((lambda: (8, 512)), torch.float32)}),
+        "REJECTS an equal-valued fp64 reference (R4-A3 reference dtype contract)")
+
+    # 21 a COMPOSED repeat dtype flip must fail (R4-A3: composed repeat validates dtype+shape, not bare equal)
+    class _DtSp:
+        _n = {"c": 0}
+        @staticmethod
+        def sparse_attend(q, kv, s, sc):
+            _DtSp._n["c"] += 1
+            out = sp.sparse_attend(q, kv, s, sc)
+            return out if _DtSp._n["c"] == 1 else out.double()
+    chk(_fails({"op": "x", "path": "compdtype", "kind": "composed", "dist": "normal", "_expect": "dtype-shape mismatch",
+                "build": _build_composed_sparse, "cand": (tk, _DtSp), "ora": None, "out": None}),
+        "REJECTS a composed repeat dtype flip fp32->fp64 (R4-A3)")
+
     # 12 incomplete inventory (missing an op) must FAIL via run() (R2-F1)
     import unittest.mock as _um
     _orig_manifest = manifest
     with _um.patch(__name__ + ".manifest", lambda: [cc for cc in _orig_manifest() if cc["op"] != "sparse"]):
         chk(run() == 2, "REJECTS an incomplete inventory (missing op) through run() (R2-F1)")
+
+    # 22 required COORDINATE inventory must FAIL via run() when a required case is removed (R4-A5):
+    #    the bf16-KV contract, the masked-compressor case, and the full per-path sparse M-sweep are REQUIRED,
+    #    not merely present-if-someone-wrote-them. Each independent removal must hard-fail run().
+    def _drop(pred):
+        return lambda: [cc for cc in _orig_manifest() if not pred(cc)]
+    with _um.patch(__name__ + ".manifest", _drop(lambda cc: cc["op"] == "indexer_logits" and "bf16kv" in cc["path"])):
+        chk(run() == 2, "REJECTS removal of the bf16-KV indexer coordinate through run() (R4-A5)")
+    with _um.patch(__name__ + ".manifest", _drop(lambda cc: cc["kind"] == "continuous_masked")):
+        chk(run() == 2, "REJECTS removal of the masked-compressor coordinate through run() (R4-A5)")
+    with _um.patch(__name__ + ".manifest", _drop(lambda cc: cc["op"] == "sparse" and cc["path"].endswith("/M16"))):
+        chk(run() == 2, "REJECTS removal of the sparse M16 coordinate through run() (R4-A5)")
 
     # 13 META (playbook #3): a negative test that hits an unrelated error (NameError in setup) while CLAIMING
     # to test a shape rejection must NOT be counted as a successful shape rejection -> _fails returns False.
