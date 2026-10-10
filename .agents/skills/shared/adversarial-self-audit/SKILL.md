@@ -105,11 +105,21 @@ clean review = make all three moves YOURSELF first. The audit question is not "d
    spread for any floor / no-regression claim; bind each run to **source/build/thread-affinity/input**
    identity; a harness must PROPAGATE failure (`pipefail`; test it FAILS on a known-bad run) and bind its
    outputs to run identity; investigate anomalies (comparator instability across jobs) before crediting a
-   ratio to the intended cause.
+   ratio to the intended cause. **The evidence ARTIFACT must be self-identifying**: embed job/source/node/
+   config in the published JSON (not reused filenames a later job overwrites), persist the **process
+   samples + spread** (not just the aggregate), compute derived values (percentages) **before** display
+   rounding, and commit the **aggregation procedure** so the published numbers are reproducible. A
+   launcher that resolves its repo/dir **inside** `cd "$(...)"` hides the inner failure from `pipefail` —
+   resolve+validate in a separately-checked step and FATAL-exit before any compile/output.
 
-10. **MEASUREMENT-PHYSICS SANITY.** A bandwidth above nominal DRAM = **cache-resident**, not saturation;
-    utilization VARIES across M — never report one point as uniform; roofline = `max(bytes/BW, flops/peak)`
-    at the op's ACTUAL dtype; a warm-cache microbench is not DRAM traffic.
+10. **MEASUREMENT-PHYSICS SANITY.** A bandwidth above nominal DRAM = **cache-resident**, not saturation
+    (apply the cache caveat to EVERY reused-buffer row, not just the obvious one); utilization VARIES across
+    M — never report one point as uniform; roofline = `max(bytes/BW, flops/peak)` at the op's ACTUAL dtype,
+    but the peak is a **nominal reference** (base-clock datasheet, a DIFFERENT node's observation is a prior
+    not a ceiling) — report "% of nominal reference", never "% of an achievable ceiling"; the larger-term
+    **regime tag is a diagnostic, not a measured bottleneck**, and a simplified FLOP count (omitting
+    exp/recurrence) must say so; a warm-cache microbench is not DRAM traffic; roof-proximity in one dtype
+    does NOT explain a different-dtype candidate's loss (retain the measured loss without the causal claim).
 
 ## Third cluster — EVIDENCE VALIDITY, EVALUATED-ARTIFACT BINDING & IDENTITY (what the later rounds found)
 
