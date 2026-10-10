@@ -1,0 +1,49 @@
+# Assessment of the R6 Roofline Response
+
+Reviewed fixes `53f1e57f6156a17acace27ace4c2cbcb13aac68a` and response `8d391e7`, with local checks at clean HEAD `4b98e13` (the additional commit changes the self-audit skill only). Scope: the three findings in `6562b3a`. No native code, acceptance policy, or saved timing input was changed by this review; no cluster or performance run was launched.
+
+## Remaining Findings
+
+### R7-F1 (Medium): aggregation records metadata but does not validate the evidence it combines
+
+The new [aggregate_roofline.py](../aggregate_roofline.py#L1) accepts arbitrary input count, collects any supplied provenance without checking compatibility, and accepts nonfinite timings. Its schema nevertheless describes three process medians. A self-identifying artifact needs its stated sampling/configuration contract to agree with the inputs; metadata presence alone does not enforce that.
+
+Through the actual CLI `main()` with in-memory file reads and captured stdout, this review reproduced:
+
+- **One producer-shaped input:** normal completion, one value in `process_meas_us`, zero spread, and schema text still claiming three process medians.
+- **Three conflicting inputs:** normal completion after the second record's job/source/thread fields were changed from `384677`/`aaccef6`/64 to `different-run`/`53f1e57`/1. The program combines their measurements and merely lists the conflicting provenance.
+- **NaN timings:** setting top-k M1 `meas_us` to NaN in all three records yields normal completion and NaN samples, median, spread, and achieved percentage. Default JSON serialization emits NaN instead of rejecting invalid measurement evidence.
+
+A positive control with three matching producer-shaped records succeeds. These are consumer fault injections, not evidence that the historical job itself contained mixed or invalid measurements.
+
+**Required correction:** validate before aggregation/output: the declared replicate count, distinct process identity, compatible run/source/runtime/thread/reference contracts, complete required coordinates, and finite positive latencies. Define an explicit, separately qualified legacy-import path for the historical unstamped inputs; do not silently give them the same status as validated new-format runs. Test rejection through `main()`, including no output-file write on rejection. Keep valid three-process and legacy-import positive controls. The producer will need a process/replicate identifier if the consumer is to distinguish genuine replicates from duplicate inputs.
+
+### R7-F2 (Low): fallback validation discards the resolved repository root
+
+In [run_roofline_sweep.sbatch](../run_roofline_sweep.sbatch#L13), the fallback assigns `SLURM_SUBMIT_DIR` to `REPO`, checks `git -C "$REPO" rev-parse --show-toplevel`, discards that command's output, and then changes directory to the original fallback. The same block appears in the other three patched launchers. A submission directory inside the repository passes Git validation but is not necessarily its root.
+
+This review executed each unchanged resolution block under `set -euo pipefail`, using `/dev/stdin` as the script path to simulate a script outside the checkout, and three submission-directory cases:
+
+| Fallback | Result across all four launchers |
+|---|---|
+| Repository root | Resolves root; repository-relative benchmark path exists |
+| Repository `plugin/validate` subdirectory | Remains in that subdirectory; repository-relative benchmark path is missing |
+| `/tmp` outside a repository | FATAL and exit 1 before benchmark execution |
+
+The subdirectory probe's exit 7 was an explicit reviewer path assertion, not an exit code from running a benchmark. Only resolution blocks ran; activation, compilation, Slurm submission, and timing bodies did not run.
+
+**Required correction:** capture the successful `rev-parse --show-toplevel` output in a separately checked assignment, then `cd` to that canonical root. Preserve the invalid-root negative control and add valid-root/subdirectory positives across all four launchers. The original masked-Git-failure example is fixed; fallback normalization remains incomplete.
+
+## Verified Closures
+
+**R6-F1 CLOSED.** The new response, benchmark description, and results schema now qualify nominal base-clock reference ratios, theoretical-term regime diagnostics, cache reuse, simplified compressor FLOPs, different-node priors, and the distinction between S1's measured loss and unmeasured causal attribution. This resolves the reviewed wording issue, not a hardware-ceiling certification.
+
+**R6-F2 historical arithmetic/spread repaired; prospective aggregation only PARTIAL.** Running the committed aggregator on the three preserved scratch process files reproduces every one of its six output fields at all **40 coordinates** in the published artifact: samples, median, range, floor, percentage, and regime. Top-k M1 is **0.67%**. The extra per-row regime notes and historical top-level provenance are not generated by this legacy-input invocation; its `process_provenance` is empty. The published historical provenance is an explicit reconstruction tied to the previously reviewed raw log, not retroactively producer-stamped evidence. New benchmark outputs carry provenance, and the new launcher paths include the Slurm job ID. These improvements stand; R7-F1 concerns the consumer's unvalidated inputs.
+
+**R6-F3 original invalid-root failure CLOSED; subdirectory fallback PARTIAL.** All four invalid-root probes now reject as intended. R7-F2 identifies the remaining root-normalization defect rather than reopening the demonstrated invalid-root fix.
+
+## Scope and Status
+
+Correctness closures R5-F1/R5-F2 remain unchanged: this patch does not modify the native kernels, replay validator, F4 harness, or promotion policy. The response's phrase "19 replay controls through real main()" conflates the 19 persistent selftests with the reviewer's separate main-entry fault probes; the previous assessment distinguishes those counts. No native correctness rerun was needed for these document/aggregation/launcher changes.
+
+**Disposition:** accept the narrowed roofline interpretation and repaired historical numerical artifact. Finish aggregation validation and fallback-root normalization before declaring the automation fully closed. No new performance run is needed to fix either issue. F4 remains **PARTIAL**, promotion **BLOCKED**, and thresholds **UNRATIFIED**; no numerical budget, experiment, dispatch/E2E work, or phase promotion is authorized by this assessment.
