@@ -160,7 +160,11 @@ clean review = make all three moves YOURSELF first. The audit question is not "d
     unstamped inputs through an **explicit, separately-qualified legacy path** (not the same status as
     validated ones). And **verify the POSITIVE case too**: an over-strict check breaks valid inputs (a `-d
     .git` test FATAL-s on a git **worktree** where `.git` is a file; `rev-parse` success already validates —
-    don't validate a value and then discard it for an unchecked fallback).
+    don't validate a value and then discard it for an unchecked fallback). Compatibility compared with
+    `.get()` makes **all-missing fields compare equal as `None`** → require a **typed schema present +
+    non-empty** BEFORE comparing, and **bind the computation's constants to the stamped reference** (a floor/
+    ratio computed against constants the producer did not measure against is an artifact — reject the
+    mismatch or a cross-node pool rather than silently using your own).
 
 14. **CLOSURE ≠ PROMOTION; A MEASURED LOSS/NEUTRAL IS A VALID DISPOSITION.** Keep **arithmetic acceptance
     separate from speed**: prove a "bit-exact" change by building OLD and NEW and diffing outputs (not
