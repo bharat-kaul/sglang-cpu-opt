@@ -3,10 +3,13 @@
 
 Measures median latency per (kernel, M) and joins it to the per-M roofline FLOOR derived from each kernel's
 actual byte/FLOP contract and the EMR machine peak (BW 358.4 GB/s, AMX bf16 124.5184 TF, AVX-512 FP32 7.7824
-TF). achieved% = floor_us / measured_us. Byte/FLOP contracts are the same ones asserted in
-dsv4_roofline_vs_measured.py, evaluated across the whole M-sweep. The machine peak is the DATASHEET ceiling
-(not a measured achievable BW/clock); the residual gap is surfaced, not assumed recoverable. Timing only;
-correctness is the F4 gate's job. Run as >=3 processes (sbatch) and aggregate the medians offline."""
+TF). achieved% = floor_us / measured_us is a fraction of the NOMINAL REFERENCE, not of an absolute hardware
+ceiling. Byte/FLOP contracts are the same ones asserted in dsv4_roofline_vs_measured.py, evaluated across
+the whole M-sweep (simplified: the compressor FLOP count omits its exp/recurrence cost). The machine peak is
+the NOMINAL base-clock (1.9 GHz) reference (NOT a measured achievable BW/clock); the regime tag is the larger
+theoretical term (a diagnostic, NOT a measured bottleneck; cache-resident rows are not DRAM-saturated). The
+residual gap is surfaced, not assumed recoverable. Timing only; correctness is the F4 gate's job. Run as >=3
+processes (sbatch) and aggregate with aggregate_roofline.py."""
 import json
 import os
 import statistics as st
@@ -81,20 +84,25 @@ def main():
     ]
     sha = os.popen("git rev-parse --short HEAD").read().strip()
     print(f"# roofline-vs-measured | HEAD={sha} threads={torch.get_num_threads()} OMP={os.environ.get('OMP_NUM_THREADS')} "
-          f"bind={os.environ.get('OMP_PROC_BIND')} | BW=358.4GB/s AMXbf16=124.52TF FP32=7.78TF (datasheet peak)")
-    print(f"{'kernel':>22} {'M':>4} {'meas_us':>9} {'floor_us':>9} {'achieved%':>9} {'regime':>7}")
+          f"bind={os.environ.get('OMP_PROC_BIND')} | BW=358.4GB/s AMXbf16=124.52TF FP32=7.78TF (NOMINAL reference @1.9GHz base, NOT a measured ceiling)")
+    print(f"{'kernel':>22} {'M':>4} {'meas_us':>9} {'floor_us':>9} {'%ofNomRef':>9} {'regime':>7}")
     out = {}
     for label, build, fn, flf, byf, peak in specs:
         out[label] = {}
         for M in (1, 8, 16, 32, 64):
             meas = _med(fn, build(M)) * 1e6
             fl = _floor_us(flf(M), byf(M), peak)
-            regime = "BW" if byf(M) / BW >= flf(M) / peak else "compute"
-            ach = 100.0 * fl / meas
-            out[label][M] = {"meas_us": round(meas, 2), "floor_us": round(fl, 2), "achieved_pct": round(ach, 1), "regime": regime}
-            print(f"{label:>22} {M:>4} {meas:>9.1f} {fl:>9.2f} {ach:>8.1f}% {regime:>7}")
+            regime = "BW" if byf(M) / BW >= flf(M) / peak else "compute"   # theoretical-larger-term diagnostic, NOT a measured bottleneck
+            ach = 100.0 * fl / meas                                        # fraction of the NOMINAL reference, not an absolute ceiling
+            out[label][M] = {"meas_us": round(meas, 2), "floor_us": round(fl, 4), "achieved_pct": round(ach, 2), "regime": regime}
+            print(f"{label:>22} {M:>4} {meas:>9.1f} {fl:>9.4f} {ach:>8.2f}% {regime:>7}")
     if os.environ.get("ROOFLINE_JSON"):
-        json.dump(out, open(os.environ["ROOFLINE_JSON"], "w"), indent=1)
+        prov = {"head": sha, "node": os.uname().nodename, "threads": torch.get_num_threads(),
+                "omp": os.environ.get("OMP_NUM_THREADS"), "bind": os.environ.get("OMP_PROC_BIND"),
+                "slurm_job_id": os.environ.get("SLURM_JOB_ID"), "torch": torch.__version__,
+                "peak_nominal": {"mem_bw_gbps": 358.4, "amx_bf16_tflops": 124.5184, "avx512_fp32_tflops": 7.7824,
+                                 "note": "NOMINAL @1.9GHz base, NOT measured achievable BW/clock"}}
+        json.dump({"_provenance": prov, "kernels": out}, open(os.environ["ROOFLINE_JSON"], "w"), indent=1)
     print(">>> done")
 
 
