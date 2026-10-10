@@ -153,7 +153,14 @@ clean review = make all three moves YOURSELF first. The audit question is not "d
     actual tensor batch of every tensor; full shape relationships; finite positive scalars) not just key
     presence, and enforce required coverage as the **joint coordinate** (op×path×distribution×M×shape),
     un-removable and proven by a through-`run()` removal control — presence of a label is not evidence the
-    shape was evaluated.
+    shape was evaluated. **A consumer that COMBINES/aggregates evidence must VALIDATE the inputs it
+    combines**, not merely record their metadata: enforce the declared replicate count, **distinct** process
+    identity (the producer must emit one), **compatible** run/source/runtime contracts, complete coordinates,
+    and finite-positive values — fail-closed with **no output written** on reject, and route historical/
+    unstamped inputs through an **explicit, separately-qualified legacy path** (not the same status as
+    validated ones). And **verify the POSITIVE case too**: an over-strict check breaks valid inputs (a `-d
+    .git` test FATAL-s on a git **worktree** where `.git` is a file; `rev-parse` success already validates —
+    don't validate a value and then discard it for an unchecked fallback).
 
 14. **CLOSURE ≠ PROMOTION; A MEASURED LOSS/NEUTRAL IS A VALID DISPOSITION.** Keep **arithmetic acceptance
     separate from speed**: prove a "bit-exact" change by building OLD and NEW and diffing outputs (not
