@@ -1,0 +1,258 @@
+{
+ "indexer_logits/tiled": {
+  "1": {
+   "meas_us": 99.7,
+   "floor_us": 1.57,
+   "achieved_pct": 1.6,
+   "regime": "BW"
+  },
+  "8": {
+   "meas_us": 201.2,
+   "floor_us": 12.53,
+   "achieved_pct": 6.2,
+   "regime": "BW"
+  },
+  "16": {
+   "meas_us": 205.5,
+   "floor_us": 25.06,
+   "achieved_pct": 12.2,
+   "regime": "BW"
+  },
+  "32": {
+   "meas_us": 262.2,
+   "floor_us": 50.13,
+   "achieved_pct": 19.1,
+   "regime": "BW"
+  },
+  "64": {
+   "meas_us": 395.6,
+   "floor_us": 100.25,
+   "achieved_pct": 25.3,
+   "regime": "BW"
+  }
+ },
+ "indexer_topk": {
+  "1": {
+   "meas_us": 3.4,
+   "floor_us": 0.02,
+   "achieved_pct": 0.6,
+   "regime": "BW"
+  },
+  "8": {
+   "meas_us": 11.7,
+   "floor_us": 0.18,
+   "achieved_pct": 1.5,
+   "regime": "BW"
+  },
+  "16": {
+   "meas_us": 11.9,
+   "floor_us": 0.37,
+   "achieved_pct": 3.1,
+   "regime": "BW"
+  },
+  "32": {
+   "meas_us": 12.1,
+   "floor_us": 0.73,
+   "achieved_pct": 6.0,
+   "regime": "BW"
+  },
+  "64": {
+   "meas_us": 13.8,
+   "floor_us": 1.46,
+   "achieved_pct": 10.6,
+   "regime": "BW"
+  }
+ },
+ "compressor/r128d512": {
+  "1": {
+   "meas_us": 19.8,
+   "floor_us": 2.2,
+   "achieved_pct": 11.1,
+   "regime": "BW"
+  },
+  "8": {
+   "meas_us": 51.5,
+   "floor_us": 12.48,
+   "achieved_pct": 24.2,
+   "regime": "BW"
+  },
+  "16": {
+   "meas_us": 91.6,
+   "floor_us": 24.23,
+   "achieved_pct": 26.5,
+   "regime": "BW"
+  },
+  "32": {
+   "meas_us": 189.2,
+   "floor_us": 47.73,
+   "achieved_pct": 25.2,
+   "regime": "BW"
+  },
+  "64": {
+   "meas_us": 360.9,
+   "floor_us": 94.72,
+   "achieved_pct": 26.2,
+   "regime": "BW"
+  }
+ },
+ "compressor/r8d512": {
+  "1": {
+   "meas_us": 16.3,
+   "floor_us": 0.14,
+   "achieved_pct": 0.9,
+   "regime": "BW"
+  },
+  "8": {
+   "meas_us": 18.2,
+   "floor_us": 0.82,
+   "achieved_pct": 4.5,
+   "regime": "BW"
+  },
+  "16": {
+   "meas_us": 21.4,
+   "floor_us": 1.6,
+   "achieved_pct": 7.5,
+   "regime": "BW"
+  },
+  "32": {
+   "meas_us": 24.9,
+   "floor_us": 3.15,
+   "achieved_pct": 12.7,
+   "regime": "BW"
+  },
+  "64": {
+   "meas_us": 35.6,
+   "floor_us": 6.26,
+   "achieved_pct": 17.6,
+   "regime": "BW"
+  }
+ },
+ "compressor/r8d128": {
+  "1": {
+   "meas_us": 13.5,
+   "floor_us": 0.04,
+   "achieved_pct": 0.3,
+   "regime": "BW"
+  },
+  "8": {
+   "meas_us": 14.1,
+   "floor_us": 0.21,
+   "achieved_pct": 1.5,
+   "regime": "BW"
+  },
+  "16": {
+   "meas_us": 14.6,
+   "floor_us": 0.4,
+   "achieved_pct": 2.7,
+   "regime": "BW"
+  },
+  "32": {
+   "meas_us": 15.6,
+   "floor_us": 0.79,
+   "achieved_pct": 5.1,
+   "regime": "BW"
+  },
+  "64": {
+   "meas_us": 17.6,
+   "floor_us": 1.57,
+   "achieved_pct": 8.9,
+   "regime": "BW"
+  }
+ },
+ "sparse/bestof": {
+  "1": {
+   "meas_us": 66.9,
+   "floor_us": 8.62,
+   "achieved_pct": 12.9,
+   "regime": "compute"
+  },
+  "8": {
+   "meas_us": 149.5,
+   "floor_us": 68.99,
+   "achieved_pct": 46.1,
+   "regime": "compute"
+  },
+  "16": {
+   "meas_us": 242.0,
+   "floor_us": 137.97,
+   "achieved_pct": 57.0,
+   "regime": "compute"
+  },
+  "32": {
+   "meas_us": 416.0,
+   "floor_us": 275.94,
+   "achieved_pct": 66.3,
+   "regime": "compute"
+  },
+  "64": {
+   "meas_us": 768.5,
+   "floor_us": 551.88,
+   "achieved_pct": 71.8,
+   "regime": "compute"
+  }
+ },
+ "sinkhorn": {
+  "1": {
+   "meas_us": 3.8,
+   "floor_us": 0.0,
+   "achieved_pct": 0.0,
+   "regime": "BW"
+  },
+  "8": {
+   "meas_us": 16.2,
+   "floor_us": 0.0,
+   "achieved_pct": 0.0,
+   "regime": "BW"
+  },
+  "16": {
+   "meas_us": 15.7,
+   "floor_us": 0.01,
+   "achieved_pct": 0.1,
+   "regime": "BW"
+  },
+  "32": {
+   "meas_us": 15.8,
+   "floor_us": 0.02,
+   "achieved_pct": 0.1,
+   "regime": "BW"
+  },
+  "64": {
+   "meas_us": 17.2,
+   "floor_us": 0.03,
+   "achieved_pct": 0.2,
+   "regime": "BW"
+  }
+ },
+ "combine": {
+  "1": {
+   "meas_us": 3.2,
+   "floor_us": 0.23,
+   "achieved_pct": 7.2,
+   "regime": "BW"
+  },
+  "8": {
+   "meas_us": 13.9,
+   "floor_us": 1.83,
+   "achieved_pct": 13.2,
+   "regime": "BW"
+  },
+  "16": {
+   "meas_us": 13.6,
+   "floor_us": 3.66,
+   "achieved_pct": 27.0,
+   "regime": "BW"
+  },
+  "32": {
+   "meas_us": 13.6,
+   "floor_us": 7.32,
+   "achieved_pct": 53.8,
+   "regime": "BW"
+  },
+  "64": {
+   "meas_us": 15.0,
+   "floor_us": 14.63,
+   "achieved_pct": 97.5,
+   "regime": "BW"
+  }
+ }
+}
