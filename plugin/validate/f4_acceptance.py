@@ -306,6 +306,10 @@ def run_case(c, calib):
     """Evaluate one case. Returns (hard_fail: bool, note: str). Appends metrics to calib."""
     kind = c["kind"]
     inp = c["build"]()
+    cv = c.get("_coord_verify")                       # R5-F2: validate the ACTUAL evaluated tuple, not a preflight sample
+    if cv is not None and not cv(inp):
+        shp = tuple(inp[0].shape) if isinstance(inp, (tuple, list)) and isinstance(inp[0], torch.Tensor) else type(inp).__name__
+        return True, f"builder drift: evaluated input {shp} != declared coordinate {c['op']}/{c.get('path')}/{c.get('dist')}/M={c.get('M')}"
     cand_fn, ora_fn = c["cand"], c["ora"]
 
     if kind == "composed":                            # topk -> gather -> attend, candidate vs reference
@@ -536,10 +540,7 @@ def run(calibrate_path=None):
         if c is None:
             print(f"  STATUS = FAIL  (required joint coordinate missing — {spec['key']})")
             return 2
-        inp = c["build"]()                                 # verify the BUILT tensor matches the declared coordinate
-        if not spec["verify"](inp):
-            print(f"  STATUS = FAIL  (required coordinate tensor mismatch — {spec['key']}: built {tuple(inp[0].shape)})")
-            return 2
+        c["_coord_verify"] = spec["verify"]            # R5-F2: bind the shape check to the EVALUATED tuple (run_case, every seed)
     if any(len(s) == 0 for s in SEED_GROUPS.values()):
         print("  STATUS = FAIL  (a seed group is empty — no evaluation)")
         return 2
@@ -845,6 +846,15 @@ def selftest():
         chk(run() == 2, "REJECTS removal of the heavy-tailed indexer M64 coordinate through run() (R4-F3)")
     with _um.patch(__name__ + ".manifest", _drop(lambda cc: cc["op"] == "compressor" and cc["path"] == "r8d128")):
         chk(run() == 2, "REJECTS removal of the compressor R8/D128 shape through run() (R4-F3)")
+
+    # 24 builder-drift: a case whose EVALUATED input tuple does not match its declared coordinate must hard-fail
+    #    for THAT reason (R5-F2: the shape is bound to the actual evaluated tuple, not a preliminary sample).
+    chk(_fails({"op": "compressor", "path": "r128d512", "kind": "continuous", "dist": "normal", "_expect": "builder drift",
+                "build": (lambda: (torch.randn(8, 64, 512), torch.randn(8, 64, 512), torch.randn(64, 512))),   # R64, declared R128
+                "cand": lambda a, b, cc: cp.compressor_softmax_pool(a, b, cc), "ora": _ora_compressor,
+                "out": ((lambda: (8, 512)), torch.float32),
+                "_coord_verify": (lambda inp: tuple(inp[0].shape) == (8, 128, 512))}),
+        "REJECTS a builder whose evaluated tuple drifts from its declared coordinate (R5-F2)")
 
     # 13 META (playbook #3): a negative test that hits an unrelated error (NameError in setup) while CLAIMING
     # to test a shape rejection must NOT be counted as a successful shape rejection -> _fails returns False.

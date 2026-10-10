@@ -67,6 +67,9 @@ def validate_archive(blob, expected_sha=EXPECTED_KERNEL_SHA, expected_job=EXPECT
             raise SystemExit(f"FATAL: record {i} N={r['N']} != batch (q{N}/kv{kv.shape[0]}/out{go.shape[0]})")
         if tuple(go.shape) != (N, H, D) or kv.shape[2] != D or sink.shape[0] != H:
             raise SystemExit(f"FATAL: record {i} inconsistent H/D (q{tuple(q.shape)} kv{tuple(kv.shape)} out{tuple(go.shape)} sink{tuple(sink.shape)})")
+        for t, nm in ((q, "q"), (kv, "kv"), (go, "gpu_out"), (sink, "sink")):   # R5-F1: invalid oracle evidence
+            if not bool(torch.isfinite(t).all().item()):   # sparse attn has NO -inf mask domain here -> all finite
+                raise SystemExit(f"FATAL: record {i} non-finite {nm} (NaN/inf) -- invalid oracle evidence")
         sc = r["scale"]
         if not (isinstance(sc, (int, float)) and math.isfinite(sc) and sc > 0):   # documented scale domain
             raise SystemExit(f"FATAL: record {i} scale {sc!r} not a finite positive float")
@@ -74,9 +77,15 @@ def validate_archive(blob, expected_sha=EXPECTED_KERNEL_SHA, expected_job=EXPECT
 
 
 def metrics(ref, got):
+    if not bool(torch.isfinite(ref).all().item()):      # R5-F1: non-finite reference is invalid, not a tolerance miss
+        raise SystemExit("FATAL: non-finite reference (gpu_out) -- invalid oracle evidence")
+    if not bool(torch.isfinite(got).all().item()):      # R5-F1: a candidate NaN/inf output is a failure
+        raise SystemExit("FATAL: non-finite candidate output")
     r, g = ref.flatten().float(), got.flatten().float()
     cos = torch.nn.functional.cosine_similarity(r, g, dim=0).item()
     mae = (r - g).abs().max().item()
+    if not (math.isfinite(cos) and math.isfinite(mae)):   # R5-F1: never print NaN metrics as if valid
+        raise SystemExit(f"FATAL: non-finite comparison metrics (cos={cos}, mae={mae})")
     return cos, mae
 
 
@@ -161,6 +170,18 @@ def selftest():
     chk(not _accepts(_mk_blob(recs=[_bad_shape])), "REJECTS an output H/D inconsistent with q (R4-F2)")
     _bad_scale = _mk_rec(); _bad_scale["scale"] = -1.0
     chk(not _accepts(_mk_blob(recs=[_bad_scale])), "REJECTS a non-positive scale (R4-F2)")
+    for fld in ("gpu_out", "q", "kv", "sink"):                 # R5-F1: non-finite record tensors are invalid evidence
+        _nf = _mk_rec(); _nf[fld] = _nf[fld] * float("nan")
+        chk(not _accepts(_mk_blob(recs=[_nf])), f"REJECTS a non-finite {fld} (R5-F1)")
+    # R5-F1: the comparison itself must reject a non-finite reference / candidate (never print NaN metrics as valid)
+    def _cmp_ok(ref, got):
+        try:
+            metrics(ref, got); return True
+        except SystemExit:
+            return False
+    chk(_cmp_ok(torch.randn(8), torch.randn(8)), "metrics() ACCEPTS finite reference+candidate (R5-F1 positive control)")
+    chk(not _cmp_ok(torch.randn(8) * float("nan"), torch.randn(8)), "metrics() REJECTS a non-finite reference (R5-F1)")
+    chk(not _cmp_ok(torch.randn(8), torch.randn(8) * float("nan")), "metrics() REJECTS a non-finite candidate output (R5-F1)")
     print(f"  REPLAY-SELFTEST {'OK' if ok else 'FAILED'}")
     return 0 if ok else 2
 
