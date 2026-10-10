@@ -35,7 +35,11 @@ CONTRACTS = {
     "combine": (lambda M: float(M * 4096 * 7), lambda M: M * 4 * 4096 * B4 + M * 4 * B4 + M * 4096 * B4, FP32),
 }
 MS = [1, 8, 16, 32, 64]
-_CONTRACT_KEYS = ("slurm_job_id", "head", "threads", "omp", "bind")
+# R8-F1: required typed provenance schema (present + non-empty), the compatibility contract that must agree
+# across the single-node replicated sweep, and the nominal peak that MUST match the aggregator's constants.
+_REQUIRED_PROV = ("slurm_job_id", "head", "threads", "omp", "bind", "process_index", "node", "torch")
+_COMPAT_KEYS = ("slurm_job_id", "head", "threads", "omp", "bind", "node", "torch")
+_EXPECT_PEAK = {"mem_bw_gbps": BW / 1e9, "amx_bf16_tflops": AMX / 1e12, "avx512_fp32_tflops": FP32 / 1e12}
 
 
 def _kernels(blob):
@@ -60,13 +64,27 @@ def aggregate(procs, expect_replicates=3, legacy=False):
     else:
         if not all(provs):
             raise SystemExit("FATAL: non-legacy inputs must each carry _provenance (use --legacy for historical unstamped files)")
-        base = {k: provs[0].get(k) for k in _CONTRACT_KEYS}
+        for i, pr in enumerate(provs):                         # R8-F1: required typed schema BEFORE comparison
+            if not isinstance(pr, dict):
+                raise SystemExit(f"FATAL: process {i} _provenance is not an object")
+            for key in _REQUIRED_PROV:
+                v = pr.get(key)
+                if v is None or (isinstance(v, str) and not v.strip()):
+                    raise SystemExit(f"FATAL: process {i} provenance missing/empty required field {key!r}")
+            pk = pr.get("peak_nominal")
+            if not isinstance(pk, dict):
+                raise SystemExit(f"FATAL: process {i} provenance missing peak_nominal")
+            for key, val in _EXPECT_PEAK.items():              # bind the stamped reference to the aggregator's constants
+                if pk.get(key) != val:
+                    raise SystemExit(f"FATAL: process {i} peak_nominal {key}={pk.get(key)!r} != aggregator constant {val} (floor would use a mismatched reference)")
+        base = {k: provs[0].get(k) for k in _COMPAT_KEYS}      # the complete compatibility contract must agree (single node)
         for i, pr in enumerate(provs):
-            bad = {k: pr.get(k) for k in _CONTRACT_KEYS if pr.get(k) != base[k]}
+            bad = {k: pr.get(k) for k in _COMPAT_KEYS if pr.get(k) != base[k]}
             if bad:
-                raise SystemExit(f"FATAL: process {i} has an INCOMPATIBLE run contract {bad} != base {base}")
-        process_ids = [pr.get("process_index") for pr in provs]
-        if any(x is None for x in process_ids) or len(set(process_ids)) != len(process_ids):
+                raise SystemExit(f"FATAL: process {i} has an INCOMPATIBLE run contract {bad} != base {base} "
+                                 f"(same-node replicated sweep; a cross-node run must be a separately-qualified experiment)")
+        process_ids = [pr["process_index"] for pr in provs]
+        if len(set(process_ids)) != len(process_ids):
             raise SystemExit(f"FATAL: process replicates must have DISTINCT process_index; got {process_ids}")
         status = "VALIDATED"
     ks = [_kernels(p) for p in procs]
@@ -105,11 +123,16 @@ def aggregate(procs, expect_replicates=3, legacy=False):
     return out
 
 
-def _mk_proc(job="384677", head="aaccef6", threads=64, pidx=0, nan_topk=False):
+def _mk_proc(job="384677", head="aaccef6", threads=64, pidx=0, nan_topk=False,
+             node="pcl-sprh11", torch_v="2.12.0+cpu", peak=None, drop=None):
     k = {lb: {str(M): {"meas_us": (float("nan") if (nan_topk and lb == "indexer_topk" and M == 1) else 10.0 + M)} for M in MS}
          for lb in CONTRACTS}
-    return {"_provenance": {"slurm_job_id": job, "head": head, "threads": threads, "omp": "64", "bind": "close",
-                            "process_index": pidx}, "kernels": k}
+    pk = peak if peak is not None else {"mem_bw_gbps": 358.4, "amx_bf16_tflops": 124.5184, "avx512_fp32_tflops": 7.7824}
+    prov = {"slurm_job_id": job, "head": head, "threads": threads, "omp": "64", "bind": "close",
+            "process_index": pidx, "node": node, "torch": torch_v, "peak_nominal": pk}
+    if drop:
+        prov.pop(drop, None)
+    return {"_provenance": prov, "kernels": k}
 
 
 def selftest():
@@ -125,7 +148,7 @@ def selftest():
         nonlocal ok; ok = ok and bool(c); print(f"  [{'PASS' if c else 'FAIL'}] {m}")
 
     good = [_mk_proc(pidx=i) for i in range(3)]
-    chk(_acc(good), "ACCEPTS 3 matching stamped process replicates (positive)")
+    chk(_acc(good), "ACCEPTS 3 complete producer-shaped process replicates (positive)")
     chk(not _acc(good[:1]), "REJECTS fewer than the declared replicate count (R7-F1)")
     conflict = [_mk_proc(pidx=0), _mk_proc(job="different-run", head="53f1e57", threads=1, pidx=1), _mk_proc(pidx=2)]
     chk(not _acc(conflict), "REJECTS incompatible run/source/thread contracts (R7-F1)")
@@ -133,7 +156,18 @@ def selftest():
     chk(not _acc(dup), "REJECTS duplicate (non-distinct) process_index (R7-F1)")
     nan = [_mk_proc(pidx=i, nan_topk=True) for i in range(3)]
     chk(not _acc(nan), "REJECTS non-finite (NaN) latencies (R7-F1)")
-    legacy = [{"kernels": _mk_proc(pidx=i)["kernels"]} for i in range(3)]   # unstamped
+    for fld in ("slurm_job_id", "head", "node", "torch", "process_index"):   # R8-F1: missing required identity
+        miss = [_mk_proc(pidx=i, drop=fld) for i in range(3)]
+        chk(not _acc(miss), f"REJECTS missing required provenance field {fld} (R8-F1)")
+    empty = [_mk_proc(pidx=0, job=""), _mk_proc(pidx=1), _mk_proc(pidx=2)]      # R8-F1: empty/null identity
+    chk(not _acc(empty), "REJECTS an empty required identity (R8-F1)")
+    diff_node = [_mk_proc(pidx=0), _mk_proc(pidx=1, node="pcl-sprh02"), _mk_proc(pidx=2)]
+    chk(not _acc(diff_node), "REJECTS a different node across replicates (R8-F1 single-node sweep)")
+    diff_torch = [_mk_proc(pidx=0), _mk_proc(pidx=1, torch_v="2.9.0+cpu"), _mk_proc(pidx=2)]
+    chk(not _acc(diff_torch), "REJECTS a different torch runtime across replicates (R8-F1)")
+    diff_peak = [_mk_proc(pidx=0), _mk_proc(pidx=1, peak={"mem_bw_gbps": 277.0, "amx_bf16_tflops": 47.0, "avx512_fp32_tflops": 7.7824}), _mk_proc(pidx=2)]
+    chk(not _acc(diff_peak), "REJECTS a reference-peak that differs from the aggregator constants (R8-F1)")
+    legacy = [{"kernels": _mk_proc(pidx=i)["kernels"]} for i in range(3)]        # unstamped
     chk(_acc(legacy, legacy=True), "ACCEPTS 3 unstamped inputs under --legacy (positive)")
     chk(not _acc(legacy), "REJECTS unstamped inputs WITHOUT --legacy (R7-F1)")
     chk(not _acc(good, legacy=True), "REJECTS stamped inputs UNDER --legacy (R7-F1)")
