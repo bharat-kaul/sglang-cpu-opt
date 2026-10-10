@@ -47,10 +47,18 @@ torch::Tensor compressor_softmax_pool(torch::Tensor kv, torch::Tensor score, tor
         #pragma omp simd
         for (int64_t j = 0; j < dd; ++j) {
           // F1: a MASKED position (score==-inf) contributes nothing (corr=0 while running max is -inf; e=0).
+          // C1: ONE exp per update. The surviving factor is exp(min-max) (<=0 arg); the other is exactly
+          // exp(0)=1, so it is hardcoded -> bit-identical to the two-exp form. The masked/first-valid/both
+          // -inf lanes force the surviving arg to -inf (exp->0) so no unguarded inf subtraction reaches exp.
           float x = srow[j] + arow[j];
-          float mnew = x > m[j] ? x : m[j];
-          float corr = (m[j] == -INFINITY) ? 0.f : std::exp(m[j] - mnew);
-          float e = (x == -INFINITY) ? 0.f : std::exp(x - mnew);
+          float mj = m[j];
+          bool up = x > mj;
+          float mnew = up ? x : mj;
+          bool surv_masked = up ? (mj == -INFINITY) : (x == -INFINITY);
+          float arg = surv_masked ? -INFINITY : (up ? (mj - x) : (x - mj));
+          float t = std::exp(arg);
+          float corr = up ? t : 1.f;
+          float e = up ? 1.f : t;
           l[j] = l[j] * corr + e;
           acc[j] = acc[j] * corr + e * krow[j];
           m[j] = mnew;

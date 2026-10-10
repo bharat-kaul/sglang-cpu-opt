@@ -116,7 +116,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
 
   at::parallel_for(0, N * ntiles, 1, [&](int64_t a, int64_t b) {
     std::vector<float> Cbuf(Sb * H);            // heap C tile (L2-resident), per chunk
-    std::vector<at::BFloat16> Abuf(Sb * D);     // per-tile bf16 staging (fused convert; kv read FP32 once)
+    std::vector<at::BFloat16> Abuf(kv_bf16 ? 0 : Sb * D);   // I1: staging only needed to convert FP32 KV
     float* C = Cbuf.data();
     for (int64_t it = a; it < b; ++it) {
       const int64_t n = it / ntiles, ti = it % ntiles, s0 = ti * Sb;
