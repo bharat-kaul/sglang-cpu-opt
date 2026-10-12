@@ -213,7 +213,9 @@ hand-exp) is the right answer; bf16 is a conformance regression with no upside.
 
 > **Note.** The §1 table/plots above still show the pre-retry compressor row (176.1 µs); they will be
 > regenerated with D1. The numbers here are a single EMR job (385022) — reported per the same single-run
-> caveat as the rest of the page.
+> caveat as the rest of the page. **Correctness:** D1 passes the F4 hard gates — output contract,
+> finiteness, run-to-run determinism, and the overlap `−∞` mask case — and screens at 2.4–7.2e-7 (identical
+> to the scalar oracle); an all-masked channel is guarded to return 0, matching C1 (EMR job 385033).
 
 ---
 

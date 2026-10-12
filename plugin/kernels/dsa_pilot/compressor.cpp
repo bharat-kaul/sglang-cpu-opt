@@ -338,7 +338,8 @@ static torch::Tensor compressor_core_intrin(torch::Tensor kv, torch::Tensor scor
         }
       }
       float* orow = op + n * D + d0;
-      for (int64_t j = 0; j < dd; ++j) orow[j] = (l[j] > 0.f) ? acc[j] / l[j] : 0.f;
+      for (int64_t j = 0; j < dd; ++j)
+        orow[j] = (m[j] != -INFINITY && l[j] > 0.f) ? acc[j] / l[j] : 0.f;   // all-masked (m stays -inf) -> 0, matching C1
     }
   });
   return out;

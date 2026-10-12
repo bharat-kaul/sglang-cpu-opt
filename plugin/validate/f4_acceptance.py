@@ -219,6 +219,19 @@ def manifest():
                   "build": _build_masked_compressor,
                   "cand": lambda kv, sc, ape: cp.compressor_softmax_pool(kv, sc, ape),
                   "ora": _ora_compressor, "out": ((lambda: (8, 512)), torch.float32)})
+    # D1 hand-inlined AVX-512 exp candidate (compressor_softmax_pool_fp32intrin): SAME fp32 oracle + the SAME
+    # gated checks (contract/finiteness/determinism) + screening as the shipped scalar C1 path. Validates the
+    # SKILL-retry throughput kernel (job 385022) against the overlap(-inf) mask before any promotion.
+    for (R, D) in ((128, 512), (8, 512), (8, 128)):
+        for d in ("normal", "heavy"):
+            cases.append({"op": "compressor", "path": f"fp32intrin/r{R}d{D}", "kind": "continuous", "dist": d,
+                          "build": (lambda R=R, D=D, d=d: (_dist(d, 8, R, D), _dist(d, 8, R, D), _dist(d, R, D))),
+                          "cand": lambda kv, sc, ape: cp.compressor_softmax_pool_fp32intrin(kv, sc, ape),
+                          "ora": _ora_compressor, "out": ((lambda D=D: (8, D)), torch.float32)})
+    cases.append({"op": "compressor", "path": "fp32intrin/masked_r128", "kind": "continuous_masked", "dist": "normal",
+                  "build": _build_masked_compressor,
+                  "cand": lambda kv, sc, ape: cp.compressor_softmax_pool_fp32intrin(kv, sc, ape),
+                  "ora": _ora_compressor, "out": ((lambda: (8, 512)), torch.float32)})
 
     # sinkhorn pre/post/comb
     for M in (1, 8):
