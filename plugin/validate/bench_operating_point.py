@@ -109,8 +109,9 @@ def main():
                 "speedup_stream": round(ts / cs, 2) if cs else 0, "floor_us": round(floor, 3),
                 "pct_roof_stream": round(100 * floor / cs, 1) if cs else 0}
             print(f"{name:>16} {M:>4} {cw:7.1f} {cs:7.1f} {tw:7.1f} {ts:7.1f} {ts/cs:5.2f}x {floor:8.3f} {100*floor/cs:5.1f}%")
-    json.dump(out, open(os.path.join(HERE, "results", "operating_point.json"), "w"), indent=1)
-    print("wrote results/operating_point.json")
+    out_path = os.environ.get("OP_OUT", os.path.join(HERE, "results", "operating_point.json"))
+    json.dump(out, open(out_path, "w"), indent=1)
+    print("wrote", out_path)
 
 
 if __name__ == "__main__":

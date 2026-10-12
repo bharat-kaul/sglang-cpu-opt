@@ -20,36 +20,36 @@
 <text x="325.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=16</text>
 <text x="452.5" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=32</text>
 <text x="580.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=64</text>
-<polyline fill="none" stroke="#1f77b4" stroke-width="2" points="70.0,366.5 197.5,356.2 325.0,342.3 452.5,317.1 580.0,295.4"/>
+<polyline fill="none" stroke="#1f77b4" stroke-width="2" points="70.0,366.5 197.5,356.4 325.0,342.5 452.5,319.6 580.0,293.1"/>
 <circle cx="70.0" cy="366.5" r="3" fill="#1f77b4"/>
-<circle cx="197.5" cy="356.2" r="3" fill="#1f77b4"/>
-<circle cx="325.0" cy="342.3" r="3" fill="#1f77b4"/>
-<circle cx="452.5" cy="317.1" r="3" fill="#1f77b4"/>
-<circle cx="580.0" cy="295.4" r="3" fill="#1f77b4"/>
+<circle cx="197.5" cy="356.4" r="3" fill="#1f77b4"/>
+<circle cx="325.0" cy="342.5" r="3" fill="#1f77b4"/>
+<circle cx="452.5" cy="319.6" r="3" fill="#1f77b4"/>
+<circle cx="580.0" cy="293.1" r="3" fill="#1f77b4"/>
 <rect x="594" y="57" width="12" height="12" fill="#1f77b4"/>
 <text x="610.0" y="67.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">indexer logits†</text>
-<polyline fill="none" stroke="#ff7f0e" stroke-width="2" points="70.0,369.1 197.5,368.4 325.0,367.1 452.5,364.2 580.0,358.1"/>
-<circle cx="70.0" cy="369.1" r="3" fill="#ff7f0e"/>
+<polyline fill="none" stroke="#ff7f0e" stroke-width="2" points="70.0,369.3 197.5,368.4 325.0,367.0 452.5,364.4 580.0,358.1"/>
+<circle cx="70.0" cy="369.3" r="3" fill="#ff7f0e"/>
 <circle cx="197.5" cy="368.4" r="3" fill="#ff7f0e"/>
-<circle cx="325.0" cy="367.1" r="3" fill="#ff7f0e"/>
-<circle cx="452.5" cy="364.2" r="3" fill="#ff7f0e"/>
+<circle cx="325.0" cy="367.0" r="3" fill="#ff7f0e"/>
+<circle cx="452.5" cy="364.4" r="3" fill="#ff7f0e"/>
 <circle cx="580.0" cy="358.1" r="3" fill="#ff7f0e"/>
 <rect x="594" y="75" width="12" height="12" fill="#ff7f0e"/>
 <text x="610.0" y="85.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">indexer top-k</text>
-<polyline fill="none" stroke="#2ca02c" stroke-width="2" points="70.0,344.8 197.5,259.5 325.0,206.0 452.5,140.3 580.0,111.7"/>
-<circle cx="70.0" cy="344.8" r="3" fill="#2ca02c"/>
-<circle cx="197.5" cy="259.5" r="3" fill="#2ca02c"/>
-<circle cx="325.0" cy="206.0" r="3" fill="#2ca02c"/>
-<circle cx="452.5" cy="140.3" r="3" fill="#2ca02c"/>
-<circle cx="580.0" cy="111.7" r="3" fill="#2ca02c"/>
+<polyline fill="none" stroke="#2ca02c" stroke-width="2" points="70.0,342.9 197.5,257.9 325.0,195.7 452.5,124.6 580.0,60.0"/>
+<circle cx="70.0" cy="342.9" r="3" fill="#2ca02c"/>
+<circle cx="197.5" cy="257.9" r="3" fill="#2ca02c"/>
+<circle cx="325.0" cy="195.7" r="3" fill="#2ca02c"/>
+<circle cx="452.5" cy="124.6" r="3" fill="#2ca02c"/>
+<circle cx="580.0" cy="60.0" r="3" fill="#2ca02c"/>
 <rect x="594" y="93" width="12" height="12" fill="#2ca02c"/>
 <text x="610.0" y="103.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">compressor</text>
-<polyline fill="none" stroke="#d62728" stroke-width="2" points="70.0,344.4 197.5,255.7 325.0,207.1 452.5,179.5 580.0,160.3"/>
-<circle cx="70.0" cy="344.4" r="3" fill="#d62728"/>
-<circle cx="197.5" cy="255.7" r="3" fill="#d62728"/>
-<circle cx="325.0" cy="207.1" r="3" fill="#d62728"/>
-<circle cx="452.5" cy="179.5" r="3" fill="#d62728"/>
-<circle cx="580.0" cy="160.3" r="3" fill="#d62728"/>
+<polyline fill="none" stroke="#d62728" stroke-width="2" points="70.0,345.1 197.5,246.5 325.0,225.7 452.5,184.2 580.0,158.0"/>
+<circle cx="70.0" cy="345.1" r="3" fill="#d62728"/>
+<circle cx="197.5" cy="246.5" r="3" fill="#d62728"/>
+<circle cx="325.0" cy="225.7" r="3" fill="#d62728"/>
+<circle cx="452.5" cy="184.2" r="3" fill="#d62728"/>
+<circle cx="580.0" cy="158.0" r="3" fill="#d62728"/>
 <rect x="594" y="111" width="12" height="12" fill="#d62728"/>
 <text x="610.0" y="121.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">sparse attend†</text>
 <polyline fill="none" stroke="#9467bd" stroke-width="2" points="70.0,370.0 197.5,369.9 325.0,369.9 452.5,369.8 580.0,369.6"/>
@@ -60,12 +60,12 @@
 <circle cx="580.0" cy="369.6" r="3" fill="#9467bd"/>
 <rect x="594" y="129" width="12" height="12" fill="#9467bd"/>
 <text x="610.0" y="139.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">MHC sinkhorn</text>
-<polyline fill="none" stroke="#8c564b" stroke-width="2" points="70.0,365.0 197.5,347.6 325.0,322.2 452.5,277.4 580.0,217.3"/>
-<circle cx="70.0" cy="365.0" r="3" fill="#8c564b"/>
-<circle cx="197.5" cy="347.6" r="3" fill="#8c564b"/>
-<circle cx="325.0" cy="322.2" r="3" fill="#8c564b"/>
-<circle cx="452.5" cy="277.4" r="3" fill="#8c564b"/>
-<circle cx="580.0" cy="217.3" r="3" fill="#8c564b"/>
+<polyline fill="none" stroke="#8c564b" stroke-width="2" points="70.0,364.3 197.5,346.5 325.0,327.0 452.5,283.8 580.0,214.1"/>
+<circle cx="70.0" cy="364.3" r="3" fill="#8c564b"/>
+<circle cx="197.5" cy="346.5" r="3" fill="#8c564b"/>
+<circle cx="325.0" cy="327.0" r="3" fill="#8c564b"/>
+<circle cx="452.5" cy="283.8" r="3" fill="#8c564b"/>
+<circle cx="580.0" cy="214.1" r="3" fill="#8c564b"/>
 <rect x="594" y="147" width="12" height="12" fill="#8c564b"/>
 <text x="610.0" y="157.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">MHC combine</text>
 </svg>

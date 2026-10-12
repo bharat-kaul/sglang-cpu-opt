@@ -1,5 +1,5 @@
 {
- "_schema": "Operating-point regen after the reopt wave: PROMOTED variant per kernel, 512-bit flags, WARM + STREAMING (LLC-flushed, reliable) us vs the torch baseline. speedup uses STREAMING. floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak; %roof = floor/stream (streaming).",
+ "_schema": "Operating-point regen after the reopt wave: PROMOTED variant per kernel, 512-bit flags, WARM + STREAMING (LLC-flushed, reliable) us vs the torch baseline. speedup uses STREAMING. floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak; %roof = floor/stream (streaming).  [3-replicate CROSS-RUN MEDIAN, jobs 385065-67]",
  "flags": [
   "-O3",
   "-fopenmp",
@@ -7,8 +7,8 @@
   "-mprefer-vector-width=512",
   "-DCPU_CAPABILITY_AVX512"
  ],
- "node": "pcl-sprh04.sc.intel.com",
- "job": "385059",
+ "node": "pcl-sprh02.sc.intel.com",
+ "job": "385065",
  "kernels": {
   "indexer_logits": {
    "pretty": "indexer logits",
@@ -16,49 +16,49 @@
    "authored": "oneDNN BRGEMM + authored epilogue (512-bit)",
    "M": {
     "1": {
-     "cpp_warm_us": 100.2,
-     "cpp_stream_us": 140.1,
-     "torch_warm_us": 1245.7,
-     "torch_stream_us": 4269.8,
-     "speedup_stream": 30.47,
+     "cpp_warm_us": 100.3,
+     "cpp_stream_us": 138.7,
+     "torch_warm_us": 1257.5,
+     "torch_stream_us": 4299.5,
+     "speedup_stream": 31.0,
      "floor_us": 1.566,
      "pct_roof_stream": 1.1
     },
     "8": {
-     "cpp_warm_us": 195.5,
-     "cpp_stream_us": 281.5,
-     "torch_warm_us": 190.7,
-     "torch_stream_us": 271.6,
-     "speedup_stream": 0.97,
+     "cpp_warm_us": 195.2,
+     "cpp_stream_us": 286.0,
+     "torch_warm_us": 187.3,
+     "torch_stream_us": 305.9,
+     "speedup_stream": 1.07,
      "floor_us": 12.531,
-     "pct_roof_stream": 4.5
+     "pct_roof_stream": 4.4
     },
     "16": {
-     "cpp_warm_us": 207.1,
-     "cpp_stream_us": 280.1,
-     "torch_warm_us": 206.3,
-     "torch_stream_us": 292.6,
-     "speedup_stream": 1.04,
+     "cpp_warm_us": 208.7,
+     "cpp_stream_us": 282.3,
+     "torch_warm_us": 351.7,
+     "torch_stream_us": 446.5,
+     "speedup_stream": 1.58,
      "floor_us": 25.063,
      "pct_roof_stream": 8.9
     },
     "32": {
-     "cpp_warm_us": 238.0,
-     "cpp_stream_us": 293.5,
-     "torch_warm_us": 629.2,
-     "torch_stream_us": 810.0,
-     "speedup_stream": 2.76,
+     "cpp_warm_us": 228.3,
+     "cpp_stream_us": 308.6,
+     "torch_warm_us": 489.2,
+     "torch_stream_us": 875.6,
+     "speedup_stream": 2.84,
      "floor_us": 50.126,
-     "pct_roof_stream": 17.1
+     "pct_roof_stream": 16.2
     },
     "64": {
-     "cpp_warm_us": 298.5,
-     "cpp_stream_us": 416.8,
-     "torch_warm_us": 782.4,
-     "torch_stream_us": 882.1,
-     "speedup_stream": 2.12,
+     "cpp_warm_us": 298.3,
+     "cpp_stream_us": 404.2,
+     "torch_warm_us": 308.4,
+     "torch_stream_us": 430.3,
+     "speedup_stream": 1.06,
      "floor_us": 100.251,
-     "pct_roof_stream": 24.1
+     "pct_roof_stream": 24.8
     }
    }
   },
@@ -69,46 +69,46 @@
    "M": {
     "1": {
      "cpp_warm_us": 3.0,
-     "cpp_stream_us": 7.9,
-     "torch_warm_us": 10.1,
-     "torch_stream_us": 19.4,
-     "speedup_stream": 2.45,
+     "cpp_stream_us": 10.5,
+     "torch_warm_us": 6.1,
+     "torch_stream_us": 18.7,
+     "speedup_stream": 1.78,
      "floor_us": 0.023,
-     "pct_roof_stream": 0.3
+     "pct_roof_stream": 0.2
     },
     "8": {
-     "cpp_warm_us": 15.0,
-     "cpp_stream_us": 36.5,
-     "torch_warm_us": 43.5,
-     "torch_stream_us": 116.0,
-     "speedup_stream": 3.17,
+     "cpp_warm_us": 14.9,
+     "cpp_stream_us": 35.4,
+     "torch_warm_us": 42.7,
+     "torch_stream_us": 111.2,
+     "speedup_stream": 3.14,
      "floor_us": 0.183,
      "pct_roof_stream": 0.5
     },
     "16": {
      "cpp_warm_us": 15.3,
-     "cpp_stream_us": 38.6,
-     "torch_warm_us": 155.5,
-     "torch_stream_us": 232.3,
-     "speedup_stream": 6.01,
+     "cpp_stream_us": 38.3,
+     "torch_warm_us": 156.4,
+     "torch_stream_us": 221.9,
+     "speedup_stream": 5.79,
      "floor_us": 0.366,
-     "pct_roof_stream": 0.9
+     "pct_roof_stream": 1.0
     },
     "32": {
-     "cpp_warm_us": 14.6,
-     "cpp_stream_us": 39.0,
-     "torch_warm_us": 274.8,
-     "torch_stream_us": 489.1,
-     "speedup_stream": 12.54,
+     "cpp_warm_us": 12.8,
+     "cpp_stream_us": 40.8,
+     "torch_warm_us": 273.4,
+     "torch_stream_us": 419.6,
+     "speedup_stream": 10.28,
      "floor_us": 0.731,
-     "pct_roof_stream": 1.9
+     "pct_roof_stream": 1.8
     },
     "64": {
-     "cpp_warm_us": 16.2,
-     "cpp_stream_us": 38.2,
-     "torch_warm_us": 403.7,
-     "torch_stream_us": 497.7,
-     "speedup_stream": 13.02,
+     "cpp_warm_us": 14.2,
+     "cpp_stream_us": 38.1,
+     "torch_warm_us": 402.1,
+     "torch_stream_us": 499.5,
+     "speedup_stream": 13.11,
      "floor_us": 1.463,
      "pct_roof_stream": 3.8
     }
@@ -120,49 +120,49 @@
    "authored": "pure-authored, hand-inlined Cephes exp (D1)",
    "M": {
     "1": {
-     "cpp_warm_us": 14.0,
-     "cpp_stream_us": 27.1,
-     "torch_warm_us": 214.2,
-     "torch_stream_us": 254.7,
-     "speedup_stream": 9.39,
+     "cpp_warm_us": 15.5,
+     "cpp_stream_us": 25.2,
+     "torch_warm_us": 212.1,
+     "torch_stream_us": 244.5,
+     "speedup_stream": 9.7,
      "floor_us": 2.2,
-     "pct_roof_stream": 8.1
+     "pct_roof_stream": 8.7
     },
     "8": {
-     "cpp_warm_us": 20.9,
-     "cpp_stream_us": 35.0,
-     "torch_warm_us": 193.2,
-     "torch_stream_us": 204.7,
-     "speedup_stream": 5.85,
+     "cpp_warm_us": 21.4,
+     "cpp_stream_us": 34.5,
+     "torch_warm_us": 194.7,
+     "torch_stream_us": 198.0,
+     "speedup_stream": 5.74,
      "floor_us": 12.48,
-     "pct_roof_stream": 35.7
+     "pct_roof_stream": 36.2
     },
     "16": {
-     "cpp_warm_us": 25.8,
-     "cpp_stream_us": 45.8,
-     "torch_warm_us": 265.9,
-     "torch_stream_us": 256.3,
-     "speedup_stream": 5.59,
+     "cpp_warm_us": 26.6,
+     "cpp_stream_us": 43.1,
+     "torch_warm_us": 263.5,
+     "torch_stream_us": 249.2,
+     "speedup_stream": 5.78,
      "floor_us": 24.229,
-     "pct_roof_stream": 52.9
+     "pct_roof_stream": 56.2
     },
     "32": {
-     "cpp_warm_us": 45.5,
-     "cpp_stream_us": 64.4,
-     "torch_warm_us": 288.6,
-     "torch_stream_us": 338.8,
-     "speedup_stream": 5.26,
+     "cpp_warm_us": 36.0,
+     "cpp_stream_us": 60.3,
+     "torch_warm_us": 294.4,
+     "torch_stream_us": 327.6,
+     "speedup_stream": 5.43,
      "floor_us": 47.726,
-     "pct_roof_stream": 74.2
+     "pct_roof_stream": 79.1
     },
     "64": {
-     "cpp_warm_us": 54.1,
-     "cpp_stream_us": 113.7,
-     "torch_warm_us": 160.5,
-     "torch_stream_us": 368.7,
-     "speedup_stream": 3.24,
+     "cpp_warm_us": 54.4,
+     "cpp_stream_us": 92.2,
+     "torch_warm_us": 164.4,
+     "torch_stream_us": 400.1,
+     "speedup_stream": 4.34,
      "floor_us": 94.72,
-     "pct_roof_stream": 83.3
+     "pct_roof_stream": 102.7
     }
    }
   },
@@ -172,49 +172,49 @@
    "authored": "oneDNN at::bmm + hand-exp softmax (bestof_hx)",
    "M": {
     "1": {
-     "cpp_warm_us": 78.2,
-     "cpp_stream_us": 104.4,
-     "torch_warm_us": 226.5,
-     "torch_stream_us": 388.8,
-     "speedup_stream": 3.72,
+     "cpp_warm_us": 75.1,
+     "cpp_stream_us": 107.3,
+     "torch_warm_us": 228.5,
+     "torch_stream_us": 384.5,
+     "speedup_stream": 3.58,
      "floor_us": 8.623,
-     "pct_roof_stream": 8.3
+     "pct_roof_stream": 8.0
     },
     "8": {
-     "cpp_warm_us": 137.6,
-     "cpp_stream_us": 187.1,
-     "torch_warm_us": 313.4,
-     "torch_stream_us": 430.4,
-     "speedup_stream": 2.3,
+     "cpp_warm_us": 135.9,
+     "cpp_stream_us": 173.2,
+     "torch_warm_us": 304.2,
+     "torch_stream_us": 428.4,
+     "speedup_stream": 2.47,
      "floor_us": 68.985,
-     "pct_roof_stream": 36.9
+     "pct_roof_stream": 39.8
     },
     "16": {
-     "cpp_warm_us": 220.9,
-     "cpp_stream_us": 262.5,
-     "torch_warm_us": 397.8,
-     "torch_stream_us": 549.5,
-     "speedup_stream": 2.09,
+     "cpp_warm_us": 220.5,
+     "cpp_stream_us": 296.4,
+     "torch_warm_us": 390.9,
+     "torch_stream_us": 547.5,
+     "speedup_stream": 1.85,
      "floor_us": 137.971,
-     "pct_roof_stream": 52.6
+     "pct_roof_stream": 46.5
     },
     "32": {
-     "cpp_warm_us": 365.3,
-     "cpp_stream_us": 449.0,
-     "torch_warm_us": 509.8,
-     "torch_stream_us": 667.1,
+     "cpp_warm_us": 362.6,
+     "cpp_stream_us": 460.3,
+     "torch_warm_us": 538.9,
+     "torch_stream_us": 686.2,
      "speedup_stream": 1.49,
      "floor_us": 275.941,
-     "pct_roof_stream": 61.5
+     "pct_roof_stream": 59.9
     },
     "64": {
-     "cpp_warm_us": 634.1,
-     "cpp_stream_us": 815.7,
-     "torch_warm_us": 807.5,
-     "torch_stream_us": 1099.3,
-     "speedup_stream": 1.35,
+     "cpp_warm_us": 626.7,
+     "cpp_stream_us": 807.0,
+     "torch_warm_us": 811.3,
+     "torch_stream_us": 1066.5,
+     "speedup_stream": 1.32,
      "floor_us": 551.882,
-     "pct_roof_stream": 67.7
+     "pct_roof_stream": 68.4
     }
    }
   },
@@ -224,47 +224,47 @@
    "authored": "pure-authored fused recurrence",
    "M": {
     "1": {
-     "cpp_warm_us": 4.9,
-     "cpp_stream_us": 13.6,
-     "torch_warm_us": 228.6,
-     "torch_stream_us": 594.1,
-     "speedup_stream": 43.54,
+     "cpp_warm_us": 3.4,
+     "cpp_stream_us": 10.0,
+     "torch_warm_us": 227.8,
+     "torch_stream_us": 456.1,
+     "speedup_stream": 45.61,
      "floor_us": 0.001,
      "pct_roof_stream": 0.0
     },
     "8": {
-     "cpp_warm_us": 16.5,
-     "cpp_stream_us": 25.3,
-     "torch_warm_us": 248.0,
-     "torch_stream_us": 394.3,
-     "speedup_stream": 15.61,
+     "cpp_warm_us": 17.0,
+     "cpp_stream_us": 25.4,
+     "torch_warm_us": 238.6,
+     "torch_stream_us": 569.7,
+     "speedup_stream": 22.43,
      "floor_us": 0.005,
      "pct_roof_stream": 0.0
     },
     "16": {
-     "cpp_warm_us": 13.4,
-     "cpp_stream_us": 23.3,
-     "torch_warm_us": 249.6,
-     "torch_stream_us": 383.7,
-     "speedup_stream": 16.48,
+     "cpp_warm_us": 16.9,
+     "cpp_stream_us": 26.1,
+     "torch_warm_us": 250.1,
+     "torch_stream_us": 397.1,
+     "speedup_stream": 15.21,
      "floor_us": 0.009,
      "pct_roof_stream": 0.0
     },
     "32": {
-     "cpp_warm_us": 13.3,
-     "cpp_stream_us": 28.4,
-     "torch_warm_us": 278.8,
-     "torch_stream_us": 790.4,
-     "speedup_stream": 27.81,
+     "cpp_warm_us": 16.4,
+     "cpp_stream_us": 25.4,
+     "torch_warm_us": 280.1,
+     "torch_stream_us": 640.3,
+     "speedup_stream": 25.21,
      "floor_us": 0.017,
      "pct_roof_stream": 0.1
     },
     "64": {
-     "cpp_warm_us": 14.9,
-     "cpp_stream_us": 29.1,
-     "torch_warm_us": 319.2,
-     "torch_stream_us": 835.1,
-     "speedup_stream": 28.74,
+     "cpp_warm_us": 15.3,
+     "cpp_stream_us": 27.8,
+     "torch_warm_us": 325.8,
+     "torch_stream_us": 607.9,
+     "speedup_stream": 21.87,
      "floor_us": 0.035,
      "pct_roof_stream": 0.1
     }
@@ -276,51 +276,52 @@
    "authored": "pure-authored accumulate-once",
    "M": {
     "1": {
-     "cpp_warm_us": 6.3,
-     "cpp_stream_us": 14.1,
-     "torch_warm_us": 22.9,
-     "torch_stream_us": 49.4,
-     "speedup_stream": 3.49,
+     "cpp_warm_us": 3.0,
+     "cpp_stream_us": 12.5,
+     "torch_warm_us": 15.6,
+     "torch_stream_us": 46.3,
+     "speedup_stream": 3.7,
      "floor_us": 0.229,
-     "pct_roof_stream": 1.6
+     "pct_roof_stream": 1.8
     },
     "8": {
-     "cpp_warm_us": 13.1,
-     "cpp_stream_us": 25.3,
-     "torch_warm_us": 26.4,
-     "torch_stream_us": 52.5,
-     "speedup_stream": 2.08,
+     "cpp_warm_us": 12.8,
+     "cpp_stream_us": 24.1,
+     "torch_warm_us": 25.9,
+     "torch_stream_us": 67.1,
+     "speedup_stream": 2.78,
      "floor_us": 1.829,
-     "pct_roof_stream": 7.2
+     "pct_roof_stream": 7.6
     },
     "16": {
      "cpp_warm_us": 12.8,
-     "cpp_stream_us": 23.7,
-     "torch_warm_us": 26.6,
-     "torch_stream_us": 51.6,
-     "speedup_stream": 2.18,
+     "cpp_stream_us": 26.4,
+     "torch_warm_us": 36.4,
+     "torch_stream_us": 66.5,
+     "speedup_stream": 2.52,
      "floor_us": 3.658,
-     "pct_roof_stream": 15.5
+     "pct_roof_stream": 13.9
     },
     "32": {
-     "cpp_warm_us": 13.2,
-     "cpp_stream_us": 24.5,
-     "torch_warm_us": 36.5,
-     "torch_stream_us": 59.6,
-     "speedup_stream": 2.43,
+     "cpp_warm_us": 14.0,
+     "cpp_stream_us": 26.3,
+     "torch_warm_us": 36.3,
+     "torch_stream_us": 67.1,
+     "speedup_stream": 2.55,
      "floor_us": 7.316,
-     "pct_roof_stream": 29.8
+     "pct_roof_stream": 27.8
     },
     "64": {
-     "cpp_warm_us": 15.7,
-     "cpp_stream_us": 29.7,
-     "torch_warm_us": 37.8,
-     "torch_stream_us": 62.3,
-     "speedup_stream": 2.09,
+     "cpp_warm_us": 16.7,
+     "cpp_stream_us": 29.1,
+     "torch_warm_us": 28.0,
+     "torch_stream_us": 58.1,
+     "speedup_stream": 2.0,
      "floor_us": 14.631,
-     "pct_roof_stream": 49.2
+     "pct_roof_stream": 50.3
     }
    }
   }
- }
+ },
+ "replicates": 3
 }

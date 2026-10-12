@@ -45,6 +45,47 @@ condition is met and gating every step against the measured roofline.
 > validated/cited" against the artifact + real source before writing it). Stops the multi-round review
 > FAIL spiral (patching the last counterexample while the vulnerability class stays open).
 
+> **⛔ KERNEL-OPTIMIZATION META-LEARNINGS (distilled from the DSv4 compressor retry + full kernel-set wave;
+> GENERALIZABLE to any model's standalone-kernel phase — apply BEFORE and DURING per-op work).**
+> 1. **CLASSIFY EACH KERNEL'S REGIME BEFORE ASSUMING HEADROOM.** The same campaign gave a 4.8× on one kernel
+>    (compressor — exp-compute-bound AND unvectorized) and ~0 on three others (selection / dispatch / cache-
+>    resident, already at ceiling). "At ceiling" is a VALID, required outcome — report it, do not invent
+>    headroom the regime forbids. Measure each kernel's regime (BW / compute / selection / dispatch / cache);
+>    never extrapolate one kernel's win to the set.
+> 2. **A ROOFLINE-% / "bound" LABEL CAN BE WRONG — question a surprising one.** The compressor was labeled
+>    "27% of roofline / BW-bound" but was actually exp-compute-bound AND cache-resident (17 MB fits L3), so the
+>    nominal DRAM roofline was the WRONG ceiling. Two cheap checks catch it: (a) WORKING-SET vs LLC (set < L3 ⇒
+>    not DRAM-bound); (b) PHYSICS sanity (measured BW ABOVE DRAM peak ⇒ cache-resident, not a win). Beating your
+>    own "floor" means the floor was computed against the wrong level of the memory hierarchy.
+> 3. **STREAMING (cold-cache) IS THE RELIABLE STANDALONE NUMBER.** Warm buffer reuse re-reads an L3-resident
+>    set from cache and flatters the result (compressor warm 37µs vs cold 62µs = 77% DRAM roof). Flush ≥2× LLC
+>    before every timed call; quote warm only as a labeled secondary (the fused-pipeline, GEMM-just-wrote case).
+> 4. **VERIFY THE BUILD/ISA, NOT JUST THE SOURCE.** `objdump %zmm` the built `.so`: gcc defaults to 256-bit and
+>    `at::vec` falls back to AVX2 in a JIT extension unless `-mprefer-vector-width=512 -DCPU_CAPABILITY_AVX512`.
+>    A "vectorized" variant that was actually built 256-bit was wrongly rejected once — measure the real binary.
+> 5. **TRANSCENDENTAL REPLACEMENT: inline it, bound it, keep both.** Replacing a `libm`/`at::vec`/Sleef `exp`
+>    CALL with an INLINED minimax (Cephes) removed the call boundary and was the whole compressor win (2.2×).
+>    But: use an INDUSTRY-STANDARD polynomial; MEASURE the ULP vs an fp64 reference over the REAL arg range
+>    (~1 ULP bar for exp — 0.5 ULP / correctly-rounded is impractical and not met by the reference stack either,
+>    GPU `ex2.approx` ≈ 2 ULP); GUARD the edge cases the clamp breaks (`exp(-inf) → ~1e-38`, not 0 → all-masked
+>    guard); and KEEP BOTH the exact-`libm` (bit-exact oracle) and approx variants for the end-to-end accuracy
+>    A/B — never delete the exact path.
+> 6. **GROUND A PRECISION/ALGORITHM CHANGE IN THE AUTHORITATIVE REFERENCE BEFORE ADOPTING IT.** "Run the pool in
+>    bf16" looked plausible, but the real `model.py` says `x = x.float()  # compression need fp32` and there is
+>    NO GPU compressor kernel; the bf16→fp32-exp pattern is the ATTENTION/indexer pattern, NOT the compressor.
+>    A pattern from one op does NOT transfer to another — read the source op, don't assume. (bf16 also MEASURED
+>    a non-win here: same speed, error 4 orders worse — because `exp` must be fp32 regardless.)
+> 7. **ONE CONSISTENT SOURCE FOR THE PUBLISHED PAGE.** Never mix numbers from different jobs / build-configs /
+>    methodologies in one comparison (the page once showed 176µs in §1 and 62µs in §4). Regenerate the whole
+>    artifact from ONE job; label single-run; REPLICATE and flag the noisiest column (torch baselines under
+>    streaming allocate temporaries → run ≥3× and take the cross-run median).
+> 8. **AN APPROXIMATION'S CORRECTNESS IS THE GATE + EDGE CASES — not "faster and looks accurate on random
+>    data."** The hand-`exp` was trusted only after the F4 hard gates (contract/finiteness/DETERMINISM/mask),
+>    the all-masked guard, AND the measured ULP. Random-input accuracy HID the masked edge case until it was
+>    inspected by hand — always red-team the edge the approximation changes.
+> These are mechanized by: `kernel-authoring` (co-design rules 1–2 = streaming + objdump; transcendental/ULP
+> rule), the CYCLE-EXIT standalone-kernel-page deliverable (below), and `shared/adversarial-self-audit`.
+
 > **North-star deliverable (both legs).** Enablement is "done" ONLY when the new model
 > RUNS end-to-end on CPU, is ACCURACY-parity vs a trusted reference (accuracy-oracle,
 > real weights), AND ships a published ROOFLINE-TARGET-vs-MEASURED perf artifact at a

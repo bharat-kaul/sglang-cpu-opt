@@ -5,7 +5,8 @@ point **(M=32 decode batch, input S=1024, output G=256)**: for each kernel we sh
 the **baseline** (the torch op it replaces), and the **C/C++ speedup** — with oneDNN/MKL use called out.
 All latencies are **streaming (cold-cache, LLC-flushed per call)** — the reliable methodology: warm-cache
 reuse lets an L3-resident working set be re-read from cache and hides the real DRAM ceiling. From
-[operating_point.json](../plugin/validate/results/operating_point.json) (EMR job 385059, the **promoted
+[operating_point.json](../plugin/validate/results/operating_point.json) (EMR, **3-replicate cross-run median**,
+jobs 385065–67, the **promoted
 variant** per kernel + **512-bit build flags**, via [bench_operating_point.py](../plugin/validate/bench_operating_point.py));
 regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kernel_pilot_plots.py).
 
@@ -14,8 +15,8 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 > reference** (BW 358.4 GB/s, AMX bf16 124.5 TF, FP32 7.78 TF @ 1.9 GHz base) — **not a measured achievable
 > ceiling**, so "% of roofline" means "% of nominal reference." (3) `indexer logits` and `sparse attend`
 > (**†**) reuse a **oneDNN/MKL GEMM donor** and author the fused epilogue; the other four are **pure-authored**
-> (no library GEMM). (4) Standalone microbench, single job. Correctness is tracked separately (F4) and remains
-> **PARTIAL** (promotion **BLOCKED**); the hand-`exp` kernels retain **both** the exact-libm path (bit-exact
+> (no library GEMM). (4) Standalone microbench, **3-replicate cross-run median** (jobs 385065–67). Correctness
+> is tracked separately (F4) and remains **PARTIAL** (promotion **BLOCKED**); the hand-`exp` kernels retain **both** the exact-libm path (bit-exact
 > oracle) and the Cephes path (~1 ULP, measured) for end-to-end accuracy A/B.
 
 ## 1. Per-kernel at the operating point (M=32, S=1024, streaming): roofline vs baseline vs C/C++
@@ -24,12 +25,12 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 
 | kernel | implementation | baseline (torch) µs | C/C++ µs | **speedup** | roofline floor µs | % of roofline |
 |---|---|---:|---:|---:|---:|---:|
-| indexer logits † | oneDNN BRGEMM + authored epilogue (512-bit) | 810 | 293 | **2.8×** | 50.1 | 17% |
-| indexer top-k | pure-authored (`nth_element` selection) | 489 | 39 | **12.5×** | 0.73 | 2% |
-| compressor | pure-authored (hand-inlined Cephes `exp`) | 339 | 64 | **5.3×** | 47.7 | 74% |
-| sparse attend † | oneDNN `at::bmm` + hand-`exp` softmax/sink | 667 | 449 | **1.5×** | 275.9 | 61% |
-| MHC sinkhorn | pure-authored (fused recurrence) | 790 | 28 | **27.8×** | 0.017 | 0% |
-| MHC combine | pure-authored (accumulate-once) | 60 | 25 | **2.4×** | 7.3 | 30% |
+| indexer logits † | oneDNN BRGEMM + authored epilogue (512-bit) | 876 | 309 | **2.8×** | 50.1 | 16% |
+| indexer top-k | pure-authored (`nth_element` selection) | 420 | 41 | **10.3×** | 0.73 | 2% |
+| compressor | pure-authored (hand-inlined Cephes `exp`) | 328 | 60 | **5.4×** | 47.7 | 79% |
+| sparse attend † | oneDNN `at::bmm` + hand-`exp` softmax/sink | 686 | 460 | **1.5×** | 275.9 | 60% |
+| MHC sinkhorn | pure-authored (fused recurrence) | 640 | 25 | **25.2×** | 0.017 | 0% |
+| MHC combine | pure-authored (accumulate-once) | 67 | 26 | **2.5×** | 7.3 | 28% |
 
 The two **oneDNN-donor** kernels (†) are GEMM-bound; the authored gain is the fused epilogue, plus — for
 sparse — the **hand-inlined Cephes `exp`** in the softmax. The four **pure-authored** kernels get the large
@@ -55,17 +56,17 @@ is the "how close to the metal, and does more work help?" view.
 For each of the six kernels: **(a)** the roofline floor (byte/FLOP contract vs nominal peak, at M=32 unless
 noted), **(b)** the baseline torch op it replaces and why it is slow, and **(c)** the authored C/C++ and the
 optimizations. All numbers are M=32, S=1024, **streaming**, from
-[operating_point.json](../plugin/validate/results/operating_point.json) (job 385059, promoted variants + 512-bit
+[operating_point.json](../plugin/validate/results/operating_point.json) (3-replicate median jobs 385065–67, promoted variants + 512-bit
 flags); floor = `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achievable ceiling).
 
 | kernel | bound | floor µs | C/C++ µs | % roof | baseline µs | speedup |
 |---|---|---:|---:|---:|---:|---:|
-| 3.1 indexer logits † | BW (AMX) | 50.1 | 293 | 17% | 810 | 2.8× |
-| 3.2 indexer top-k | selection | 0.73 | 39 | 2% | 489 | 12.5× |
-| 3.3 compressor | BW (FP32) | 47.7 | 64 | 74% | 339 | 5.3× |
-| 3.4 sparse attend † | **compute** (FP32) | 275.9 | 449 | 61% | 667 | 1.5× |
-| 3.5 MHC sinkhorn | latency/dispatch | 0.017 | 28 | ~0% | 790 | 27.8× |
-| 3.6 MHC combine | BW (FP32) | 7.3 | 25 | 30% | 60 | 2.4× |
+| 3.1 indexer logits † | BW (AMX) | 50.1 | 309 | 16% | 876 | 2.8× |
+| 3.2 indexer top-k | selection | 0.73 | 41 | 2% | 420 | 10.3× |
+| 3.3 compressor | BW (FP32) | 47.7 | 60 | 79% | 328 | 5.4× |
+| 3.4 sparse attend † | **compute** (FP32) | 275.9 | 460 | 60% | 686 | 1.5× |
+| 3.5 MHC sinkhorn | latency/dispatch | 0.017 | 25 | ~0% | 640 | 25.2× |
+| 3.6 MHC combine | BW (FP32) | 7.3 | 26 | 28% | 67 | 2.5× |
 
 ---
 
@@ -76,7 +77,7 @@ flags); floor = `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achi
 
 **Roofline (M=32).** FLOPs = `2·M·H·S·D + 3·M·H·S` = 2·32·64·1024·128 + … ≈ **543 MFLOP**;
 bytes = q`[M,H,D]` + kv`[M,S,D]` + weight + logits = 1.05 + 16.78 + … ≈ **17.97 MB** (the kv read dominates).
-AI ≈ 30 FLOP/byte ≪ AMX ridge 347 → **BW-bound**. Floor = max(17.97 MB/358.4 GB/s = **50.1 µs**, 543 MFLOP/124.5 TF = 4.4 µs) = **50.1 µs**. C/C++ 293 µs = **17%** (streaming); building with the 512-bit flags (`zmm=0→322`) lifted it from 343 → 293 µs.
+AI ≈ 30 FLOP/byte ≪ AMX ridge 347 → **BW-bound**. Floor = max(17.97 MB/358.4 GB/s = **50.1 µs**, 543 MFLOP/124.5 TF = 4.4 µs) = **50.1 µs**. C/C++ 309 µs = **16%** (streaming); building with the 512-bit flags (`zmm=0→322`) lifted it ~1.17×.
 
 **Baseline (torch)** — [bench_replicated.py `_idx_ref`](../plugin/validate/bench_replicated.py#L53):
 ```python
@@ -107,12 +108,12 @@ Select the top-k=512 KV indices per row of `logits[N,S=1024]`. Sparse attention 
 top-k (gather is permutation-invariant), so this is a **selection**, not a sort.
 
 **Roofline (M=32).** FLOPs = 0 (comparisons, not float ops). bytes = logits`[M,S]` + indices`[M,k]` int64 =
-0.13 + 0.13 = **0.26 MB** → floor = 0.26 MB/358.4 GB/s = **0.73 µs**. C/C++ 39 µs = **2%** (streaming) — but a
+0.13 + 0.13 = **0.26 MB** → floor = 0.26 MB/358.4 GB/s = **0.73 µs**. C/C++ 41 µs = **2%** (streaming) — but a
 byte/FLOP roofline is the **wrong ceiling** here: the cost is `O(S)` comparison work + thread dispatch, not
 memory. The 2% is a diagnostic, not a recoverable gap.
 
 **Baseline (torch)** — `torch.topk(logits, 512, dim=1, sorted=False).indices`. torch.topk does a **full
-per-row sort/partition** (and over-returns ordering we discard), 489 µs streaming.
+per-row sort/partition** (and over-returns ordering we discard), 420 µs streaming.
 
 **C/C++** — [indexer_topk.cpp](../plugin/kernels/dsa_pilot/indexer_topk.cpp):
 1. **`std::nth_element` (O(S) selection)** instead of a sort — no ordering computed, just the partition.
@@ -122,7 +123,7 @@ per-row sort/partition** (and over-returns ordering we discard), 489 µs streami
 3. **Guards**: N=1 runs serially (no thread-team spinup, which regressed at M=1); chunking is used only when
    `k ≪ chunk-length` (else the merge is pure overhead).
 
-**Net:** ~12.5× streaming (24× warm) by replacing a sort with a saturating parallel selection. Pure-authored, no library.
+**Net:** ~10.3× streaming (24× warm) by replacing a sort with a saturating parallel selection. Pure-authored, no library.
 
 ---
 
@@ -239,7 +240,7 @@ D3 is the *same speed* as the fp32 D1 (38.3 vs 36.9 µs) but its error jumps to 
 bf16 would only save read bytes, and this op is cache-resident + `exp`-bound, not read-BW-bound. So D1 (fp32,
 hand-exp) is the right answer; bf16 is a conformance regression with no upside.
 
-> **Note.** The §1 table/plots now use the promoted D1 at **streaming** (job 385059, ~64 µs); this §3.3
+> **Note.** The §1 table/plots now use the promoted D1 at **streaming** (3-replicate median, ~60 µs); this §3.3
 > narrative keeps the detailed warm/stream retry from jobs 385022/385039 (62 µs, within single-run variance).
 > **Correctness:** D1 passes the F4 hard gates — output contract,
 > finiteness, run-to-run determinism, and the overlap `−∞` mask case — and screens at 2.4–7.2e-7 (identical
@@ -258,7 +259,7 @@ H=64 heads, D=K=512) with a per-head softmax **sink**. Two GEMMs (`q@kv^T` score
 **Roofline (M=32).** FLOPs = `4·M·H·K·D` = 4·32·64·512·512 ≈ **2.15 GFLOP** (two `H×K×D` GEMMs);
 bytes = kv`[K,D]` + q + out ≈ **41.9 MB**. AI ≈ 51 FLOP/byte **>** FP32 ridge 21.7 → **compute-bound** (the
 only one). Floor = max(2.15 GFLOP/7.78 TF = **275.9 µs**, 41.9 MB/358.4 GB/s = 117 µs) = **275.9 µs**.
-C/C++ 449 µs = **61%** of the FP32 roof (streaming), baseline 667 µs → **1.5×** (small *by design* — it is
+C/C++ 460 µs = **60%** of the FP32 roof (streaming), baseline 686 µs → **1.5×** (small *by design* — it is
 already near the compute ceiling).
 
 **Baseline (torch)** — [`_sparse_ref` → `ora_sparse_fp32`](../plugin/validate/bench_replicated.py#L58): the
@@ -274,11 +275,11 @@ fp32 einsum sparse-attn fallback — two matmuls plus a softmax that allocates f
    N≥2 → the donor-GEMM + fused-softmax path.
 4. **Hand-inlined Cephes `exp` in the softmax** ([`sparse_attend_bestof_hx`](../plugin/kernels/dsa_pilot/sparse_attend.cpp)):
    the same compressor lever — replacing the per-lane `std::exp` with the inlined `exp512_ps` — lifts it
-   **541 → 449 µs** streaming (1.19×). The `exp` was a meaningful share even though the op is GEMM-bound.
+   **541 → 460 µs** streaming (1.18×). The `exp` was a meaningful share even though the op is GEMM-bound.
    ~1 ULP, F4-screened (screens identically to the libm path, §4).
 
 **Net:** compute-bound, so the lever is the library GEMM; the authored contribution is the **fused softmax/
-sink epilogue** (now with a hand-inlined `exp`) over the donor. 61% of the fp32 roof is the realistic
+sink epilogue** (now with a hand-inlined `exp`) over the donor. 60% of the fp32 roof is the realistic
 near-ceiling for this op.
 
 ---
@@ -289,13 +290,13 @@ Per row, build a tiny `hc×hc` (4×4) comb matrix and run 20 Sinkhorn normalizat
 normalize), plus `pre=sigmoid+eps`, `post=2·sigmoid`. Inputs are tiny (`mixes[B,S,24]`).
 
 **Roofline (M=32).** FLOPs ≈ `M·hc·hc·iters·5` ≈ 51 KFLOP; bytes ≈ **6.1 KB**. Floor = 6.1 KB/358.4 GB/s =
-**0.017 µs**. C/C++ 28 µs = **~0%** (streaming) — the roofline is the **wrong ceiling**: the op is a tiny
+**0.017 µs**. C/C++ 25 µs = **~0%** (streaming) — the roofline is the **wrong ceiling**: the op is a tiny
 per-row serial recurrence of divides/exps, so it is **latency/dispatch-bound**, not byte- or FLOP-bound. The
 ~0% is a diagnostic that this kernel will never be roofline-limited.
 
 **Baseline (torch)** — [`_hc_split_sinkhorn_torch`](../plugin/validate/bench_replicated.py#L77) (sglang MHC oracle): ~40 tiny
 global tensor ops (each of the 20 iters does a row-normalize and a col-normalize as separate ops over the
-whole `[B,S,hc,hc]` tensor), each paying full dispatch + a memory pass — 790 µs streaming.
+whole `[B,S,hc,hc]` tensor), each paying full dispatch + a memory pass — 640 µs streaming.
 
 **C/C++** — [sinkhorn.cpp](../plugin/kernels/dsa_pilot/sinkhorn.cpp):
 1. **Fuse all 20 iters per row** with the `hc×hc` matrix kept **register/L1-resident** — no per-iter global
@@ -303,7 +304,7 @@ whole `[B,S,hc,hc]` tensor), each paying full dispatch + a memory pass — 790 �
 2. **eps placement matches the oracle exactly** (initial row-norm adds eps to the result, later iters add eps
    to the denominator) so parity holds.
 
-**Net:** ~28× streaming purely by collapsing ~40 dispatched torch ops into one fused per-row recurrence. Pure-authored.
+**Net:** ~25× streaming purely by collapsing ~40 dispatched torch ops into one fused per-row recurrence. Pure-authored.
 
 ---
 
@@ -313,15 +314,15 @@ whole `[B,S,hc,hc]` tensor), each paying full dispatch + a memory pass — 790 �
 H=4096.
 
 **Roofline (M=32).** FLOPs ≈ `M·H·7` ≈ 0.92 MFLOP; bytes = x_flat`[M,hc·H]` + pre + y ≈ **2.62 MB**. AI ≈
-0.35 FLOP/byte → **BW-bound**. Floor = 2.62 MB/358.4 GB/s = **7.3 µs**. C/C++ 25 µs = **30%** (streaming),
-baseline 60 µs → **2.4×**. (Warm it is cache-resident at ~63%; cold it streams from DRAM at 30% of the roof.)
+0.35 FLOP/byte → **BW-bound**. Floor = 2.62 MB/358.4 GB/s = **7.3 µs**. C/C++ 26 µs = **28%** (streaming),
+baseline 67 µs → **2.5×**. (Warm it is cache-resident at ~63%; cold it streams from DRAM at 28% of the roof.)
 
 **Baseline (torch)** — [`_combine_ref`](../plugin/validate/bench_replicated.py#L67):
 ```python
 return torch.einsum("mk,mkh->mh", pre.float(), x_flat.reshape(m, hc, h).float())
 ```
 The einsum broadcasts `pre` against the `[m,hc,H]` view, creating a full `[m,hc,H]` intermediate before the
-reduction (60 µs streaming).
+reduction (67 µs streaming).
 
 **C/C++** — [combine.cpp](../plugin/kernels/dsa_pilot/combine.cpp):
 1. **Accumulate-once tiling** — per H-tile, accumulate over the hc clusters into an L1 buffer, **read x once
@@ -329,36 +330,36 @@ reduction (60 µs streaming).
    does it in a single pass with **no `[m,hc,H]` broadcast temporary**.
 2. **AVX-512 SIMD over H**, parallel over M.
 
-**Net:** 2.4×, limited because it is already close to the BW roof — the win is killing the broadcast temporary
+**Net:** 2.5×, limited because it is already close to the BW roof — the win is killing the broadcast temporary
 and the hc-fold redundant y traffic.
 
 
 ## 4. Re-optimization wave — streaming journeys for every kernel
 
 Applying the compressor learnings (512-bit build flags, `objdump` ISA check, hand-inlined Cephes `exp` where
-exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parallel wave, then consolidated in
-one run (EMR job 385059). Latencies are **streaming (LLC-flushed per call)** at M=32 — the reliable number.
+exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parallel wave, consolidated and
+**3-replicate cross-run median** (EMR jobs 385065–67). Latencies are **streaming** at M=32 — the reliable number.
 
 | kernel | torch | shipped C/C++ | re-optimized | lever | regime |
 |---|---:|---:|---:|---|---|
-| compressor | 339 | 284 | **64** | hand-exp Cephes **4.4×** | now DRAM-bound (74% roof) |
-| sparse_bestof † | 667 | 541 | **449** | hand-exp Cephes **1.19×** | GEMM-bound (oneDNN donor) |
-| indexer_logits † | 810 | 343 | **293** | 512-bit flags **1.17×** | GEMM-bound (oneDNN donor) |
-| indexer_topk | 489 | 39 | 39 | none | selection-bound (at ceiling) |
-| sinkhorn | 790 | 28 | 28 | none | dispatch-bound (at ceiling) |
-| combine | 60 | 25 | 25 | none | cache-resident / BW (at ceiling) |
+| compressor | 328 | 284 | **60** | hand-exp Cephes **4.7×** | now DRAM-bound (79% roof) |
+| sparse_bestof † | 686 | 541 | **460** | hand-exp Cephes **1.18×** | GEMM-bound (oneDNN donor) |
+| indexer_logits † | 876 | 343 | **309** | 512-bit flags **1.11×** | GEMM-bound (oneDNN donor) |
+| indexer_topk | 420 | 41 | 41 | none | selection-bound (at ceiling) |
+| sinkhorn | 640 | 25 | 25 | none | dispatch-bound (at ceiling) |
+| combine | 67 | 26 | 26 | none | cache-resident / BW (at ceiling) |
 
 † oneDNN GEMM donor. `shipped` is the pre-wave C/C++ variant (compressor scalar C1, sparse `bestof`, indexer
-256-bit build); `re-optimized` is the promoted variant (compressor `fp32intrin`, sparse `bestof_hx`, indexer
-512-bit). torch baselines under streaming are the noisiest column (they allocate temporaries) — the robust
-signal is the shipped→re-optimized delta, both C/C++.
+256-bit build, single-run reference); `re-optimized` is the promoted variant (compressor `fp32intrin`, sparse
+`bestof_hx`, indexer 512-bit), 3-replicate median. The torch and C/C++ columns are now 3-run medians; the
+robust signal is the shipped→re-optimized delta (both C/C++).
 
 **Findings.** Two new levers. The **512-bit flag fix** (`-mprefer-vector-width=512 -DCPU_CAPABILITY_AVX512` —
 GCC defaults to 256-bit and `at::vec` falls back to AVX2 in a JIT build; `objdump` showed `zmm=0 → 322` for
 indexer) lifts the oneDNN-donor indexer 1.16×, and the **hand-inlined Cephes `exp`** transfers to sparse's
 softmax (1.19× via `sparse_attend_bestof_hx`). The other three kernels are already at their regime ceiling —
 selection (`nth_element`), tiny dispatch, and cache-resident FMA have no `exp` to inline and no bandwidth to
-recover, so the flags move them within noise. Only the compressor had the large **~4.4× (streaming; 4.8× warm)**,
+recover, so the flags move them within noise. Only the compressor had the large **~4.7× (streaming; 4.8× warm)**,
 because it was uniquely *exp-bound and unvectorized*; this is the honest result of measuring rather than
 assuming every kernel has the same headroom.
 
@@ -371,9 +372,10 @@ F4-screened (passes the contract/finiteness/determinism/mask gates) until the E2
 
 
 ## Provenance
-- Kernel latency + speedup: EMR node, **job 385059** (promoted variant per kernel + 512-bit flags), **streaming**
-  (LLC-flushed per call); baseline = the torch op each kernel replaces at its arithmetic contract (torch refs
-  are the noisiest column — they allocate temporaries). Compressor warm/stream retry detail: jobs 385022/385039.
+- Kernel latency + speedup: EMR node, **3-replicate cross-run median (jobs 385065–67)** of the promoted variant
+  per kernel + 512-bit flags, **streaming** (LLC-flushed per call); baseline = the torch op each kernel replaces
+  (torch refs are the noisiest column — they allocate temporaries — hence the 3-run median). Compressor warm/
+  stream retry detail: jobs 385022/385039.
 - Roofline floor: analytic `max(bytes/BW, FLOPs/peak)` from each kernel's byte/FLOP contract vs the nominal datasheet peak.
 - `exp` ULP: `tools/exp_ulp_test.cpp` vs fp64 (job 385051). Correctness: F4 acceptance gate (PARTIAL, screening-only;
   compressor D1 + sparse `bestof_hx` gated-clean, jobs 385033/385053); GPU oracle (H200, job 384502) for the sparse reference dtype.
