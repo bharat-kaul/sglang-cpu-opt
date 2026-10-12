@@ -2,6 +2,15 @@
   "_schema": "DSv4-Flash progressive wall-time ledger. Perf runs use DUMMY weights + a DEPTH-REDUCED proxy (every DSv4 layer is the identical MoE+MLA+DSA archetype, so wall time is linear in depth). Each iteration records BOTH (a) measured proxy-4 wall time and (b) full-depth wall time derived ANALYTICALLY by depth-scaling. After all ops are integrated, ONE full-depth dummy run validates the analytical prediction. Each op is integrated only after a cosine-fingerprint gate passes. PENDING = not yet measured.",
   "platform": "emr",
   "roofline_basis": "machine_peak (BW 358.4 GB/s, AMX 124.6 TF@1.9GHz, ridge 348)",
+  "operating_point": {
+    "_decision": "user-confirmed Phase-2 KPI = target C (BOTH): headline the throughput point, carry the single-stream latency floor. M is the DECODE BATCH, not a free dial.",
+    "input_len_S": 1024,
+    "output_len_G": 256,
+    "headline": {"batch_B": 32, "metric": "aggregate decode tok/s = B*1000/decode_ms_per_step", "regime": "throughput serving (decode M=B, off the M=1 cliff)"},
+    "latency_floor": {"batch_B": 1, "metric": "single-stream tok/s = 1000/decode_ms_per_step; per_token_latency_ms = decode_ms_per_step", "regime": "low-latency single stream (decode M=1)"},
+    "report": "headline tok/s at (S=1024,B=32,G=256) AND the prefill/decode split of the SAME run; batch sweep {1,8,16,32,64} covers floor+headline+sweet-spot; G enters only analytically (per-step decode x G).",
+    "node_rule": "TARGET AMX host (EMR) only; proxy4+proxy8 on the SAME node+config so t_layer=(t8-t4)/4 is valid."
+  },
   "scaling": {
     "proxy_layers": 4,
     "proxy_layers_calibration": [4, 8],
@@ -15,9 +24,9 @@
     "weights": "DETERMINISTIC_DUMMY=1 (in-memory; NO real/full weight load)",
     "input": "sglang bench_one_batch random DISTINCT token ids -> decorrelated per-token -> MoE routing disperses (avoids broadcast mode-collapse); verify in-engine with plugin/validate/moe_balanced_input policy",
     "bind": "one socket = one NUMA domain, OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores, bound ONCE at init",
-    "measure": "bench_one_batch median decode latency (step 0 cold, excluded); DSA ENABLED (ops we optimize); in=2048 out=8; >=3 runs median",
+    "measure": "bench_wall_time.py: prefill_ms + steady-state decode_ms/step (step 0 cold excluded); DSA ENABLED; S(in)=1024, out=8 (per-step decode; G=256 applied analytically); >=3 runs median. Report BOTH prefill and decode per batch.",
     "M_points": [1, 8, 16, 32, 64],
-    "M_priority": "16/32/64 high, then 8, then 1"
+    "M_priority": "headline B=32 + latency-floor B=1 MANDATORY; 8/16/64 for the sweet-spot curve"
   },
   "integration_gate": {
     "metric": "per-layer + per-op cosine fingerprint vs reference (torch eager / GPU oracle) on the SAME dummy weights",
