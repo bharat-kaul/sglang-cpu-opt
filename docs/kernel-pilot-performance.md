@@ -45,6 +45,109 @@ bound** — a byte-or-FLOP roofline is the wrong ceiling for them, so the low % 
 recoverable gap. This is the "how close to the metal, and does more work help?" view.
 
 
+## 3. Kernel deep-dive: the compressor (softmax-pool)
+
+A worked example of one authored kernel end-to-end. The compressor reduces a window of `R` raw KV tokens
+(R = 128 or 8) to **one** compressed token via a **per-channel** softmax-weighted pool:
+
+```
+out[n,d] = Σ_r  softmax_r( score[n,r,d] + ape[r,d] ) · kv[n,r,d]
+```
+
+Each of the `D = 512` channels independently softmaxes over the window of `R` tokens and pools them.
+Shapes: `kv, score = [N,R,D]`, `ape = [R,D]` → `out = [N,D]`, all fp32.
+
+### 3.1 Roofline calculation (R=128, D=512, operating point M=32)
+
+**Useful bytes moved** (each tensor streamed once, fp32 = 4 B):
+
+| tensor | size | bytes |
+|---|---|---:|
+| kv `[M,R,D]` | 32·128·512 | 8.39 MB |
+| score `[M,R,D]` | 32·128·512 | 8.39 MB |
+| ape `[R,D]` (shared) | 128·512 | 0.26 MB |
+| out `[M,D]` | 32·512 | 0.07 MB |
+| **total** | | **17.10 MB** |
+
+**FLOPs** ≈ `3·M·R·D` = 3·32·128·512 ≈ **6.3 MFLOP** (score+ape add, the exp, the weighted accumulate — a
+*simplified* count that does not charge the exp its true transcendental cost; irrelevant here, see below).
+
+**Arithmetic intensity** = 6.3M / 17.1M ≈ **0.37 FLOP/byte**, far below the ridge point
+`peak/BW = 7.78 TF / 358.4 GB/s ≈ 21.7 FLOP/byte` → **firmly bandwidth-bound**.
+
+**Floor = max(bytes/BW, FLOPs/peak):**
+- BW term = 17.10 MB / 358.4 GB/s = **47.7 µs** ← binding
+- compute term = 6.3 MFLOP / 7.78 TF = 0.81 µs
+
+So **floor ≈ 47.7 µs** (nominal). Measured C/C++ = 176.1 µs → **27% of the nominal roofline**;
+baseline torch = 408.7 µs → **C/C++ is 2.4× faster**.
+
+### 3.2 Baseline implementation (the torch op it replaces)
+
+[dsa_compressor_cpu.py](../plugin/intel_cpu_models/dsa_compressor_cpu.py):
+
+```python
+def compress_softmax_pool(kv, score, ape):
+    w = (score.float() + ape.float().unsqueeze(0)).softmax(dim=1)   # materializes w[N,R,D]
+    return (w * kv.float()).sum(dim=1)
+```
+
+Why it's slow — it is **memory-traffic-bound and makes many passes**:
+
+- `score + ape` → one full `[N,R,D]` temporary (8 MB write).
+- `.softmax(dim=1)` → internally max-over-R, subtract, **exp over the whole [N,R,D]**, sum-over-R, divide —
+  several more full reads/writes of `[N,R,D]`, and it **materializes the weights tensor `w[N,R,D]` in DRAM**.
+- `w * kv` → another `[N,R,D]` pass, then `.sum(dim=1)` → another.
+
+Each is a separate ATen op with its own kernel launch; the `[N,R,D]` data is streamed through memory ~5–7×
+plus the extra `w` allocation. On a BW-bound op that multiplies the ~17 MB useful traffic several-fold → ~409 µs.
+
+### 3.3 C/C++ implementation + optimizations
+
+[compressor.cpp](../plugin/kernels/dsa_pilot/compressor.cpp) — the inner loop:
+
+```cpp
+for (r = 0; r < R; ++r) {                 // ONE streaming pass over the window
+  #pragma omp simd                        // (3) AVX-512 over the D channels
+  for (j = 0; j < dd; ++j) {
+    float x    = srow[j] + arow[j];
+    bool  up   = x > m[j];
+    float mnew = up ? x : m[j];
+    float arg  = surv_masked ? -INF : (up ? (m[j]-x) : (x-m[j]));
+    float t    = std::exp(arg);           // (4) C1: ONE exp (other factor is exp(0)=1)
+    float corr = up ? t : 1.f, e = up ? 1.f : t;
+    l[j]   = l[j]*corr + e;               // running denom
+    acc[j] = acc[j]*corr + e*krow[j];     // running weighted accumulator
+    m[j]   = mnew;                        // running max
+  }
+}
+for (j) orow[j] = l[j] > 0 ? acc[j]/l[j] : 0;   // single divide at the end
+```
+
+Optimizations and why each helps:
+
+1. **Streaming online ("flash") softmax — the big win.** The whole `softmax+pool` is fused into **one pass
+   over R**, keeping only per-channel running `(max m, denom l, accumulator acc)`. The `w[N,R,D]` weights
+   tensor is **never materialized**, and each input is **read once** instead of ~5–7 passes. On a BW-bound
+   op this directly cuts the dominant traffic — it is why the kernel approaches its byte floor.
+2. **N×D-tile parallelism.** Parallelizes over `N·ndt` tasks, not just `N`. The per-channel softmaxes are
+   independent, so at small batch (M=1) the D dimension still fills all 64 cores — N-only parallelism left
+   cores idle and actually *regressed* vs torch at M=1. Targets ~2×threads tasks.
+3. **AVX-512 vectorization over D.** `#pragma omp simd` over the channel loop, tile width `DT` rounded to a
+   16-lane AVX-512 register, so the running-state update is vector-wide.
+4. **C1 — one `exp` per update.** In the online recurrence one of the two softmax rescale factors is always
+   exactly `exp(0)=1`, so it is hardcoded and only the surviving `exp(min−max)` is computed. **Bit-exact** to
+   the two-exp form (proven by building old/new and diffing), ~halves the transcendental work at R=128.
+5. **Correctness details baked in.** Masked positions (`score = −∞`) contribute nothing (the `−∞` arg forces
+   `exp→0` with no unguarded `inf−inf`); FP32 accumulation throughout; a single divide at the very end
+   (all-masked channel → 0).
+
+**Net:** the authoring win is almost entirely #1 (eliminate the DRAM weights temporary + collapse ~6 passes
+into 1), amplified by #2–#3 so it is BW-limited rather than dispatch-limited; #4 is a small bit-exact
+refinement on top. The remaining 73% gap to the nominal floor is grain / exp throughput (the datasheet BW is
+a ceiling, not achievable), not another missing pass.
+
+
 ## Provenance
 - Kernel latency + speedup: EMR node, **job 385001**, order-varied paired trials, 3-process medians; baseline = the torch op each kernel replaces at its arithmetic contract (refs noisy for indexer → medians).
 - Roofline floor: analytic `max(bytes/BW, FLOPs/peak)` from each kernel's byte/FLOP contract vs the nominal datasheet peak.
