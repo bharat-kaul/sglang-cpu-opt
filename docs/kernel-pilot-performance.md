@@ -126,7 +126,11 @@ Reduce a window of `R`=128 raw KV tokens to one compressed token via a **per-cha
 independently. Shapes `kv, score=[N,R,D]`, `ape=[R,D]` → `out=[N,D]`.
 
 **Roofline (M=32).** bytes = kv + score + ape + out = 8.39 + 8.39 + 0.26 + 0.07 = **17.10 MB**;
-FLOPs ≈ `3·M·R·D` ≈ 6.3 MFLOP. AI ≈ 0.37 FLOP/byte ≪ FP32 ridge 21.7 → **BW-bound**. Floor = max(17.10 MB/358.4 GB/s = **47.7 µs**, 0.81 µs) = **47.7 µs**. C/C++ 176.1 µs = **27%**, baseline 408.7 µs → **2.4×**.
+FLOPs ≈ `3·M·R·D` ≈ 6.3 MFLOP. Naively AI ≈ 0.37 FLOP/byte ≪ FP32 ridge 21.7 would say BW-bound, DRAM
+floor = 17.10 MB/358.4 GB/s = **47.7 µs**. **This label was wrong** (see the retry below): at decode M the
+17 MB working set is **cache-resident** (EMR has 320 MB L3), so the DRAM roofline is not the ceiling, and the
+real bottleneck was the **scalar `exp`**, not bandwidth. The shipped scalar path was 176.1 µs; the retried
+hand-exp path is **36.9 µs** (below, reading at ~460 GB/s from cache).
 
 **Baseline (torch)** — [dsa_compressor_cpu.py](../plugin/intel_cpu_models/dsa_compressor_cpu.py):
 ```python
@@ -162,7 +166,54 @@ for (j) orow[j] = l[j] > 0 ? acc[j]/l[j] : 0;   // single divide at the end
    the exp work at R=128.
 5. Masked `−∞` positions contribute nothing; FP32 accumulate; single final divide.
 
-**Net:** win is #1 (kill the DRAM weights temporary, ~6 passes → 1). 73% gap to floor is grain/exp throughput.
+**Net (shipped C1):** win is #1 (kill the DRAM weights temporary, ~6 passes → 1). But C1 still sat at
+176.1 µs — attributed at the time to “grain/exp throughput.”
+
+#### 3.3.1 Retry (libxsmm/RAJAPerf `hpc-kernel-optimization` SKILL): the real bottleneck was the `exp`
+
+Applying the SKILL's Stage-0/1 (build flags + classify by inspecting the built object) exposed two things the
+“BW-bound” label hid:
+
+- **The build never emitted 512-bit code.** `objdump` of the shipped `-O3 -fopenmp -march=native` build shows
+  `zmm=0` (GCC defaults to 256-bit), and `at::vec` falls back to 8-lane AVX2 in a JIT extension unless
+  `-DCPU_CAPABILITY_AVX512` is set — which is why an earlier vectorized-exp variant looked slow (mis-built).
+- **The op is `exp`-compute-bound and cache-resident, not BW-bound.** The scalar per-lane `libm` exp was the
+  serial bottleneck; the 17 MB working set lives in L3.
+
+Measured on EMR (job 385022, interleaved median, M=32, rel-err vs the fp32 torch oracle):
+
+| variant | µs @ M=32 | vs shipped C1 | rel-err | notes |
+|---|---:|---:|---:|---|
+| C1 scalar (shipped) | 176–186 | 1× | 4.0e-7 | per-lane `std::exp` |
+| C2 `at::vec` Sleef exp, 512-bit | 80.7 | 2.2× | 4.8e-7 | non-inlined exp call |
+| **D1 hand-written AVX-512 Cephes exp (fp32)** | **36.9** | **4.8×** | **2.8e-7** | **shipped throughput path** |
+| D2 reduced degree-4 exp (fp32) | 32.5 | 5.4× | 2.1e-5 | marginal, less accurate |
+| D3 bf16 operands + fp32 exp island | 38.3 | 4.6× | **6.4e-3** | **no speed gain, large error** |
+
+**D1 — [`compressor_softmax_pool_fp32intrin`](../plugin/kernels/dsa_pilot/compressor.cpp)** — hand-inlines an
+AVX-512 Cephes `exp` (range-reduce + degree-6 FMA poly + `2^n` bit-scale) instead of the `at::vec`/Sleef
+call. It is **fp32 throughout**, **as accurate as the scalar oracle** (2.8e-7), and needs **no special build
+flags** (pure `AVX512F` intrinsics). Removing the non-inlined exp call boundary is the whole 2.2× over C2.
+It reads at ~460 GB/s (above DRAM peak → confirms cache residency).
+
+#### 3.3.2 Why bf16 does **not** help here (and the corpus agrees)
+
+The proposal “run in bf16, upconvert for `exp`, downconvert after” is the standard attention pattern — and it
+is in the corpus, but for **sparse-attention / indexer**, not the compressor: `inference/kernel.py::sparse_attn_kernel`
+keeps q/kv/o in bf16 yet runs every softmax internal (`acc_s`, `scores_max`, `sum_exp`, `T.exp`) in **fp32**.
+For the compressor the reference does the opposite *on purpose*: `inference/model.py::Compressor.forward` has
+`x = x.float()  # compression need fp32` and keeps the entire pool in fp32, downcasting to bf16 only after the
+pool at the norm. There is **no GPU compressor kernel** at all. So we did not miss a bf16 compressor — there
+isn't one.
+
+The measurement confirms the mechanism: since `exp` must be fp32, **bf16 gives zero `exp`-throughput gain** —
+D3 is the *same speed* as the fp32 D1 (38.3 vs 36.9 µs) but its error jumps to **6.4e-3** (4 orders worse).
+bf16 would only save read bytes, and this op is cache-resident + `exp`-bound, not read-BW-bound. So D1 (fp32,
+hand-exp) is the right answer; bf16 is a conformance regression with no upside.
+
+> **Note.** The §1 table/plots above still show the pre-retry compressor row (176.1 µs); they will be
+> regenerated with D1. The numbers here are a single EMR job (385022) — reported per the same single-run
+> caveat as the rest of the page.
 
 ---
 

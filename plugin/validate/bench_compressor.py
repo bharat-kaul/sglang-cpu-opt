@@ -13,7 +13,11 @@ from torch.utils.cpp_extension import load
 
 torch.manual_seed(0)
 K = os.path.join(os.path.dirname(__file__), "..", "kernels", "dsa_pilot", "compressor.cpp")
-mod = load(name="compressor_pilot", sources=[K], extra_cflags=["-O3", "-fopenmp", "-march=native"], verbose=False)
+# SKILL retry (job 385013): gcc defaults to 256-bit + at::vec falls back to AVX2 in a JIT ext; force 512-bit
+# so the at::vec vexp path actually uses zmm Sleef exp (2.2x over scalar at M=32).
+mod = load(name="compressor_pilot", sources=[K],
+           extra_cflags=["-O3", "-fopenmp", "-march=native", "-mprefer-vector-width=512", "-DCPU_CAPABILITY_AVX512"],
+           verbose=False)
 
 
 def bench(fn, *a, it=50):
