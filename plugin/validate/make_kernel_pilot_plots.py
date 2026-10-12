@@ -171,74 +171,54 @@ def main():
     ap.add_argument("--out-dir", default=os.path.join(HERE, "..", "..", "docs", "plots"))
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
-    rs = json.load(open(os.path.join(RES, "roofline_sweep.json")))["kernels"]
-    so = json.load(open(os.path.join(RES, "standalone_opt.json")))
+    cvt = json.load(open(os.path.join(RES, "cpp_vs_torch.json")))["kernels"]
 
-    # Plot 0 (headline): newly-authored kernel vs NON-C/C++ torch baseline; oneDNN-donor kernels DASHED.
-    cvt_path = os.path.join(RES, "cpp_vs_torch.json")
-    if os.path.exists(cvt_path):
-        cvt = json.load(open(cvt_path))["kernels"]
-        order = ["sinkhorn", "indexer_topk", "compressor_R128", "combine", "sparse_bestof", "indexer_logits"]
-        series0 = []
-        for i, k in enumerate([x for x in order if x in cvt]):
-            pa = cvt[k]["pure_authored"]
-            ys = [cvt[k]["M"][str(M)]["speedup"] for M in MS]
-            nm = k + ("" if pa else "  (oneDNN GEMM donor)")
-            series0.append((nm, ys, PAL[i % len(PAL)], not pa))
-        speedup_chart(os.path.join(a.out_dir, "cpp_vs_torch.svg"),
-                      "Newly-authored C/C++ kernel vs its NON-C/C++ torch baseline (speedup)",
-                      "solid = PURE-AUTHORED (no library GEMM); dashed = oneDNN/MKL GEMM donor + authored epilogue. 1.0x = no gain. EMR job 385001, 3-proc medians.",
-                      series0, "speedup over torch (log)", [1, 2, 5, 10, 20, 50, 100])
+    # byte + FLOP contracts keyed by the cpp_vs_torch kernel names; floor = max(bytes/BW, FLOPs/peak).
+    AMX, FP32 = 124.5184e12, 7.7824e12
+    KC = {  # name: (flops(M), bytes(M), peak, pretty, oneDNN_donor)
+        "indexer_logits": (lambda M: 2 * M * 64 * 1024 * 128 + 3 * M * 64 * 1024, lambda M: M * 64 * 128 * 4 + M * 1024 * 128 * 4 + M * 64 * 4 + M * 1024 * 4, AMX, "indexer logits", True),
+        "indexer_topk": (lambda M: 0.0, lambda M: M * 1024 * 4 + M * 512 * 8, FP32, "indexer top-k", False),
+        "compressor_R128": (lambda M: 3.0 * M * 128 * 512, lambda M: M * 128 * 512 * 4 * 2 + M * 512 * 4 + 128 * 512 * 4, FP32, "compressor", False),
+        "sparse_bestof": (lambda M: 4.0 * M * 64 * 512 * 512, lambda M: M * 512 * 512 * 4 + 2 * M * 64 * 512 * 4, FP32, "sparse attend", True),
+        "sinkhorn": (lambda M: float(M * 4 * 4 * 20 * 5), lambda M: M * 24 * 4 + 3 * 4 + 24 * 4 + M * 24 * 4, FP32, "MHC sinkhorn", False),
+        "combine": (lambda M: float(M * 4096 * 7), lambda M: M * 4 * 4096 * 4 + M * 4 * 4 + M * 4096 * 4, FP32, "MHC combine", False),
+    }
+    order = ["indexer_logits", "indexer_topk", "compressor_R128", "sparse_bestof", "sinkhorn", "combine"]
 
-    # Plot 1: achieved % of nominal-reference roofline, per kernel, vs M
+    def floor_us(k, M):
+        flf, byf, pk = KC[k][0], KC[k][1], KC[k][2]
+        return max(byf(M) / BW, flf(M) / pk) * 1e6
+
+    # Plot A (operating point M=32, S=1024): per-kernel roofline floor vs baseline(torch) vs optimized(C/C++)
+    M0 = 32
+    labels = [KC[k][3] + ("\u2020" if KC[k][4] else "") for k in order]   # dagger = oneDNN donor
+    floors = [floor_us(k, M0) for k in order]
+    bases = [cvt[k]["M"]["32"]["torch_us"] for k in order]
+    opts = [cvt[k]["M"]["32"]["cpp_us"] for k in order]
+    grouped_bars(os.path.join(a.out_dir, "operating_point.svg"),
+                 "Per-kernel at the operating point (M=32, S=1024): roofline vs baseline vs C/C++",
+                 "latency us, log. baseline = torch op the kernel replaces; \u2020 = oneDNN/MKL GEMM donor + authored epilogue. EMR job 385001.",
+                 labels, [("roofline floor", floors, "#2ca02c"), ("baseline (torch)", bases, "#d62728"), ("optimized (C/C++)", opts, "#1f77b4")],
+                 "latency us (log)", (min(floors) * 0.5, max(bases) * 1.6), logy=True, fmt="{:.2f}")
+
+    # Plot B (M-sweep 1..64): % of nominal roofline achieved per kernel -> how AI growth improves efficiency
     series = []
-    for i, lb in enumerate(rs):
-        ys = [rs[lb][str(M)]["achieved_pct"] for M in MS]
-        series.append((lb, ys, PAL[i % len(PAL)]))
-    line_chart(os.path.join(a.out_dir, "achieved_vs_roofline.svg"),
-               "Optimized kernels: % of nominal-reference roofline (higher = closer)",
-               "floor=max(bytes/BW,FLOPs/peak) vs NOMINAL peak (1.9GHz base; NOT an achievable ceiling). EMR job 384677.",
-               series, "achieved % of nominal roofline", 100.0)
+    for i, k in enumerate(order):
+        ys = [100.0 * floor_us(k, M) / cvt[k]["M"][str(M)]["cpp_us"] for M in MS]
+        series.append((KC[k][3] + ("\u2020" if KC[k][4] else ""), ys, PAL[i % len(PAL)]))
+    line_chart(os.path.join(a.out_dir, "roofline_msweep.svg"),
+               "% of nominal roofline vs M  (arithmetic intensity rises with M)",
+               "floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak (NOT an achievable ceiling). \u2020 = oneDNN donor. EMR job 385001.",
+               series, "% of nominal roofline", 100.0)
 
-    # Plot 1b: achieved BW efficiency = (useful bytes / measured) / peak BW, per kernel vs M (tests BW-bound)
-    bws = []
-    for i, lb in enumerate(rs):
-        ys = [100.0 * (BYTES[lb](M) / BW) / (rs[lb][str(M)]["median_meas_us"] / 1e6) for M in MS]
-        bws.append((lb, ys, PAL[i % len(PAL)]))
-    line_chart(os.path.join(a.out_dir, "bw_efficiency.svg"),
-               "Achieved BW efficiency = (useful bytes / measured) / peak 358.4 GB/s  (S=1024)",
-               "high+rising => BW-bound; low/flat => compute (sparse) or dispatch (sinkhorn/topk) bound. NOT all kernels are BW-bound.",
-               bws, "% of peak DRAM BW (358.4 GB/s)", 100.0)
-
-    # Plot 2: compressor R128/D512 -- roofline floor vs baseline vs optimized (us, log)
-    cf = [rs["compressor/r128d512"][str(M)]["floor_us"] for M in MS]
-    co = [rs["compressor/r128d512"][str(M)]["median_meas_us"] for M in MS]
-    c1 = so["C1_compressor_one_exp"]["speedup_median_old_over_new"]["r128d512"]
-    cb = [co[i] * c1[f"M{M}"] for i, M in enumerate(MS)]            # baseline = optimized x (old/new) speedup
-    grouped_bars(os.path.join(a.out_dir, "compressor_3series.svg"),
-                 "Compressor R128/D512: roofline floor vs baseline vs optimized (C1)",
-                 "latency us, log. baseline = optimized x measured C1 speedup; floor = nominal ref. Bit-exact.",
-                 [f"M={M}" for M in MS],
-                 [("roofline floor", cf, "#2ca02c"), ("baseline", cb, "#d62728"), ("optimized", co, "#1f77b4")],
-                 "latency us (log)", (min(cf) * 0.7, max(cb) * 1.3), logy=True, fmt="{:.1f}")
-
-    # Plot 3: standalone optimization speedup (baseline->optimized), kept experiments
-    def spd(d, key):
-        return [d[key].get(f"M{M}") for M in MS]
-    c1r = so["C1_compressor_one_exp"]["speedup_median_old_over_new"]
-    series3 = [
-        ("C1 compressor r128d512", spd(c1r, "r128d512"), PAL[0]),
-        ("C1 compressor r8d512", spd(c1r, "r8d512"), PAL[1]),
-        ("C1 compressor r8d128", spd(c1r, "r8d128"), PAL[2]),
-        ("I1 indexer bf16-KV", [so["I1_indexer_bf16kv_drop_unused_alloc"]["speedup_median_old_over_new"][f"M{M}"] for M in MS], PAL[3]),
-        ("I2 bf16-KV vs fp32-KV", [so["I2_indexer_bf16kv_storage_contract"]["speedup_median_bf16kv_over_fp32kv"][f"M{M}"] for M in MS], PAL[4]),
-    ]
-    grouped_bars(os.path.join(a.out_dir, "opt_speedup.svg"),
-                 "Standalone optimization: baseline -> optimized speedup (kept wins)",
-                 "speedup = old/new; 1.0 = no change. Paired 3-process medians, EMR OMP64. jobs 384621/384675.",
-                 [f"M={M}" for M in MS],
-                 series3, "speedup (x)", (0.0, 1.8), logy=False, fmt="{:.1f}")
-    print("wrote 3 SVGs ->", a.out_dir)
+    # operating-point table for the page
+    print(f"{'kernel':>16} {'impl':>8} {'base_us':>8} {'cpp_us':>8} {'speedup':>8} {'floor_us':>9} {'%roof':>6}")
+    for k in order:
+        c = cvt[k]["M"]["32"]
+        fl = floor_us(k, M0)
+        print(f"{k:>16} {('oneDNN' if KC[k][4] else 'authored'):>8} {c['torch_us']:>8.1f} {c['cpp_us']:>8.1f} "
+              f"{c['speedup']:>7.1f}x {fl:>9.3f} {100*fl/c['cpp_us']:>5.0f}%")
+    print("wrote operating_point.svg + roofline_msweep.svg ->", a.out_dir)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="760" height="420">
+<rect x="0" y="0" width="760" height="420" fill="#ffffff"/>
+<text x="16.0" y="24.0" font-family="monospace" font-size="15" fill="#111" text-anchor="start" font-weight="bold">% of nominal roofline vs M  (arithmetic intensity rises with M)</text>
+<text x="16.0" y="42.0" font-family="monospace" font-size="11" fill="#666" text-anchor="start" font-weight="normal">floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak (NOT an achievable ceiling). † = oneDNN donor. EMR job 385001.</text>
+<line x1="70" y1="370.0" x2="580" y2="370.0" stroke="#eee"/>
+<text x="62.0" y="374.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">0</text>
+<line x1="70" y1="308.0" x2="580" y2="308.0" stroke="#eee"/>
+<text x="62.0" y="312.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">20</text>
+<line x1="70" y1="246.0" x2="580" y2="246.0" stroke="#eee"/>
+<text x="62.0" y="250.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">40</text>
+<line x1="70" y1="184.0" x2="580" y2="184.0" stroke="#eee"/>
+<text x="62.0" y="188.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">60</text>
+<line x1="70" y1="122.0" x2="580" y2="122.0" stroke="#eee"/>
+<text x="62.0" y="126.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">80</text>
+<line x1="70" y1="60.0" x2="580" y2="60.0" stroke="#eee"/>
+<text x="62.0" y="64.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">100</text>
+<text x="18.0" y="215.0" font-family="monospace" font-size="11" fill="#444" text-anchor="middle" transform="rotate(-90 18 215)" font-weight="normal">% of nominal roofline</text>
+<text x="70.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=1</text>
+<text x="197.5" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=8</text>
+<text x="325.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=16</text>
+<text x="452.5" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=32</text>
+<text x="580.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=64</text>
+<polyline fill="none" stroke="#1f77b4" stroke-width="2" points="70.0,365.2 197.5,350.9 325.0,334.2 452.5,313.0 580.0,293.0"/>
+<circle cx="70.0" cy="365.2" r="3" fill="#1f77b4"/>
+<circle cx="197.5" cy="350.9" r="3" fill="#1f77b4"/>
+<circle cx="325.0" cy="334.2" r="3" fill="#1f77b4"/>
+<circle cx="452.5" cy="313.0" r="3" fill="#1f77b4"/>
+<circle cx="580.0" cy="293.0" r="3" fill="#1f77b4"/>
+<rect x="594" y="57" width="12" height="12" fill="#1f77b4"/>
+<text x="610.0" y="67.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">indexer logits†</text>
+<polyline fill="none" stroke="#ff7f0e" stroke-width="2" points="70.0,367.3 197.5,365.5 325.0,360.9 452.5,352.8 580.0,337.6"/>
+<circle cx="70.0" cy="367.3" r="3" fill="#ff7f0e"/>
+<circle cx="197.5" cy="365.5" r="3" fill="#ff7f0e"/>
+<circle cx="325.0" cy="360.9" r="3" fill="#ff7f0e"/>
+<circle cx="452.5" cy="352.8" r="3" fill="#ff7f0e"/>
+<circle cx="580.0" cy="337.6" r="3" fill="#ff7f0e"/>
+<rect x="594" y="75" width="12" height="12" fill="#ff7f0e"/>
+<text x="610.0" y="85.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">indexer top-k</text>
+<polyline fill="none" stroke="#2ca02c" stroke-width="2" points="70.0,335.9 197.5,292.9 325.0,285.1 452.5,286.0 580.0,285.2"/>
+<circle cx="70.0" cy="335.9" r="3" fill="#2ca02c"/>
+<circle cx="197.5" cy="292.9" r="3" fill="#2ca02c"/>
+<circle cx="325.0" cy="285.1" r="3" fill="#2ca02c"/>
+<circle cx="452.5" cy="286.0" r="3" fill="#2ca02c"/>
+<circle cx="580.0" cy="285.2" r="3" fill="#2ca02c"/>
+<rect x="594" y="93" width="12" height="12" fill="#2ca02c"/>
+<text x="610.0" y="103.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">compressor</text>
+<polyline fill="none" stroke="#d62728" stroke-width="2" points="70.0,333.9 197.5,242.4 325.0,206.2 452.5,157.6 580.0,139.7"/>
+<circle cx="70.0" cy="333.9" r="3" fill="#d62728"/>
+<circle cx="197.5" cy="242.4" r="3" fill="#d62728"/>
+<circle cx="325.0" cy="206.2" r="3" fill="#d62728"/>
+<circle cx="452.5" cy="157.6" r="3" fill="#d62728"/>
+<circle cx="580.0" cy="139.7" r="3" fill="#d62728"/>
+<rect x="594" y="111" width="12" height="12" fill="#d62728"/>
+<text x="610.0" y="121.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">sparse attend†</text>
+<polyline fill="none" stroke="#9467bd" stroke-width="2" points="70.0,369.9 197.5,369.9 325.0,369.8 452.5,369.6 580.0,369.3"/>
+<circle cx="70.0" cy="369.9" r="3" fill="#9467bd"/>
+<circle cx="197.5" cy="369.9" r="3" fill="#9467bd"/>
+<circle cx="325.0" cy="369.8" r="3" fill="#9467bd"/>
+<circle cx="452.5" cy="369.6" r="3" fill="#9467bd"/>
+<circle cx="580.0" cy="369.3" r="3" fill="#9467bd"/>
+<rect x="594" y="129" width="12" height="12" fill="#9467bd"/>
+<text x="610.0" y="139.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">MHC sinkhorn</text>
+<polyline fill="none" stroke="#8c564b" stroke-width="2" points="70.0,340.5 197.5,321.5 325.0,273.1 452.5,176.2 580.0,60.0"/>
+<circle cx="70.0" cy="340.5" r="3" fill="#8c564b"/>
+<circle cx="197.5" cy="321.5" r="3" fill="#8c564b"/>
+<circle cx="325.0" cy="273.1" r="3" fill="#8c564b"/>
+<circle cx="452.5" cy="176.2" r="3" fill="#8c564b"/>
+<circle cx="580.0" cy="60.0" r="3" fill="#8c564b"/>
+<rect x="594" y="147" width="12" height="12" fill="#8c564b"/>
+<text x="610.0" y="157.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">MHC combine</text>
+</svg>
