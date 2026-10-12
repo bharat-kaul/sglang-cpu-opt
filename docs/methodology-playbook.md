@@ -7,6 +7,8 @@ by a **spine-leaf** set of skills, where **every phase is closed by a gate** so 
 
 > This page documents the *method*. The executable rules live in `.agents/skills/`; a worked application is
 > [kernel-pilot-performance.md](kernel-pilot-performance.md) (the DSv4-Flash DSA standalone-kernel results).
+> The **Phase-1 "how-to"** — the staged way to optimize one kernel — is the
+> [Standalone Kernel Optimization Playbook](standalone-kernel-optimization-playbook.md).
 
 ---
 
@@ -102,7 +104,8 @@ flowchart LR
   optimizations are **independent work items → fan them out in parallel**, ranked by ROI. Apply techniques
   in order (parallelize → tile → vectorize/AMX → prepack → quantize → fuse), **re-running `roofline-validation`
   after each step** and classifying the regime (BW / compute / selection / dispatch / cache-resident) before
-  assuming headroom.
+  assuming headroom. The staged how-to is the
+  [Standalone Kernel Optimization Playbook](standalone-kernel-optimization-playbook.md).
 - **Gates (trust), all required per kernel:**
   - **`kernel-feasibility-gate`** (before authoring a net-new kernel): user-reviewed roofline + measured
     baseline → go/no-go.

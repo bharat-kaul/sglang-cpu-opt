@@ -10,6 +10,9 @@ jobs 385065–67, the **promoted
 variant** per kernel + **512-bit build flags**, via [bench_operating_point.py](../plugin/validate/bench_operating_point.py));
 regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kernel_pilot_plots.py).
 
+> **Method:** these results are the Phase-1 output of the [methodology](methodology-playbook.md); the staged
+> *how* each kernel was optimized is the [Standalone Kernel Optimization Playbook](standalone-kernel-optimization-playbook.md).
+
 > **Caveats.** (1) Latencies are **streaming/cold**; the warm case (where the preceding GEMM leaves inputs hot
 > in cache) is faster and is quoted per kernel below. (2) The roofline peak is the **nominal datasheet
 > reference** (BW 358.4 GB/s, AMX bf16 124.5 TF, FP32 7.78 TF @ 1.9 GHz base) — **not a measured achievable
@@ -67,6 +70,28 @@ flags); floor = `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achi
 | 3.4 sparse attend † | **compute** (FP32) | 275.9 | 460 | 60% | 686 | 1.5× |
 | 3.5 MHC sinkhorn | latency/dispatch | 0.017 | 25 | ~0% | 640 | 25.2× |
 | 3.6 MHC combine | BW (FP32) | 7.3 | 26 | 28% | 67 | 2.5× |
+
+### Optimization levers per kernel (vs roofline)
+
+Which [playbook](standalone-kernel-optimization-playbook.md) stages each kernel actually used, and the roofline
+result. "At ceiling" kernels used few levers *by design* — the regime forbids more.
+
+| kernel | donor (S2) | parallel/tile (S3) | **fusion (S4)** | **precision (S5)** | vectorize/AMX (S6) | transcendental (S6) | result |
+|---|---|---|---|---|---|---|---|
+| indexer logits | oneDNN BRGEMM | S-tiled + M=1 path | in-cache epilogue (no `[N,H,S]` DRAM) | bf16 GEMM; **bf16-KV free win** | 512-bit, AMX | — | 16% of AMX roof (BW) |
+| indexer top-k | — | row / chunked parallel | — (selection) | — | — | — | selection-bound (2%) |
+| compressor | — | N×D-tile (fills M=1) | **streaming online-softmax** (no `w[N,R,D]`) | fp32 (bf16 **rejected** — conformance + non-win) | 512-bit | **hand-inlined Cephes `exp`** (~1 ULP) | **79% of DRAM roof** |
+| sparse attend | oneDNN `at::bmm` | parallel over N·H | **in-place fused softmax/sink** (no 4 temps) | fp32-accumulate (bf16-AMX deferred: conformance) | 512-bit | **hand-inlined Cephes `exp`** | 60% of FP32 roof (compute) |
+| MHC sinkhorn | — | per-row parallel | **20-iter fused recurrence** (L1-resident) | fp32 | — | — | dispatch-bound (~0%) |
+| MHC combine | — | parallel over M | **accumulate-once** (no `[m,hc,H]` temp) | fp32 | 512-bit SIMD | — | 28% of DRAM roof (BW) |
+
+**Fusion** was applied to *every* kernel that had an avoidable intermediate — it is the single most common and
+highest-value structural lever here (compressor's streaming softmax, sparse's in-place softmax, combine's
+accumulate-once, sinkhorn's fused recurrence, indexer's in-cache epilogue all eliminate a DRAM round-trip).
+**Precision** is a *conformance-gated* lever, not a free dial: it is a free win only when the kernel's own
+compute already rounds the operand (indexer bf16-KV), and a measured non-win where the op isn't read-BW-bound
+or the reference is fp32 (compressor bf16). The roofline column is the honest ceiling check: after fusion +
+the hand-`exp`, compressor is at the **DRAM** wall and sparse at the **compute** wall — no lever left.
 
 ---
 
