@@ -47,6 +47,18 @@ by more kernel work.
 
 ![% of nominal roofline vs M (streaming)](plots/roofline_msweep.png)
 
+| kernel | M=1 | M=8 | M=16 | M=32 | M=64 |
+|---|---:|---:|---:|---:|---:|
+| indexer logits † | 1% | 4% | 9% | 16% | 25% |
+| indexer top-k | 0% | 0% | 1% | 2% | 4% |
+| compressor | 9% | 36% | 56% | 79% | 103%* |
+| sparse attend † | 8% | 40% | 46% | 60% | 68% |
+| MHC sinkhorn | 0% | 0% | 0% | 0% | 0% |
+| MHC combine | 2% | 8% | 14% | 28% | 50% |
+
+<sub>\* compressor M=64 >100% = still partly cache-resident at that size (the nominal DRAM roof under-counts
+when the working set fits L3).</sub>
+
 As the decode batch M grows, arithmetic intensity rises and the BW/compute-bound kernels climb toward their
 roofline (streaming, at M=64): **compressor → 83%**, **sparse → 68%**, **combine → 49%**, **indexer logits →
 24%**. `indexer top-k` (~4%) and `sinkhorn` (~0%) stay low because they are **selection/dispatch-bound** — a
