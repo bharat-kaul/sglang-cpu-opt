@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 430" width="760" height="430">
+<rect x="0" y="0" width="760" height="430" fill="#ffffff"/>
+<text x="16.0" y="24.0" font-family="monospace" font-size="15" fill="#111" text-anchor="start" font-weight="bold">Compressor R128/D512: roofline floor vs baseline vs optimized (C1)</text>
+<text x="16.0" y="42.0" font-family="monospace" font-size="11" fill="#666" text-anchor="start" font-weight="normal">latency us, log. baseline = optimized x measured C1 speedup; floor = nominal ref. Bit-exact.</text>
+<line x1="72" y1="375.0" x2="610" y2="375.0" stroke="#eee"/>
+<text x="64.0" y="379.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">1</text>
+<line x1="72" y1="280.0" x2="610" y2="280.0" stroke="#eee"/>
+<text x="64.0" y="284.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">10</text>
+<line x1="72" y1="163.0" x2="610" y2="163.0" stroke="#eee"/>
+<text x="64.0" y="167.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">100</text>
+<text x="18.0" y="217.5" font-family="monospace" font-size="11" fill="#444" text-anchor="middle" transform="rotate(-90 18 218)" font-weight="normal">latency us (log)</text>
+<rect x="82.8" y="356.9" width="25.8" height="18.1" fill="#2ca02c"/>
+<rect x="111.5" y="232.4" width="25.8" height="142.6" fill="#d62728"/>
+<rect x="140.1" y="245.3" width="25.8" height="129.7" fill="#1f77b4"/>
+<text x="125.8" y="393.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=1</text>
+<rect x="190.4" y="268.7" width="25.8" height="106.3" fill="#2ca02c"/>
+<rect x="219.1" y="175.8" width="25.8" height="199.2" fill="#d62728"/>
+<rect x="247.7" y="196.7" width="25.8" height="178.3" fill="#1f77b4"/>
+<text x="233.4" y="393.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=8</text>
+<rect x="298.0" y="235.0" width="25.8" height="140.0" fill="#2ca02c"/>
+<rect x="326.7" y="146.1" width="25.8" height="228.9" fill="#d62728"/>
+<rect x="355.3" y="167.5" width="25.8" height="207.5" fill="#1f77b4"/>
+<text x="341.0" y="393.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=16</text>
+<rect x="405.6" y="200.6" width="25.8" height="174.4" fill="#2ca02c"/>
+<rect x="434.3" y="112.6" width="25.8" height="262.4" fill="#d62728"/>
+<rect x="462.9" y="130.6" width="25.8" height="244.4" fill="#1f77b4"/>
+<text x="448.6" y="393.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=32</text>
+<rect x="513.2" y="165.8" width="25.8" height="209.2" fill="#2ca02c"/>
+<rect x="541.9" y="73.3" width="25.8" height="301.7" fill="#d62728"/>
+<rect x="570.5" y="97.8" width="25.8" height="277.2" fill="#1f77b4"/>
+<text x="556.2" y="393.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=64</text>
+<rect x="624" y="57" width="12" height="12" fill="#2ca02c"/>
+<text x="640.0" y="67.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">roofline floor</text>
+<rect x="624" y="75" width="12" height="12" fill="#d62728"/>
+<text x="640.0" y="85.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">baseline</text>
+<rect x="624" y="93" width="12" height="12" fill="#1f77b4"/>
+<text x="640.0" y="103.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">optimized</text>
+</svg>
