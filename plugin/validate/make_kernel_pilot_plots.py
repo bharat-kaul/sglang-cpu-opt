@@ -132,6 +132,40 @@ def grouped_bars(fname, title, subtitle, groups, series, ylabel, ymax, logy=Fals
         f.write("\n".join(s) + "\n</svg>\n")
 
 
+def speedup_chart(fname, title, subtitle, series, ylabel, ticks):
+    """Log-y speedup line chart; series: list of (name, [y per M], color, dash_bool)."""
+    import math
+    W, H = 840, 450
+    L, R, T, B = 70, 250, 62, 50
+    pw, ph = W - L - R, H - T - B
+    lo, hi = math.log10(ticks[0]), math.log10(ticks[-1])
+    s = _frame(W, H, title, subtitle)
+
+    def ypix(v):
+        return T + ph - ph * (math.log10(max(v, ticks[0] * 0.9)) - lo) / (hi - lo)
+    for tk in ticks:
+        y = ypix(tk)
+        col = "#bbb" if tk == 1 else "#eee"
+        da = ' stroke-dasharray="4 3"' if tk == 1 else ''
+        s.append(f'<line x1="{L}" y1="{y:.1f}" x2="{L+pw}" y2="{y:.1f}" stroke="{col}"{da}/>')
+        s.append(_txt(L - 8, y + 4, f"{tk:g}x", 10, "end", "#666"))
+    s.append(_txt(18, T + ph / 2, ylabel, 11, "middle", "#444").replace('text-anchor="middle"', f'text-anchor="middle" transform="rotate(-90 18 {T+ph/2:.0f})"'))
+    for i, M in enumerate(MS):
+        x = L + pw * i / (len(MS) - 1)
+        s.append(_txt(x, T + ph + 18, f"M={M}", 10, "middle", "#666"))
+    for idx, (name, ys, color, dash) in enumerate(series):
+        pts = [(L + pw * i / (len(MS) - 1), ypix(v)) for i, v in enumerate(ys)]
+        da = ' stroke-dasharray="6 4"' if dash else ''
+        s.append('<polyline fill="none" stroke="' + color + f'" stroke-width="2"{da} points="' + " ".join(f"{x:.1f},{y:.1f}" for x, y in pts) + '"/>')
+        for x, y in pts:
+            s.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{color}"/>')
+        ly = T + 6 + idx * 18
+        s.append(f'<line x1="{L+pw+14}" y1="{ly-4}" x2="{L+pw+30}" y2="{ly-4}" stroke="{color}" stroke-width="2"{da}/>')
+        s.append(_txt(L + pw + 34, ly - 1, name, 10, "start", "#333"))
+    with open(fname, "w") as f:
+        f.write("\n".join(s) + "\n</svg>\n")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default=os.path.join(HERE, "..", "..", "docs", "plots"))
@@ -139,6 +173,22 @@ def main():
     os.makedirs(a.out_dir, exist_ok=True)
     rs = json.load(open(os.path.join(RES, "roofline_sweep.json")))["kernels"]
     so = json.load(open(os.path.join(RES, "standalone_opt.json")))
+
+    # Plot 0 (headline): newly-authored kernel vs NON-C/C++ torch baseline; oneDNN-donor kernels DASHED.
+    cvt_path = os.path.join(RES, "cpp_vs_torch.json")
+    if os.path.exists(cvt_path):
+        cvt = json.load(open(cvt_path))["kernels"]
+        order = ["sinkhorn", "indexer_topk", "compressor_R128", "combine", "sparse_bestof", "indexer_logits"]
+        series0 = []
+        for i, k in enumerate([x for x in order if x in cvt]):
+            pa = cvt[k]["pure_authored"]
+            ys = [cvt[k]["M"][str(M)]["speedup"] for M in MS]
+            nm = k + ("" if pa else "  (oneDNN GEMM donor)")
+            series0.append((nm, ys, PAL[i % len(PAL)], not pa))
+        speedup_chart(os.path.join(a.out_dir, "cpp_vs_torch.svg"),
+                      "Newly-authored C/C++ kernel vs its NON-C/C++ torch baseline (speedup)",
+                      "solid = PURE-AUTHORED (no library GEMM); dashed = oneDNN/MKL GEMM donor + authored epilogue. 1.0x = no gain. EMR job 385001, 3-proc medians.",
+                      series0, "speedup over torch (log)", [1, 2, 5, 10, 20, 50, 100])
 
     # Plot 1: achieved % of nominal-reference roofline, per kernel, vs M
     series = []

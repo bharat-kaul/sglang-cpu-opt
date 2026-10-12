@@ -1,0 +1,223 @@
+{
+ "_schema": "Newly-authored C/C++ kernel vs its NON-C/C++ torch baseline. speedup = torch_us/cpp_us, cross-process median of 3 replicates of order-varied paired medians. pure_authored flags kernels with NO oneDNN/MKL donor; indexer_logits+sparse use a oneDNN GEMM donor (speedup includes the library GEMM).",
+ "provenance": {
+  "job": 385001,
+  "node": "pcl-sprh03.sc.intel.com",
+  "head": "1f32369",
+  "replicates": 3
+ },
+ "provenance_note": {
+  "indexer_logits": {
+   "donor": "oneDNN cpublas BRGEMM (q.kv^T GEMM)",
+   "authored": "fused relu*weight*sum epilogue (L1-resident, bf16 stages)",
+   "pure_authored": false
+  },
+  "sparse_bestof": {
+   "donor": "oneDNN/MKL at::bmm (score + value GEMMs)",
+   "authored": "fused in-place softmax+sink; N==1 scalar path; best-of dispatch",
+   "pure_authored": false
+  },
+  "compressor_R128": {
+   "donor": null,
+   "authored": "AVX-512 streaming online-softmax pool, N*D-tile parallel",
+   "pure_authored": true
+  },
+  "indexer_topk": {
+   "donor": null,
+   "authored": "nth_element selection + guarded chunked/row-parallel",
+   "pure_authored": true
+  },
+  "sinkhorn": {
+   "donor": null,
+   "authored": "fused 20-iter recurrence (L1-resident, no per-iter torch ops)",
+   "pure_authored": true
+  },
+  "combine": {
+   "donor": null,
+   "authored": "accumulate-once tiling (read-once/write-once)",
+   "pure_authored": true
+  }
+ },
+ "kernels": {
+  "indexer_logits": {
+   "pure_authored": false,
+   "M": {
+    "1": {
+     "speedup": 11.48,
+     "cpp_us": 100.6,
+     "torch_us": 1143.5
+    },
+    "8": {
+     "speedup": 0.95,
+     "cpp_us": 203.4,
+     "torch_us": 192.6
+    },
+    "16": {
+     "speedup": 2.66,
+     "cpp_us": 217.1,
+     "torch_us": 593.1
+    },
+    "32": {
+     "speedup": 2.09,
+     "cpp_us": 272.4,
+     "torch_us": 558.3
+    },
+    "64": {
+     "speedup": 1.58,
+     "cpp_us": 403.8,
+     "torch_us": 638.9
+    }
+   }
+  },
+  "sparse_bestof": {
+   "pure_authored": false,
+   "M": {
+    "1": {
+     "speedup": 3.47,
+     "cpp_us": 74.1,
+     "torch_us": 258.4
+    },
+    "8": {
+     "speedup": 2.16,
+     "cpp_us": 167.6,
+     "torch_us": 372.5
+    },
+    "16": {
+     "speedup": 1.72,
+     "cpp_us": 261.1,
+     "torch_us": 449.8
+    },
+    "32": {
+     "speedup": 1.35,
+     "cpp_us": 402.7,
+     "torch_us": 542.1
+    },
+    "64": {
+     "speedup": 3.82,
+     "cpp_us": 742.8,
+     "torch_us": 2840.1
+    }
+   }
+  },
+  "compressor_R128": {
+   "pure_authored": true,
+   "M": {
+    "1": {
+     "speedup": 10.79,
+     "cpp_us": 20.0,
+     "torch_us": 209.9
+    },
+    "8": {
+     "speedup": 4.12,
+     "cpp_us": 50.2,
+     "torch_us": 204.7
+    },
+    "16": {
+     "speedup": 3.28,
+     "cpp_us": 88.5,
+     "torch_us": 301.0
+    },
+    "32": {
+     "speedup": 2.36,
+     "cpp_us": 176.1,
+     "torch_us": 408.7
+    },
+    "64": {
+     "speedup": 4.39,
+     "cpp_us": 346.4,
+     "torch_us": 1585.4
+    }
+   }
+  },
+  "indexer_topk": {
+   "pure_authored": true,
+   "M": {
+    "1": {
+     "speedup": 2.13,
+     "cpp_us": 2.6,
+     "torch_us": 5.5
+    },
+    "8": {
+     "speedup": 4.6,
+     "cpp_us": 12.6,
+     "torch_us": 54.9
+    },
+    "16": {
+     "speedup": 12.98,
+     "cpp_us": 12.5,
+     "torch_us": 167.0
+    },
+    "32": {
+     "speedup": 24.42,
+     "cpp_us": 13.2,
+     "torch_us": 325.8
+    },
+    "64": {
+     "speedup": 28.36,
+     "cpp_us": 14.0,
+     "torch_us": 396.1
+    }
+   }
+  },
+  "sinkhorn": {
+   "pure_authored": true,
+   "M": {
+    "1": {
+     "speedup": 93.68,
+     "cpp_us": 2.4,
+     "torch_us": 224.5
+    },
+    "8": {
+     "speedup": 19.33,
+     "cpp_us": 14.5,
+     "torch_us": 285.2
+    },
+    "16": {
+     "speedup": 20.32,
+     "cpp_us": 14.1,
+     "torch_us": 289.6
+    },
+    "32": {
+     "speedup": 21.54,
+     "cpp_us": 13.6,
+     "torch_us": 316.4
+    },
+    "64": {
+     "speedup": 21.95,
+     "cpp_us": 15.5,
+     "torch_us": 360.7
+    }
+   }
+  },
+  "combine": {
+   "pure_authored": true,
+   "M": {
+    "1": {
+     "speedup": 4.95,
+     "cpp_us": 2.4,
+     "torch_us": 11.6
+    },
+    "8": {
+     "speedup": 2.3,
+     "cpp_us": 11.7,
+     "torch_us": 26.6
+    },
+    "16": {
+     "speedup": 2.36,
+     "cpp_us": 11.7,
+     "torch_us": 27.1
+    },
+    "32": {
+     "speedup": 2.32,
+     "cpp_us": 11.7,
+     "torch_us": 27.2
+    },
+    "64": {
+     "speedup": 2.03,
+     "cpp_us": 14.2,
+     "torch_us": 29.0
+    }
+   }
+  }
+ }
+}

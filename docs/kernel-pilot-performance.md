@@ -15,7 +15,29 @@ artifacts [roofline_sweep.json](../plugin/validate/results/roofline_sweep.json) 
 > Correctness is tracked separately and remains **PARTIAL** (F4 screening, thresholds UNRATIFIED,
 > promotion **BLOCKED**).
 
-## 1. How close the optimized kernels run to the nominal roofline
+## 1. Headline: newly-authored kernel vs its non-C/C++ (torch) baseline
+
+![Authored kernel vs torch baseline](plots/cpp_vs_torch.png)
+
+The real benefit of authoring each kernel — measured against the **torch op it replaces**, at the kernel's
+arithmetic contract (order-varied paired, 3-process medians, EMR job 385001). **solid = pure-authored**
+(no library GEMM); **dashed = oneDNN/MKL GEMM donor + authored epilogue**.
+
+| kernel | implementation | speedup vs torch (M1→M64) |
+|---|---|---|
+| **sinkhorn** | pure-authored (fused 20-iter recurrence) | **93.7× → 21.9×** |
+| **indexer_topk** | pure-authored (selection + chunked) | 2.1× → **28.4×** |
+| **compressor** | pure-authored (AVX-512 online-softmax) | **10.8× → 4.4×** |
+| **combine** | pure-authored (accumulate-once) | 5.0× → 2.0× |
+| sparse (best-of) | **oneDNN `at::bmm`** + authored fused softmax/sink | 3.5× → 3.8× |
+| indexer_logits | **oneDNN `cpublas` BRGEMM** + authored bf16 epilogue | 11.5× → 1.6× (torch ref noisy) |
+
+The four **pure-authored** kernels are **2×–94×** over torch. The two GEMM-heavy kernels (indexer_logits,
+sparse) deliberately **reuse the oneDNN/MKL library GEMM** (donor-first) and author only the fused
+epilogue/dispatch — so their speedup includes the library contraction; the *authored* contribution there is
+the fusion that avoids the reference's extra temporaries, not the matmul itself.
+
+## 2. How close the optimized kernels run to the nominal roofline
 
 ![Optimized kernels vs nominal-reference roofline](plots/achieved_vs_roofline.png)
 
@@ -26,21 +48,28 @@ R128/D512 ~26%**, **indexer logits 25.3%** (BW, convert/pack-bound at small M). 
 `sinkhorn` are **selection/dispatch-bound** — a byte-or-FLOP roofline is the *wrong* ceiling for them, so
 their low % is a diagnostic, not a recoverable gap.
 
-## 2. Roofline floor vs baseline vs optimized (exemplar: compressor R128/D512)
+## 3. Achieved bandwidth efficiency (S=1024) — are they actually BW-bound?
 
-![Compressor roofline vs baseline vs optimized](plots/compressor_3series.png)
+![Achieved BW efficiency](plots/bw_efficiency.png)
 
-The clean three-series view where all three align: **roofline floor** (nominal), **baseline** (pre-opt
-kernel), **optimized** (C1 one-`exp` recurrence). C1 is **bit-exact** to the baseline (proven by building
-old and new and diffing outputs) — a pure speed win of **1.29–1.62×** that scales with the exp count (R).
+Achieved BW = (useful bytes / measured time) ÷ peak 358.4 GB/s, at input seq-len S=1024 (indexer/top-k use
+S=1024; compressor/sparse/sinkhorn/combine operate on fixed intermediate sizes, so S doesn't apply). **Not
+all kernels are BW-bound**: `combine` approaches saturation at large M (but that is **cache-resident** BW,
+not DRAM); `sparse` reaches only ~30% of BW because it is **compute-bound** (71.8% of the FP32 roof, §2);
+`sinkhorn`/`indexer_topk` sit near 0% because they are **dispatch/selection-bound** (their byte traffic is
+trivially small — the cost is op dispatch, not data movement). So the right ceiling differs per kernel.
 
-## 3. Standalone optimization: baseline → optimized speedup (kept wins)
+## 4. Incremental standalone micro-optimizations (secondary — small by design)
+
+These are *further* tweaks on top of the already-authored C/C++ kernels (not the kernel-vs-torch benefit in
+§1). They are deliberately small.
 
 ![Standalone optimization speedups](plots/opt_speedup.png)
+![Compressor roofline vs baseline vs optimized](plots/compressor_3series.png)
 
-Order-varied paired trials, 3-process medians (jobs 384621/384675). Kept wins: **C1** compressor one-`exp`
-(bit-exact; R128 1.29–1.62×, R8 up to 1.21×), **I1** indexer drop-unused-alloc (bit-exact; small but real
-at large M), **I2** bf16-KV vs fp32-KV (1.09–1.51×, conditional on the caller supplying bf16 KV).
+Kept: **C1** compressor one-`exp` (bit-exact; R128 1.29–1.62×), **I1** indexer drop-unused-alloc (bit-exact;
+small at large M), **I2** bf16-KV vs fp32-KV (1.09–1.51×, caller-dependent). The compressor 3-series shows
+roofline floor vs pre-opt baseline vs C1-optimized.
 
 ### Measured dispositions (full audit trail in [standalone_opt.json](../plugin/validate/results/standalone_opt.json))
 
