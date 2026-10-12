@@ -19,8 +19,13 @@ loading and running ~`(full_layers / proxy_layers)`× faster — and small enoug
 3. Run with the **real runtime config** you want to characterize (tp, thread count, NUMA bind,
    dtype). For pathologies that depend on per-rank threads, match the real tp; for pure
    bottleneck *discovery*, any faithful-width config exposes them.
-4. Iterate fixes here (queue-free, minutes). Extrapolate a per-layer-dominated cost to the full
-   model by `× (full_layers / proxy_layers)`; CONFIRM on the full model at the end.
+4. Iterate fixes here (queue-free, minutes). Extrapolate with the **two-depth linear model**
+   `t(L) = t_fixed + L·t_layer`: calibrate from TWO proxy depths (e.g. proxy4 + proxy8 →
+   `t_layer=(t8−t4)/4`, `t_fixed=t4−4·t_layer`), PER REGIME (prefill/decode), then predict
+   `full = t_fixed + full_layers·t_layer`. Do NOT use naive `t_proxy/proxy_layers × full_layers` — it
+   wrongly multiplies the per-forward FIXED cost (warmup/embed/lm_head/framework/sampling) by the full
+   depth. CONFIRM on the full model at the end (one full-depth dummy run) — it validates the extrapolation
+   and exposes any residual depth-accumulating overhead (allocator/thread-pool/cache-residency) to bisect.
 
 ## QUALIFY APPLICABILITY (the proxy is faithful for per-layer-dominated cost — NOT universally)
 "Dummy weights + depth reduction is valid for perf" is TRUE for cost that is **per-layer-dominated and

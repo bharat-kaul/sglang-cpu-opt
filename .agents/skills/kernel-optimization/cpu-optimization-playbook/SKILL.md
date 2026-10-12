@@ -73,15 +73,31 @@ condition is met and gating every step against the measured roofline.
 >   roofline), the only phase where per-op roofline — not wall time — is the target.
 >
 > **PHASE 2 — NORTH-STAR WALL TIME (only after Phase 1 is complete + reviewed).**
-> - Baseline = the all-C/C++ model with every optimization gate OFF (the kosher baseline). Then
->   **progressively integrate the kernels/optimizations ONE AT A TIME** (each env-gated default-OFF),
->   measuring WALL TIME and RECORDING the improvement per toggle (`cpu-serving-integration`).
-> - Do this on the **depth-reduced, full-width DUMMY-weight proxy** (`perf-proxy`) and **scale the
->   wall time analytically to full depth** (× full_layers/proxy_layers) for per-layer-dominated cost.
+> - **FRAME THE KPI FIRST (ask the user):** fix the operating point **(input S, batch B=M, output G)** +
+>   headline metric from the target regime — throughput serving (B large, decode off the M=1 cliff) vs
+>   low-latency single stream (B=1), default BOTH (headline throughput, carry B=1 as the latency floor).
+>   See `model-enablement-playbook` step 0a. M is the decode batch, NOT a free dial; S must be realistic
+>   (it is the attention/indexer KV length). Report the headline tok/s AND the prefill/decode split of the
+>   SAME run (prefill M=S·B compute-bound; decode M=B dominates wall time) for attribution + regression-safety.
+> - Baseline = the all-C/C++ model with every optimization gate OFF (the kosher baseline), with the
+>   **systemic config already correct** (threads bound ONCE at init, one rank per NUMA domain, NO
+>   per-forward `set_num_threads` — clear the known affinity/NUMA pathologies on the BASELINE, not later).
+>   Then **progressively integrate the kernels/optimizations ONE AT A TIME** (each env-gated default-OFF,
+>   with a dummy-weight output-fingerprint gate per toggle), measuring WALL TIME and RECORDING the
+>   improvement per toggle (`cpu-serving-integration`).
+> - Do this on the **depth-reduced, full-width DUMMY-weight proxy** (`perf-proxy`) and extrapolate with the
+>   **two-depth linear model** `t(L) = t_fixed + L·t_layer` — calibrate from TWO proxy depths (e.g. proxy4 +
+>   proxy8: `t_layer=(t8−t4)/4`, `t_fixed=t4−4·t_layer`) PER REGIME (prefill/decode). NOT naive
+>   `t_proxy/layers × full_layers` — that wrongly multiplies the per-forward fixed overhead (warmup/embed/
+>   lm_head/framework) by the full depth. Known systemic overheads are cleared up front; the ONE full-depth
+>   dummy run then VALIDATES the extrapolation and exposes any RESIDUAL depth-accumulating overhead
+>   (allocator/thread-pool/cache-residency) to bisect — that is what the full-depth run is for, not to
+>   discover the known pathologies.
 > - When all kernels are integrated, measure the FULL-MODEL (dummy-weight) wall time **including the
 >   systemic-config pathology pass** (`runtime-config-tuning`: threads/affinity/NUMA/prepack), optimize
 >   it, and record the wall-time improvement. CONFIRM on the full model at the end; real weights only
->   for the accuracy + no-perf-regression finale.
+>   for the accuracy + no-perf-regression finale. The dense per-M kernel sweep stays at the standalone/
+>   roofline level + this one full-depth confirm; the E2E ledger tracks the chosen operating point.
 >
 > Do NOT jump to Phase-2 wall-time optimization while any op is still on a torch fallback or any
 > kernel is below its no-regression floor — fix Phase 1 first.
