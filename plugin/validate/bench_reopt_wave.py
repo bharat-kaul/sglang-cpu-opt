@@ -164,7 +164,7 @@ def main():
             print(f"{lbl:28s} {fs:10s} " + " ".join(f"{cw[m]:5.0f}" for m in MS) + "   " + " ".join(f"{cs[m]:5.0f}" for m in MS) + f"   {re:.2e}")
             # journey line at M=32 (streaming, the reliable number)
             spd = ts[32] / sM32 if sM32 else 0
-            print(f"    -> M32 STREAM: torch {ts[32]:.0f}us -> {lbl} {sM32:.0f}us = {spd:.2f}x   ({gbps:.0f} GB/s, {100*bytes_fn(32)/BW/(sM32/1e6)/1e9:.0f}% DRAMroof)")
+            print(f"    -> M32 STREAM: torch {ts[32]:.0f}us -> {lbl} {sM32:.0f}us = {spd:.2f}x   ({gbps:.0f} GB/s)")
     print(f"[done wave {KERNEL}]")
 
 

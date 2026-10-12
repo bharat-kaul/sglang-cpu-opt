@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "intel_cpu_models"))
 from sparse_ref import ora_sparse_fp32
 from torch.utils.cpp_extension import load
 
-_CF = ["-O3", "-fopenmp", "-march=native"]
+_CF = ["-O3", "-fopenmp", "-march=native", "-mprefer-vector-width=512", "-DCPU_CAPABILITY_AVX512"]
 _KD = os.path.join(HERE, "..", "kernels", "dsa_pilot")
 torch.manual_seed(0)
 

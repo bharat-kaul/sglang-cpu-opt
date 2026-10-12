@@ -321,6 +321,40 @@ reduction (27.2 µs).
 and the hc-fold redundant y traffic.
 
 
+## 4. Re-optimization wave — streaming journeys for every kernel
+
+Applying the compressor learnings (512-bit build flags, `objdump` ISA check, hand-inlined Cephes `exp` where
+exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parallel wave (EMR jobs 385039,
+385046–385050). Latencies are **streaming (LLC-flushed per call)** at M=32 — the reliable number, not warm.
+
+| kernel | torch | shipped C/C++ | re-optimized | lever | regime |
+|---|---:|---:|---:|---|---|
+| compressor | 409\* | 284 | **62** | hand-exp Cephes **4.6×** | now DRAM-bound (77% roof) |
+| sparse_bestof † | 712 | 541 | **455** | hand-exp Cephes **1.19×** | GEMM-bound (oneDNN donor) |
+| indexer_logits † | 398 | 343 | **297** | 512-bit flags **1.16×** | GEMM-bound (oneDNN donor) |
+| indexer_topk | 504 | 38 | 38 | none | selection-bound (at ceiling) |
+| sinkhorn | 503 | 23 | 23 | none | dispatch-bound (at ceiling) |
+| combine | 68 | 24 | 24 | none | cache-resident (at ceiling) |
+
+\* compressor torch is warm (409 µs); its streaming shipped→re-optimized is 284 → 62 µs. † oneDNN GEMM donor.
+
+**Findings.** Two new levers. The **512-bit flag fix** (`-mprefer-vector-width=512 -DCPU_CAPABILITY_AVX512` —
+GCC defaults to 256-bit and `at::vec` falls back to AVX2 in a JIT build; `objdump` showed `zmm=0 → 322` for
+indexer) lifts the oneDNN-donor indexer 1.16×, and the **hand-inlined Cephes `exp`** transfers to sparse's
+softmax (1.19× via `sparse_attend_bestof_hx`). The other three kernels are already at their regime ceiling —
+selection (`nth_element`), tiny dispatch, and cache-resident FMA have no `exp` to inline and no bandwidth to
+recover, so the flags move them within noise. Only the compressor had the large 4.8×, because it was uniquely
+*exp-bound and unvectorized*; this is the honest result of measuring rather than assuming every kernel has the
+same headroom.
+
+**`exp` accuracy (industry-standard ULP bound).** The inlined `exp512_ps` was measured against a correctly-
+rounded fp64 reference over the softmax range: **max 1.000 ULP, 0% of inputs exceed 1 ULP** (EMR job 385051) —
+it meets the ~1 ULP faithfully-rounded bar (0.5 ULP / correctly-rounded is impractical for a hot vector kernel
+and not met by the reference stack either: GPU `ex2.approx` ≈ 2 ULP). Each hand-`exp` kernel retains **both**
+the exact-`libm` path (bit-exact oracle) and the Cephes path for end-to-end accuracy A/B; the Cephes path is
+F4-screened (passes the contract/finiteness/determinism/mask gates) until the E2E task metric confirms it.
+
+
 ## Provenance
 - Kernel latency + speedup: EMR node, **job 385001**, order-varied paired trials, 3-process medians; baseline = the torch op each kernel replaces at its arithmetic contract (refs noisy for indexer → medians).
 - Roofline floor: analytic `max(bytes/BW, FLOPs/peak)` from each kernel's byte/FLOP contract vs the nominal datasheet peak.

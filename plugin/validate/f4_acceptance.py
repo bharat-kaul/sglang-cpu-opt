@@ -30,8 +30,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "intel_cpu_models"))
 sys.path.insert(0, HERE)
 from torch.utils.cpp_extension import load
 from sparse_ref import ora_sparse_blockwise as _ora_sparse_blockwise   # source-faithful 64-block replica
-
-_CF = ["-O3", "-fopenmp", "-march=native"]
+# STANDARD build flags (wave 385046-385050 + compressor 385022): gcc defaults to 256-bit and at::vec falls
+# back to AVX2 in a JIT ext -> force 512-bit. Bit-exact for the shipped paths (RNE bf16 convert is width-
+# independent; scalar std::exp unchanged), and it is the flagset the production kernels are built with.
+_CF = ["-O3", "-fopenmp", "-march=native", "-mprefer-vector-width=512", "-DCPU_CAPABILITY_AVX512"]
 _KDIR = os.path.join(HERE, "..", "kernels", "dsa_pilot")
 
 # SCREENING thresholds — PROVISIONAL (not production acceptance); used only to FLAG, never to certify.
@@ -255,6 +257,7 @@ def manifest():
     _sp_fns = {"scalar": lambda q, kv, s, sc: sp.sparse_attend(q, kv, s, sc),
                "fp32bmm": lambda q, kv, s, sc: sp.sparse_attend_fp32bmm(q, kv, s, sc),
                "bestof": lambda q, kv, s, sc: sp.sparse_attend_bestof(q, kv, s, sc),
+               "bestof_hx": lambda q, kv, s, sc: sp.sparse_attend_bestof_hx(q, kv, s, sc),
                "amx": lambda q, kv, s, sc: sp.sparse_attend_amx(q, kv, s, sc)}
     for p, fn in _sp_fns.items():
         sweep = (1, 8, 16, 32, 64) if p != "amx" else (1, 8)   # R4-A5: shipped paths cover the full M-sweep
