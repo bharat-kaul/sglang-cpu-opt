@@ -45,67 +45,98 @@ bound** — a byte-or-FLOP roofline is the wrong ceiling for them, so the low % 
 recoverable gap. This is the "how close to the metal, and does more work help?" view.
 
 
-## 3. Kernel deep-dive: the compressor (softmax-pool)
+## 3. Kernel deep-dives — roofline / baseline / C/C++ for every kernel
 
-A worked example of one authored kernel end-to-end. The compressor reduces a window of `R` raw KV tokens
-(R = 128 or 8) to **one** compressed token via a **per-channel** softmax-weighted pool:
+For each of the six kernels: **(a)** the roofline floor (byte/FLOP contract vs nominal peak, at M=32 unless
+noted), **(b)** the baseline torch op it replaces and why it is slow, and **(c)** the authored C/C++ and the
+optimizations. All numbers are M=32, S=1024 from [cpp_vs_torch.json](../plugin/validate/results/cpp_vs_torch.json)
+(job 385001); floor = `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achievable ceiling).
 
-```
-out[n,d] = Σ_r  softmax_r( score[n,r,d] + ape[r,d] ) · kv[n,r,d]
-```
+| kernel | bound | floor µs | C/C++ µs | % roof | baseline µs | speedup |
+|---|---|---:|---:|---:|---:|---:|
+| 3.1 indexer logits † | BW (AMX) | 50.1 | 272.4 | 18% | 558.3 | 2.1× |
+| 3.2 indexer top-k | selection | 0.73 | 13.2 | 6% | 325.8 | 24.4× |
+| 3.3 compressor | BW (FP32) | 47.7 | 176.1 | 27% | 408.7 | 2.4× |
+| 3.4 sparse attend † | **compute** (FP32) | 275.9 | 402.7 | 69% | 542.1 | 1.4× |
+| 3.5 MHC sinkhorn | latency/dispatch | 0.017 | 13.6 | ~0% | 316.4 | 21.5× |
+| 3.6 MHC combine | BW (FP32) | 7.3 | 11.7 | 63% | 27.2 | 2.3× |
 
-Each of the `D = 512` channels independently softmaxes over the window of `R` tokens and pools them.
-Shapes: `kv, score = [N,R,D]`, `ape = [R,D]` → `out = [N,D]`, all fp32.
+---
 
-### 3.1 Roofline calculation (R=128, D=512, operating point M=32)
+### 3.1 Indexer logits † (oneDNN donor + fused epilogue)
 
-**Useful bytes moved** (each tensor streamed once, fp32 = 4 B):
+`logits[n,s] = Σ_h relu( q[n,h,:] · kv[n,s,:] ) · weight[n,h]` — a `[H,D]×[D,S]` score GEMM per request
+(H=64, D=128, S=1024) followed by a relu·weight·sum reduction over the H heads. **† oneDNN donor.**
 
-| tensor | size | bytes |
-|---|---|---:|
-| kv `[M,R,D]` | 32·128·512 | 8.39 MB |
-| score `[M,R,D]` | 32·128·512 | 8.39 MB |
-| ape `[R,D]` (shared) | 128·512 | 0.26 MB |
-| out `[M,D]` | 32·512 | 0.07 MB |
-| **total** | | **17.10 MB** |
+**Roofline (M=32).** FLOPs = `2·M·H·S·D + 3·M·H·S` = 2·32·64·1024·128 + … ≈ **543 MFLOP**;
+bytes = q`[M,H,D]` + kv`[M,S,D]` + weight + logits = 1.05 + 16.78 + … ≈ **17.97 MB** (the kv read dominates).
+AI ≈ 30 FLOP/byte ≪ AMX ridge 347 → **BW-bound**. Floor = max(17.97 MB/358.4 GB/s = **50.1 µs**, 543 MFLOP/124.5 TF = 4.4 µs) = **50.1 µs**. C/C++ 272.4 µs = **18%**.
 
-**FLOPs** ≈ `3·M·R·D` = 3·32·128·512 ≈ **6.3 MFLOP** (score+ape add, the exp, the weighted accumulate — a
-*simplified* count that does not charge the exp its true transcendental cost; irrelevant here, see below).
-
-**Arithmetic intensity** = 6.3M / 17.1M ≈ **0.37 FLOP/byte**, far below the ridge point
-`peak/BW = 7.78 TF / 358.4 GB/s ≈ 21.7 FLOP/byte` → **firmly bandwidth-bound**.
-
-**Floor = max(bytes/BW, FLOPs/peak):**
-- BW term = 17.10 MB / 358.4 GB/s = **47.7 µs** ← binding
-- compute term = 6.3 MFLOP / 7.78 TF = 0.81 µs
-
-So **floor ≈ 47.7 µs** (nominal). Measured C/C++ = 176.1 µs → **27% of the nominal roofline**;
-baseline torch = 408.7 µs → **C/C++ is 2.4× faster**.
-
-### 3.2 Baseline implementation (the torch op it replaces)
-
-[dsa_compressor_cpu.py](../plugin/intel_cpu_models/dsa_compressor_cpu.py):
-
+**Baseline (torch)** — [bench_replicated.py `_idx_ref`](../plugin/validate/bench_replicated.py#L53):
 ```python
-def compress_softmax_pool(kv, score, ape):
-    w = (score.float() + ape.float().unsqueeze(0)).softmax(dim=1)   # materializes w[N,R,D]
-    return (w * kv.float()).sum(dim=1)
+s = torch.einsum("nhd,nsd->nhs", q.bfloat16(), kv.bfloat16())
+return (s.relu_() * w.bfloat16().unsqueeze(-1)).sum(1)
 ```
+The `einsum` materializes the full `[N,H,S]` score tensor in DRAM, then relu, multiply, and sum each make
+another full `[N,H,S]` pass — the `[N,H,S]` scores round-trip to memory ~3–4× (558.3 µs).
 
-Why it's slow — it is **memory-traffic-bound and makes many passes**:
+**C/C++** — [indexer_logits.cpp `indexer_logits_tiled`](../plugin/kernels/dsa_pilot/indexer_logits.cpp):
+1. **Score GEMM on the oneDNN cpublas BRGEMM donor** (bf16 AMX, VNNI-packed `q^T` reused across all S-tiles).
+2. **Tiled so scores never leave cache** — S is processed in `Sb`-row tiles; each tile's `[Sb,H]` scores land
+   in an L1/L2 stack buffer and the **relu·weight·sum epilogue runs in-cache**, removing the `[N,H,S]` DRAM
+   round-trip that made a naive port BW-bound. kv is streamed exactly once.
+3. **Adaptive tiling** (`~4·threads` tasks, `Sb` multiple of 16) keeps brgemm M large (AMX-efficient) while
+   still filling cores at small N; a dedicated M=1 path does one GEMM over all S to avoid tiny-tile dispatch.
+4. **bf16-faithful stage rounding** in the epilogue matches the published model's bf16 boundaries bit-for-bit.
 
-- `score + ape` → one full `[N,R,D]` temporary (8 MB write).
-- `.softmax(dim=1)` → internally max-over-R, subtract, **exp over the whole [N,R,D]**, sum-over-R, divide —
-  several more full reads/writes of `[N,R,D]`, and it **materializes the weights tensor `w[N,R,D]` in DRAM**.
-- `w * kv` → another `[N,R,D]` pass, then `.sum(dim=1)` → another.
+**Net:** the GEMM is the donor's; the authored win is the **in-cache fused epilogue** (no score round-trip).
+Still 18% of the nominal BW roof — useful byte-throughput is below reference BW, so ROI is **open**, not a wall.
 
-Each is a separate ATen op with its own kernel launch; the `[N,R,D]` data is streamed through memory ~5–7×
-plus the extra `w` allocation. On a BW-bound op that multiplies the ~17 MB useful traffic several-fold → ~409 µs.
+---
 
-### 3.3 C/C++ implementation + optimizations
+### 3.2 Indexer top-k (pure-authored selection)
 
-[compressor.cpp](../plugin/kernels/dsa_pilot/compressor.cpp) — the inner loop:
+Select the top-k=512 KV indices per row of `logits[N,S=1024]`. Sparse attention only needs the **set** of
+top-k (gather is permutation-invariant), so this is a **selection**, not a sort.
 
+**Roofline (M=32).** FLOPs = 0 (comparisons, not float ops). bytes = logits`[M,S]` + indices`[M,k]` int64 =
+0.13 + 0.13 = **0.26 MB** → floor = 0.26 MB/358.4 GB/s = **0.73 µs**. C/C++ 13.2 µs = **6%** — but a
+byte/FLOP roofline is the **wrong ceiling** here: the cost is `O(S)` comparison work + thread dispatch, not
+memory. The 6% is a diagnostic, not a recoverable gap.
+
+**Baseline (torch)** — `torch.topk(logits, 512, dim=1, sorted=False).indices`. torch.topk does a **full
+per-row sort/partition** (and over-returns ordering we discard), 325.8 µs.
+
+**C/C++** — [indexer_topk.cpp](../plugin/kernels/dsa_pilot/indexer_topk.cpp):
+1. **`std::nth_element` (O(S) selection)** instead of a sort — no ordering computed, just the partition.
+2. **Best-of dispatch:** large N → one row per thread (saturates the machine); **small N → chunked 2-pass**
+   (split each row into C chunks, exact local top-k per chunk in parallel, merge the C·k candidates) so M=1/8
+   use **all** cores, not 1/8 of them — this closed the small-M gap that used to route to torch.topk.
+3. **Guards**: N=1 runs serially (no thread-team spinup, which regressed at M=1); chunking is used only when
+   `k ≪ chunk-length` (else the merge is pure overhead).
+
+**Net:** ~24× by replacing a sort with a saturating parallel selection. Pure-authored, no library.
+
+---
+
+### 3.3 Compressor (pure-authored online-softmax pool)
+
+Reduce a window of `R`=128 raw KV tokens to one compressed token via a **per-channel** softmax-weighted pool:
+`out[n,d] = Σ_r softmax_r( score[n,r,d] + ape[r,d] ) · kv[n,r,d]`. Each of D=512 channels softmaxes over R
+independently. Shapes `kv, score=[N,R,D]`, `ape=[R,D]` → `out=[N,D]`.
+
+**Roofline (M=32).** bytes = kv + score + ape + out = 8.39 + 8.39 + 0.26 + 0.07 = **17.10 MB**;
+FLOPs ≈ `3·M·R·D` ≈ 6.3 MFLOP. AI ≈ 0.37 FLOP/byte ≪ FP32 ridge 21.7 → **BW-bound**. Floor = max(17.10 MB/358.4 GB/s = **47.7 µs**, 0.81 µs) = **47.7 µs**. C/C++ 176.1 µs = **27%**, baseline 408.7 µs → **2.4×**.
+
+**Baseline (torch)** — [dsa_compressor_cpu.py](../plugin/intel_cpu_models/dsa_compressor_cpu.py):
+```python
+w = (score.float() + ape.float().unsqueeze(0)).softmax(dim=1)   # materializes w[N,R,D]
+return (w * kv.float()).sum(dim=1)
+```
+`score+ape`, the softmax (max/exp/sum/div), `w*kv`, and `.sum` each make a full `[N,R,D]` pass and the softmax
+**materializes the weights `w[N,R,D]` in DRAM** → the ~17 MB useful traffic is multiplied ~5–7× (409 µs).
+
+**C/C++** — [compressor.cpp](../plugin/kernels/dsa_pilot/compressor.cpp), inner loop:
 ```cpp
 for (r = 0; r < R; ++r) {                 // ONE streaming pass over the window
   #pragma omp simd                        // (3) AVX-512 over the D channels
@@ -123,29 +154,95 @@ for (r = 0; r < R; ++r) {                 // ONE streaming pass over the window
 }
 for (j) orow[j] = l[j] > 0 ? acc[j]/l[j] : 0;   // single divide at the end
 ```
+1. **Streaming online ("flash") softmax — the big win.** Softmax+pool fused into **one pass over R** with
+   running `(m,l,acc)`; `w[N,R,D]` is **never materialized** and each input is read **once**.
+2. **N×D-tile parallelism** fills all cores even at M=1 (N-only parallelism regressed there).
+3. **AVX-512 SIMD over D** (tile width rounded to 16 lanes).
+4. **C1 one-exp** — the non-surviving softmax factor is exactly `exp(0)=1`, hardcoded; **bit-exact**, ~halves
+   the exp work at R=128.
+5. Masked `−∞` positions contribute nothing; FP32 accumulate; single final divide.
 
-Optimizations and why each helps:
+**Net:** win is #1 (kill the DRAM weights temporary, ~6 passes → 1). 73% gap to floor is grain/exp throughput.
 
-1. **Streaming online ("flash") softmax — the big win.** The whole `softmax+pool` is fused into **one pass
-   over R**, keeping only per-channel running `(max m, denom l, accumulator acc)`. The `w[N,R,D]` weights
-   tensor is **never materialized**, and each input is **read once** instead of ~5–7 passes. On a BW-bound
-   op this directly cuts the dominant traffic — it is why the kernel approaches its byte floor.
-2. **N×D-tile parallelism.** Parallelizes over `N·ndt` tasks, not just `N`. The per-channel softmaxes are
-   independent, so at small batch (M=1) the D dimension still fills all 64 cores — N-only parallelism left
-   cores idle and actually *regressed* vs torch at M=1. Targets ~2×threads tasks.
-3. **AVX-512 vectorization over D.** `#pragma omp simd` over the channel loop, tile width `DT` rounded to a
-   16-lane AVX-512 register, so the running-state update is vector-wide.
-4. **C1 — one `exp` per update.** In the online recurrence one of the two softmax rescale factors is always
-   exactly `exp(0)=1`, so it is hardcoded and only the surviving `exp(min−max)` is computed. **Bit-exact** to
-   the two-exp form (proven by building old/new and diffing), ~halves the transcendental work at R=128.
-5. **Correctness details baked in.** Masked positions (`score = −∞`) contribute nothing (the `−∞` arg forces
-   `exp→0` with no unguarded `inf−inf`); FP32 accumulation throughout; a single divide at the very end
-   (all-masked channel → 0).
+---
 
-**Net:** the authoring win is almost entirely #1 (eliminate the DRAM weights temporary + collapse ~6 passes
-into 1), amplified by #2–#3 so it is BW-limited rather than dispatch-limited; #4 is a small bit-exact
-refinement on top. The remaining 73% gap to the nominal floor is grain / exp throughput (the datasheet BW is
-a ceiling, not achievable), not another missing pass.
+### 3.4 Sparse attend † (oneDNN donor + fused softmax) — the compute-bound one
+
+MLA sparse attention: q`[N,H,D]` attends over the gathered latent kv`[N,K,D]` (MQA: one latent shared across
+H=64 heads, D=K=512) with a per-head softmax **sink**. Two GEMMs (`q@kv^T` score, `w@kv` value) + softmax.
+**† oneDNN donor.**
+
+**Roofline (M=32).** FLOPs = `4·M·H·K·D` = 4·32·64·512·512 ≈ **2.15 GFLOP** (two `H×K×D` GEMMs);
+bytes = kv`[K,D]` + q + out ≈ **41.9 MB**. AI ≈ 51 FLOP/byte **>** FP32 ridge 21.7 → **compute-bound** (the
+only one). Floor = max(2.15 GFLOP/7.78 TF = **275.9 µs**, 41.9 MB/358.4 GB/s = 117 µs) = **275.9 µs**.
+C/C++ 402.7 µs = **69%** of the FP32 roof, baseline 542.1 µs → **1.4×** (small *by design* — it is already
+near the compute ceiling).
+
+**Baseline (torch)** — [`_sparse_ref` → `ora_sparse_fp32`](../plugin/validate/bench_replicated.py#L58): the
+fp32 einsum sparse-attn fallback — two matmuls plus a softmax that allocates four extra `[N,H,K]` temporaries
+(`m`, `e`, `denom`, `w`).
+
+**C/C++** — [sparse_attend.cpp `sparse_attend_bestof`](../plugin/kernels/dsa_pilot/sparse_attend.cpp):
+1. **Both GEMMs on the oneDNN/MKL `at::bmm` donor** (fp32, near ~64% of the fp32 roof where a scalar loop
+   would lose badly) — this is the right call in a compute-bound regime.
+2. **Fused in-place softmax + per-head sink in ONE parallel pass** over `[N,H,K]` (max/exp/sum/div + the sink
+   logit), avoiding the baseline's four full temporaries; bit-conformant with the fp32 oracle.
+3. **Best-of dispatch:** N=1 → a scalar **online-softmax** path (no bmm launch overhead, bit-exact, ~3.4×);
+   N≥2 → the donor-GEMM + fused-softmax path.
+
+**Net:** compute-bound, so the lever is the library GEMM; the authored contribution is the **fused softmax/
+sink epilogue** over the donor. 69% of the fp32 roof is the realistic near-ceiling for this op.
+
+---
+
+### 3.5 MHC sinkhorn (pure-authored fused recurrence)
+
+Per row, build a tiny `hc×hc` (4×4) comb matrix and run 20 Sinkhorn normalization iters (alternating row/col
+normalize), plus `pre=sigmoid+eps`, `post=2·sigmoid`. Inputs are tiny (`mixes[B,S,24]`).
+
+**Roofline (M=32).** FLOPs ≈ `M·hc·hc·iters·5` ≈ 51 KFLOP; bytes ≈ **6.1 KB**. Floor = 6.1 KB/358.4 GB/s =
+**0.017 µs**. C/C++ 13.6 µs = **~0%** — the roofline is the **wrong ceiling**: the op is a tiny per-row serial
+recurrence of divides/exps, so it is **latency/dispatch-bound**, not byte- or FLOP-bound. The ~0% is a
+diagnostic that this kernel will never be roofline-limited.
+
+**Baseline (torch)** — [`_hc_split_sinkhorn_torch`](../plugin/validate/bench_replicated.py#L77) (sglang MHC oracle): ~40 tiny
+global tensor ops (each of the 20 iters does a row-normalize and a col-normalize as separate ops over the
+whole `[B,S,hc,hc]` tensor), each paying full dispatch + a memory pass — 316.4 µs.
+
+**C/C++** — [sinkhorn.cpp](../plugin/kernels/dsa_pilot/sinkhorn.cpp):
+1. **Fuse all 20 iters per row** with the `hc×hc` matrix kept **register/L1-resident** — no per-iter global
+   tensor pass, no 40 kernel launches; just one parallel loop over rows.
+2. **eps placement matches the oracle exactly** (initial row-norm adds eps to the result, later iters add eps
+   to the denominator) so parity holds.
+
+**Net:** ~21× purely by collapsing ~40 dispatched torch ops into one fused per-row recurrence. Pure-authored.
+
+---
+
+### 3.6 MHC combine (pure-authored accumulate-once)
+
+`y[m,h] = Σ_k pre[m,k] · x_flat[m, k·H + h]` — a weighted sum over hc=4 clusters (`einsum("mk,mkh->mh")`),
+H=4096.
+
+**Roofline (M=32).** FLOPs ≈ `M·H·7` ≈ 0.92 MFLOP; bytes = x_flat`[M,hc·H]` + pre + y ≈ **2.62 MB**. AI ≈
+0.35 FLOP/byte → **BW-bound**. Floor = 2.62 MB/358.4 GB/s = **7.3 µs**. C/C++ 11.7 µs = **63%** — near its BW
+ceiling (cache-resident), baseline 27.2 µs → **2.3×**.
+
+**Baseline (torch)** — [`_combine_ref`](../plugin/validate/bench_replicated.py#L67):
+```python
+return torch.einsum("mk,mkh->mh", pre.float(), x_flat.reshape(m, hc, h).float())
+```
+The einsum broadcasts `pre` against the `[m,hc,H]` view, creating a full `[m,hc,H]` intermediate before the
+reduction (27.2 µs).
+
+**C/C++** — [combine.cpp](../plugin/kernels/dsa_pilot/combine.cpp):
+1. **Accumulate-once tiling** — per H-tile, accumulate over the hc clusters into an L1 buffer, **read x once
+   and write y once**. The naive per-k `y += p·x` pass re-reads and re-writes the whole y row hc times; this
+   does it in a single pass with **no `[m,hc,H]` broadcast temporary**.
+2. **AVX-512 SIMD over H**, parallel over M.
+
+**Net:** 2.3×, limited because it is already close to the BW roof — the win is killing the broadcast temporary
+and the hc-fold redundant y traffic.
 
 
 ## Provenance
