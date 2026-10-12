@@ -15,6 +15,20 @@ RES = os.path.join(HERE, "results")
 PAL = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
 MS = [1, 8, 16, 32, 64]
 
+# useful-byte contracts (identical to aggregate_roofline.py) for the BW-efficiency view; indexer/topk at S=1024
+BW = 358.4e9
+_B4, _I8, _H, _S, _D = 4.0, 8.0, 64, 1024, 128
+BYTES = {
+    "indexer_logits/tiled": lambda M: M * _H * _D * _B4 + M * _S * _D * _B4 + M * _H * _B4 + M * _S * _B4,
+    "indexer_topk": lambda M: M * _S * _B4 + M * 512 * _I8,
+    "compressor/r128d512": lambda M: M * 128 * 512 * _B4 * 2 + M * 512 * _B4 + 128 * 512 * _B4,
+    "compressor/r8d512": lambda M: M * 8 * 512 * _B4 * 2 + M * 512 * _B4 + 8 * 512 * _B4,
+    "compressor/r8d128": lambda M: M * 8 * 128 * _B4 * 2 + M * 128 * _B4 + 8 * 128 * _B4,
+    "sparse/bestof": lambda M: M * 512 * 512 * _B4 + 2 * M * 64 * 512 * _B4,
+    "sinkhorn": lambda M: M * 24 * _B4 + 3 * _B4 + 24 * _B4 + M * 24 * _B4,
+    "combine": lambda M: M * 4 * 4096 * _B4 + M * 4 * _B4 + M * 4096 * _B4,
+}
+
 
 def _esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -135,6 +149,16 @@ def main():
                "Optimized kernels: % of nominal-reference roofline (higher = closer)",
                "floor=max(bytes/BW,FLOPs/peak) vs NOMINAL peak (1.9GHz base; NOT an achievable ceiling). EMR job 384677.",
                series, "achieved % of nominal roofline", 100.0)
+
+    # Plot 1b: achieved BW efficiency = (useful bytes / measured) / peak BW, per kernel vs M (tests BW-bound)
+    bws = []
+    for i, lb in enumerate(rs):
+        ys = [100.0 * (BYTES[lb](M) / BW) / (rs[lb][str(M)]["median_meas_us"] / 1e6) for M in MS]
+        bws.append((lb, ys, PAL[i % len(PAL)]))
+    line_chart(os.path.join(a.out_dir, "bw_efficiency.svg"),
+               "Achieved BW efficiency = (useful bytes / measured) / peak 358.4 GB/s  (S=1024)",
+               "high+rising => BW-bound; low/flat => compute (sparse) or dispatch (sinkhorn/topk) bound. NOT all kernels are BW-bound.",
+               bws, "% of peak DRAM BW (358.4 GB/s)", 100.0)
 
     # Plot 2: compressor R128/D512 -- roofline floor vs baseline vs optimized (us, log)
     cf = [rs["compressor/r128d512"][str(M)]["floor_us"] for M in MS]

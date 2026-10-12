@@ -95,15 +95,44 @@ def main():
         def _sk(M): return (torch.randn(1, M, 24), torch.rand(3) + 0.5, torch.randn(24), 4, 20, 1e-6)
         specs.insert(4, ("sinkhorn", _sk, lambda a: skm.mhc_sinkhorn(*a), lambda a: _hc_split_sinkhorn_torch(*a)))
 
+    # implementation provenance: which kernels lean on a oneDNN/MKL donor GEMM vs are authored from scratch.
+    PROVENANCE = {
+        "indexer_logits": {"donor": "oneDNN cpublas BRGEMM (q.kv^T GEMM)", "authored": "fused relu*weight*sum epilogue (L1-resident, bf16 stages)", "pure_authored": False},
+        "sparse_bestof": {"donor": "oneDNN/MKL at::bmm (score + value GEMMs)", "authored": "fused in-place softmax+sink; N==1 scalar path; best-of dispatch", "pure_authored": False},
+        "compressor_R128": {"donor": None, "authored": "AVX-512 streaming online-softmax pool, N*D-tile parallel", "pure_authored": True},
+        "indexer_topk": {"donor": None, "authored": "nth_element selection + guarded chunked/row-parallel", "pure_authored": True},
+        "sinkhorn": {"donor": None, "authored": "fused 20-iter recurrence (L1-resident, no per-iter torch ops)", "pure_authored": True},
+        "combine": {"donor": None, "authored": "accumulate-once tiling (read-once/write-once)", "pure_authored": True},
+    }
+
     print(f"{'kernel':>16} {'M':>4} {'cpp_med_us':>11} {'cpp[min,max]':>16} {'ref_med_us':>11} "
-          f"{'spd_med':>8} {'spd[min,max]':>14}")
+          f"{'spd_med':>8} {'spd[min,max]':>14}  (ref = non-C/C++ torch baseline)")
+    out = {"_schema": "Newly-authored C/C++ kernel vs its NON-C/C++ torch baseline (the op the kernel replaces, "
+                      "at the kernel's arithmetic contract). spd = torch_ref/cpp, order-varied paired, median of "
+                      "trials. PROVENANCE flags which kernels lean on a oneDNN/MKL donor GEMM (indexer_logits, "
+                      "sparse) vs are PURE-AUTHORED (compressor, topk, sinkhorn, combine) -- for donor kernels "
+                      "the speedup includes the library GEMM, so the AUTHORED contribution is the fused epilogue/"
+                      "dispatch. torch refs are noisy (comparator drift, esp. indexer) -> report medians.",
+           "provenance_note": PROVENANCE, "kernels": {}}
     for name, build, cppf, reff in specs:
+        out["kernels"][name] = {"pure_authored": PROVENANCE.get(name, {}).get("pure_authored"), "M": {}}
         for M in (1, 8, 16, 32, 64):
             cs, rs = paired(lambda *a: cppf(a), lambda *a: reff(a), build(M))
             cm, rm = st.median(cs) * 1e3, st.median(rs) * 1e3          # us
             spds = sorted(r / c for c, r in zip(cs, rs))
+            out["kernels"][name]["M"][str(M)] = {"cpp_us": round(cm, 1), "torch_us": round(rm, 1),
+                                                 "speedup_med": round(st.median(spds), 2),
+                                                 "speedup_minmax": [round(spds[0], 2), round(spds[-1], 2)]}
             print(f"{name:>16} {M:>4} {cm:>11.1f} [{min(cs)*1e3:>6.1f},{max(cs)*1e3:>6.1f}] {rm:>11.1f} "
                   f"{st.median(spds):>7.2f}x [{spds[0]:>5.2f},{spds[-1]:>5.2f}]")
+    import os as _os
+    if _os.environ.get("REPLICATED_JSON"):
+        import json as _json
+        out["_provenance"] = {"head": _os.popen("git rev-parse --short HEAD").read().strip(),
+                              "node": _os.uname().nodename, "process_index": _os.environ.get("REPLICATED_PROC"),
+                              "slurm_job_id": _os.environ.get("SLURM_JOB_ID"), "omp": _os.environ.get("OMP_NUM_THREADS"),
+                              "bind": _os.environ.get("OMP_PROC_BIND")}
+        _json.dump(out, open(_os.environ["REPLICATED_JSON"], "w"), indent=1)
     print(">>> done")
 
 
