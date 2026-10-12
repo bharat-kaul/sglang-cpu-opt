@@ -171,7 +171,7 @@ def main():
     ap.add_argument("--out-dir", default=os.path.join(HERE, "..", "..", "docs", "plots"))
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
-    cvt = json.load(open(os.path.join(RES, "cpp_vs_torch.json")))["kernels"]
+    cvt = json.load(open(os.path.join(RES, "operating_point.json")))["kernels"]   # promoted variants, 512-bit, STREAMING
 
     # byte + FLOP contracts keyed by the cpp_vs_torch kernel names; floor = max(bytes/BW, FLOPs/peak).
     AMX, FP32 = 124.5184e12, 7.7824e12
@@ -193,22 +193,22 @@ def main():
     M0 = 32
     labels = [KC[k][3] + ("\u2020" if KC[k][4] else "") for k in order]   # dagger = oneDNN donor
     floors = [floor_us(k, M0) for k in order]
-    bases = [cvt[k]["M"]["32"]["torch_us"] for k in order]
-    opts = [cvt[k]["M"]["32"]["cpp_us"] for k in order]
+    bases = [cvt[k]["M"]["32"]["torch_stream_us"] for k in order]
+    opts = [cvt[k]["M"]["32"]["cpp_stream_us"] for k in order]
     grouped_bars(os.path.join(a.out_dir, "operating_point.svg"),
-                 "Per-kernel at the operating point (M=32, S=1024): roofline vs baseline vs C/C++",
-                 "latency us, log. baseline = torch op the kernel replaces; \u2020 = oneDNN/MKL GEMM donor + authored epilogue. EMR job 385001.",
+                 "Per-kernel at the operating point (M=32, S=1024), STREAMING: roofline vs baseline vs C/C++",
+                 "latency us, log, cold/streaming (LLC-flushed). baseline = torch op the kernel replaces; \u2020 = oneDNN/MKL GEMM donor. Promoted variants, 512-bit flags. EMR job 385059.",
                  labels, [("roofline floor", floors, "#2ca02c"), ("baseline (torch)", bases, "#d62728"), ("optimized (C/C++)", opts, "#1f77b4")],
                  "latency us (log)", (min(floors) * 0.5, max(bases) * 1.6), logy=True, fmt="{:.2f}")
 
     # Plot B (M-sweep 1..64): % of nominal roofline achieved per kernel -> how AI growth improves efficiency
     series = []
     for i, k in enumerate(order):
-        ys = [100.0 * floor_us(k, M) / cvt[k]["M"][str(M)]["cpp_us"] for M in MS]
+        ys = [100.0 * floor_us(k, M) / cvt[k]["M"][str(M)]["cpp_stream_us"] for M in MS]
         series.append((KC[k][3] + ("\u2020" if KC[k][4] else ""), ys, PAL[i % len(PAL)]))
     line_chart(os.path.join(a.out_dir, "roofline_msweep.svg"),
-               "% of nominal roofline vs M  (arithmetic intensity rises with M)",
-               "floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak (NOT an achievable ceiling). \u2020 = oneDNN donor. EMR job 385001.",
+               "% of nominal roofline vs M  (streaming; arithmetic intensity rises with M)",
+               "floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak (NOT an achievable ceiling); streaming latency. \u2020 = oneDNN donor. EMR job 385059.",
                series, "% of nominal roofline", 100.0)
 
     # operating-point table for the page
@@ -216,8 +216,8 @@ def main():
     for k in order:
         c = cvt[k]["M"]["32"]
         fl = floor_us(k, M0)
-        print(f"{k:>16} {('oneDNN' if KC[k][4] else 'authored'):>8} {c['torch_us']:>8.1f} {c['cpp_us']:>8.1f} "
-              f"{c['speedup']:>7.1f}x {fl:>9.3f} {100*fl/c['cpp_us']:>5.0f}%")
+        print(f"{k:>16} {('oneDNN' if KC[k][4] else 'authored'):>8} {c['torch_stream_us']:>8.1f} {c['cpp_stream_us']:>8.1f} "
+              f"{c['speedup_stream']:>7.1f}x {fl:>9.3f} {100*fl/c['cpp_stream_us']:>5.0f}%")
     print("wrote operating_point.svg + roofline_msweep.svg ->", a.out_dir)
 
 

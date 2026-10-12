@@ -180,6 +180,26 @@ condition is met and gating every step against the measured roofline.
 > GEMM), the FLOP roofline is the WRONG reachable target — publish it but CAPTION the realistic
 > engineering floor (e.g. fused-kernel) so "1% of achievable" is not misread as failure.
 
+> **⛔ STANDALONE-KERNEL PERFORMANCE PAGE (required Phase-1 deliverable — produce one like
+> `docs/kernel-pilot-performance.md`).** For the authored-kernel set, publish ONE reviewer-facing page that,
+> for EVERY kernel, carries: (a) the **roofline** (byte/FLOP contract → floor vs nominal peak, with the bound
+> class named: BW / compute / selection / dispatch / cache-resident); (b) the **baseline** (the torch/library
+> op it replaces and WHY it is slow); (c) the **optimization + analysis** (what was authored, the measured
+> speedup, % of roofline, and the regime verdict — "at ceiling" is a valid, required outcome, not a gap).
+> NON-NEGOTIABLE methodology for the page:
+> - **STREAMING (cold-cache) latency is the headline number** — flush ≥2× LLC before every timed call. Warm
+>   reuse flatters L3-resident ops (compressor warm 37µs/cache-resident vs cold 62µs=77% DRAM roof). Quote
+>   warm only as a labeled secondary (the fused-pipeline case).
+> - **Classify by `objdump %zmm`** and state the build flags (gcc defaults 256-bit; at::vec needs
+>   `-DCPU_CAPABILITY_AVX512`). The flagset the production kernels build with must be the one measured.
+> - **Transcendental approximations carry a measured ULP** (vs fp64 over the real range; ~1 ULP bar for exp)
+>   and KEEP BOTH exact(libm)+approx variants for the E2E A/B — state both on the page.
+> - **Honest regime verdicts:** nominal peak is not an achievable ceiling; selection/dispatch/cache-bound
+>   kernels show low %roof as a DIAGNOSTIC; don't claim headroom that the regime forbids. Single-run numbers
+>   are labeled single-run; torch baselines under streaming are the noisiest column (say so).
+> This page is a SEPARATE, standing deliverable from the roofline+pivot report pair above; all three plus the
+> README bullet are required before the cycle is "done."
+
 > **When the RUN is the bottleneck (long load / slow decode / cluster queue) — load the
 > run-efficiency skills (apply to EVERY model, both legs):** `high-information-runs` (make each
 > expensive run a multi-angle probe; and ALWAYS launch `scripts/await_job.sh` in the async terminal
