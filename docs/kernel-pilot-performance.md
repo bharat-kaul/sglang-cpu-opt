@@ -180,7 +180,7 @@ Applying the SKILL's Stage-0/1 (build flags + classify by inspecting the built o
 - **The op is `exp`-compute-bound and cache-resident, not BW-bound.** The scalar per-lane `libm` exp was the
   serial bottleneck; the 17 MB working set lives in L3.
 
-Measured on EMR (job 385022, interleaved median, M=32, rel-err vs the fp32 torch oracle):
+Measured on EMR (job 385022, interleaved median, M=32, **warm cache**, rel-err vs the fp32 torch oracle):
 
 | variant | µs @ M=32 | vs shipped C1 | rel-err | notes |
 |---|---:|---:|---:|---|
@@ -194,7 +194,28 @@ Measured on EMR (job 385022, interleaved median, M=32, rel-err vs the fp32 torch
 AVX-512 Cephes `exp` (range-reduce + degree-6 FMA poly + `2^n` bit-scale) instead of the `at::vec`/Sleef
 call. It is **fp32 throughout**, **as accurate as the scalar oracle** (2.8e-7), and needs **no special build
 flags** (pure `AVX512F` intrinsics). Removing the non-inlined exp call boundary is the whole 2.2× over C2.
-It reads at ~460 GB/s (above DRAM peak → confirms cache residency).
+
+#### 3.3.1a Streaming (cold-cache) — the reliable number
+
+The warm table above reuses one buffer, so a 17 MB working set that fits in L3 is re-read from cache (that is
+why D1 "reads at 460 GB/s", above DRAM peak). For a **reliable** standalone number we flush ≥2× the LLC
+before every call so inputs stream from DRAM (job 385039, M=32):
+
+| variant | warm µs | **stream µs** | stream GB/s | % of nominal DRAM roof |
+|---|---:|---:|---:|---:|
+| C1 scalar (shipped) | 187 | 283.8 | 60 | 17% |
+| C2 Sleef-512 | 80 | 90.8 | 188 | 53% |
+| **D1 hand-exp** | 36.7 | **61.9** | 276 | **77%** |
+| D3 bf16 | 38 | 70.7 | 242 | 68% |
+
+So **D1's reliable M=32 latency is ~62 µs** (the warm 37 µs was ~1.7× cache-flattered). Cold, D1 runs at
+**77% of the nominal DRAM roofline (85% at M=64)** — it is now genuinely **DRAM-bandwidth-bound**, the honest
+post-optimization ceiling: the hand-exp pushed the kernel to the memory wall, so further `exp` work cannot
+help. The warm 37 µs is still the right model for the *fused pipeline*, where the compressor consumes `kv`/
+`score` the preceding GEMM just wrote (hot in cache). **D3 bf16 is slower cold too** (70.7 vs 61.9) — a
+non-win on bandwidth as well, since the fp32 inputs still stream from DRAM and the bf16 rounding only adds
+work. (Streaming is now the default standalone-kernel methodology; see
+[bench_compressor_vectorize.py](../plugin/validate/bench_compressor_vectorize.py) `tmed_stream`.)
 
 #### 3.3.2 Why bf16 does **not** help here (and the corpus agrees)
 
@@ -212,10 +233,12 @@ bf16 would only save read bytes, and this op is cache-resident + `exp`-bound, no
 hand-exp) is the right answer; bf16 is a conformance regression with no upside.
 
 > **Note.** The §1 table/plots above still show the pre-retry compressor row (176.1 µs); they will be
-> regenerated with D1. The numbers here are a single EMR job (385022) — reported per the same single-run
+> regenerated with D1. Warm numbers are EMR job 385022, streaming EMR job 385039 — single runs, per the same
 > caveat as the rest of the page. **Correctness:** D1 passes the F4 hard gates — output contract,
 > finiteness, run-to-run determinism, and the overlap `−∞` mask case — and screens at 2.4–7.2e-7 (identical
-> to the scalar oracle); an all-masked channel is guarded to return 0, matching C1 (EMR job 385033).
+> to the scalar oracle); an all-masked channel is guarded to return 0, matching C1 (EMR job 385033). Both
+> the scalar-`libm` path (C1, bit-exact oracle) and the Cephes path (D1, ~1 ULP) are retained as an
+> end-to-end accuracy A/B pair — the exact path is never deleted.
 
 ---
 

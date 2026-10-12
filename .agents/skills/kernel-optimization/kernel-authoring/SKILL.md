@@ -79,10 +79,36 @@ BRGEMM variants.
 1. **Gate against the STREAMED-achievable ceiling, not the resident peak.** LIBXSMM
    docs state it directly: results "depend on whether operands are streamed or not;
    all-in-L1 can favor an implementation that is worse for the real workload." Use
-   `establish-achievable-performance` + `roofline-validation`.
+   `establish-achievable-performance` + `roofline-validation`. CONCRETE: time standalone
+   kernels with an LLC flush (>=2x L3) before EVERY call (cold/streaming), NOT warm
+   buffer reuse. A working set that fits L3 (compressor @M32 = 17MB << 320MB) reads from
+   cache warm and reports BW above DRAM peak (D1 warm 36.9us/460GB/s = cache-resident) --
+   the STREAMING number is the reliable one (D1 cold 61.9us = 77% of DRAM roof). Report
+   both only if you label which is which; optimize/gate on streaming.
 2. **Verify the intended ISA actually dispatched** (`ONEDNN_VERBOSE`, kernel-throughput
    magnitude) — never trust capability flags (`_is_amx_tile_supported` false-negatives
-   on GNR).
+   on GNR). CONCRETE: `objdump -d` the built `.so` and COUNT `%zmm` -- gcc defaults to
+   256-bit (`zmm=0`), and `at::vec::Vectorized<float>` falls back to 8-lane AVX2 in a JIT
+   extension unless `-mprefer-vector-width=512 -DCPU_CAPABILITY_AVX512` are in the flags.
+
+## Transcendental replacement (exp/erf/tanh/sigmoid): industry-standard, ULP-bounded, keep BOTH variants
+When a kernel is bottlenecked on a transcendental (MEASURED via streaming + objdump, not assumed), replacing
+the `libm`/`at::vec`/Sleef CALL with an INLINED polynomial (Cephes-style range-reduce + FMA poly + `2^n`
+bit-scale) removes the non-inlined call boundary and is often the whole win (compressor: at::vec Sleef 80.7us
+-> inlined Cephes 36.9us @M32 warm, same accuracy). RULES:
+1. **Industry-standard approximation ONLY** — a published, characterized minimax (Cephes/Sleef/SVML-class),
+   never an ad-hoc polynomial. State method + degree.
+2. **ULP bound is THE acceptance criterion**, MEASURED vs a correctly-rounded (fp64) reference over the ACTUAL
+   input range. Target **~1 ULP for exp** (faithfully rounded). Reject anything looser without an explicit
+   downstream justification; a reduced-degree "fast" variant (several ULP) is acceptable only if the
+   downstream (bf16/fp4 quant) demonstrably swamps it AND it is gated. Note: 0.5 ULP = correctly-rounded is
+   impractical for a hot vector kernel and NOT met by the reference stack either (GPU `ex2.approx` ~2 ULP,
+   libm ~1 ULP) -- so ~1 ULP is the right industry bar, not 0.5.
+3. **Keep BOTH variants, selectable, for END-TO-END accuracy A/B.** Retain the exact/`libm` path (bit-exact
+   oracle) ALONGSIDE the approximate path; never delete the exact one. The approx is F4-SCREENED (not
+   bit-exact) until the E2E task metric confirms no regression; the exact path is the fallback + the oracle.
+4. **Correctness edge cases.** A clamped poly is NOT libm on edges (`exp(-inf) -> ~1e-38`, not 0); guard
+   masked/all-masked/overflow explicitly to match the exact path's semantics, and cover them in F4.
 
 ## Concrete constants (GNR, from the corpus)
 TILE_M/N/K = 16/16/32; BLOCK_M/N = 32; BLOCK_K = 128; `can_use_brgemm = M>4`;

@@ -362,6 +362,10 @@ torch::Tensor compressor_softmax_pool_bf16exp(torch::Tensor kv, torch::Tensor sc
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  // E2E ACCURACY A/B PAIR (keep BOTH, never delete the exact one): compressor_softmax_pool = scalar libm exp
+  // (bit-exact oracle, the no-Cephes path) vs compressor_softmax_pool_fp32intrin = inlined Cephes exp (~1 ULP,
+  // the throughput path). Both run in the end-to-end accuracy scenario; the Cephes path is F4-screened until
+  // the task metric confirms no regression, with the libm path as the fallback oracle.
   m.def("compressor_softmax_pool", &compressor_softmax_pool,
         "DSA compressor softmax-pool (streaming online-softmax, no w[N,R,D] temporary)");
   m.def("compressor_softmax_pool_vexp", &compressor_softmax_pool_vexp,

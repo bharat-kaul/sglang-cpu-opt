@@ -74,6 +74,32 @@ def tmed(fn, args, it=60):
     return st.median(s)
 
 
+# STREAMING (cold-cache) timing — the reliable standalone-kernel methodology. Warm reuse lets a working set
+# that fits in L3 (compressor @M32 = 17MB << 320MB) be re-read from cache, hiding the real DRAM ceiling. We
+# flush >= 2x LLC between every timed call so each kernel invocation reads its inputs cold from DRAM.
+_FLUSH = None
+_SINK = 0.0
+
+
+def _flush_cache():
+    global _FLUSH, _SINK
+    if _FLUSH is None:
+        _FLUSH = torch.empty(192 * 1024 * 1024, dtype=torch.float32)   # 768 MiB >> any EMR/GNR L3
+    _FLUSH.uniform_(-1.0, 1.0)                                          # write-evict the whole LLC (RFO)
+    _SINK += float(_FLUSH[::4096].sum())                               # prevent DCE; touch result
+
+
+def tmed_stream(fn, args, it=40):
+    """Median single-call latency with an LLC flush before EACH call -> inputs stream from DRAM."""
+    s = []
+    for _ in range(it):
+        _flush_cache()
+        t0 = time.perf_counter()
+        fn(*args)
+        s.append(time.perf_counter() - t0)
+    return st.median(s)
+
+
 def rel_err(a, b):
     return (a - b).abs().max().item() / (b.abs().max().item() + 1e-30)
 
@@ -131,6 +157,26 @@ def main():
             print(f"{fs:16s} {SHORT[vn]:10s} {cells}  {gbps:7.1f} {proof:8.1f}% {re:9.2e}")
             rows.append((fs, SHORT[vn], us, gbps, proof, re))
     print(f"\nnominal floor: M32={floor_us(32):.1f}us ({bytes_moved(32)/1e6:.2f}MB / {BW/1e9:.0f}GB/s)  shipped baseline(job385001) M32 C1=176.1us=27%")
+
+    # STREAMING (cold-cache) re-measure of the decision variants -> the RELIABLE post-optimization numbers.
+    # warm (above) reuses one buffer (L3-resident); streaming flushes >=2x LLC per call (DRAM-fed).
+    print("\n=== STREAMING (cold-cache, LLC-flushed per call) vs WARM — the reliable methodology ===")
+    fs = "pw512_vec" if "pw512_vec" in FLAGSETS else list(FLAGSETS)[0]
+    mod = mods[fs]
+    DECIDE = [v for v in ("compressor_softmax_pool", "compressor_softmax_pool_vexp",
+                          "compressor_softmax_pool_fp32intrin", "compressor_softmax_pool_bf16exp") if getattr(mod, v, None)]
+    print(f"flagset={fs}   nominal DRAM floor M32={floor_us(32):.1f}us ({bytes_moved(32)/1e6:.1f}MB/{BW/1e9:.0f}GB/s)")
+    print(f"{'variant':10s} {'M':>3} {'warm_us':>8} {'stream_us':>9} {'strm_GB/s':>9} {'%DRAMroof':>9}  (warm hides DRAM; stream is reliable)")
+    for vn in DECIDE:
+        fn = getattr(mod, vn)
+        for M in (1, 8, 32, 64):
+            kv, sc, ap = make_inp(M)
+            fn(kv, sc, ap)
+            w = tmed(lambda a, b, c: fn(a, b, c), (kv, sc, ap)) * 1e6
+            s = tmed_stream(lambda a, b, c: fn(a, b, c), (kv, sc, ap)) * 1e6
+            gbps = bytes_moved(M) / (s / 1e6) / 1e9
+            proof = 100 * floor_us(M) / s
+            print(f"{SHORT[vn]:10s} {M:>3} {w:8.1f} {s:9.1f} {gbps:9.1f} {proof:8.1f}%")
     # mutation test: swap two score positions must change the result (proves the check is live)
     kv, sc, ap = make_inp(32)
     o0 = mods["base"].compressor_softmax_pool(kv, sc, ap).clone()

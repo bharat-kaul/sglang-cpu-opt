@@ -10,6 +10,7 @@
 #include <ATen/native/CPUBlas.h>
 #include <cmath>
 #include <vector>
+#include "avx512_exp.h"   // exp512_ps (inlined Cephes exp) for the hand-exp softmax variant
 
 // q:[N,H,D]; kv:[N,K,D] (shared k==v latent); sink:[H] -> out:[N,H,D]. scale default = D**-0.5.
 torch::Tensor sparse_attend(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
@@ -97,6 +98,59 @@ torch::Tensor sparse_attend_fp32bmm(torch::Tensor q, torch::Tensor kv, torch::Te
   });
   // out[N,H,D] = w @ kv  (donor GEMM)
   return at::bmm(scores, kc);                                                  // [N,H,D] fp32
+}
+
+// HAND-EXP variant of fp32bmm (SKILL Stage-4 / compressor learning): identical to sparse_attend_fp32bmm but
+// the softmax exp loop over K is vectorized with the INLINED Cephes exp512_ps instead of scalar std::exp,
+// removing the per-lane libm call. fp32 operands + fp32 accumulate; ~1 ULP exp (F4-screened, not bit-exact
+// to libm). Only the exp pass changes; the GEMMs stay on the oneDNN at::bmm donor. At M>=8 sparse is GEMM-
+// bound so the exp is a small share -> MEASURE the win (don't assume); kept as a separate E2E-A/B variant.
+torch::Tensor sparse_attend_fp32bmm_hx(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && sink.device().is_cpu(), "CPU tensors only");
+  TORCH_CHECK(std::isfinite(scale_), "scale must be finite (pass a finite scale<=0 for the default D**-0.5)");
+  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && sink.dim() == 1, "bad dims");
+  TORCH_CHECK(q.size(0) == kv.size(0), "q/kv batch N mismatch");
+  TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
+  TORCH_CHECK(sink.size(0) == q.size(1), "sink must be [H]");
+  auto qc = q.to(torch::kFloat32).contiguous();
+  auto kc = kv.to(torch::kFloat32).contiguous();
+  auto sc = sink.to(torch::kFloat32).contiguous();
+  const int64_t N = qc.size(0), H = qc.size(1), D = qc.size(2), K = kc.size(1);
+  const float scale = scale_ > 0 ? (float)scale_ : (float)(1.0 / std::sqrt((double)D));
+  auto scores = at::bmm(qc, kc.transpose(1, 2));                               // [N,H,K] fp32 (donor GEMM)
+  const float* sp = sc.data_ptr<float>();
+  float* sdp = scores.data_ptr<float>();
+  at::parallel_for(0, N * H, 0, [&](int64_t i0, int64_t i1) {
+    for (int64_t i = i0; i < i1; ++i) {
+      const int64_t h = i % H;
+      float* row = sdp + i * K;
+      float m = sp[h];
+      for (int64_t kk = 0; kk < K; ++kk) { float s = row[kk] * scale; row[kk] = s; if (s > m) m = s; }
+      float l = std::exp(sp[h] - m);                        // sink weight (scalar, one per row)
+      int64_t kk = 0;
+#if defined(__AVX512F__)
+      const __m512 vm = _mm512_set1_ps(m);
+      __m512 vacc = _mm512_setzero_ps();
+      for (; kk + 16 <= K; kk += 16) {
+        __m512 e = exp512_ps(_mm512_sub_ps(_mm512_loadu_ps(row + kk), vm));    // inlined Cephes exp
+        _mm512_storeu_ps(row + kk, e);
+        vacc = _mm512_add_ps(vacc, e);
+      }
+      l += _mm512_reduce_add_ps(vacc);
+#endif
+      for (; kk < K; ++kk) { float e = std::exp(row[kk] - m); row[kk] = e; l += e; }   // scalar tail
+      float inv = 1.f / l;
+      #pragma omp simd
+      for (int64_t kk2 = 0; kk2 < K; ++kk2) row[kk2] *= inv;
+    }
+  });
+  return at::bmm(scores, kc);                                                  // [N,H,D] fp32 (donor GEMM)
+}
+
+// Best-of dispatcher with hand-exp (N==1 scalar online-softmax; N>=2 fp32 bmm donor + hand-exp softmax).
+torch::Tensor sparse_attend_bestof_hx(torch::Tensor q, torch::Tensor kv, torch::Tensor sink, double scale_) {
+  if (q.size(0) == 1) return sparse_attend(q, kv, sink, scale_);
+  return sparse_attend_fp32bmm_hx(q, kv, sink, scale_);
 }
 
 // Best-of dispatcher: N==1 => scalar online-softmax (avoids bmm launch overhead, 3.38x torch,
@@ -224,6 +278,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("sparse_attend", &sparse_attend, "DSA MLA sparse attend (MQA flash, per-head sink; scalar online-softmax)");
   m.def("sparse_attend_fp32bmm", &sparse_attend_fp32bmm, "DSA MLA sparse attend via fp32 bmm donor + fused softmax (+sink)");
   m.def("sparse_attend_bestof", &sparse_attend_bestof, "DSA MLA sparse attend best-of dispatch (N==1 scalar, else fp32 bmm donor)");
+  m.def("sparse_attend_fp32bmm_hx", &sparse_attend_fp32bmm_hx, "fp32 bmm donor + HAND-EXP (inlined Cephes exp512) fused softmax; ~1 ULP, F4-screened");
+  m.def("sparse_attend_bestof_hx", &sparse_attend_bestof_hx, "best-of dispatch with hand-exp softmax (N==1 scalar, else fp32 bmm + Cephes exp)");
   m.def("sparse_attend_amx", &sparse_attend_amx, "DSA MLA sparse attend via bf16 AMX bmm (+sink) [EXPERIMENTAL, non-conformant]");
   m.def("sparse_attend_blockbf16", &sparse_attend_blockbf16, "S1: source-faithful 64-block bf16-in/fp32-out brgemm flash (+sink) [EXPERIMENTAL]");
 }
