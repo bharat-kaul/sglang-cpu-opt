@@ -14,6 +14,8 @@
 set -x
 source /scratch/$USER/venvs/sglang-cpu/bin/activate
 export SGLANG_USE_CPU_ENGINE=1
+export INTEL_CPU_DSV4_DSA_CPU=1   # route-2 DSA on CPU (torch-reference kernels); disables the GPU paged
+                                 # compress-plan nvcc JIT (sgl_kernel_jit_dpsk_v4_compress_plan) that crashes on CPU
 export DETERMINISTIC_DUMMY=1
 export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
 REPO="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -22,6 +24,7 @@ REPO="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev
 export PYTHONPATH="$REPO/plugin"
 # canonical bind: one socket = one NUMA domain (SNC off), 64 physical cores, pinned ONCE at init
 export OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores
+export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0   # idle threads must NOT spin (else ~63x prefill / ~10x decode thrash)
 cd "$REPO"
 INLEN=${INLEN:-1024}; OUTLEN=${OUTLEN:-8}; BATCHES=${BATCHES:-1,8,16,32,64}
 echo "node=$(hostname) git=$(git rev-parse --short HEAD) dirty=$(git status --porcelain | wc -l)"

@@ -24,7 +24,7 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 
 ## 1. Per-kernel at the operating point (M=32, S=1024, streaming): roofline vs baseline vs C/C++
 
-![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point.png)
+![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](https://raw.githubusercontent.com/bharat-kaul/sglang-cpu-opt/dsv4-tree-pilot/docs/plots/operating_point.png)
 
 | kernel | implementation | baseline (torch) µs | C/C++ µs | **speedup** | roofline floor µs | % of roofline |
 |---|---|---:|---:|---:|---:|---:|
@@ -45,7 +45,7 @@ by more kernel work.
 
 ## 2. % of nominal roofline across the M-sweep (1→64): arithmetic intensity (streaming)
 
-![% of nominal roofline vs M (streaming)](plots/roofline_msweep.png)
+![% of nominal roofline vs M (streaming)](https://raw.githubusercontent.com/bharat-kaul/sglang-cpu-opt/dsv4-tree-pilot/docs/plots/roofline_msweep.png)
 
 As the decode batch M grows, arithmetic intensity rises and the BW/compute-bound kernels climb toward their
 roofline (streaming, at M=64): **compressor → 83%**, **sparse → 68%**, **combine → 49%**, **indexer logits →
