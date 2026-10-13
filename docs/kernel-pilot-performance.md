@@ -93,7 +93,7 @@ result. "At ceiling" kernels used few levers *by design* — the regime forbids 
 | indexer logits | oneDNN BRGEMM | S-tiled + M=1 path | in-cache epilogue (no `[N,H,S]` DRAM) | bf16 GEMM; **bf16-KV free win** | 512-bit, AMX | — | 16% of AMX roof (BW) |
 | indexer top-k | — | row / chunked parallel | — (selection) | — | — | — | selection-bound (2%) |
 | compressor | — | N×D-tile (fills M=1) | **streaming online-softmax** (no `w[N,R,D]`) | fp32 (bf16 **rejected** — conformance + non-win) | 512-bit | **hand-inlined Cephes `exp`** (~1 ULP) | **79% of DRAM roof** |
-| sparse attend | oneDNN `at::bmm` | parallel over N·H | **in-place fused softmax/sink** (no 4 temps) | fp32-accumulate (bf16-AMX deferred: conformance) | 512-bit | **hand-inlined Cephes `exp`** | 60% of FP32 roof (compute) |
+| sparse attend | oneDNN `at::bmm` | parallel over N·H | **in-place fused softmax/sink** (no 4 temps) | fp32-accumulate (**bf16-AMX tested ×3, REJECTED: measured loss**) | 512-bit | **hand-inlined Cephes `exp`** | 60% of FP32 roof (compute) |
 | MHC sinkhorn | — | per-row parallel | **20-iter fused recurrence** (L1-resident) | fp32 | — | — | dispatch-bound (~0%) |
 | MHC combine | — | parallel over M | **accumulate-once** (no `[m,hc,H]` temp) | fp32 | 512-bit SIMD | — | 28% of DRAM roof (BW) |
 
@@ -118,16 +118,18 @@ model-agnostic **performance-gap ledger** defined in the [methodology playbook](
 | **indexer logits** | 16% | **recoverable (BW)** | the GEMM is only ~4.4 µs of 309 µs; the gap is `kv`-read traffic (16.8 of 18 MB) + fp32→bf16 convert/pack + small-M dispatch — **not** the contraction | **bf16 KV cache** halves the dominant read (floor 50→~25 µs, ~1.5×, amortizes across all KV ops); then a fused single-pass streaming kernel **if** attribution shows achievable-BW, not fixed overhead | **Phase 2 (E2E integration)** for bf16-KV; **Phase 1 attribution** (`INDEXER_BREAKDOWN`) first |
 | **indexer top-k** | 2% | **wrong ceiling** | selection is `O(S)` compares + thread dispatch, not bytes/FLOPs; a byte roofline cannot be approached | at regime ceiling (`nth_element` + chunked-parallel already fill cores); none material | **Closed** — regime ceiling (reopen only if E2E attribution flags it) |
 | **compressor** | 79% | **near ceiling (BW+exp)** | after the D1 hand-`exp`, residual = irreducible fp32 read traffic + the `exp` compute itself | small; bf16 **rejected** (non-conformant to fp32 ref + measured non-win) | **Closed** — at the DRAM+exp wall (revisit bf16 only if the reference dtype changes) |
-| **sparse attend** | 60% | **recoverable (compute)** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX GEMM** (124.5 TF, ~16× compute peak) → compute floor 276→~17 µs, op flips BW-bound (~2.6–4×). *Active experiment* `sparse_attend_bf16bmm_hx` (big bf16 bmms + fused fp32 softmax) | **Phase 1 (kernel authoring)** to author + tolerance-gate → **Phase 3 (accuracy)** to ratify the candidate; FP8 = later stretch |
+| **sparse attend** | 60% | **compute — bf16 lever tested & REJECTED** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX attempted in 3 configs (`amx`, `blockbf16`, `bf16bmm_hx`) — all measured SLOWER than the fp32 donor** (`bf16bmm_hx` 0.02–0.88× at M=1–64, EMR job 385343): the *score* bmm does win in bf16 (1.5–2× at M≥16) but the *value* bmm doesn't, and the fp32↔bf16 conversion casts + M=1 dispatch eat the gain. Tolerance-clean (cos 0.99999 normal) but **perf-losing** → fp32 donor at 60% roof is the practical ceiling | **Phase 1 — done (measured loss, published)**; residual untested idea = score-gemm-only bf16 hybrid; FP8 = stretch |
 | **MHC sinkhorn** | ~0% | **wrong ceiling** | 20-iter serial recurrence + dispatch over tiny L1-resident data; FLOP roofline is meaningless here | none meaningful (already fused, L1-resident) | **Closed** — regime ceiling |
 | **MHC combine** | 28% | **near ceiling (cache)** | working set is **cache-resident**, so the nominal DRAM roof under-counts; residual = small fixed dispatch | limited; bf16 possible but marginal (not read-BW-bound) | **Closed** — at the cache-resident ceiling |
 
-**Reading it:** only **two** kernels carry a recoverable gap with a named lever — **indexer logits** (memory
-traffic → **Phase 2**) and **sparse attend** (compute precision → **Phase 1/3**). The other four are at their
-**regime ceiling** (the roofline is either met or the wrong ceiling), so their low/again-high % is honest, not
-owed work. Each recoverable row is mirrored into the actionable backlog: integration-class → the
-[Phase-2 carry-forward levers](#phase-2-carry-forward-levers-integration-class-from-standalone-analysis) table;
-kernel-authoring → the standalone phase (the sparse bf16 experiment is in flight).
+**Reading it:** after measurement, **only one** kernel carries a recoverable gap with a named, still-open lever —
+**indexer logits** (memory traffic → **Phase 2**). **Sparse attend's** bf16-AMX lever was the obvious compute-side
+candidate, but it was **attempted in 3 configs and measured slower than the fp32 donor at every M** (job 385343) —
+a valid, published disposition, not a deferral; the fp32 path at 60% roof is the practical ceiling (one untested
+residual: a score-gemm-only bf16 hybrid). The remaining four kernels are at their **regime ceiling** (the roofline
+is either met or the wrong ceiling), so their low/again-high % is honest, not owed work. The one open recoverable
+row is mirrored into the actionable backlog: integration-class → the
+[Phase-2 carry-forward levers](#phase-2-carry-forward-levers-integration-class-from-standalone-analysis) table.
 
 ---
 
@@ -343,6 +345,17 @@ fp32 einsum sparse-attn fallback — two matmuls plus a softmax that allocates f
 **Net:** compute-bound, so the lever is the library GEMM; the authored contribution is the **fused softmax/
 sink epilogue** (now with a hand-inlined `exp`) over the donor. 60% of the fp32 roof is the realistic
 near-ceiling for this op.
+
+**BF16-AMX lever — attempted in-phase, REJECTED on measured loss (EMR job 385343).** The compute-bound regime
+makes bf16-AMX (124.5 TF, ~16× the fp32 peak) the obvious candidate, and the GPU reference *is* bf16. Three
+configs were authored and measured: `sparse_attend_amx` (bf16 `at::bmm` + materialized softmax), `blockbf16`
+(64-block brgemm flash), and `bf16bmm_hx` (big bf16 bmms + fused fp32 softmax). **All are slower than the fp32
+donor at every M** — `bf16bmm_hx` ran 0.02–0.88× of `fp32bmm_hx` (≈15% slower at the M=32 operating point, far
+worse at M=1/64). The instrument check isolates why: the *score* bmm genuinely wins in bf16 (1.5–2× at M≥16),
+but the *value* bmm does not, and the fp32↔bf16 conversion casts + small-M dispatch eat the GEMM savings.
+Tolerance is clean (cos 0.99999 normal / 0.9996 sharp), so it is **tolerance-acceptable but performance-losing**
+— a valid, published disposition. The fp32 donor stays the shipped path; the one untested residual is a
+score-gemm-only bf16 hybrid, and FP8 is a later stretch.
 
 ---
 

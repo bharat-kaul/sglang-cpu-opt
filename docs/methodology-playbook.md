@@ -98,6 +98,13 @@ flowchart LR
 
 - **Accomplishes:** every op/fused-op has an **authored C/C++ kernel**, each optimized across its knobs
   (full M-sweep + KV) **toward roofline**, with a published per-kernel roofline-target-vs-measured record.
+- **Standing practice (exhaust in-phase + publish):** every legitimate **kernel-authoring** optimization for a
+  kernel is **attempted in this phase** — not deferred, not left as a "could try." Attempt it, **measure it
+  under the streaming methodology, and publish the result on the standalone-kernel page** — including a
+  **measured loss**, which is a valid, first-class disposition (it closes the lever honestly so it is not
+  re-proposed). *Example: sparse-attend's bf16-AMX lever was attempted in 3 configs, all measured slower than
+  the fp32 donor, and that loss is published.* Only levers realized in the **serving path** (memory-traffic /
+  dtype / layout) are handed to Phase 2; everything that lives **inside the kernel** is exhausted here.
 - **Method (donor-first, parallel wave):** reuse an existing optimized primitive wherever one exists
   (OneDNN, ATen cpublas BRGEMM + VNNI pack, `at::bmm`, MKL, LIBXSMM) and author only the irreducible glue;
   author a net-new kernel only when no donor covers the contract (`kernel-authoring`). The per-kernel
@@ -125,6 +132,10 @@ flowchart LR
     per-kernel roofline + baseline + optimization + analysis, **streaming (cold-cache) headline latency**
     (flush ≥2× LLC; warm only as a labeled secondary), `objdump %zmm` ISA check + stated flags, honest
     regime verdicts ("at ceiling" is a valid outcome), replicated with the noisy column flagged.
+  - **In-phase exhaustion + gap ledger** — every legitimate kernel-authoring lever is attempted, measured, and
+    its outcome (win *or* measured loss) published; every kernel exits Phase 1 with a
+    [gap-ledger](#4-per-kernel-performance-gap-ledger-model-agnostic) row whose owning phase is assigned (no
+    un-triaged gap, no deferred in-kernel lever).
 
 ### ⛔ Phase-1 exit — PAUSE FOR REVIEW (the integrity checkpoint)
 
