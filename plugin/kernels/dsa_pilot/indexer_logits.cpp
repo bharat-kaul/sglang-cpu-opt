@@ -98,13 +98,13 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   auto logits = torch::empty({N, S}, torch::kFloat32);
   auto _t1 = _now();
   const bool vnni = (std::getenv("INDEXER_NO_PACK") == nullptr) && at::native::cpublas::could_pack(torch::kBFloat16);   // NO_PACK = diagnostic: force unpacked brgemm
-  // Adaptive tile: target ~2*threads tasks so each brgemm M is large (AMX-efficient) yet enough
-  // parallelism remains at small N. Sb multiple of 16, clamped [16,256] (Cbuf <= 64KB, L1/L2).
-  // TPT=2 (not 4) measured best: the op is dispatch-bound, fewer/larger tiles cut the fixed per-tile cost
-  // (job 385422: vs TPT=4 -> M8 1.33x / M16 1.29x / M32 1.14x / M64 1.04x, bit-exact). INDEXER_TPT overrides.
+  // Adaptive tile: dispatch-bound op -> minimize tiles. TPT=1 (one tile per thread = fewest tasks that still
+  // fill the cores) is best for M<64; at M>=64 TPT=1's tiles grow past L2 (Cbuf) so TPT=2 wins there.
+  // Measured (job 385422, bit-exact across TPT): TPT=1 vs old TPT=4 -> M8 1.50x / M16 1.37x / M32 1.15x;
+  // M64 uses TPT=2 (1.04x). INDEXER_TPT overrides.
   const int64_t nthr = at::get_num_threads();
-  const char* _tpt = std::getenv("INDEXER_TPT");                     // diagnostic: tiles-per-thread target (default 2)
-  const int64_t tpt = _tpt ? std::max<int64_t>(1, atol(_tpt)) : 2;
+  const char* _tpt = std::getenv("INDEXER_TPT");                     // diagnostic: tiles-per-thread target
+  const int64_t tpt = _tpt ? std::max<int64_t>(1, atol(_tpt)) : (N >= 64 ? 2 : 1);
   int64_t tpn = std::max<int64_t>(1, (tpt * nthr + N - 1) / N);      // tiles per n
   int64_t Sb = std::max<int64_t>(16, ((S + tpn - 1) / tpn + 15) / 16 * 16);
   Sb = std::min<int64_t>(Sb, 1024);               // larger tiles -> bigger brgemm M (AMX util)

@@ -202,10 +202,16 @@ time), *not* the KV read (~15%, at BW) and *not* `cpublas::pack` (~2%, measured 
 inline-pack rewrite). The fixed cost is the **tiling structure**: the adaptive tiler pinned the task count at
 `~4×threads ≈ 256` tiles *regardless of M*, so ~256 parallel tasks each pay a per-task tax (scheduling +
 scratch alloc + a `brgemm` call). A tile-count sweep (bit-exact across tile counts) confirmed it — cutting
-tiles 512→64 drops time ~2× monotonically — so the target was lowered **4×→2× threads**: **1.04–1.33× further,
-bit-exact** (M=8 1.33×, M=16 1.29×, M=32 1.14×). **Cumulative vs the original: M=32 ≈312 → ≈214 µs (1.46×),
-M=8 ≈285 → ≈171 µs (1.67×).** The honest ceiling here is **dispatch + L3**, not the 50 µs DRAM floor (the
-working set is L3-resident), so "% of the BW roof" is the wrong frame for this op at the operating point.
+tiles 512→64 drops time ~2× monotonically — so the tiler now targets **1 tile/thread for M<64** (2× at M=64,
+where 1×'s tiles overflow L2): **bit-exact**, and strictly best-case per M. **Cumulative vs the original:
+M=32 ≈312 → ≈207 µs (1.51×), M=8 ≈285 → ≈143 µs (1.99×).** The honest ceiling here is **dispatch + L3**, not the
+50 µs DRAM floor (the working set is L3-resident), so "% of the BW roof" is the wrong frame for this op.
+
+**The regime shifts as you optimize (jobs 385422/385427).** With the dispatch floor stripped, the KV read/
+convert becomes a *larger* share: `bf16-KV` would save ~15 µs at the old tiling but **~46 µs at the new** — i.e.
+the op is moving *toward* read-bound, so the Phase-2 **bf16-KV** lever grows in value as the dispatch floor
+drops. Remaining recoverable levers, in order: merge the two parallel regions (one barrier) · **bf16-KV**
+(~46 µs, Phase-2 integration) · cold-alloc (~1.2× warm→stream tax, mostly engine-amortized).
 
 ---
 
