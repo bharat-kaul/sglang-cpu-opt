@@ -77,6 +77,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   const int64_t N = q.size(0), H = q.size(1), D = q.size(2), S = kv.size(1);
   if (N == 0) return torch::empty({0, S}, torch::kFloat32);   // empty batch -> [0,S] (avoid /N below)
   const bool _brk = std::getenv("INDEXER_BREAKDOWN") != nullptr;   // env-gated stage timers (diagnostic)
+  const bool _skipepi = std::getenv("INDEXER_SKIP_EPILOGUE") != nullptr;   // diagnostic ablation: GEMM+read only
   auto _now = [] { return std::chrono::high_resolution_clock::now(); };
   auto _t0 = _now();
   // BW lever (free): the brgemm already rounds kv->bf16 to compute, so a bf16 KV cache is numerically
@@ -142,6 +143,10 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
       at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, C, vnni);
       const float* w = wf[n].data_ptr<float>();
       float* lp = logits[n].data_ptr<float>() + s0;
+      if (_skipepi) {                                                         // diagnostic: isolate GEMM+read
+        for (int64_t r = 0; r < sb; ++r) lp[r] = C[r * H];
+        continue;
+      }
       // Published stage boundaries (model.py L420-421): bf16 einsum output, bf16 relu, * bf16 weights,
       // bf16 reduce over heads -> bf16 logits (topk input). Round each stage to bf16; FP32-accumulate the
       // head sum (matches torch bf16 .sum) then round the logit to bf16. Store bf16-exact value in fp32.
