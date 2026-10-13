@@ -10,6 +10,7 @@
 #include <ATen/native/CPUBlas.h>
 #include <cmath>
 #include <vector>
+#include <cstdlib>
 #include "avx512_exp.h"   // exp512_ps (inlined Cephes exp) for the hand-exp softmax variant
 
 // q:[N,H,D]; kv:[N,K,D] (shared k==v latent); sink:[H] -> out:[N,H,D]. scale default = D**-0.5.
@@ -118,9 +119,11 @@ torch::Tensor sparse_attend_fp32bmm_hx(torch::Tensor q, torch::Tensor kv, torch:
   const int64_t N = qc.size(0), H = qc.size(1), D = qc.size(2), K = kc.size(1);
   const float scale = scale_ > 0 ? (float)scale_ : (float)(1.0 / std::sqrt((double)D));
   auto scores = at::bmm(qc, kc.transpose(1, 2));                               // [N,H,K] fp32 (donor GEMM)
+  const bool _skip_sm = std::getenv("SPARSE_SKIP_SOFTMAX") != nullptr;    // diagnostic: isolate softmax cost
+  const bool _skip_vg = std::getenv("SPARSE_SKIP_VALUE_GEMM") != nullptr; // diagnostic: isolate value-GEMM cost
   const float* sp = sc.data_ptr<float>();
   float* sdp = scores.data_ptr<float>();
-  at::parallel_for(0, N * H, 0, [&](int64_t i0, int64_t i1) {
+  if (!_skip_sm) at::parallel_for(0, N * H, 0, [&](int64_t i0, int64_t i1) {
     for (int64_t i = i0; i < i1; ++i) {
       const int64_t h = i % H;
       float* row = sdp + i * K;
@@ -144,6 +147,7 @@ torch::Tensor sparse_attend_fp32bmm_hx(torch::Tensor q, torch::Tensor kv, torch:
       for (int64_t kk2 = 0; kk2 < K; ++kk2) row[kk2] *= inv;
     }
   });
+  if (_skip_vg) return torch::empty({N, H, D}, scores.options());             // diagnostic: skip value GEMM
   return at::bmm(scores, kc);                                                  // [N,H,D] fp32 (donor GEMM)
 }
 
