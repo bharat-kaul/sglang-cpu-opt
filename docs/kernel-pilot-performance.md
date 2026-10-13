@@ -24,7 +24,7 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 
 ## 1. Per-kernel at the operating point (M=32, S=1024, streaming): roofline vs baseline vs C/C++
 
-![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v4.png)
+![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v5.png)
 
 | kernel | implementation | baseline (torch) µs | C/C++ µs | **speedup** | roofline floor µs | % of roofline |
 |---|---|---:|---:|---:|---:|---:|
@@ -45,7 +45,7 @@ by more kernel work.
 
 ## 2. % of nominal roofline across the M-sweep (1→64): arithmetic intensity (streaming)
 
-![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v4.png)
+![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v5.png)
 
 | kernel | M=1 | M=2 | M=4 | M=8 | M=16 | M=32 | M=64 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -61,6 +61,16 @@ roofline (streaming, at M=64): **compressor → 94%**, **sparse → 66%**, **com
 31%**. `indexer top-k` (~4%) and `sinkhorn` (~0%) stay low because they are **selection/dispatch-bound** — a
 byte-or-FLOP roofline is the wrong ceiling for them, so the low % is a diagnostic, not a recoverable gap. This
 is the "how close to the metal, and does more work help?" view.
+
+> **How to read "% of roof" here — it is a *per-M* roofline, not one fixed peak held across the sweep.**
+> The hardware peaks are **constant** (nominal DRAM `BW` and the ISA/dtype compute `peak` — AMX for indexer,
+> FP32 for the rest). What is **re-evaluated at every M** is the roofline *floor*, because bytes and FLOPs
+> both scale with M:
+> $$\text{floor}(M)=\max\!\Big(\tfrac{\text{bytes}(M)}{BW},\ \tfrac{\text{FLOPs}(M)}{\text{peak}}\Big),\qquad \%\text{roof}(M)=\frac{\text{floor}(M)}{\text{measured}_\text{stream}(M)}.$$
+> So each cell is measured against the roofline evaluated at **that M's own arithmetic intensity**, and the
+> binding arm can **flip** (memory-bound at small M → compute-bound past the ridge). This is *why* a kernel's %
+> climbs with M (e.g. compressor 8→94%) even though the hardware ceiling never moves — the kernel is
+> saturating more of a floor that itself rises toward the fixed peak as M grows.
 
 
 ## 3. Kernel deep-dives — roofline / baseline / C/C++ for every kernel
@@ -114,15 +124,15 @@ model-agnostic **performance-gap ledger** defined in the [methodology playbook](
 |---|---:|---|---|---|---|
 | **indexer logits** | 24% | **dispatch+L3-bound** (not BW) | measured: KV read ~15% @ ~483 GB/s (at BW), `cpublas::pack` ~2%, brgemm ~13% — the dominant ~62% was per-call convert/pack/alloc/dispatch; a ~170 µs *fixed* cost from the ~256-tile adaptive tiling | **DONE (Phase 1):** fused q-prep + adaptive tiling (TPT 4→1/2) = **1.46–1.99× bit-exact** (309→212 µs). Remaining: merge the 2 parallel regions; **bf16-KV** (now ~46 µs) | **Phase 1 done**; bf16-KV → **Phase 2** |
 | **indexer top-k** | 2% | **wrong ceiling** | selection is `O(S)` compares + thread dispatch, not bytes/FLOPs; a byte roofline cannot be approached | at regime ceiling (`nth_element` + chunked-parallel already fill cores); none material | **Closed** — regime ceiling (reopen only if E2E attribution flags it) |
-| **compressor** | 79% | **near ceiling (BW+exp)** | after the D1 hand-`exp`, residual = irreducible fp32 read traffic + the `exp` compute itself | small; bf16 **rejected** (non-conformant to fp32 ref + measured non-win) | **Closed** — at the DRAM+exp wall (revisit bf16 only if the reference dtype changes) |
-| **sparse attend** | 60% | **compute — bf16 lever tested & REJECTED** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX attempted in 3 configs (`amx`, `blockbf16`, `bf16bmm_hx`) — all measured SLOWER than the fp32 donor** (`bf16bmm_hx` 0.02–0.88× at M=1–64, EMR job 385343): the *score* bmm does win in bf16 (1.5–2× at M≥16) but the *value* bmm doesn't, and the fp32↔bf16 conversion casts + M=1 dispatch eat the gain. Tolerance-clean (cos 0.99999 normal) but **perf-losing** → fp32 donor at 60% roof is the practical ceiling | **Phase 1 — done (measured loss, published)**; residual untested idea = score-gemm-only bf16 hybrid; FP8 = stretch |
+| **compressor** | 75% | **near ceiling (BW+exp)** | after the D1 hand-`exp`, residual = irreducible fp32 read traffic + the `exp` compute itself | small; bf16 **rejected** (non-conformant to fp32 ref + measured non-win) | **Closed** — at the DRAM+exp wall (revisit bf16 only if the reference dtype changes) |
+| **sparse attend** | 59% | **compute — bf16 lever tested & REJECTED** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX attempted in 3 configs (`amx`, `blockbf16`, `bf16bmm_hx`) — all measured SLOWER than the fp32 donor** (`bf16bmm_hx` 0.02–0.88× at M=1–64, EMR job 385343): the *score* bmm does win in bf16 (1.5–2× at M≥16) but the *value* bmm doesn't, and the fp32↔bf16 conversion casts + M=1 dispatch eat the gain. Tolerance-clean (cos 0.99999 normal) but **perf-losing** → fp32 donor at 59% roof is the practical ceiling | **Phase 1 — done (measured loss, published)**; residual untested idea = score-gemm-only bf16 hybrid; FP8 = stretch |
 | **MHC sinkhorn** | ~0% | **wrong ceiling** | 20-iter serial recurrence + dispatch over tiny L1-resident data; FLOP roofline is meaningless here | none meaningful (already fused, L1-resident) | **Closed** — regime ceiling |
 | **MHC combine** | 28% | **near ceiling (cache)** | working set is **cache-resident**, so the nominal DRAM roof under-counts; residual = small fixed dispatch | limited; bf16 possible but marginal (not read-BW-bound) | **Closed** — at the cache-resident ceiling |
 
 **Reading it:** after measurement, **only one** kernel carries a recoverable gap with a named, still-open lever —
 **indexer logits** (memory traffic → **Phase 2**). **Sparse attend's** bf16-AMX lever was the obvious compute-side
 candidate, but it was **attempted in 3 configs and measured slower than the fp32 donor at every M** (job 385343) —
-a valid, published disposition, not a deferral; the fp32 path at 60% roof is the practical ceiling (one untested
+a valid, published disposition, not a deferral; the fp32 path at 59% roof is the practical ceiling (one untested
 residual: a score-gemm-only bf16 hybrid). The remaining four kernels are at their **regime ceiling** (the roofline
 is either met or the wrong ceiling), so their low/again-high % is honest, not owed work. The one open recoverable
 row is mirrored into the actionable backlog: integration-class → the

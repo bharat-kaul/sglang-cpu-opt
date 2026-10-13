@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="760" height="420">
 <rect x="0" y="0" width="760" height="420" fill="#ffffff"/>
 <text x="16.0" y="24.0" font-family="monospace" font-size="15" fill="#111" text-anchor="start" font-weight="bold">% of nominal roofline vs M  (streaming; arithmetic intensity rises with M)</text>
-<text x="16.0" y="42.0" font-family="monospace" font-size="11" fill="#666" text-anchor="start" font-weight="normal">floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak (NOT an achievable ceiling); streaming latency. † = oneDNN donor. EMR jobs 385065-67 (3-rep median).</text>
+<text x="16.0" y="42.0" font-family="monospace" font-size="11" fill="#666" text-anchor="start" font-weight="normal">%roof(M) = floor(M)/measured(M); floor(M)=max(bytes(M)/BW, FLOPs(M)/peak) RE-EVALUATED at each M against FIXED nominal peaks (BW, ISA/dtype TF) — peaks constant, the binding arm (BW vs compute) can flip with M. NOT an achievable ceiling; streaming. † = oneDNN donor. EMR jobs 385457-59 (3-rep median).</text>
 <line x1="70" y1="370.0" x2="580" y2="370.0" stroke="#eee"/>
 <text x="62.0" y="374.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">0</text>
 <line x1="70" y1="308.0" x2="580" y2="308.0" stroke="#eee"/>
