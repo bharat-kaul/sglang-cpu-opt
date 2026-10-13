@@ -149,7 +149,13 @@ flowchart LR
      per-forward `set_num_threads`).
   3. **Integrate one optimization at a time**, env-gated, with a dummy-weight output-fingerprint gate per
      toggle; record the wall-time delta per toggle.
-  4. **Extrapolate from the `perf-proxy`** (depth-reduced, full-width, dummy weights) with the **two-depth
+  4. **Carry forward the integration-class levers** surfaced during the standalone-kernel phase — memory-traffic,
+     dtype, and data-layout wins that the kernel already supports but that are realized only in the serving path
+     (e.g. a **bf16 KV cache**: numerically identical to what a bf16-rounding GEMM consumes, yet halves the
+     dominant read and **amortizes across every op that reads that cache**, with the most leverage at decode
+     M=1). Log each at discovery as a tracked Phase-2 lever (mechanism / amortization / expected delta /
+     fingerprint-invariant gate / status), so it is optimized here instead of rediscovered later.
+  5. **Extrapolate from the `perf-proxy`** (depth-reduced, full-width, dummy weights) with the **two-depth
      linear model** `t(L) = t_fixed + L·t_layer` *per regime* (prefill/decode) — never naive
      `t_proxy/layers × full_layers`. The one full-depth dummy run **validates** the extrapolation and exposes
      residual depth-accumulating overhead to bisect (`runtime-config-tuning` for threads/affinity/NUMA/prepack).

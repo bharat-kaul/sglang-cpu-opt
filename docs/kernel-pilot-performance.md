@@ -423,3 +423,19 @@ F4-screened (passes the contract/finiteness/determinism/mask gates) until the E2
 Progressive end-to-end wall-time on the depth-reduced dummy-weight proxy (proxy4 + proxy8 → `t(L)=t_fixed+L·t_layer`
 extrapolation to 43 layers), at the chosen operating point (throughput headline B=32 @ S=1024, plus the B=1
 single-stream latency floor), integrating each kernel one at a time. The E2E tok/s curves will be added here.
+
+### Phase-2 carry-forward levers (integration-class, from standalone analysis)
+Some wins are **not** standalone-kernel optimizations — the kernel already supports them; they are realized only
+in the **serving runtime** (KV-cache dtype/layout, operand format, batching). They are logged here so the
+standalone-phase analysis is **carried into** E2E optimization instead of being lost, each with the mechanism,
+what it amortizes across, the expected effect, and the gate.
+
+| lever | class | mechanism | amortizes across | expected effect | gate | status |
+|---|---|---|---|---|---|---|
+| **bf16 KV cache** | memory traffic | store KV as bf16; the GEMMs already round KV→bf16 to compute, so it is **numerically identical** to today — it just halves the dominant read | **every KV-reading op** (indexer logits, sparse-attend gather, MLA attend) | indexer floor 50→~25 µs; standalone measured **1.1–1.5×** (under-counts E2E: shared cut + decode M=1 is most BW-bound) | dummy-weight **fingerprint-invariant** (no numeric change) | **owed** — kernel path exists (`kv_bf16`); needs serving-path cache dtype |
+| batch the decode (B≥2) | arithmetic intensity | raise M off the M=1 cliff (operating point already headlines B=32) | all per-token ops | moves BW-bound ops up their roofline | fingerprint-invariant per request | tracked via the operating point |
+| indexer convert/pack attribution | fixed overhead | `INDEXER_BREAKDOWN` stage timers → decide if the 16%-of-roof gap is achievable-BW vs fixed convert/pack/dispatch | indexer logits | gates whether a custom single-pass kernel is worth authoring | n/a (measurement) | **pending** — run before any custom indexer kernel |
+
+**Rule:** each lever stays **default-OFF + env-gated**; it is promoted only when its wall-time delta is measured at
+the operating point and its dummy-weight fingerprint is unchanged (traffic/layout transform, not a numeric change).
+Memory-traffic / dtype / layout findings from the standalone phase are logged here at discovery, not rediscovered later.
