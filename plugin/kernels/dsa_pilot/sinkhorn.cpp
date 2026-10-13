@@ -37,7 +37,13 @@ std::vector<torch::Tensor> mhc_sinkhorn(torch::Tensor mixes, torch::Tensor hc_sc
   float* combp = comb.data_ptr<float>();
   const float e = (float)eps;
 
-  const int64_t _sgrain = std::getenv("SINK_SERIAL") ? rows : 0;   // diag: grain=rows -> one task = serial (isolate dispatch)
+  // Adaptive dispatch (job 385516): rows are INDEPENDENT (per-row recurrence) so serial==parallel bit-for-bit,
+  // and serial WINS for few rows (1.15-2.09x at rows<=8 — the parallel team spinup dominates the tiny 4x4 work);
+  // parallel wins at rows>=16. Ship the per-M optimum. SINK_SERIAL / SINK_PARALLEL override for diagnostics.
+  bool serial = rows <= 12;
+  if (std::getenv("SINK_PARALLEL")) serial = false;
+  if (std::getenv("SINK_SERIAL")) serial = true;
+  const int64_t _sgrain = serial ? rows : 0;                       // grain>=range -> one task = serial
   at::parallel_for(0, rows, _sgrain, [&](int64_t r0, int64_t r1) {
     std::vector<float> C(hc * hc), rs(hc), cs(hc);
     for (int64_t r = r0; r < r1; ++r) {
