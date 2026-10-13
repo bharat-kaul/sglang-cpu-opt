@@ -24,7 +24,8 @@ through, in the order it routes them.
 ```mermaid
 flowchart LR
     S0["0 · Baseline &amp; measurement"] --> S1["1 · Classify (roofline)"]
-    S1 --> S2["2 · Donor-first"]
+    S1 --> S15["1.5 · Validate upside\n(cost-scaled ladder)"]
+    S15 --> S2["2 · Donor-first"]
     S2 --> S3["3 · Parallelize &amp; tile"]
     S3 --> S4["4 · Fuse (kill DRAM round-trips)"]
     S4 --> S5["5 · Precision / BW"]
@@ -38,6 +39,7 @@ flowchart LR
 |---|---|---|---|
 | 0 Baseline & measurement | a trustworthy number to optimize against | `establish-achievable-performance`, `high-information-runs` | streaming + flags + `objdump` ISA + sensitive correctness |
 | 1 Classify (roofline) | name the bound; pick the right lever | `roofline-validation`, `model-roofline-analysis` | floor computed at the **right** hierarchy level |
+| 1.5 Validate upside | prove the lever *wins* before committing (cost-scaled) | `kernel-feasibility-gate`, `overhead-attribution` | whole-op component model; predicted≠measured; Tier-1 microbench before an expensive pass |
 | 2 Donor-first | never re-implement a library primitive | `kernel-authoring` (+ `assets/donor-kernel-map.md`) | donor used where it exists; author only the glue |
 | 3 Parallelize & tile | fill the cores; keep the working set in cache | `openmp-parallelization`, `cache-blocking-tiling`, `sub-numa-clustering` | all cores used at small M; one rank/NUMA domain |
 | 4 Fuse | eliminate avoidable DRAM round-trips | `inter-kernel-fusion` + **FUSION GATE** | no materialized intermediate; residual justified |
@@ -93,6 +95,39 @@ arithmetic intensity vs the ridge `peak/BW` tells BW- vs compute-bound. Then cla
 
 **Gate:** the floor is computed at the hierarchy level the data actually comes from; the regime is named, not
 assumed — and "already at the ceiling" is a *valid* outcome (don't invent headroom the regime forbids).
+
+## Stage 1.5 — Validate a lever's upside before committing (cost-scaled)
+
+Classifying the bound (Stage 1) tells you *which* lever; it does **not** prove the lever will *win*. A roofline
+that models **one component** (e.g. a GEMM's FLOPs) over-predicts when the op has other first-order costs the
+lever doesn't touch — or *worsens*. *(Real case: sparse-attend's bf16-AMX looked like 2.6–4× from the GEMM
+compute peak, but the op's value-GEMM, the fp32↔bf16 conversion casts, and small-M dispatch are first-order;
+three bf16 configs all measured **slower** than the fp32 donor.)* Two rules and a cost-scaled ladder:
+
+- **Rule 1 — model the WHOLE op, not one component.** Before claiming upside, decompose the op into its
+  components (GEMM₁, GEMM₂, convert, softmax, reduce, dispatch), apply the lever to each, and confirm it moves
+  the **dominant** component *and does not inflate the others*. A lever aimed at a non-dominant component (the
+  GEMM when the op is already at 60% of roof) cannot deliver a large win however big its *local* speedup.
+- **Rule 2 — predicted ≠ measured.** A roofline upside is a **hypothesis**, not a result. Label it "predicted,
+  unvalidated" until a measurement promotes it — never publish a predicted multiple as an outcome.
+
+**The ladder (cheapest-first; stop as soon as a tier kills the lever):**
+1. **Tier 0 — analytical (free):** the whole-op component model above.
+2. **Tier 1 — isolation microbench (~minutes):** measure the lever's *target primitive* in isolation at the
+   **real shapes** (e.g. bf16 vs fp32 `at::bmm`, both GEMMs). Catches "the primitive doesn't actually get
+   faster" (wrong ISA dispatch, small-M pathology) before any fused kernel is authored.
+3. **Tier 2 — minimal variant (~1 job):** the simplest end-to-end form, measured **whole-call incl.
+   conversions**. Catches interaction effects an isolated test can't (cache residency, dispatch, materialization).
+4. **Tier 3 — full:** optimized variant + tolerance + replicate.
+
+**When to run which — the ladder's cost scales with the *full pass's* cost.** **Cheap pass** (hours — most
+standalone kernels): skip the formal gate, *measurement is the smoke test* — but still do Tier 0 (free) and obey
+Rule 2. **Expensive pass** (multi-day port, net-new kernel from scratch, scarce-HW time): **Tier 1 is mandatory**
+before committing. **Emergent levers** (cross-op fusion, cache-residency, dispatch restructuring) have **no
+faithful cheap proxy** — the integrated measurement *is* the test; don't fake a Tier-1 for them.
+
+**Gate:** no upside is published as a *result* without a measurement (Rule 2); for an expensive pass, Tier 1
+passes before the full authoring is committed.
 
 ## Stage 2 — Donor-first
 

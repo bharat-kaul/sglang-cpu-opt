@@ -243,3 +243,10 @@ overhead — the roofline % alone does not prove recoverability. (3) WRONG-CEILI
 disposition: a selection/dispatch/recurrence op at 2% of a byte roofline is *at ceiling*, not failing. (4) Each
 RECOVERABLE row is mirrored to its owning queue (Phase-2 backlog or the standalone author queue) so it is not
 rediscovered later. (5) The ledger is the per-kernel source of truth published on the standalone-kernel page.
+(6) **PREDICTED ≠ MEASURED.** The "opportunity (expected effect)" is a **hypothesis** — label it predicted/
+unvalidated and never publish a predicted multiple as a result. Validate upside **cost-scaled, cheapest-first**
+(whole-op component model → isolation microbench → minimal variant → full); the roofline of *one component*
+over-predicts when the op has other first-order costs the lever doesn't move or *inflates* (the sparse-attend
+bf16 miss). For an expensive pass the isolation microbench is **mandatory before committing**; for a cheap pass,
+measurement is the smoke test — but the predicted number is never the published outcome. *(See the standalone
+playbook [Stage 1.5](standalone-kernel-optimization-playbook.md#stage-15--validate-a-levers-upside-before-committing-cost-scaled).)*
