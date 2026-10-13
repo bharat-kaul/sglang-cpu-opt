@@ -131,7 +131,8 @@ flowchart LR
   - **Standalone-kernel performance PAGE** (like [kernel-pilot-performance.md](kernel-pilot-performance.md)):
     per-kernel roofline + baseline + optimization + analysis, **streaming (cold-cache) headline latency**
     (flush ≥2× LLC; warm only as a labeled secondary), `objdump %zmm` ISA check + stated flags, honest
-    regime verdicts ("at ceiling" is a valid outcome), replicated with the noisy column flagged.
+    regime verdicts ("at ceiling" is a valid outcome **only after a config sweep shows the bound doesn't
+    move** — see [§4 rule 7](#4-per-kernel-performance-gap-ledger-model-agnostic)), replicated with the noisy column flagged.
   - **In-phase exhaustion + gap ledger** — every legitimate kernel-authoring lever is attempted, measured, and
     its outcome (win *or* measured loss) published; every kernel exits Phase 1 with a
     [gap-ledger](#4-per-kernel-performance-gap-ledger-model-agnostic) row whose owning phase is assigned (no
@@ -170,6 +171,17 @@ flowchart LR
      linear model** `t(L) = t_fixed + L·t_layer` *per regime* (prefill/decode) — never naive
      `t_proxy/layers × full_layers`. The one full-depth dummy run **validates** the extrapolation and exposes
      residual depth-accumulating overhead to bisect (`runtime-config-tuning` for threads/affinity/NUMA/prepack).
+- **The ceiling is the model-level throughput roofline (target measured tok/s ≥ 70–75% at *every* M).**
+  Decode is memory-bound: `tok/s_roof(M) = M·BW / (W_active + M·KV_tok)`, where `W_active` = weight bytes
+  read per step (**MoE-aware: active experts only**, at the checkpoint dtype) and `KV_tok` = KV bytes/token
+  (KV dtype). Prefill is compute-bound → a separate `FLOPs/peak` roofline, so **split the ceiling by phase.**
+  Plot `tok/s_roof(M)` as the **ceiling line** on the E2E progression chart; the measured-vs-roofline gap is
+  **integration efficiency**, attributed by the per-op pivot (e.g. MoE ~47%, authored DSA+MHC ~25–30%). The
+  roofline rewards memory-traffic levers directly — **bf16-KV halves `KV_tok`; fp4/fp8 experts shrink
+  `W_active`; both raise the ceiling** — and at M=1 the ceiling is both LOW (weights read for one token) and
+  hard to reach (overhead), so batching raises both the ceiling and the efficiency (DSv4 ~26% at M=1 vs ~75%
+  batched). The 70–75% headroom budgets non-overlap, dispatch gaps, and the authored-op slice (not pure
+  weight-GEMM).
 - **Gate (trust):** per-toggle **dummy-weight fingerprint** stays invariant (perf transform, not a numeric
   change); the full-depth run validates the extrapolation; the roofline+pivot report pair is emitted.
 
@@ -250,3 +262,21 @@ over-predicts when the op has other first-order costs the lever doesn't move or 
 bf16 miss). For an expensive pass the isolation microbench is **mandatory before committing**; for a cheap pass,
 measurement is the smoke test — but the predicted number is never the published outcome. *(See the standalone
 playbook [Stage 1.5](standalone-kernel-optimization-playbook.md#stage-15--validate-a-levers-upside-before-committing-cost-scaled).)*
+
+**(7) A BOUND IS A TESTED HYPOTHESIS, NOT A WALL.** An `AT-CEILING` or `WRONG-CEILING` disposition is valid
+**only after** (a) a **config sweep** — tiles / grain / effective-threads, via `grain_size`/task-count, **never
+per-forward `set_num_threads`** (it rebuilds the OMP pool and loses affinity) — shows the bound does **not**
+move, *and* (b) the attribution-motivated knob has been **measured**: the **precision** lever where it hits the
+dominant component (bf16/fp8 — may win *or* lose, both published) and **authoring our own donor** inner loop
+when measurement localizes the bottleneck *there* (rare — otherwise document the donor's interface shortcoming,
+route around it, publish the gap). If the bound **moves** with config it was config (fix it, ship the per-M
+optimum); if it doesn't, it is algorithmic/hardware (at ceiling). *Closing on assertion is the anti-pattern —
+the sinkhorn low-batch win (adaptive serial dispatch, +1.15–2.09× bit-exact) was found precisely because the
+knob was tested, not assumed; and three other ceilings were **confirmed** by the knob measuring a loss.*
+
+**(8) TARGET PER COMPONENT, not the total %.** Decompose into data-movement / compute / dispatch and target
+**each**: data-movement ≥75% of the **operative** BW (DRAM when the working set exceeds cache; **cache BW when
+it fits** — not nominal DRAM); compute ≥ its ISA/dtype peak (AMX or AVX-512, per shape/M); overhead → 0 via
+adaptive config. The roofline-% of the *total* latency is a **diagnostic** of which component dominates the
+leftover gap, not the target — and the nominal roofline can be the **wrong ceiling** (an op at 24% of the
+nominal DRAM roof but ~52% of its measured *operative* GEMM/dispatch floor is near its real ceiling).

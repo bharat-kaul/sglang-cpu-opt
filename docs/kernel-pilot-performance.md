@@ -255,9 +255,11 @@ Select the top-k=512 KV indices per row of `logits[N,S=1024]`. Sparse attention 
 top-k (gather is permutation-invariant), so this is a **selection**, not a sort.
 
 **Roofline (M=32).** FLOPs = 0 (comparisons, not float ops). bytes = logits`[M,S]` + indices`[M,k]` int64 =
-0.13 + 0.13 = **0.26 MB** → floor = 0.26 MB/358.4 GB/s = **0.73 µs**. C/C++ 41 µs = **2%** (streaming) — but a
-byte/FLOP roofline is the **wrong ceiling** here: the cost is `O(S)` comparison work + thread dispatch, not
-memory. The 2% is a diagnostic, not a recoverable gap.
+0.13 + 0.13 = **0.26 MB** → floor = 0.26 MB/358.4 GB/s = **0.73 µs**. C/C++ 40 µs = **2%** (streaming) — a
+byte/FLOP roofline is the **wrong ceiling**, now **confirmed by measurement** (job 385511, M=32): `nth_element`
+selection is **18 µs (46%)**, read+dispatch **21 µs (54%)**, and forcing a single thread costs **521 µs** — so
+parallelism already delivers **13×**. It is selection-*compute*-bound (real, parallelizable work), **not**
+dispatch-bound; the 2% is a diagnostic, not a recoverable gap.
 
 **Baseline (torch)** — `torch.topk(logits, 512, dim=1, sorted=False).indices`. torch.topk does a **full
 per-row sort/partition** (and over-returns ordering we discard), 420 µs streaming.
@@ -271,6 +273,10 @@ per-row sort/partition** (and over-returns ordering we discard), 420 µs streami
    `k ≪ chunk-length` (else the merge is pure overhead).
 
 **Net:** ~10.3× streaming (24× warm) by replacing a sort with a saturating parallel selection. Pure-authored, no library.
+The **core-fill knob was tested, not assumed** (job 385516): forcing within-row chunking (`TOPK_CHUNKS`) to use
+all 64 cores at M=32 measured **0.46–0.93× (slower)** at k=512 — each chunk selects ≈all so the candidate-merge
+exceeds the core-fill benefit (set-match preserved). The shipped row-parallel dispatch is the measured optimum
+at this k; small-k already takes the chunked path via the guard — **measured ceiling, not asserted.**
 
 ---
 
@@ -407,7 +413,10 @@ H=64 heads, D=K=512) with a per-head softmax **sink**. Two GEMMs (`q@kv^T` score
 bytes = kv`[K,D]` + q + out ≈ **41.9 MB**. AI ≈ 51 FLOP/byte **>** FP32 ridge 21.7 → **compute-bound** (the
 only one). Floor = max(2.15 GFLOP/7.78 TF = **275.9 µs**, 41.9 MB/358.4 GB/s = 117 µs) = **275.9 µs**.
 C/C++ 465 µs = **59%** of the FP32 roof (streaming), baseline 740 µs → **1.6×** (small *by design* — it is
-already near the compute ceiling).
+already near the compute ceiling). **Attribution (job 385511, M=32) localizes the gap in the donor GEMMs:**
+score GEMM **228 µs (48%)** + value GEMM **189 µs (40%)** = **88%** of the op at **66% of the fp32 peak**
+(donor-limited), softmax only **56 µs (12%)** — so the 41% below the roof is the `at::bmm` donor's small-batch
+GEMM efficiency, not recoverable composition overhead.
 
 **Baseline (torch)** — [`_sparse_ref` → `ora_sparse_fp32`](../plugin/validate/bench_replicated.py#L58): the
 fp32 einsum sparse-attn fallback — two matmuls plus a softmax that allocates four extra `[N,H,K]` temporaries
@@ -437,8 +446,12 @@ donor at every M** — `bf16bmm_hx` ran 0.02–0.88× of `fp32bmm_hx` (≈15% sl
 worse at M=1/64). The instrument check isolates why: the *score* bmm genuinely wins in bf16 (1.5–2× at M≥16),
 but the *value* bmm does not, and the fp32↔bf16 conversion casts + small-M dispatch eat the GEMM savings.
 Tolerance is clean (cos 0.99999 normal / 0.9996 sharp), so it is **tolerance-acceptable but performance-losing**
-— a valid, published disposition. The fp32 donor stays the shipped path; the one untested residual is a
-score-gemm-only bf16 hybrid, and FP8 is a later stretch.
+— a valid, published disposition. The one residual — a **score-GEMM-only bf16 hybrid** — is now **also tested**
+(`sparse_attend_scorehybrid`, job 385516): keep the value GEMM fp32 and run only the bf16-able score GEMM in
+AMX. It **loses at every M** (0.91× at M=32, pathological at M=1–2; **bf16-KV-provided is *worse*** because the
+value GEMM then needs an fp32 upcast of the KV), cos 1.0 — the kv→bf16 cast exceeds the ~114 µs score saving.
+That is the **4th** bf16 config to measure a loss, so the **fp32 donor at 59% is the confirmed ceiling** (a hand
+fp32 GEMM is unlikely to beat oneDNN — route around, publish); FP8 is a later stretch.
 
 ---
 
@@ -448,9 +461,10 @@ Per row, build a tiny `hc×hc` (4×4) comb matrix and run 20 Sinkhorn normalizat
 normalize), plus `pre=sigmoid+eps`, `post=2·sigmoid`. Inputs are tiny (`mixes[B,S,24]`).
 
 **Roofline (M=32).** FLOPs ≈ `M·hc·hc·iters·5` ≈ 51 KFLOP; bytes ≈ **6.1 KB**. Floor = 6.1 KB/358.4 GB/s =
-**0.017 µs**. C/C++ 25 µs = **~0%** (streaming) — the roofline is the **wrong ceiling**: the op is a tiny
-per-row serial recurrence of divides/exps, so it is **latency/dispatch-bound**, not byte- or FLOP-bound. The
-~0% is a diagnostic that this kernel will never be roofline-limited.
+**0.017 µs**. C/C++ 25 µs = **~0%** (streaming) — the roofline is the **wrong ceiling**, and measurement
+(job 385511) **corrects the mechanism**: the 20-iter recurrence is only **1.6 µs (6%)**; **94% is fixed
+dispatch + 3 output-tensor allocs** (the latency is flat vs M), so it is dispatch/alloc-bound, *not*
+recurrence-bound. The ~0% of the FLOP roof is a diagnostic; this kernel will never be roofline-limited.
 
 **Baseline (torch)** — [`_hc_split_sinkhorn_torch`](../plugin/validate/bench_replicated.py#L77) (sglang MHC oracle): ~40 tiny
 global tensor ops (each of the 20 iters does a row-normalize and a col-normalize as separate ops over the
@@ -461,8 +475,13 @@ whole `[B,S,hc,hc]` tensor), each paying full dispatch + a memory pass — 640 �
    tensor pass, no 40 kernel launches; just one parallel loop over rows.
 2. **eps placement matches the oracle exactly** (initial row-norm adds eps to the result, later iters add eps
    to the denominator) so parity holds.
+3. **Adaptive serial/parallel dispatch** (job 385516): rows are independent so serial == parallel **bit-for-bit**,
+   and serial is **1.15–2.09× faster at rows≤8** (the parallel team spinup dominates the tiny 4×4 work); parallel
+   wins at rows≥16. Ships the per-M optimum (serial ≤ 12 rows, else parallel) — a bit-exact win at the
+   **B=1/low-batch decode** floor, the regime the "at-ceiling" label would have buried.
 
-**Net:** ~25× streaming purely by collapsing ~40 dispatched torch ops into one fused per-row recurrence. Pure-authored.
+**Net:** ~25× streaming by collapsing ~40 dispatched torch ops into one fused per-row recurrence (M≥16), plus
+the adaptive low-M dispatch above. Pure-authored.
 
 ---
 
@@ -473,7 +492,10 @@ H=4096.
 
 **Roofline (M=32).** FLOPs ≈ `M·H·7` ≈ 0.92 MFLOP; bytes = x_flat`[M,hc·H]` + pre + y ≈ **2.62 MB**. AI ≈
 0.35 FLOP/byte → **BW-bound**. Floor = 2.62 MB/358.4 GB/s = **7.3 µs**. C/C++ 26 µs = **28%** (streaming),
-baseline 67 µs → **2.5×**. (Warm it is cache-resident at ~63%; cold it streams from DRAM at 28% of the roof.)
+baseline 67 µs → **2.5×**. **Measurement (job 385511) shows this is the *operative-BW* ceiling, not a kernel
+shortfall:** the kernel reads at **84.6 GB/s ≈ the bare `torch.sum` proxy (85 GB/s)** — the 2.62 MB working set
+is size-limited at M=32, so the operative BW is far below nominal 358 and the kernel already matches what the
+memory system delivers (no config beats a raw read; confirmed at ceiling, not asserted).
 
 **Baseline (torch)** — [`_combine_ref`](../plugin/validate/bench_replicated.py#L67):
 ```python

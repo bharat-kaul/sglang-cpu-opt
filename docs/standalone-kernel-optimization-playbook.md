@@ -16,6 +16,22 @@ through, in the order it routes them.
   correctness oracle — never delete it; A/B every change against it.
 - **Measure correctly or not at all** (Stage 0): streaming/cold-cache, right build flags, `objdump`-verified
   ISA, replicated. A speedup measured wrong is worse than none.
+- **Target per component, not the total %.** Decompose each kernel into **data-movement + compute +
+  dispatch/overhead** by measured attribution and target *each*: data-movement ≥ 75% of the **operative** BW
+  (DRAM if the working set exceeds cache; **cache BW if it fits** — not nominal DRAM), compute ≥ its ISA/dtype
+  peak, overhead → 0. The roofline-% of the *total* latency is a diagnostic of which component dominates, not
+  the target — and the nominal roofline can be the **wrong ceiling** (cache-resident / dispatch-bound ops).
+- **A bound is a tested hypothesis, not a wall.** A measured bound prompts a **config sweep** (tiles / grain /
+  effective-threads, via `grain_size`/task-count — **never per-forward `set_num_threads`**, an affinity cliff):
+  it either *moves* the bound (ship the per-M optimum) or returns negative. "At ceiling" is valid **only after**
+  the sweep shows no move *and* the attribution-motivated knob — **precision** where it hits the dominant
+  component, or **authoring our own donor** inner loop when measurement localizes the bottleneck there — has
+  been measured (a win *or* a published loss). Closing on assertion is the anti-pattern.
+- **Lead with M=1, then sweep M=2–64.** M=1 has the highest overhead-to-work ratio, so it exposes the fixed-cost
+  pathologies (alloc, dispatch, per-call pack) most clearly, and **techniques carry** (overhead-killing, fusion,
+  access-pattern fixes generalize) while **code/config/ISA do not** (the BW ceiling cache→DRAM, the compute ISA
+  AVX↔AMX, and the per-M config are earned fresh — AVX-512 often beats AMX at M=1 where tiles underfill). Gate:
+  **best-case per M, bit-exact throughout, no regression at the throughput point M=B.**
 
 ---
 
