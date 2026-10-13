@@ -137,32 +137,37 @@ model-agnostic **performance-gap ledger** defined in the [methodology playbook](
 | kernel | % roof | gap is | why perf is lost (root cause) | opportunity (expected effect) | owning phase |
 |---|---:|---|---|---|---|
 | **indexer logits** | **24% nom / ~52% op** | **GEMM+dispatch-bound** (not DRAM) | measured (job 385397, M=32): KV read **35 µs (11%) @ ~483 GB/s** (≥ BW), brgemm **~100 µs (32%)**, convert/pack/alloc/dispatch **~62%** → **operative floor ≈ 110 µs** (brgemm + irreducible q-pack), *not* the 50.1 µs nominal DRAM roof | **DONE (Phase 1):** fused q-prep + adaptive tiling (TPT 4→1/2) = **1.46–1.99× bit-exact** (309→212 µs). Remaining: merge the 2 parallel regions; **bf16-KV** (now ~46 µs) | **Phase 1 done**; bf16-KV → **Phase 2** |
-| **indexer top-k** | 2% | **wrong ceiling** | selection is `O(S)` compares + thread dispatch, not bytes/FLOPs; a byte roofline cannot be approached | at regime ceiling (`nth_element` + chunked-parallel already fill cores); none material | **Closed** — regime ceiling (reopen only if E2E attribution flags it) |
+| **indexer top-k** | 2% | **wrong ceiling — confirmed by measurement** | measured (job 385511, M=32): `nth_element` selection **18 µs (46%)** + read/dispatch **21 µs**; **serial=521 µs → parallel 13×** ⇒ selection-*compute*-bound (not dispatch), a byte roofline cannot be approached | **core-fill tested (job 385516): `TOPK_CHUNKS` within-row chunking measured SLOWER at every M** (0.46–0.93× at k=512 — merge cost > core-fill; set-match preserved). Shipped row-parallel is optimal; small-k already takes the chunked path via the guard | **Closed — measured ceiling** (reopen only if real k≪S shifts it) |
 | **compressor** | 75% | **near ceiling (BW+exp)** | after the D1 hand-`exp`, residual = irreducible fp32 read traffic + the `exp` compute itself | small; bf16 **rejected** (non-conformant to fp32 ref + measured non-win) | **Closed** — at the DRAM+exp wall (revisit bf16 only if the reference dtype changes) |
-| **sparse attend** | 59% | **compute — bf16 lever tested & REJECTED** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX attempted in 3 configs (`amx`, `blockbf16`, `bf16bmm_hx`) — all measured SLOWER than the fp32 donor** (`bf16bmm_hx` 0.02–0.88× at M=1–64, EMR job 385343): the *score* bmm does win in bf16 (1.5–2× at M≥16) but the *value* bmm doesn't, and the fp32↔bf16 conversion casts + M=1 dispatch eat the gain. Tolerance-clean (cos 0.99999 normal) but **perf-losing** → fp32 donor at 59% roof is the practical ceiling | **Phase 1 — done (measured loss, published)**; residual untested idea = score-gemm-only bf16 hybrid; FP8 = stretch |
-| **MHC sinkhorn** | ~0% | **wrong ceiling** | 20-iter serial recurrence + dispatch over tiny L1-resident data; FLOP roofline is meaningless here | none meaningful (already fused, L1-resident) | **Closed** — regime ceiling |
-| **MHC combine** | 28% | **near ceiling (cache)** | working set is **cache-resident**, so the nominal DRAM roof under-counts; residual = small fixed dispatch | limited; bf16 possible but marginal (not read-BW-bound) | **Closed** — at the cache-resident ceiling |
+| **sparse attend** | 59% | **compute — all bf16 levers tested & REJECTED** | measured (job 385511, M=32): the two `at::bmm` GEMMs are **88%** of the op (score 48% + value 40%) at **66% of fp32 peak** (donor-limited); softmax 12% | **bf16 attempted in 4 configs — all measured SLOWER**: `amx`/`blockbf16`/`bf16bmm_hx` (job 385343) and now the **score-only hybrid `sparse_attend_scorehybrid` (job 385516): 0.91× at M=32, bf16-KV-provided *worse* (value needs an fp32 upcast), cos 1.0** — the score bmm wins in bf16 but the value bmm doesn't and the casts eat it. **fp32 donor at 59% is the confirmed ceiling**; a hand fp32 GEMM is unlikely to beat oneDNN (route around, publish); FP8 = stretch | **Phase 1 — done (measured loss, published)** |
+| **MHC sinkhorn** | ~0% | **wrong ceiling (dispatch/alloc) — recovered at low M** | measured (job 385511, M=32): the 20-iter recurrence is only **1.6 µs (6%)**; **94% is fixed dispatch + 3 output allocs** (flat vs M) — the FLOP roofline is meaningless | **RECOVERED (job 385516): adaptive serial dispatch — serial 1.15–2.09× faster at rows≤8** (parallel team spinup dominates the tiny 4×4 work), parallel wins rows≥16; **bit-exact**, shipped. Helps the B=1/low-batch decode floor | **Shipped (adaptive)**; M≥16 unchanged |
+| **MHC combine** | 28% | **wrong ceiling (operative BW) — confirmed** | measured (job 385511, M=32): the kernel reads at **84.6 GB/s ≈ the bare `torch.sum` proxy (85 GB/s)** — the 2 MB working set is size-limited so operative BW ≪ nominal 358, and the kernel already matches the memory system's delivery | none — no config beats a raw read (confirmed at the operative-BW ceiling); bf16 marginal (not read-BW-bound) | **Closed — measured ceiling** |
 
-**Reading it:** after measurement, **only one** kernel carries a recoverable gap with a named, still-open lever —
-**indexer logits** (memory traffic → **Phase 2**). **Sparse attend's** bf16-AMX lever was the obvious compute-side
-candidate, but it was **attempted in 3 configs and measured slower than the fp32 donor at every M** (job 385343) —
-a valid, published disposition, not a deferral; the fp32 path at 59% roof is the practical ceiling (one untested
-residual: a score-gemm-only bf16 hybrid). The remaining four kernels are at their **regime ceiling** (the roofline
-is either met or the wrong ceiling), so their low/again-high % is honest, not owed work. The one open recoverable
-row is mirrored into the actionable backlog: integration-class → the
+**Reading it:** every row is now a **measured** disposition, not an asserted one — a bound is a tested
+hypothesis, so each "ceiling" was probed with its named knob before closing (jobs 385511 attribution + 385516
+recovery). **indexer logits** keeps an open recoverable gap (memory traffic → **Phase 2**). **sparse attend's**
+bf16 lever was the obvious compute-side candidate; it was attempted in **four** configs and measured slower
+at every M — including the score-only hybrid (job 385516) — so the fp32 donor at 59% is the confirmed ceiling.
+**topk** and **combine** were likewise *confirmed* at ceiling by testing the knob (within-row chunking lost;
+the kernel already reads at the bare-`torch.sum` bandwidth). **sinkhorn** is the payoff of refusing to assume:
+the "recurrence-bound" label was wrong (recurrence is 6%, 94% is dispatch), and an adaptive serial dispatch
+**recovered a 1.15–2.09× bit-exact win at low batch** — which the "at-ceiling" label would have buried. The one
+open recoverable row is mirrored into the actionable backlog: integration-class → the
 [Phase-2 carry-forward levers](#phase-2-carry-forward-levers-integration-class-from-standalone-analysis) table.
 
 #### What didn't work, and why (rejected / negative-result optimizations)
 
 Negative results are **first-class** here: every attempted lever, its measured outcome, and the **root cause**,
 so the same dead end is not re-walked and no "we should try bf16" is re-proposed without the answer. (Full data:
-[standalone_opt.json](../plugin/validate/results/standalone_opt.json); sparse bf16: EMR job 385343.)
+[standalone_opt.json](../plugin/validate/results/standalone_opt.json); sparse bf16: EMR jobs 385343/385516.)
 
 | kernel | optimization tried | measured | why it lost (root cause) | kept as |
 |---|---|---|---|---|
 | sparse attend | bf16 `at::bmm` + materialized softmax (`amx`) | slower + non-conformant | the materialized 4-temp softmax swamps the bf16 GEMM gain | experimental |
 | sparse attend | 64-block brgemm flash (`blockbf16`) | **0.08–0.65×** (1.6–12.8× slower) | AMX pack `N≤64` cap → per-block transpose + 2 packs + 2 small brgemms ×`K/64` + rescale overwhelm 2 large MKL bmms | experimental, screened |
 | sparse attend | big bf16 bmms + fused softmax (`bf16bmm_hx`) | **0.02–0.88×** (slower at every M) | *score* bmm wins in bf16 but *value* bmm doesn't; fp32↔bf16 casts + M=1 dispatch eat the gain | experimental (job 385343) |
+| sparse attend | **score-only bf16 hybrid** (`scorehybrid`: bf16 score, fp32 value) | **0.91× M=32** (0.01–0.91×; bf16-KV *worse*) | the attribution-motivated residual — but the kv→bf16 cast for the score (and the fp32 upcast for the value when KV arrives bf16) exceed the ~114 µs score-GEMM saving; cos 1.0 | experimental (job 385516) |
+| indexer top-k | force within-row chunking (`TOPK_CHUNKS`, core-fill) | **0.46–0.93×** (slower every M) | at k=512 each chunk selects ~all; the candidate-merge cost exceeds the core-fill benefit (set-match preserved) | diagnostic (job 385516) |
 | compressor | ATen vectorized `exp` (`C2`) | **0.62–1.01×** (slower) | `Vectorized::exp` loses to scalar `std::exp` (blendv overhead; the vector polynomial is no win here) | experimental, screened |
 | compressor | two-pass stable pooling (`C3`) | ~1.0–1.14× (R128 large-M only) | doesn't decisively beat the **bit-exact** C1; marginal *and* not bit-exact | experimental, retain C1 |
 | compressor | bf16 `exp` (`D3`) | non-win (70.7 vs 61.9 µs, slower cold) | fp32 inputs still stream from DRAM, so bf16 rounding adds work without cutting the dominant read; also non-conformant | rejected |
@@ -498,9 +503,9 @@ exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parall
 | compressor | 328 | 284 | **64** | hand-exp Cephes **4.4×** | now DRAM-bound (75% roof) |
 | sparse_bestof † | 740 | 541 | **465** | hand-exp Cephes **1.18×** | GEMM-bound (oneDNN donor) |
 | indexer_logits † | 909 | 343 | **212** | fused q-prep + adaptive tiling **1.6×** | dispatch+L3-bound |
-| indexer_topk | 511 | 41 | 40 | none | selection-bound (at ceiling) |
-| sinkhorn | 616 | 25 | 26 | none | dispatch-bound (at ceiling) |
-| combine | 62 | 26 | 27 | none | cache-resident / BW (at ceiling) |
+| indexer_topk | 511 | 41 | 40 | none | selection-bound (measured ceiling) |
+| sinkhorn | 616 | 25 | 26 | adaptive serial (low-M) | dispatch-bound; recovered 1.15–2.09× at rows≤8 |
+| combine | 62 | 26 | 27 | none | operative-BW (measured ceiling) |
 
 † oneDNN GEMM donor. `shipped` is the pre-wave C/C++ variant (compressor scalar C1, sparse `bestof`, indexer
 256-bit build, single-run reference); `re-optimized` is the promoted variant (compressor `fp32intrin`, sparse

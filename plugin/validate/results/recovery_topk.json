@@ -1,0 +1,67 @@
+{
+ "kernel": "topk",
+ "head": "2e3eb4a10a",
+ "node": "pcl-sprh04.sc.intel.com",
+ "job": "385518",
+ "threads": 64,
+ "MS": [
+  1,
+  2,
+  4,
+  8,
+  16,
+  32,
+  64
+ ],
+ "rows": [
+  {
+   "M": 1,
+   "t_shipped": 13.628043234348297,
+   "t_chunked": 29.316172003746033,
+   "speedup": 0.46486434970455554,
+   "setmatch": true
+  },
+  {
+   "M": 2,
+   "t_shipped": 34.18605774641037,
+   "t_chunked": 47.276727855205536,
+   "speedup": 0.7231054114217048,
+   "setmatch": true
+  },
+  {
+   "M": 4,
+   "t_shipped": 39.762817323207855,
+   "t_chunked": 54.96479570865631,
+   "speedup": 0.7234233623640245,
+   "setmatch": true
+  },
+  {
+   "M": 8,
+   "t_shipped": 39.070844650268555,
+   "t_chunked": 55.409036576747894,
+   "speedup": 0.7051348852844777,
+   "setmatch": true
+  },
+  {
+   "M": 16,
+   "t_shipped": 41.369348764419556,
+   "t_chunked": 60.52013486623764,
+   "speedup": 0.6835633935029162,
+   "setmatch": true
+  },
+  {
+   "M": 32,
+   "t_shipped": 38.973987102508545,
+   "t_chunked": 67.208893597126,
+   "speedup": 0.5798933000762142,
+   "setmatch": true
+  },
+  {
+   "M": 64,
+   "t_shipped": 39.61008042097092,
+   "t_chunked": 42.76074469089508,
+   "speedup": 0.9263187698741124,
+   "setmatch": true
+  }
+ ]
+}
