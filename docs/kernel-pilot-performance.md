@@ -24,7 +24,7 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 
 ## 1. Per-kernel at the operating point (M=32, S=1024, streaming): roofline vs baseline vs C/C++
 
-![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v2.png)
+![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v3.png)
 
 | kernel | implementation | baseline (torch) µs | C/C++ µs | **speedup** | roofline floor µs | % of roofline |
 |---|---|---:|---:|---:|---:|---:|
@@ -45,7 +45,7 @@ by more kernel work.
 
 ## 2. % of nominal roofline across the M-sweep (1→64): arithmetic intensity (streaming)
 
-![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v2.png)
+![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v3.png)
 
 | kernel | M=1 | M=8 | M=16 | M=32 | M=64 |
 |---|---:|---:|---:|---:|---:|

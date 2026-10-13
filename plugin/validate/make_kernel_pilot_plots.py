@@ -197,7 +197,7 @@ def main():
     opts = [cvt[k]["M"]["32"]["cpp_stream_us"] for k in order]
     grouped_bars(os.path.join(a.out_dir, "operating_point.svg"),
                  "Per-kernel at the operating point (M=32, S=1024), STREAMING: roofline vs baseline vs C/C++",
-                 "latency us, log, cold/streaming (LLC-flushed). baseline = torch op the kernel replaces; \u2020 = oneDNN/MKL GEMM donor. Promoted variants, 512-bit flags. EMR job 385059.",
+                 "latency us, log, cold/streaming (LLC-flushed). baseline = torch op the kernel replaces; \u2020 = oneDNN/MKL GEMM donor. Promoted variants, 512-bit flags. EMR jobs 385065-67 (3-rep median).",
                  labels, [("roofline floor", floors, "#2ca02c"), ("baseline (torch)", bases, "#d62728"), ("optimized (C/C++)", opts, "#1f77b4")],
                  "latency us (log)", (min(floors) * 0.5, max(bases) * 1.6), logy=True, fmt="{:.2f}")
 
@@ -208,7 +208,7 @@ def main():
         series.append((KC[k][3] + ("\u2020" if KC[k][4] else ""), ys, PAL[i % len(PAL)]))
     line_chart(os.path.join(a.out_dir, "roofline_msweep.svg"),
                "% of nominal roofline vs M  (streaming; arithmetic intensity rises with M)",
-               "floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak (NOT an achievable ceiling); streaming latency. \u2020 = oneDNN donor. EMR job 385059.",
+               "floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak (NOT an achievable ceiling); streaming latency. \u2020 = oneDNN donor. EMR jobs 385065-67 (3-rep median).",
                series, "% of nominal roofline", 100.0)
 
     # operating-point table for the page
