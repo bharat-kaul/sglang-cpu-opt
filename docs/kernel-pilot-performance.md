@@ -28,7 +28,7 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 
 | kernel | implementation | baseline (torch) µs | C/C++ µs | **speedup** | roofline floor µs | % of roofline |
 |---|---|---:|---:|---:|---:|---:|
-| indexer logits † | oneDNN BRGEMM + authored epilogue (fused q-prep, adaptive tiling) | 909 | 212 | **4.3×** | 50.1 | 24% |
+| indexer logits † | oneDNN BRGEMM + authored epilogue (fused q-prep, adaptive tiling) | 909 | 212 | **4.3×** | 50.1 ‡ | 24% ‡ |
 | indexer top-k | pure-authored (`nth_element` selection) | 511 | 40 | **12.8×** | 0.73 | 2% |
 | compressor | pure-authored (hand-inlined Cephes `exp`) | 328 | 64 | **5.2×** | 47.7 | 75% |
 | sparse attend † | oneDNN `at::bmm` + hand-`exp` softmax/sink | 740 | 465 | **1.6×** | 275.9 | 59% |
@@ -42,6 +42,14 @@ collapses), and **compressor 5.3×** (a hand-inlined AVX-512 `exp` replaced a pe
 optimization, **compressor is DRAM-bandwidth-bound (75% of the BW roof)** and **sparse is compute-bound (59%
 of the FP32 roof)** — both near their real hardware ceiling, so their speedups are bounded by the machine, not
 by more kernel work.
+
+**‡ `indexer logits` — the nominal 50.1 µs floor is the *wrong ceiling*.** The byte roofline assumes the op
+streams KV from DRAM, but attribution (job 385397, M=32) shows it is **GEMM/dispatch-bound, not DRAM-bound**:
+the KV read is only **35 µs (11%) and already runs at ~483 GB/s** (≥ nominal BW, L3-assisted), while the
+**brgemm is ~100 µs (32%)** — a small-GEMM regime far below AMX peak. The **operative floor is ≈ 110 µs**
+(irreducible brgemm ~100 µs + one q convert/pack + a parallel-region barrier), so the measured **212 µs is
+~52% of the achievable ceiling**, not 24%. The nominal 50.1 µs is kept in the tables only as the uniform
+cross-kernel byte/FLOP contract.
 
 ## 2. % of nominal roofline across the M-sweep (1→64): arithmetic intensity (streaming)
 
@@ -59,7 +67,10 @@ by more kernel work.
 As the decode batch M grows, arithmetic intensity rises and the BW/compute-bound kernels climb toward their
 roofline (streaming, at M=64): **compressor → 94%**, **sparse → 66%**, **combine → 53%**, **indexer logits →
 31%**. `indexer top-k` (~4%) and `sinkhorn` (~0%) stay low because they are **selection/dispatch-bound** — a
-byte-or-FLOP roofline is the wrong ceiling for them, so the low % is a diagnostic, not a recoverable gap. This
+byte-or-FLOP roofline is the wrong ceiling for them, so the low % is a diagnostic, not a recoverable gap.
+**`indexer logits` is the same story**: it is GEMM/dispatch-bound, so its true (operative) floor is ≈ 110 µs —
+the 24–31% here is against the *nominal DRAM* roof (the wrong ceiling); against the operative floor it is
+already **~52% at M=32** (see §1 ‡ and §3.1). This
 is the "how close to the metal, and does more work help?" view.
 
 > **How to read "% of roof" here — it is a *per-M* roofline, not one fixed peak held across the sweep.**
@@ -79,11 +90,14 @@ For each of the six kernels: **(a)** the roofline floor (byte/FLOP contract vs n
 noted), **(b)** the baseline torch op it replaces and why it is slow, and **(c)** the authored C/C++ and the
 optimizations. All numbers are M=32, S=1024, **streaming**, from
 [operating_point.json](../plugin/validate/results/operating_point.json) (3-replicate median jobs 385457–59, promoted variants + 512-bit
-flags); floor = `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achievable ceiling).
+flags); floor = `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achievable ceiling). For **indexer
+logits** the nominal floor is the *wrong ceiling* — it is GEMM/dispatch-bound (KV read only 11%), so its
+**operative floor is ≈ 110 µs** (measured brgemm ~100 µs + irreducible q-pack) and 212 µs ≈ **52% of achievable**,
+not the 24% shown (‡).
 
 | kernel | bound | floor µs | C/C++ µs | % roof | baseline µs | speedup |
 |---|---|---:|---:|---:|---:|---:|
-| 3.1 indexer logits † | BW/dispatch (AMX) | 50.1 | 212 | 24% | 909 | 4.3× |
+| 3.1 indexer logits † | GEMM/dispatch | 50.1 ‡ | 212 | 24% ‡ | 909 | 4.3× |
 | 3.2 indexer top-k | selection | 0.73 | 40 | 2% | 511 | 12.8× |
 | 3.3 compressor | BW (FP32) | 47.7 | 64 | 75% | 328 | 5.2× |
 | 3.4 sparse attend † | **compute** (FP32) | 275.9 | 465 | 59% | 740 | 1.6× |
@@ -122,7 +136,7 @@ model-agnostic **performance-gap ledger** defined in the [methodology playbook](
 
 | kernel | % roof | gap is | why perf is lost (root cause) | opportunity (expected effect) | owning phase |
 |---|---:|---|---|---|---|
-| **indexer logits** | 24% | **dispatch+L3-bound** (not BW) | measured: KV read ~15% @ ~483 GB/s (at BW), `cpublas::pack` ~2%, brgemm ~13% — the dominant ~62% was per-call convert/pack/alloc/dispatch; a ~170 µs *fixed* cost from the ~256-tile adaptive tiling | **DONE (Phase 1):** fused q-prep + adaptive tiling (TPT 4→1/2) = **1.46–1.99× bit-exact** (309→212 µs). Remaining: merge the 2 parallel regions; **bf16-KV** (now ~46 µs) | **Phase 1 done**; bf16-KV → **Phase 2** |
+| **indexer logits** | **24% nom / ~52% op** | **GEMM+dispatch-bound** (not DRAM) | measured (job 385397, M=32): KV read **35 µs (11%) @ ~483 GB/s** (≥ BW), brgemm **~100 µs (32%)**, convert/pack/alloc/dispatch **~62%** → **operative floor ≈ 110 µs** (brgemm + irreducible q-pack), *not* the 50.1 µs nominal DRAM roof | **DONE (Phase 1):** fused q-prep + adaptive tiling (TPT 4→1/2) = **1.46–1.99× bit-exact** (309→212 µs). Remaining: merge the 2 parallel regions; **bf16-KV** (now ~46 µs) | **Phase 1 done**; bf16-KV → **Phase 2** |
 | **indexer top-k** | 2% | **wrong ceiling** | selection is `O(S)` compares + thread dispatch, not bytes/FLOPs; a byte roofline cannot be approached | at regime ceiling (`nth_element` + chunked-parallel already fill cores); none material | **Closed** — regime ceiling (reopen only if E2E attribution flags it) |
 | **compressor** | 75% | **near ceiling (BW+exp)** | after the D1 hand-`exp`, residual = irreducible fp32 read traffic + the `exp` compute itself | small; bf16 **rejected** (non-conformant to fp32 ref + measured non-win) | **Closed** — at the DRAM+exp wall (revisit bf16 only if the reference dtype changes) |
 | **sparse attend** | 59% | **compute — bf16 lever tested & REJECTED** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX attempted in 3 configs (`amx`, `blockbf16`, `bf16bmm_hx`) — all measured SLOWER than the fp32 donor** (`bf16bmm_hx` 0.02–0.88× at M=1–64, EMR job 385343): the *score* bmm does win in bf16 (1.5–2× at M≥16) but the *value* bmm doesn't, and the fp32↔bf16 conversion casts + M=1 dispatch eat the gain. Tolerance-clean (cos 0.99999 normal) but **perf-losing** → fp32 donor at 59% roof is the practical ceiling | **Phase 1 — done (measured loss, published)**; residual untested idea = score-gemm-only bf16 hybrid; FP8 = stretch |
@@ -167,9 +181,15 @@ exactly the case where the kernel **already rounds the operand**, so bf16 is fre
 `logits[n,s] = Σ_h relu( q[n,h,:] · kv[n,s,:] ) · weight[n,h]` — a `[H,D]×[D,S]` score GEMM per request
 (H=64, D=128, S=1024) followed by a relu·weight·sum reduction over the H heads. **† oneDNN donor.**
 
-**Roofline (M=32).** FLOPs = `2·M·H·S·D + 3·M·H·S` = 2·32·64·1024·128 + … ≈ **543 MFLOP**;
-bytes = q`[M,H,D]` + kv`[M,S,D]` + weight + logits = 1.05 + 16.78 + … ≈ **17.97 MB** (the kv read dominates).
-AI ≈ 30 FLOP/byte ≪ AMX ridge 347 → **BW-bound**. Floor = max(17.97 MB/358.4 GB/s = **50.1 µs**, 543 MFLOP/124.5 TF = 4.4 µs) = **50.1 µs**. C/C++ **212 µs = 24%** (streaming), after the fused q-prep + adaptive tiling (below); but the op is **dispatch+L3-bound**, not BW-bound (the working set fits L3), so 24% of the *DRAM* roof is the wrong frame.
+**Roofline (M=32).** FLOPs = `2·M·H·S·D + 3·M·H·S` ≈ **543 MFLOP**; bytes = q`[M,H,D]` + kv`[M,S,D]` +
+weight + logits = 1.05 + 16.78 + … ≈ **17.97 MB** (kv-dominated). The *nominal* roofline is
+`max(17.97 MB/358.4 GB/s = **50.1 µs**, 543 MFLOP/124.5 TF = 4.4 µs) = **50.1 µs** — **but that is the wrong
+ceiling.** Attribution (job 385397, M=32) shows the op is **not DRAM-bound**: the KV read is only **35 µs (11%)
+at ~483 GB/s** (≥ nominal BW, L3-assisted), whereas the **brgemm itself is ~100 µs (32%)** — a small-GEMM/
+dispatch regime, far below AMX peak, not a byte stream. The **operative floor is therefore ≈ 110 µs**
+(irreducible brgemm ~100 µs + one q convert/pack + a parallel-region barrier), *not* 50 µs. Measured
+**212 µs ≈ 52% of that operative ceiling** (and only 24% of the misleading nominal DRAM roof, which the summary
+tables keep solely as the uniform cross-kernel contract).
 
 **Baseline (torch)** — [bench_replicated.py `_idx_ref`](../plugin/validate/bench_replicated.py#L53):
 ```python
@@ -188,9 +208,10 @@ another full `[N,H,S]` pass — the `[N,H,S]` scores round-trip to memory ~3–4
    still filling cores at small N; a dedicated M=1 path does one GEMM over all S to avoid tiny-tile dispatch.
 4. **bf16-faithful stage rounding** in the epilogue matches the published model's bf16 boundaries bit-for-bit.
 
-**Net:** the GEMM is the donor's; the authored win is the **in-cache fused epilogue** (no score round-trip),
-and building with the 512-bit flags lifted it **343 → 293 µs** streaming. Still 17% of the nominal BW roof —
-useful byte-throughput is below reference BW, so ROI is **open**, not a wall.
+**Net:** the GEMM is the donor's; the authored wins are the **in-cache fused epilogue** (no score round-trip),
+the 512-bit build (**343 → 293 µs**), and the **fused q-prep + adaptive tiling** (**293 → 212 µs**). At 212 µs
+the op sits at **~52% of its ≈110 µs operative (GEMM+dispatch) floor**; the residual gap is reducible overhead
+(merge the two parallel regions, further pack fusion), so ROI is **open**, not a wall.
 
 **Attribution redirected the lever, then a fused q-prep paid off (jobs 385397/385402).** Before authoring, we
 *attributed* the 309 µs (Stage 1.5): the **KV DRAM read is only ~11% and already runs at ~483 GB/s (≥ nominal
@@ -211,8 +232,9 @@ inline-pack rewrite). The fixed cost is the **tiling structure**: the adaptive t
 scratch alloc + a `brgemm` call). A tile-count sweep (bit-exact across tile counts) confirmed it — cutting
 tiles 512→64 drops time ~2× monotonically — so the tiler now targets **1 tile/thread for M<64** (2× at M=64,
 where 1×'s tiles overflow L2): **bit-exact**, and strictly best-case per M. **Cumulative vs the original:
-M=32 ≈312 → ≈207 µs (1.51×), M=8 ≈285 → ≈143 µs (1.99×).** The honest ceiling here is **dispatch + L3**, not the
-50 µs DRAM floor (the working set is L3-resident), so "% of the BW roof" is the wrong frame for this op.
+M=32 ≈312 → ≈207 µs (1.51×), M=8 ≈285 → ≈143 µs (1.99×).** The honest ceiling here is the **operative floor
+≈ 110 µs** (dispatch + L3 + the ~100 µs `brgemm`), not the 50 µs DRAM floor (the working set is L3-resident),
+so "% of the BW roof" is the wrong frame for this op.
 
 **The regime shifts as you optimize (jobs 385422/385427).** With the dispatch floor stripped, the KV read/
 convert becomes a *larger* share: `bf16-KV` would save ~15 µs at the old tiling but **~46 µs at the new** — i.e.
