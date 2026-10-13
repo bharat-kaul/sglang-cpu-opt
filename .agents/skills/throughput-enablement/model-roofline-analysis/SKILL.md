@@ -94,3 +94,10 @@ has ranked it above the ROI threshold AND `model-profile-hotspots` has confirmed
 with a measured profile, and the user has seen the ranked plan. The analytical model
 tier picks the targets; the empirical tier measures them; the kernel tier
 (`kernel-feasibility-gate`) confirms each survivor with a microbench.
+
+**The analytical bound is a hypothesis, not a verdict.** A computed roofline (model- or kernel-level) is a
+*prediction* of the ceiling; the measured-vs-predicted gap ("integration efficiency") is only trustworthy once
+the empirical tier tests it. Never declare an op "at ceiling" from the analytical number alone — a config sweep
+(tiles / grain / effective-threads) must show the bound does not move, and the nominal roofline must be the
+*operative* ceiling for that op's regime (not a byte/FLOP roof over a dispatch/selection/cache-resident op).
+See `roofline-validation` ("a low % is a tested hypothesis") and `runtime-config-tuning`.

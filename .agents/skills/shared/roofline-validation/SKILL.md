@@ -41,6 +41,25 @@ achievable while DRAM tops out at ~75% of peak.
 - `efficiency > 1.0` → **INVALID CEILING**: the achievable measurement or the
   frequency is wrong; re-run the microkernel before reporting anything.
 
+## A low % is a tested hypothesis, not a verdict (a bound is not a wall)
+A sub-ceiling efficiency is **not** automatically a failure *or* a wall — it is a hypothesis to test before
+you either keep optimizing or declare "at ceiling":
+1. **Wrong ceiling first (operative, not nominal).** If the op is selection / dispatch / recurrence /
+   cache-resident / small-GEMM, the byte-or-FLOP roofline is **not** the operative bound. Compute the
+   **operative floor** (what is achievable given the op's regime) and report % of *that*. An op reading at the
+   bare `memcpy`/`sum` bandwidth, or a small-batch GEMM at the library-microkernel floor, is **at its real
+   ceiling** even at a low % of the nominal roof — the low % is a diagnostic, not owed work. Decompose per
+   component (data-movement ≥75% of **operative** BW, compute ≥ ISA/dtype peak, overhead→0); the roofline-% of
+   the *total* just names the dominant component.
+2. **Config sweep before "at ceiling."** A measured bound prompts a **sweep** over tiles / grain /
+   effective-threads (via `grain_size`/task-count — **never per-forward `set_num_threads`**, an affinity
+   cliff). If the % rises, the bound was *config* (fix it; ship the per-M optimum). If the sweep moves nothing,
+   it is *fundamental* — only now is "at ceiling" earned.
+3. **Knob before closing.** Where compute dominates, test the **precision** lever (bf16/fp8 — may win *or*
+   lose; publish either); where measurement localizes the bottleneck **inside the donor's inner loop**,
+   consider **authoring your own contraction**. Closing on assertion is the anti-pattern; a measured loss is a
+   first-class, published disposition.
+
 ## Anti-pitfalls
 - Never use max turbo for the compute ceiling; AMX throttles the all-core clock.
 - Confirm the intended ISA actually ran (e.g. `ONEDNN_VERBOSE=1` showing
