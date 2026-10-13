@@ -84,7 +84,13 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   // IDENTICAL to what this kernel consumes while HALVING the dominant kv read. If kv arrives bf16, read
   // it directly (no fp32 round-trip, no per-tile convert); else keep fp32 and convert per-tile in-cache.
   const bool kv_bf16 = (kv.scalar_type() == torch::kBFloat16);
-  auto qb = q.to(torch::kBFloat16).contiguous();
+  // Fused q-prep (default ON): read fp32 q directly and convert+transpose into a REUSED thread-local bf16
+  // buffer during pack -> removes the full qb=q.to(bf16) tensor AND the per-n transpose().contiguous() alloc.
+  // Attribution (job 385397): convert/pack/alloc/dispatch was ~62% of the op; the KV read is only ~11% and
+  // already at BW. BIT-EXACT to legacy (identical bf16(q) values). INDEXER_NO_FUSED_QPACK restores legacy (A/B).
+  const bool fused_qpack = std::getenv("INDEXER_NO_FUSED_QPACK") == nullptr;
+  auto qb = fused_qpack ? torch::Tensor() : q.to(torch::kBFloat16).contiguous();
+  auto qf = fused_qpack ? q.to(torch::kFloat32).contiguous() : torch::Tensor();
   auto kvf = kv_bf16 ? torch::Tensor() : kv.to(torch::kFloat32).contiguous();
   auto kvb = kv_bf16 ? kv.contiguous() : torch::Tensor();
   auto wf = weight.to(torch::kFloat32).contiguous();
@@ -101,15 +107,27 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
 
   // Pack B = q[n]^T [D,H] (VNNI) once per n; reused by every S-tile of that n.
   auto qpack = torch::empty({N, D * H}, torch::kBFloat16);
+  const float* qfp = fused_qpack ? qf.data_ptr<float>() : nullptr;
   at::parallel_for(0, N, 0, [&](int64_t n0, int64_t n1) {   // parallel over n (serial pack was a large-M bottleneck)
+    std::vector<at::BFloat16> qTbuf(fused_qpack ? (size_t)(D * H) : 0);   // reused thread-local [D,H] bf16
     for (int64_t n = n0; n < n1; ++n) {
-      auto qT = qb[n].transpose(0, 1).contiguous();   // [D,H]
+      const at::BFloat16* qTsrc;
+      torch::Tensor qTleg;                                   // keeps the legacy tensor alive through pack
+      if (fused_qpack) {
+        const float* qn = qfp + n * H * D;                   // q[n] [H,D] fp32 -> transpose+bf16-convert fused
+        for (int64_t h = 0; h < H; ++h)
+          for (int64_t d = 0; d < D; ++d)
+            qTbuf[d * H + h] = static_cast<at::BFloat16>(qn[h * D + d]);
+        qTsrc = qTbuf.data();
+      } else {
+        qTleg = qb[n].transpose(0, 1).contiguous();          // [D,H]
+        qTsrc = qTleg.data_ptr<at::BFloat16>();
+      }
       if (vnni) {
         at::native::cpublas::pack(D, H, H, H, torch::kBFloat16, torch::kBFloat16,
-                                  qT.data_ptr<at::BFloat16>(), qpack[n].data_ptr<at::BFloat16>());
+                                  qTsrc, qpack[n].data_ptr<at::BFloat16>());
       } else {
-        std::memcpy(qpack[n].data_ptr<at::BFloat16>(), qT.data_ptr<at::BFloat16>(),
-                    D * H * sizeof(at::BFloat16));
+        std::memcpy(qpack[n].data_ptr<at::BFloat16>(), qTsrc, D * H * sizeof(at::BFloat16));
       }
     }
   });
