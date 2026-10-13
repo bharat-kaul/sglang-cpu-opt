@@ -194,10 +194,16 @@ torch fallback at *every* M (faster or at worst a tie; else dispatch to the libr
 `f4_acceptance` (output contract, finiteness, run-to-run **determinism**, selection `tie_eps=0`, screened
 continuous vs a source-conformed oracle). Then publish the per-kernel record on the
 [standalone-kernel performance page](kernel-pilot-performance.md): roofline floor + baseline + optimization +
-analysis, streaming headline latency, the lever(s) applied, and the honest regime verdict.
+analysis, streaming headline latency, the lever(s) applied, and the honest regime verdict. **Emit one
+[performance-gap ledger](methodology-playbook.md#4-per-kernel-performance-gap-ledger-model-agnostic) row per
+kernel** — classify the roofline-vs-measured gap (RECOVERABLE / WRONG-CEILING / AT-CEILING), attribute the
+root cause, state the opportunity + expected effect, and assign the **owning phase** (kernel-authoring here,
+or hand off to the Phase-2 integration backlog / Phase-3 accuracy ratification). A kernel is not "done" until
+its gap is classified and any recoverable gap is mirrored to its owning queue.
 
 **Gate:** no-regression floor holds; F4 hard gates pass; the published page exists (a chart alone is not the
-deliverable — the roofline+pivot report pair + this page are).
+deliverable — the roofline+pivot report pair + this page are); **every kernel has a gap-ledger row with an
+owning phase** (no un-triaged gap).
 
 ---
 

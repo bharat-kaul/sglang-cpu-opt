@@ -190,3 +190,45 @@ flowchart LR
 DONOR-FIRST (never re-implement a library primitive); MEASURE don't assume (regime, ULP, streaming number,
 ISA via `objdump`); and `adversarial-self-audit` before submitting any gate/record/review-response — fix the
 vulnerability **class**, not the shown instance.
+
+---
+
+## 4. Per-kernel performance-gap ledger (model-agnostic)
+
+The standing mechanism that turns "roofline vs measured" into a tracked to-do list for **any** model. Every
+standalone kernel gets **one row**; a kernel is not "done" until its gap is *classified* and, if recoverable,
+*assigned an owning phase*. It is populated at **Phase-1 exit**, carried through Phase 2/3, and **published on
+the standalone-kernel page** so the gap analysis ships alongside the speedup — not just the win.
+
+**Ledger row (one per kernel):**
+
+| field | meaning |
+|---|---|
+| roofline floor | analytic `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achievable ceiling) |
+| measured | promoted-variant **streaming** latency (LLC-flushed), 3-replicate median |
+| % roof | floor / measured — the honest ceiling check |
+| regime / bound | BW · compute · cache-resident · selection · dispatch · recurrence |
+| **gap class** | **RECOVERABLE** (roofline *is* the operative bound and measured is below it) · **WRONG-CEILING** (selection/dispatch/recurrence — a byte/FLOP roofline is not the bound; low % is diagnostic, not owed) · **AT-CEILING** (meets the roof, or cache-resident so the nominal roof under-counts) |
+| root cause | *why* perf is lost — attributed, not guessed (which bytes, which overhead, which serial dependency) |
+| opportunity | the concrete lever + **expected effect** (e.g. "bf16-KV halves the dominant read → floor 50→25 µs, ~1.5×") |
+| **owning phase** | where the fix is realized (see mapping below) |
+| status | open · in-flight · closed · owed-to-Phase-2 |
+
+**Owning-phase mapping** (every RECOVERABLE gap gets exactly one):
+
+- **Phase 1 — kernel authoring:** the lever lives *inside the kernel* — compute dtype (bf16/AMX), fusion,
+  vectorization, transcendental, tiling. *(e.g. sparse-attend bf16-AMX GEMM.)*
+- **Phase 2 — E2E integration:** the lever is realized only in the **serving path** — memory-traffic / cache
+  dtype / data layout / batching. The kernel may already support it; the caller must supply it. These are
+  **mirrored into the Phase-2 carry-forward lever backlog** (default-OFF, env-gated, dummy-weight
+  fingerprint-invariant). *(e.g. bf16 KV cache, amortized across every KV-reading op.)*
+- **Phase 3 — accuracy:** a numerically non-identical candidate (a tolerance-gated bf16/fp8 path) that is
+  **ratified** by the task-accuracy gate before promotion. *(e.g. the sparse bf16 candidate.)*
+- **Closed — regime ceiling:** WRONG-CEILING or AT-CEILING kernels — no owed work; the low/high % is honest.
+
+**Rules.** (1) No kernel ships without a ledger row. (2) Never label a gap RECOVERABLE without **attribution**
+(stage timers / isolation microbench) separating achievable-BW shortfall from fixed convert/pack/dispatch
+overhead — the roofline % alone does not prove recoverability. (3) WRONG-CEILING is a first-class, legitimate
+disposition: a selection/dispatch/recurrence op at 2% of a byte roofline is *at ceiling*, not failing. (4) Each
+RECOVERABLE row is mirrored to its owning queue (Phase-2 backlog or the standalone author queue) so it is not
+rediscovered later. (5) The ledger is the per-kernel source of truth published on the standalone-kernel page.

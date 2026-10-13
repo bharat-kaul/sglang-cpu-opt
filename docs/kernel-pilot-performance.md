@@ -105,7 +105,32 @@ compute already rounds the operand (indexer bf16-KV), and a measured non-win whe
 or the reference is fp32 (compressor bf16). The roofline column is the honest ceiling check: after fusion +
 the hand-`exp`, compressor is at the **DRAM** wall and sparse at the **compute** wall — no lever left.
 
+### Roofline-vs-measured gap: why, opportunity, and owning phase (per kernel)
+
+The systematic view the summary table implies: for **every** kernel, the root cause of the gap between the
+nominal roofline and measured, the concrete opportunity (and expected effect), and **which playbook phase owns
+the fix**. "Wrong ceiling" = the byte/FLOP roofline is not the operative bound (selection / dispatch /
+recurrence), so the low % is diagnostic, **not** a recoverable gap. This is the per-kernel instance of the
+model-agnostic **performance-gap ledger** defined in the [methodology playbook](methodology-playbook.md#4-per-kernel-performance-gap-ledger-model-agnostic).
+
+| kernel | % roof | gap is | why perf is lost (root cause) | opportunity (expected effect) | owning phase |
+|---|---:|---|---|---|---|
+| **indexer logits** | 16% | **recoverable (BW)** | the GEMM is only ~4.4 µs of 309 µs; the gap is `kv`-read traffic (16.8 of 18 MB) + fp32→bf16 convert/pack + small-M dispatch — **not** the contraction | **bf16 KV cache** halves the dominant read (floor 50→~25 µs, ~1.5×, amortizes across all KV ops); then a fused single-pass streaming kernel **if** attribution shows achievable-BW, not fixed overhead | **Phase 2 (E2E integration)** for bf16-KV; **Phase 1 attribution** (`INDEXER_BREAKDOWN`) first |
+| **indexer top-k** | 2% | **wrong ceiling** | selection is `O(S)` compares + thread dispatch, not bytes/FLOPs; a byte roofline cannot be approached | at regime ceiling (`nth_element` + chunked-parallel already fill cores); none material | **Closed** — regime ceiling (reopen only if E2E attribution flags it) |
+| **compressor** | 79% | **near ceiling (BW+exp)** | after the D1 hand-`exp`, residual = irreducible fp32 read traffic + the `exp` compute itself | small; bf16 **rejected** (non-conformant to fp32 ref + measured non-win) | **Closed** — at the DRAM+exp wall (revisit bf16 only if the reference dtype changes) |
+| **sparse attend** | 60% | **recoverable (compute)** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX GEMM** (124.5 TF, ~16× compute peak) → compute floor 276→~17 µs, op flips BW-bound (~2.6–4×). *Active experiment* `sparse_attend_bf16bmm_hx` (big bf16 bmms + fused fp32 softmax) | **Phase 1 (kernel authoring)** to author + tolerance-gate → **Phase 3 (accuracy)** to ratify the candidate; FP8 = later stretch |
+| **MHC sinkhorn** | ~0% | **wrong ceiling** | 20-iter serial recurrence + dispatch over tiny L1-resident data; FLOP roofline is meaningless here | none meaningful (already fused, L1-resident) | **Closed** — regime ceiling |
+| **MHC combine** | 28% | **near ceiling (cache)** | working set is **cache-resident**, so the nominal DRAM roof under-counts; residual = small fixed dispatch | limited; bf16 possible but marginal (not read-BW-bound) | **Closed** — at the cache-resident ceiling |
+
+**Reading it:** only **two** kernels carry a recoverable gap with a named lever — **indexer logits** (memory
+traffic → **Phase 2**) and **sparse attend** (compute precision → **Phase 1/3**). The other four are at their
+**regime ceiling** (the roofline is either met or the wrong ceiling), so their low/again-high % is honest, not
+owed work. Each recoverable row is mirrored into the actionable backlog: integration-class → the
+[Phase-2 carry-forward levers](#phase-2-carry-forward-levers-integration-class-from-standalone-analysis) table;
+kernel-authoring → the standalone phase (the sparse bf16 experiment is in flight).
+
 ---
+
 
 ### 3.1 Indexer logits † (oneDNN donor + fused epilogue)
 
