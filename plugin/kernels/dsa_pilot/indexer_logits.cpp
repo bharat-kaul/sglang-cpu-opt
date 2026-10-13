@@ -224,7 +224,9 @@ torch::Tensor indexer_logits_m1(torch::Tensor q, torch::Tensor kv, torch::Tensor
   at::native::cpublas::brgemm_release(vnni);
   const float* w = wf.data_ptr<float>();
   float* lp = logits.data_ptr<float>();
-  at::parallel_for(0, S, 0, [&](int64_t s0, int64_t s1) {        // parallel epilogue over S
+  const char* _g1 = std::getenv("INDEXER_M1_GRAIN");            // diagnostic: epilogue grain (0=auto; >=S=serial)
+  const int64_t m1grain = _g1 ? std::max<int64_t>(0, atol(_g1)) : 0;
+  at::parallel_for(0, S, m1grain, [&](int64_t s0, int64_t s1) {  // parallel epilogue over S (grain = eff. threads)
     for (int64_t s = s0; s < s1; ++s) {
       const float* row = C.data() + s * H;
       float acc = 0.f;                                          // bf16 stage boundaries (model.py L420-421)
