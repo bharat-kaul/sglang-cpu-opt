@@ -78,6 +78,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   if (N == 0) return torch::empty({0, S}, torch::kFloat32);   // empty batch -> [0,S] (avoid /N below)
   const bool _brk = std::getenv("INDEXER_BREAKDOWN") != nullptr;   // env-gated stage timers (diagnostic)
   const bool _skipepi = std::getenv("INDEXER_SKIP_EPILOGUE") != nullptr;   // diagnostic ablation: GEMM+read only
+  const bool _skipgemm = std::getenv("INDEXER_SKIP_GEMM") != nullptr;   // diagnostic ablation: convert+pack+read only
   auto _now = [] { return std::chrono::high_resolution_clock::now(); };
   auto _t0 = _now();
   // BW lever (free): the brgemm already rounds kv->bf16 to compute, so a bf16 KV cache is numerically
@@ -96,7 +97,7 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
   auto wf = weight.to(torch::kFloat32).contiguous();
   auto logits = torch::empty({N, S}, torch::kFloat32);
   auto _t1 = _now();
-  const bool vnni = at::native::cpublas::could_pack(torch::kBFloat16);
+  const bool vnni = (std::getenv("INDEXER_NO_PACK") == nullptr) && at::native::cpublas::could_pack(torch::kBFloat16);   // NO_PACK = diagnostic: force unpacked brgemm
   // Adaptive tile: target ~4*threads tasks so each brgemm M is large (AMX-efficient) yet enough
   // parallelism remains at small N. Sb multiple of 16, clamped [16,256] (Cbuf <= 64KB, L1/L2).
   const int64_t nthr = at::get_num_threads();
@@ -158,9 +159,13 @@ torch::Tensor indexer_logits_tiled(torch::Tensor q, torch::Tensor kv, torch::Ten
         A = Ab;
       }
       const at::BFloat16* B = qpack[n].data_ptr<at::BFloat16>();          // packed [D,H]
+      float* lp = logits[n].data_ptr<float>() + s0;
+      if (_skipgemm) {                                                        // diagnostic: isolate convert+pack+KV-read
+        for (int64_t r = 0; r < sb; ++r) lp[r] = static_cast<float>(A[r * D]);
+        continue;
+      }
       at::native::cpublas::brgemm(sb, H, D, D, H, H, /*add_C=*/false, A, B, C, vnni);
       const float* w = wf[n].data_ptr<float>();
-      float* lp = logits[n].data_ptr<float>() + s0;
       if (_skipepi) {                                                         // diagnostic: isolate GEMM+read
         for (int64_t r = 0; r < sb; ++r) lp[r] = C[r * H];
         continue;

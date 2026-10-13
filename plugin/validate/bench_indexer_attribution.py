@@ -53,26 +53,32 @@ def main():
     sha = subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"]).decode().strip()[:10]
     print(f"# identity HEAD={sha} proc={os.environ.get('PROC','0')} threads={torch.get_num_threads()} "
           f"OMP={os.environ.get('OMP_NUM_THREADS')} node={os.uname().nodename}")
-    print(f"{'M':>4} {'T_full':>8} {'T_noepi':>8} {'epi':>7} {'epi%':>5} {'T_bf16kv':>9} {'rd+cvt':>7} "
-          f"{'T_raw':>7} {'T_gemm':>7} {'kvMB':>6} {'rdGB/s':>7}")
+    print("# FUSED kernel component decomposition (streaming us). Derived: epilogue=T_full-T_noepi, "
+          "brgemm=T_noepi-T_nogemm, convert+pack+KVread+dispatch=T_nogemm.")
+    print(f"{'M':>4} {'T_full':>8} {'epi':>6} {'brgemm':>7} {'cvt+pk+rd':>9} {'rawKVrd':>8} {'rdGB/s':>7} "
+          f"{'bf16kvΔ':>8} {'T_nopack':>8}")
     for M in MS:
         q = torch.randn(M, H, D); kv = torch.randn(M, S, D); w = torch.randn(M, H)
         kvb = kv.to(torch.bfloat16)
-        qb = q.to(torch.bfloat16)
-        os.environ.pop("INDEXER_SKIP_EPILOGUE", None)
+        for v in ("INDEXER_SKIP_EPILOGUE", "INDEXER_SKIP_GEMM", "INDEXER_NO_PACK"):
+            os.environ.pop(v, None)
         t_full = tstream(lambda: il.indexer_logits(q, kv, w))
         t_bf16 = tstream(lambda: il.indexer_logits(q, kvb, w))
         os.environ["INDEXER_SKIP_EPILOGUE"] = "1"
         t_noepi = tstream(lambda: il.indexer_logits(q, kv, w))
         os.environ.pop("INDEXER_SKIP_EPILOGUE", None)
-        t_raw = tstream(lambda: kv.sum())                                   # fp32 KV read
-        t_gemm = tstream(lambda: torch.bmm(kvb, qb.transpose(1, 2)))        # bf16 score GEMM proxy
+        os.environ["INDEXER_SKIP_GEMM"] = "1"
+        t_nogemm = tstream(lambda: il.indexer_logits(q, kv, w))
+        os.environ.pop("INDEXER_SKIP_GEMM", None)
+        os.environ["INDEXER_NO_PACK"] = "1"
+        t_nopack = tstream(lambda: il.indexer_logits(q, kv, w))             # force unpacked brgemm (no cpublas::pack)
+        os.environ.pop("INDEXER_NO_PACK", None)
+        t_raw = tstream(lambda: kv.sum())                                  # fp32 KV read alone
         epi = t_full - t_noepi
-        rdcvt = t_full - t_bf16
-        kv_mb = M * S * D * 4 / 1e6
+        gemm = t_noepi - t_nogemm
         rd_gbs = (M * S * D * 4) / (t_raw * 1e-6) / 1e9
-        print(f"{M:>4} {t_full:>8.1f} {t_noepi:>8.1f} {epi:>7.1f} {100*epi/t_full:>4.0f}% {t_bf16:>9.1f} "
-              f"{rdcvt:>7.1f} {t_raw:>7.1f} {t_gemm:>7.1f} {kv_mb:>6.1f} {rd_gbs:>7.1f}")
+        print(f"{M:>4} {t_full:>8.1f} {epi:>6.1f} {gemm:>7.1f} {t_nogemm:>9.1f} {t_raw:>8.1f} {rd_gbs:>7.0f} "
+              f"{t_full - t_bf16:>8.1f} {t_nopack:>8.1f}")
     # breakdown (convert/pack/compute) for M=32 via the kernel's own stderr timers
     print("\n# INDEXER_BREAKDOWN (fp32 KV), one call each M:")
     os.environ["INDEXER_BREAKDOWN"] = "1"
