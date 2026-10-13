@@ -199,7 +199,9 @@ analysis, streaming headline latency, the lever(s) applied, and the honest regim
 kernel** — classify the roofline-vs-measured gap (RECOVERABLE / WRONG-CEILING / AT-CEILING), attribute the
 root cause, state the opportunity + expected effect, and assign the **owning phase** (kernel-authoring here,
 or hand off to the Phase-2 integration backlog / Phase-3 accuracy ratification). A kernel is not "done" until
-its gap is classified and any recoverable gap is mirrored to its owning queue.
+its gap is classified and any recoverable gap is mirrored to its owning queue. **Also publish a "what didn't
+work, and why" record** (the attempted lever, its measured number, the root cause) alongside the wins — the
+*why* of a rejection is as valuable as a win: it stops the same dead end being re-proposed.
 
 **Gate:** no-regression floor holds; F4 hard gates pass; the published page exists (a chart alone is not the
 deliverable — the roofline+pivot report pair + this page are); **every kernel has a gap-ledger row with an

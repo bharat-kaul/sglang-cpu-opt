@@ -131,6 +131,27 @@ is either met or the wrong ceiling), so their low/again-high % is honest, not ow
 row is mirrored into the actionable backlog: integration-class → the
 [Phase-2 carry-forward levers](#phase-2-carry-forward-levers-integration-class-from-standalone-analysis) table.
 
+#### What didn't work, and why (rejected / negative-result optimizations)
+
+Negative results are **first-class** here: every attempted lever, its measured outcome, and the **root cause**,
+so the same dead end is not re-walked and no "we should try bf16" is re-proposed without the answer. (Full data:
+[standalone_opt.json](../plugin/validate/results/standalone_opt.json); sparse bf16: EMR job 385343.)
+
+| kernel | optimization tried | measured | why it lost (root cause) | kept as |
+|---|---|---|---|---|
+| sparse attend | bf16 `at::bmm` + materialized softmax (`amx`) | slower + non-conformant | the materialized 4-temp softmax swamps the bf16 GEMM gain | experimental |
+| sparse attend | 64-block brgemm flash (`blockbf16`) | **0.08–0.65×** (1.6–12.8× slower) | AMX pack `N≤64` cap → per-block transpose + 2 packs + 2 small brgemms ×`K/64` + rescale overwhelm 2 large MKL bmms | experimental, screened |
+| sparse attend | big bf16 bmms + fused softmax (`bf16bmm_hx`) | **0.02–0.88×** (slower at every M) | *score* bmm wins in bf16 but *value* bmm doesn't; fp32↔bf16 casts + M=1 dispatch eat the gain | experimental (job 385343) |
+| compressor | ATen vectorized `exp` (`C2`) | **0.62–1.01×** (slower) | `Vectorized::exp` loses to scalar `std::exp` (blendv overhead; the vector polynomial is no win here) | experimental, screened |
+| compressor | two-pass stable pooling (`C3`) | ~1.0–1.14× (R128 large-M only) | doesn't decisively beat the **bit-exact** C1; marginal *and* not bit-exact | experimental, retain C1 |
+| compressor | bf16 `exp` (`D3`) | non-win (70.7 vs 61.9 µs, slower cold) | fp32 inputs still stream from DRAM, so bf16 rounding adds work without cutting the dominant read; also non-conformant | rejected |
+| indexer logits | hoist invariant weight-rounding (`I3`) | ~1.00× all M | the compiler already hoists it; epilogue weight-rounding is not a material standalone cost | reverted |
+
+**The pattern:** the recurring loser is **bf16/AMX precision** on ops where the operand **conversion cast** (or a
+non-benefiting *second* GEMM, or small-M dispatch) costs more than the lower-precision compute saves — a
+**measured, published reason**, not an assumption. The one precision win that *does* hold (indexer bf16-KV) is
+exactly the case where the kernel **already rounds the operand**, so bf16 is free *and* cuts the dominant read.
+
 ---
 
 
