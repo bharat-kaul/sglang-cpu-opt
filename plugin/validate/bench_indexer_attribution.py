@@ -48,6 +48,11 @@ def tstream(fn, it=25):
     return st.median([(_flush(), _call(fn))[1] for _ in range(it)]) * 1e6   # us
 
 
+def twarm(fn, it=40):
+    fn()
+    return st.median([_call(fn) for _ in range(it)]) * 1e6   # us (warm; buffers hot, no flush)
+
+
 def main():
     il = load(name="idx_attr", sources=[os.path.join(KD, "indexer_logits.cpp")], extra_cflags=CF, verbose=False)
     sha = subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"]).decode().strip()[:10]
@@ -56,7 +61,7 @@ def main():
     print("# FUSED kernel component decomposition (streaming us). Derived: epilogue=T_full-T_noepi, "
           "brgemm=T_noepi-T_nogemm, convert+pack+KVread+dispatch=T_nogemm.")
     print(f"{'M':>4} {'T_full':>8} {'epi':>6} {'brgemm':>7} {'cvt+pk+rd':>9} {'rawKVrd':>8} {'rdGB/s':>7} "
-          f"{'bf16kvΔ':>8} {'T_nopack':>8}")
+          f"{'bf16kvΔ':>8} {'T_nopack':>8} {'packcall':>8}")
     for M in MS:
         q = torch.randn(M, H, D); kv = torch.randn(M, S, D); w = torch.randn(M, H)
         kvb = kv.to(torch.bfloat16)
@@ -73,12 +78,23 @@ def main():
         os.environ["INDEXER_NO_PACK"] = "1"
         t_nopack = tstream(lambda: il.indexer_logits(q, kv, w))             # force unpacked brgemm (no cpublas::pack)
         os.environ.pop("INDEXER_NO_PACK", None)
+        os.environ["INDEXER_NO_PACK"] = "1"; os.environ["INDEXER_SKIP_GEMM"] = "1"
+        t_ng_np = tstream(lambda: il.indexer_logits(q, kv, w))              # no cpublas::pack AND no brgemm -> isolates pack-call cost
+        os.environ.pop("INDEXER_NO_PACK", None); os.environ.pop("INDEXER_SKIP_GEMM", None)
         t_raw = tstream(lambda: kv.sum())                                  # fp32 KV read alone
         epi = t_full - t_noepi
         gemm = t_noepi - t_nogemm
+        packcall = t_nogemm - t_ng_np                                      # cpublas::pack cost (both skip-gemm)
         rd_gbs = (M * S * D * 4) / (t_raw * 1e-6) / 1e9
         print(f"{M:>4} {t_full:>8.1f} {epi:>6.1f} {gemm:>7.1f} {t_nogemm:>9.1f} {t_raw:>8.1f} {rd_gbs:>7.0f} "
-              f"{t_full - t_bf16:>8.1f} {t_nopack:>8.1f}")
+              f"{t_full - t_bf16:>8.1f} {t_nopack:>8.1f} {packcall:>8.1f}")
+    print("\n# WARM vs STREAMING (warm = buffers hot, no flush -> excludes cold alloc/first-touch):")
+    print(f"{'M':>4} {'warm_us':>8} {'stream_us':>10} {'stream/warm':>11}")
+    for M in MS:
+        q = torch.randn(M, H, D); kv = torch.randn(M, S, D); w = torch.randn(M, H)
+        warm = twarm(lambda: il.indexer_logits(q, kv, w))
+        strm = tstream(lambda: il.indexer_logits(q, kv, w))
+        print(f"{M:>4} {warm:>8.1f} {strm:>10.1f} {strm/warm:>10.2f}x")
     # breakdown (convert/pack/compute) for M=32 via the kernel's own stderr timers
     print("\n# INDEXER_BREAKDOWN (fp32 KV), one call each M:")
     os.environ["INDEXER_BREAKDOWN"] = "1"
