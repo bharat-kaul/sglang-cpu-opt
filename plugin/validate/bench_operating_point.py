@@ -21,7 +21,7 @@ from bench_replicated import _idx_ref, _sparse_ref, _compressor_ref, _combine_re
 CF = ["-O3", "-fopenmp", "-march=native", "-mprefer-vector-width=512", "-DCPU_CAPABILITY_AVX512"]  # STANDARD
 KD = os.path.join(HERE, "..", "kernels", "dsa_pilot")
 BW, AMX, FP32 = 358.4e9, 124.5184e12, 7.7824e12
-MS = [1, 8, 16, 32, 64]
+MS = [1, 2, 4, 8, 16, 32, 64]
 
 
 def _mod(n, cpp):

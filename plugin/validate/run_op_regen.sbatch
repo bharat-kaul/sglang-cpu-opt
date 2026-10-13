@@ -14,5 +14,9 @@ export OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores
 export TORCH_EXTENSIONS_DIR=/scratch/$USER/torch_ext_opregen_${SLURM_JOB_ID}
 mkdir -p "$TORCH_EXTENSIONS_DIR"
 cd /data/nfs_home/bkaul/dsv4-tree-pilot
-numactl -N0 -m0 python plugin/validate/bench_operating_point.py
+for p in 0 1 2; do
+  OP_OUT=/scratch/$USER/op_rep${p}_${SLURM_JOB_ID}.json numactl -N0 -m0 python plugin/validate/bench_operating_point.py
+done
+python plugin/validate/combine_op_reps.py plugin/validate/results/operating_point.json \
+  /scratch/$USER/op_rep0_${SLURM_JOB_ID}.json /scratch/$USER/op_rep1_${SLURM_JOB_ID}.json /scratch/$USER/op_rep2_${SLURM_JOB_ID}.json
 echo "[done op_regen ${SLURM_JOB_ID}]"

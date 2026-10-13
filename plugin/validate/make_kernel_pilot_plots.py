@@ -13,7 +13,7 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, "results")
 PAL = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
-MS = [1, 8, 16, 32, 64]
+MS = [1, 2, 4, 8, 16, 32, 64]
 
 # useful-byte contracts (identical to aggregate_roofline.py) for the BW-efficiency view; indexer/topk at S=1024
 BW = 358.4e9

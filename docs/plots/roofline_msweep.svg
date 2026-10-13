@@ -16,56 +16,70 @@
 <text x="62.0" y="64.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">100</text>
 <text x="18.0" y="215.0" font-family="monospace" font-size="11" fill="#444" text-anchor="middle" transform="rotate(-90 18 215)" font-weight="normal">% of nominal roofline</text>
 <text x="70.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=1</text>
-<text x="197.5" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=8</text>
-<text x="325.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=16</text>
-<text x="452.5" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=32</text>
+<text x="155.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=2</text>
+<text x="240.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=4</text>
+<text x="325.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=8</text>
+<text x="410.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=16</text>
+<text x="495.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=32</text>
 <text x="580.0" y="388.0" font-family="monospace" font-size="10" fill="#666" text-anchor="middle" font-weight="normal">M=64</text>
-<polyline fill="none" stroke="#1f77b4" stroke-width="2" points="70.0,366.5 197.5,356.4 325.0,342.5 452.5,319.6 580.0,293.1"/>
-<circle cx="70.0" cy="366.5" r="3" fill="#1f77b4"/>
-<circle cx="197.5" cy="356.4" r="3" fill="#1f77b4"/>
-<circle cx="325.0" cy="342.5" r="3" fill="#1f77b4"/>
-<circle cx="452.5" cy="319.6" r="3" fill="#1f77b4"/>
-<circle cx="580.0" cy="293.1" r="3" fill="#1f77b4"/>
+<polyline fill="none" stroke="#1f77b4" stroke-width="2" points="70.0,367.3 155.0,362.9 240.0,356.3 325.0,344.6 410.0,323.7 495.0,296.5 580.0,272.8"/>
+<circle cx="70.0" cy="367.3" r="3" fill="#1f77b4"/>
+<circle cx="155.0" cy="362.9" r="3" fill="#1f77b4"/>
+<circle cx="240.0" cy="356.3" r="3" fill="#1f77b4"/>
+<circle cx="325.0" cy="344.6" r="3" fill="#1f77b4"/>
+<circle cx="410.0" cy="323.7" r="3" fill="#1f77b4"/>
+<circle cx="495.0" cy="296.5" r="3" fill="#1f77b4"/>
+<circle cx="580.0" cy="272.8" r="3" fill="#1f77b4"/>
 <rect x="594" y="57" width="12" height="12" fill="#1f77b4"/>
 <text x="610.0" y="67.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">indexer logits†</text>
-<polyline fill="none" stroke="#ff7f0e" stroke-width="2" points="70.0,369.3 197.5,368.4 325.0,367.0 452.5,364.4 580.0,358.1"/>
-<circle cx="70.0" cy="369.3" r="3" fill="#ff7f0e"/>
-<circle cx="197.5" cy="368.4" r="3" fill="#ff7f0e"/>
-<circle cx="325.0" cy="367.0" r="3" fill="#ff7f0e"/>
-<circle cx="452.5" cy="364.4" r="3" fill="#ff7f0e"/>
-<circle cx="580.0" cy="358.1" r="3" fill="#ff7f0e"/>
+<polyline fill="none" stroke="#ff7f0e" stroke-width="2" points="70.0,369.4 155.0,369.5 240.0,369.2 325.0,368.5 410.0,367.1 495.0,364.3 580.0,358.3"/>
+<circle cx="70.0" cy="369.4" r="3" fill="#ff7f0e"/>
+<circle cx="155.0" cy="369.5" r="3" fill="#ff7f0e"/>
+<circle cx="240.0" cy="369.2" r="3" fill="#ff7f0e"/>
+<circle cx="325.0" cy="368.5" r="3" fill="#ff7f0e"/>
+<circle cx="410.0" cy="367.1" r="3" fill="#ff7f0e"/>
+<circle cx="495.0" cy="364.3" r="3" fill="#ff7f0e"/>
+<circle cx="580.0" cy="358.3" r="3" fill="#ff7f0e"/>
 <rect x="594" y="75" width="12" height="12" fill="#ff7f0e"/>
 <text x="610.0" y="85.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">indexer top-k</text>
-<polyline fill="none" stroke="#2ca02c" stroke-width="2" points="70.0,342.9 197.5,257.9 325.0,195.7 452.5,124.6 580.0,60.0"/>
-<circle cx="70.0" cy="342.9" r="3" fill="#2ca02c"/>
-<circle cx="197.5" cy="257.9" r="3" fill="#2ca02c"/>
-<circle cx="325.0" cy="195.7" r="3" fill="#2ca02c"/>
-<circle cx="452.5" cy="124.6" r="3" fill="#2ca02c"/>
-<circle cx="580.0" cy="60.0" r="3" fill="#2ca02c"/>
+<polyline fill="none" stroke="#2ca02c" stroke-width="2" points="70.0,343.8 155.0,328.3 240.0,302.2 325.0,264.6 410.0,204.9 495.0,137.4 580.0,77.8"/>
+<circle cx="70.0" cy="343.8" r="3" fill="#2ca02c"/>
+<circle cx="155.0" cy="328.3" r="3" fill="#2ca02c"/>
+<circle cx="240.0" cy="302.2" r="3" fill="#2ca02c"/>
+<circle cx="325.0" cy="264.6" r="3" fill="#2ca02c"/>
+<circle cx="410.0" cy="204.9" r="3" fill="#2ca02c"/>
+<circle cx="495.0" cy="137.4" r="3" fill="#2ca02c"/>
+<circle cx="580.0" cy="77.8" r="3" fill="#2ca02c"/>
 <rect x="594" y="93" width="12" height="12" fill="#2ca02c"/>
 <text x="610.0" y="103.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">compressor</text>
-<polyline fill="none" stroke="#d62728" stroke-width="2" points="70.0,345.1 197.5,246.5 325.0,225.7 452.5,184.2 580.0,158.0"/>
-<circle cx="70.0" cy="345.1" r="3" fill="#d62728"/>
-<circle cx="197.5" cy="246.5" r="3" fill="#d62728"/>
-<circle cx="325.0" cy="225.7" r="3" fill="#d62728"/>
-<circle cx="452.5" cy="184.2" r="3" fill="#d62728"/>
-<circle cx="580.0" cy="158.0" r="3" fill="#d62728"/>
+<polyline fill="none" stroke="#d62728" stroke-width="2" points="70.0,344.5 155.0,326.8 240.0,290.3 325.0,257.1 410.0,221.0 495.0,186.1 580.0,164.5"/>
+<circle cx="70.0" cy="344.5" r="3" fill="#d62728"/>
+<circle cx="155.0" cy="326.8" r="3" fill="#d62728"/>
+<circle cx="240.0" cy="290.3" r="3" fill="#d62728"/>
+<circle cx="325.0" cy="257.1" r="3" fill="#d62728"/>
+<circle cx="410.0" cy="221.0" r="3" fill="#d62728"/>
+<circle cx="495.0" cy="186.1" r="3" fill="#d62728"/>
+<circle cx="580.0" cy="164.5" r="3" fill="#d62728"/>
 <rect x="594" y="111" width="12" height="12" fill="#d62728"/>
 <text x="610.0" y="121.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">sparse attend†</text>
-<polyline fill="none" stroke="#9467bd" stroke-width="2" points="70.0,370.0 197.5,369.9 325.0,369.9 452.5,369.8 580.0,369.6"/>
+<polyline fill="none" stroke="#9467bd" stroke-width="2" points="70.0,370.0 155.0,370.0 240.0,370.0 325.0,369.9 410.0,369.9 495.0,369.8 580.0,369.6"/>
 <circle cx="70.0" cy="370.0" r="3" fill="#9467bd"/>
-<circle cx="197.5" cy="369.9" r="3" fill="#9467bd"/>
+<circle cx="155.0" cy="370.0" r="3" fill="#9467bd"/>
+<circle cx="240.0" cy="370.0" r="3" fill="#9467bd"/>
 <circle cx="325.0" cy="369.9" r="3" fill="#9467bd"/>
-<circle cx="452.5" cy="369.8" r="3" fill="#9467bd"/>
+<circle cx="410.0" cy="369.9" r="3" fill="#9467bd"/>
+<circle cx="495.0" cy="369.8" r="3" fill="#9467bd"/>
 <circle cx="580.0" cy="369.6" r="3" fill="#9467bd"/>
 <rect x="594" y="129" width="12" height="12" fill="#9467bd"/>
 <text x="610.0" y="139.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">MHC sinkhorn</text>
-<polyline fill="none" stroke="#8c564b" stroke-width="2" points="70.0,364.3 197.5,346.5 325.0,327.0 452.5,283.8 580.0,214.1"/>
-<circle cx="70.0" cy="364.3" r="3" fill="#8c564b"/>
-<circle cx="197.5" cy="346.5" r="3" fill="#8c564b"/>
-<circle cx="325.0" cy="327.0" r="3" fill="#8c564b"/>
-<circle cx="452.5" cy="283.8" r="3" fill="#8c564b"/>
-<circle cx="580.0" cy="214.1" r="3" fill="#8c564b"/>
+<polyline fill="none" stroke="#8c564b" stroke-width="2" points="70.0,364.1 155.0,364.0 240.0,358.2 325.0,346.8 410.0,323.9 495.0,287.2 580.0,206.8"/>
+<circle cx="70.0" cy="364.1" r="3" fill="#8c564b"/>
+<circle cx="155.0" cy="364.0" r="3" fill="#8c564b"/>
+<circle cx="240.0" cy="358.2" r="3" fill="#8c564b"/>
+<circle cx="325.0" cy="346.8" r="3" fill="#8c564b"/>
+<circle cx="410.0" cy="323.9" r="3" fill="#8c564b"/>
+<circle cx="495.0" cy="287.2" r="3" fill="#8c564b"/>
+<circle cx="580.0" cy="206.8" r="3" fill="#8c564b"/>
 <rect x="594" y="147" width="12" height="12" fill="#8c564b"/>
 <text x="610.0" y="157.0" font-family="monospace" font-size="10" fill="#333" text-anchor="start" font-weight="normal">MHC combine</text>
 </svg>

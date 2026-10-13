@@ -6,7 +6,7 @@ the **baseline** (the torch op it replaces), and the **C/C++ speedup** — with 
 All latencies are **streaming (cold-cache, LLC-flushed per call)** — the reliable methodology: warm-cache
 reuse lets an L3-resident working set be re-read from cache and hides the real DRAM ceiling. From
 [operating_point.json](../plugin/validate/results/operating_point.json) (EMR, **3-replicate cross-run median**,
-jobs 385065–67, the **promoted
+jobs 385457–59, the **promoted
 variant** per kernel + **512-bit build flags**, via [bench_operating_point.py](../plugin/validate/bench_operating_point.py));
 regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kernel_pilot_plots.py).
 
@@ -18,50 +18,47 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 > reference** (BW 358.4 GB/s, AMX bf16 124.5 TF, FP32 7.78 TF @ 1.9 GHz base) — **not a measured achievable
 > ceiling**, so "% of roofline" means "% of nominal reference." (3) `indexer logits` and `sparse attend`
 > (**†**) reuse a **oneDNN/MKL GEMM donor** and author the fused epilogue; the other four are **pure-authored**
-> (no library GEMM). (4) Standalone microbench, **3-replicate cross-run median** (jobs 385065–67). Correctness
+> (no library GEMM). (4) Standalone microbench, **3-replicate cross-run median** (jobs 385457–59). Correctness
 > is tracked separately (F4) and remains **PARTIAL** (promotion **BLOCKED**); the hand-`exp` kernels retain **both** the exact-libm path (bit-exact
 > oracle) and the Cephes path (~1 ULP, measured) for end-to-end accuracy A/B.
 
 ## 1. Per-kernel at the operating point (M=32, S=1024, streaming): roofline vs baseline vs C/C++
 
-![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v3.png)
+![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v4.png)
 
 | kernel | implementation | baseline (torch) µs | C/C++ µs | **speedup** | roofline floor µs | % of roofline |
 |---|---|---:|---:|---:|---:|---:|
-| indexer logits † | oneDNN BRGEMM + authored epilogue (512-bit) | 876 | 309 | **2.8×** | 50.1 | 16% |
-| indexer top-k | pure-authored (`nth_element` selection) | 420 | 41 | **10.3×** | 0.73 | 2% |
-| compressor | pure-authored (hand-inlined Cephes `exp`) | 328 | 60 | **5.4×** | 47.7 | 79% |
-| sparse attend † | oneDNN `at::bmm` + hand-`exp` softmax/sink | 686 | 460 | **1.5×** | 275.9 | 60% |
-| MHC sinkhorn | pure-authored (fused recurrence) | 640 | 25 | **25.2×** | 0.017 | 0% |
-| MHC combine | pure-authored (accumulate-once) | 67 | 26 | **2.5×** | 7.3 | 28% |
+| indexer logits † | oneDNN BRGEMM + authored epilogue (fused q-prep, adaptive tiling) | 909 | 212 | **4.3×** | 50.1 | 24% |
+| indexer top-k | pure-authored (`nth_element` selection) | 511 | 40 | **12.8×** | 0.73 | 2% |
+| compressor | pure-authored (hand-inlined Cephes `exp`) | 328 | 64 | **5.2×** | 47.7 | 75% |
+| sparse attend † | oneDNN `at::bmm` + hand-`exp` softmax/sink | 740 | 465 | **1.6×** | 275.9 | 59% |
+| MHC sinkhorn | pure-authored (fused recurrence) | 616 | 26 | **23.3×** | 0.017 | 0% |
+| MHC combine | pure-authored (accumulate-once) | 62 | 27 | **2.3×** | 7.3 | 27% |
 
 The two **oneDNN-donor** kernels (†) are GEMM-bound; the authored gain is the fused epilogue, plus — for
 sparse — the **hand-inlined Cephes `exp`** in the softmax. The four **pure-authored** kernels get the large
 gains: sinkhorn 27.8× and top-k 12.5× (torch pays ~40 tiny dispatched ops / a full sort that the fused kernel
 collapses), and **compressor 5.3×** (a hand-inlined AVX-512 `exp` replaced a per-lane `libm` call). After
-optimization, **compressor is DRAM-bandwidth-bound (74% of the BW roof)** and **sparse is compute-bound (61%
+optimization, **compressor is DRAM-bandwidth-bound (75% of the BW roof)** and **sparse is compute-bound (59%
 of the FP32 roof)** — both near their real hardware ceiling, so their speedups are bounded by the machine, not
 by more kernel work.
 
 ## 2. % of nominal roofline across the M-sweep (1→64): arithmetic intensity (streaming)
 
-![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v3.png)
+![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v4.png)
 
-| kernel | M=1 | M=8 | M=16 | M=32 | M=64 |
-|---|---:|---:|---:|---:|---:|
-| indexer logits † | 1% | 4% | 9% | 16% | 25% |
-| indexer top-k | 0% | 0% | 1% | 2% | 4% |
-| compressor | 9% | 36% | 56% | 79% | 103%* |
-| sparse attend † | 8% | 40% | 46% | 60% | 68% |
-| MHC sinkhorn | 0% | 0% | 0% | 0% | 0% |
-| MHC combine | 2% | 8% | 14% | 28% | 50% |
-
-<sub>\* compressor M=64 >100% = still partly cache-resident at that size (the nominal DRAM roof under-counts
-when the working set fits L3).</sub>
+| kernel | M=1 | M=2 | M=4 | M=8 | M=16 | M=32 | M=64 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| indexer logits † | 1% | 2% | 4% | 8% | 15% | 24% | 31% |
+| indexer top-k | 0% | 0% | 0% | 0% | 1% | 2% | 4% |
+| compressor | 8% | 13% | 22% | 34% | 53% | 75% | 94% |
+| sparse attend † | 8% | 14% | 26% | 36% | 48% | 59% | 66% |
+| MHC sinkhorn | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
+| MHC combine | 2% | 2% | 4% | 8% | 15% | 27% | 53% |
 
 As the decode batch M grows, arithmetic intensity rises and the BW/compute-bound kernels climb toward their
-roofline (streaming, at M=64): **compressor → 83%**, **sparse → 68%**, **combine → 49%**, **indexer logits →
-24%**. `indexer top-k` (~4%) and `sinkhorn` (~0%) stay low because they are **selection/dispatch-bound** — a
+roofline (streaming, at M=64): **compressor → 94%**, **sparse → 66%**, **combine → 53%**, **indexer logits →
+31%**. `indexer top-k` (~4%) and `sinkhorn` (~0%) stay low because they are **selection/dispatch-bound** — a
 byte-or-FLOP roofline is the wrong ceiling for them, so the low % is a diagnostic, not a recoverable gap. This
 is the "how close to the metal, and does more work help?" view.
 
@@ -71,17 +68,17 @@ is the "how close to the metal, and does more work help?" view.
 For each of the six kernels: **(a)** the roofline floor (byte/FLOP contract vs nominal peak, at M=32 unless
 noted), **(b)** the baseline torch op it replaces and why it is slow, and **(c)** the authored C/C++ and the
 optimizations. All numbers are M=32, S=1024, **streaming**, from
-[operating_point.json](../plugin/validate/results/operating_point.json) (3-replicate median jobs 385065–67, promoted variants + 512-bit
+[operating_point.json](../plugin/validate/results/operating_point.json) (3-replicate median jobs 385457–59, promoted variants + 512-bit
 flags); floor = `max(bytes/BW, FLOPs/peak)` vs the **nominal** peak (not an achievable ceiling).
 
 | kernel | bound | floor µs | C/C++ µs | % roof | baseline µs | speedup |
 |---|---|---:|---:|---:|---:|---:|
-| 3.1 indexer logits † | BW (AMX) | 50.1 | 309 | 16% | 876 | 2.8× |
-| 3.2 indexer top-k | selection | 0.73 | 41 | 2% | 420 | 10.3× |
-| 3.3 compressor | BW (FP32) | 47.7 | 60 | 79% | 328 | 5.4× |
-| 3.4 sparse attend † | **compute** (FP32) | 275.9 | 460 | 60% | 686 | 1.5× |
-| 3.5 MHC sinkhorn | latency/dispatch | 0.017 | 25 | ~0% | 640 | 25.2× |
-| 3.6 MHC combine | BW (FP32) | 7.3 | 26 | 28% | 67 | 2.5× |
+| 3.1 indexer logits † | BW/dispatch (AMX) | 50.1 | 212 | 24% | 909 | 4.3× |
+| 3.2 indexer top-k | selection | 0.73 | 40 | 2% | 511 | 12.8× |
+| 3.3 compressor | BW (FP32) | 47.7 | 64 | 75% | 328 | 5.2× |
+| 3.4 sparse attend † | **compute** (FP32) | 275.9 | 465 | 59% | 740 | 1.6× |
+| 3.5 MHC sinkhorn | latency/dispatch | 0.017 | 26 | ~0% | 616 | 23.3× |
+| 3.6 MHC combine | BW (FP32) | 7.3 | 27 | 27% | 62 | 2.3× |
 
 ### Optimization levers per kernel (vs roofline)
 
@@ -90,9 +87,9 @@ result. "At ceiling" kernels used few levers *by design* — the regime forbids 
 
 | kernel | donor (S2) | parallel/tile (S3) | **fusion (S4)** | **precision (S5)** | vectorize/AMX (S6) | transcendental (S6) | result |
 |---|---|---|---|---|---|---|---|
-| indexer logits | oneDNN BRGEMM | S-tiled + M=1 path | in-cache epilogue (no `[N,H,S]` DRAM) | bf16 GEMM; **bf16-KV free win** | 512-bit, AMX | — | 16% of AMX roof (BW) |
+| indexer logits | oneDNN BRGEMM | S-tiled + M=1 path | in-cache epilogue (no `[N,H,S]` DRAM) | bf16 GEMM; **bf16-KV free win** | 512-bit, AMX | — | 24% of AMX roof (BW/dispatch) |
 | indexer top-k | — | row / chunked parallel | — (selection) | — | — | — | selection-bound (2%) |
-| compressor | — | N×D-tile (fills M=1) | **streaming online-softmax** (no `w[N,R,D]`) | fp32 (bf16 **rejected** — conformance + non-win) | 512-bit | **hand-inlined Cephes `exp`** (~1 ULP) | **79% of DRAM roof** |
+| compressor | — | N×D-tile (fills M=1) | **streaming online-softmax** (no `w[N,R,D]`) | fp32 (bf16 **rejected** — conformance + non-win) | 512-bit | **hand-inlined Cephes `exp`** (~1 ULP) | **75% of DRAM roof** |
 | sparse attend | oneDNN `at::bmm` | parallel over N·H | **in-place fused softmax/sink** (no 4 temps) | fp32-accumulate (**bf16-AMX tested ×3, REJECTED: measured loss**) | 512-bit | **hand-inlined Cephes `exp`** | 60% of FP32 roof (compute) |
 | MHC sinkhorn | — | per-row parallel | **20-iter fused recurrence** (L1-resident) | fp32 | — | — | dispatch-bound (~0%) |
 | MHC combine | — | parallel over M | **accumulate-once** (no `[m,hc,H]` temp) | fp32 | 512-bit SIMD | — | 28% of DRAM roof (BW) |
@@ -115,7 +112,7 @@ model-agnostic **performance-gap ledger** defined in the [methodology playbook](
 
 | kernel | % roof | gap is | why perf is lost (root cause) | opportunity (expected effect) | owning phase |
 |---|---:|---|---|---|---|
-| **indexer logits** | 16% | **recoverable (BW)** | the GEMM is only ~4.4 µs of 309 µs; the gap is `kv`-read traffic (16.8 of 18 MB) + fp32→bf16 convert/pack + small-M dispatch — **not** the contraction | **bf16 KV cache** halves the dominant read (floor 50→~25 µs, ~1.5×, amortizes across all KV ops); then a fused single-pass streaming kernel **if** attribution shows achievable-BW, not fixed overhead | **Phase 2 (E2E integration)** for bf16-KV; **Phase 1 attribution** (`INDEXER_BREAKDOWN`) first |
+| **indexer logits** | 24% | **dispatch+L3-bound** (not BW) | measured: KV read ~15% @ ~483 GB/s (at BW), `cpublas::pack` ~2%, brgemm ~13% — the dominant ~62% was per-call convert/pack/alloc/dispatch; a ~170 µs *fixed* cost from the ~256-tile adaptive tiling | **DONE (Phase 1):** fused q-prep + adaptive tiling (TPT 4→1/2) = **1.46–1.99× bit-exact** (309→212 µs). Remaining: merge the 2 parallel regions; **bf16-KV** (now ~46 µs) | **Phase 1 done**; bf16-KV → **Phase 2** |
 | **indexer top-k** | 2% | **wrong ceiling** | selection is `O(S)` compares + thread dispatch, not bytes/FLOPs; a byte roofline cannot be approached | at regime ceiling (`nth_element` + chunked-parallel already fill cores); none material | **Closed** — regime ceiling (reopen only if E2E attribution flags it) |
 | **compressor** | 79% | **near ceiling (BW+exp)** | after the D1 hand-`exp`, residual = irreducible fp32 read traffic + the `exp` compute itself | small; bf16 **rejected** (non-conformant to fp32 ref + measured non-win) | **Closed** — at the DRAM+exp wall (revisit bf16 only if the reference dtype changes) |
 | **sparse attend** | 60% | **compute — bf16 lever tested & REJECTED** | fp32 AVX-512 peak (7.78 TF) is the ceiling; both bmms run fp32 on the `at::bmm` donor | **bf16-AMX attempted in 3 configs (`amx`, `blockbf16`, `bf16bmm_hx`) — all measured SLOWER than the fp32 donor** (`bf16bmm_hx` 0.02–0.88× at M=1–64, EMR job 385343): the *score* bmm does win in bf16 (1.5–2× at M≥16) but the *value* bmm doesn't, and the fp32↔bf16 conversion casts + M=1 dispatch eat the gain. Tolerance-clean (cos 0.99999 normal) but **perf-losing** → fp32 donor at 60% roof is the practical ceiling | **Phase 1 — done (measured loss, published)**; residual untested idea = score-gemm-only bf16 hybrid; FP8 = stretch |
@@ -162,7 +159,7 @@ exactly the case where the kernel **already rounds the operand**, so bf16 is fre
 
 **Roofline (M=32).** FLOPs = `2·M·H·S·D + 3·M·H·S` = 2·32·64·1024·128 + … ≈ **543 MFLOP**;
 bytes = q`[M,H,D]` + kv`[M,S,D]` + weight + logits = 1.05 + 16.78 + … ≈ **17.97 MB** (the kv read dominates).
-AI ≈ 30 FLOP/byte ≪ AMX ridge 347 → **BW-bound**. Floor = max(17.97 MB/358.4 GB/s = **50.1 µs**, 543 MFLOP/124.5 TF = 4.4 µs) = **50.1 µs**. C/C++ 309 µs = **16%** (streaming); building with the 512-bit flags (`zmm=0→322`) lifted it ~1.17×.
+AI ≈ 30 FLOP/byte ≪ AMX ridge 347 → **BW-bound**. Floor = max(17.97 MB/358.4 GB/s = **50.1 µs**, 543 MFLOP/124.5 TF = 4.4 µs) = **50.1 µs**. C/C++ **212 µs = 24%** (streaming), after the fused q-prep + adaptive tiling (below); but the op is **dispatch+L3-bound**, not BW-bound (the working set fits L3), so 24% of the *DRAM* roof is the wrong frame.
 
 **Baseline (torch)** — [bench_replicated.py `_idx_ref`](../plugin/validate/bench_replicated.py#L53):
 ```python
@@ -372,7 +369,7 @@ H=64 heads, D=K=512) with a per-head softmax **sink**. Two GEMMs (`q@kv^T` score
 **Roofline (M=32).** FLOPs = `4·M·H·K·D` = 4·32·64·512·512 ≈ **2.15 GFLOP** (two `H×K×D` GEMMs);
 bytes = kv`[K,D]` + q + out ≈ **41.9 MB**. AI ≈ 51 FLOP/byte **>** FP32 ridge 21.7 → **compute-bound** (the
 only one). Floor = max(2.15 GFLOP/7.78 TF = **275.9 µs**, 41.9 MB/358.4 GB/s = 117 µs) = **275.9 µs**.
-C/C++ 460 µs = **60%** of the FP32 roof (streaming), baseline 686 µs → **1.5×** (small *by design* — it is
+C/C++ 465 µs = **59%** of the FP32 roof (streaming), baseline 740 µs → **1.6×** (small *by design* — it is
 already near the compute ceiling).
 
 **Baseline (torch)** — [`_sparse_ref` → `ora_sparse_fp32`](../plugin/validate/bench_replicated.py#L58): the
@@ -462,16 +459,16 @@ and the hc-fold redundant y traffic.
 
 Applying the compressor learnings (512-bit build flags, `objdump` ISA check, hand-inlined Cephes `exp` where
 exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parallel wave, consolidated and
-**3-replicate cross-run median** (EMR jobs 385065–67). Latencies are **streaming** at M=32 — the reliable number.
+**3-replicate cross-run median** (EMR jobs 385457–59). Latencies are **streaming** at M=32 — the reliable number.
 
 | kernel | torch | shipped C/C++ | re-optimized | lever | regime |
 |---|---:|---:|---:|---|---|
-| compressor | 328 | 284 | **60** | hand-exp Cephes **4.7×** | now DRAM-bound (79% roof) |
-| sparse_bestof † | 686 | 541 | **460** | hand-exp Cephes **1.18×** | GEMM-bound (oneDNN donor) |
-| indexer_logits † | 876 | 343 | **309** | 512-bit flags **1.11×** | GEMM-bound (oneDNN donor) |
-| indexer_topk | 420 | 41 | 41 | none | selection-bound (at ceiling) |
-| sinkhorn | 640 | 25 | 25 | none | dispatch-bound (at ceiling) |
-| combine | 67 | 26 | 26 | none | cache-resident / BW (at ceiling) |
+| compressor | 328 | 284 | **64** | hand-exp Cephes **4.4×** | now DRAM-bound (75% roof) |
+| sparse_bestof † | 740 | 541 | **465** | hand-exp Cephes **1.18×** | GEMM-bound (oneDNN donor) |
+| indexer_logits † | 909 | 343 | **212** | fused q-prep + adaptive tiling **1.6×** | dispatch+L3-bound |
+| indexer_topk | 511 | 41 | 40 | none | selection-bound (at ceiling) |
+| sinkhorn | 616 | 25 | 26 | none | dispatch-bound (at ceiling) |
+| combine | 62 | 26 | 27 | none | cache-resident / BW (at ceiling) |
 
 † oneDNN GEMM donor. `shipped` is the pre-wave C/C++ variant (compressor scalar C1, sparse `bestof`, indexer
 256-bit build, single-run reference); `re-optimized` is the promoted variant (compressor `fp32intrin`, sparse
@@ -496,7 +493,7 @@ F4-screened (passes the contract/finiteness/determinism/mask gates) until the E2
 
 
 ## Provenance
-- Kernel latency + speedup: EMR node, **3-replicate cross-run median (jobs 385065–67)** of the promoted variant
+- Kernel latency + speedup: EMR node, **3-replicate cross-run median (jobs 385457–59)** of the promoted variant
   per kernel + 512-bit flags, **streaming** (LLC-flushed per call); baseline = the torch op each kernel replaces
   (torch refs are the noisiest column — they allocate temporaries — hence the 3-run median). Compressor warm/
   stream retry detail: jobs 385022/385039.
