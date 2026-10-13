@@ -185,6 +185,28 @@ another full `[N,H,S]` pass — the `[N,H,S]` scores round-trip to memory ~3–4
 and building with the 512-bit flags lifted it **343 → 293 µs** streaming. Still 17% of the nominal BW roof —
 useful byte-throughput is below reference BW, so ROI is **open**, not a wall.
 
+**Attribution redirected the lever, then a fused q-prep paid off (jobs 385397/385402).** Before authoring, we
+*attributed* the 309 µs (Stage 1.5): the **KV DRAM read is only ~11% and already runs at ~483 GB/s (≥ nominal
+BW)** — *not* the bottleneck, despite the bytes being KV-dominated; the real ~62% was **per-call convert +
+VNNI-pack + alloc + dispatch**. So the lever is the overhead, not the read. The fix: **fuse the q
+convert+transpose+VNNI-pack into one pass** over a reused thread-local buffer, removing the full `q.to(bf16)`
+tensor and the per-n `transpose().contiguous()` allocation. Result (3-rep, streaming): **bit-exact** (worst
+diff 0.0 at every M) and **~1.27× at M=32 (≈312 → ≈245 µs)**, 1.24–1.30× across M=8–64 — lifting the kernel to
+**~20% of the nominal BW roof** (3.6× vs the torch baseline). *This is the worked example behind the
+[Stage 1.5 rule](methodology-playbook.md#4-per-kernel-performance-gap-ledger-model-agnostic): the roofline of
+one component (KV bytes) over-predicted; measuring the whole op redirected the lever to the real cost.*
+
+**Then: dispatch-bound, not BW-bound — fewer tiles (job 385422).** Decomposing the *fused* kernel showed the
+remaining ~245 µs is a **~170 µs fixed, M-independent cost** (warm M=8→176, M=32→191 µs: 4× the data, +8%
+time), *not* the KV read (~15%, at BW) and *not* `cpublas::pack` (~2%, measured — which stopped a wasted
+inline-pack rewrite). The fixed cost is the **tiling structure**: the adaptive tiler pinned the task count at
+`~4×threads ≈ 256` tiles *regardless of M*, so ~256 parallel tasks each pay a per-task tax (scheduling +
+scratch alloc + a `brgemm` call). A tile-count sweep (bit-exact across tile counts) confirmed it — cutting
+tiles 512→64 drops time ~2× monotonically — so the target was lowered **4×→2× threads**: **1.04–1.33× further,
+bit-exact** (M=8 1.33×, M=16 1.29×, M=32 1.14×). **Cumulative vs the original: M=32 ≈312 → ≈214 µs (1.46×),
+M=8 ≈285 → ≈171 µs (1.67×).** The honest ceiling here is **dispatch + L3**, not the 50 µs DRAM floor (the
+working set is L3-resident), so "% of the BW roof" is the wrong frame for this op at the operating point.
+
 ---
 
 ### 3.2 Indexer top-k (pure-authored selection)
