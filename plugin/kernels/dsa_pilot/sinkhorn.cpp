@@ -8,6 +8,7 @@
 #include <torch/extension.h>
 #include <ATen/Parallel.h>
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 
 // mixes:[B,S,(2+hc)*hc]; hc_scale:[3]; hc_base:[(2+hc)*hc] -> (pre[B,S,hc], post[B,S,hc], comb[B,S,hc,hc]).
@@ -36,7 +37,8 @@ std::vector<torch::Tensor> mhc_sinkhorn(torch::Tensor mixes, torch::Tensor hc_sc
   float* combp = comb.data_ptr<float>();
   const float e = (float)eps;
 
-  at::parallel_for(0, rows, 0, [&](int64_t r0, int64_t r1) {
+  const int64_t _sgrain = std::getenv("SINK_SERIAL") ? rows : 0;   // diag: grain=rows -> one task = serial (isolate dispatch)
+  at::parallel_for(0, rows, _sgrain, [&](int64_t r0, int64_t r1) {
     std::vector<float> C(hc * hc), rs(hc), cs(hc);
     for (int64_t r = r0; r < r1; ++r) {
       const float* row = mp + r * W;

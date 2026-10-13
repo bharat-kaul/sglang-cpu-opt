@@ -98,6 +98,7 @@ torch::Tensor indexer_topk(torch::Tensor logits, int64_t k) {
   const float* L = lc.data_ptr<float>();
   int64_t* O = out.data_ptr<int64_t>();
   if (std::getenv("TOPK_SERIAL")) { topk_serial(L, N, S, k, O); return out; }     // diag: force serial (isolate dispatch)
+  if (std::getenv("TOPK_CHUNKS")) { topk_chunked(L, N, S, k, O); return out; }    // diag: force within-row chunking (core-fill sweep)
   if (std::getenv("TOPK_SKIP_SELECT")) {                                         // diag: skip nth_element (isolate selection)
     at::parallel_for(0, N, 1, [&](int64_t a, int64_t b) {
       for (int64_t n = a; n < b; ++n) { int64_t* op = O + n * k; for (int64_t t = 0; t < k; ++t) op[t] = t; }
