@@ -481,7 +481,8 @@ F4-screened (passes the contract/finiteness/determinism/mask gates) until the E2
 ## Next: end-to-end (Phase-2)
 Progressive end-to-end wall-time on the depth-reduced dummy-weight proxy (proxy4 + proxy8 → `t(L)=t_fixed+L·t_layer`
 extrapolation to 43 layers), at the chosen operating point (throughput headline B=32 @ S=1024, plus the B=1
-single-stream latency floor), integrating each kernel one at a time. The E2E tok/s curves will be added here.
+single-stream latency floor), integrating each kernel one at a time. **Live baseline + progression chart:
+[end-to-end wall-time page](e2e-wall-time.md)** (baseline measured: B=1 decode 0.80 tok/s, prefill 67.8 s TTFT).
 
 ### Phase-2 carry-forward levers (integration-class, from standalone analysis)
 Some wins are **not** standalone-kernel optimizations — the kernel already supports them; they are realized only
