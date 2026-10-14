@@ -66,6 +66,13 @@ BRGEMM variants.
     Prefer stage-then-BRGEMM only when `M ≥ TILE_M` (16) AND the staged copy amortizes
     over the tile-op count; at tiny M or tiny `K·N` the tuned AVX-512 tinygemm can win.
     Benchmark both against the achievable ceiling before committing.
+  - **Dispatch the per-M optimum + conformance-gate the ISA switch:** the AMX/AVX crossover is
+    **measured, not assumed** (indexer score GEMM: AVX-512 wins **2.6×@M1 → tie@M32 → AMX@M64** on the
+    narrow K=128/N=64 shape; the win lands at the decode M=1 latency floor). Ship an **adaptive dispatch**
+    (ISA by M, like adaptive tiling), and **gate the switch on realistic distributions** — ISA paths are
+    not bit-exact, so a precision change (fp32 vs the model's bf16 boundary) is accuracy-gated, and a dtype
+    proxy (fp16 for a bf16 roofline) is perf-only. Probe CPUID (`uarch-perf-probe`) for availability +
+    fallback (a client with no AMX falls to AVX2/AVX-VNNI).
   - **Fuse the upcast into the gather:** if B is fp8/int8, apply the dtype conversion
     (with `B_scale`) DURING the staging copy — never a second pass over `K·N`.
   - **Zero-pad invariant:** when padding `K→TILE_K` / `N→TILE_N`, the padded A columns

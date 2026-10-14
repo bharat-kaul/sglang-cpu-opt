@@ -322,3 +322,22 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
    lever; large M must block to keep reuse before eviction), own the **composition** not the donor's inner loop
    (donor-first), and **validate on traffic** — confirm the operand is read from DRAM ≈ once (achieved bytes ≈
    unique bytes); a latency win *without* a measured traffic drop means the reuse didn't bite.
+
+**10. The best ISA is per‑(target, shape, M) — probe it, sweep it, dispatch adaptively (and conformance‑gate the switch).**
+   The structure is arch‑invariant (author once); the **inner compute** (AMX‑bf16/int8 · AVX‑512‑bf16/fp16/fp32 ·
+   AVX2) is arch‑specific and chosen by **measurement** — AMX is **not** always best (it underfills narrow or
+   small‑M GEMMs where AVX‑512 wins). The mechanism:
+   - **Probe** the target's CPUID flags (`uarch-perf-probe`) — never infer the ISA from the part name (EMR‑8580
+     has AMX‑bf16 *and* AVX‑512‑bf16 *and* fp16; a client like Panther Lake has **no AMX** → AVX2/AVX‑VNNI).
+   - **Isolation M‑sweep** each candidate ISA at the real GEMM shape, **find the crossover M**, and **dispatch
+     the per‑M optimum** (like adaptive tiling). The donor dispatches its own ISA; your authored glue owns its
+     ISA and needs an AVX2/scalar fallback for AMX/AVX‑512‑less targets. Add a path by *need* or *measured
+     upside*, not speculatively.
+   - **Conformance‑gate the switch** (ISA paths aren't bit‑exact): validate each to the oracle on **realistic**
+     distributions. A precision change (fp32 vs the model's bf16 boundary) is Phase‑3‑gated; a dtype proxy
+     (fp16 for a bf16 roofline) is **perf‑only**, fenced from accuracy. *Worked example — indexer score GEMM:
+     AVX‑512 beats AMX **2.6× at M=1 → tie at M=32 → AMX wins M=64** (AMX underfills the K=128/N=64 shape), so
+     the win lands at the decode latency floor; but the fast path is **fp32** (a precision change — open,
+     Phase‑3‑gated), the conformance‑safe bf16 single‑bmm measured **slower**, and the shipped bf16 tiled
+     brgemm stays the best bit‑exact path. Counter‑example — **sparse attend**: fat GEMMs where AMX is already
+     the right, well‑utilized ISA, so an AVX‑512 swap can't help; the rule correctly excludes it.*

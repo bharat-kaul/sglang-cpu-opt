@@ -32,6 +32,15 @@ through, in the order it routes them.
   access-pattern fixes generalize) while **code/config/ISA do not** (the BW ceiling cache→DRAM, the compute ISA
   AVX↔AMX, and the per-M config are earned fresh — AVX-512 often beats AMX at M=1 where tiles underfill). Gate:
   **best-case per M, bit-exact throughout, no regression at the throughput point M=B.**
+- **The best ISA is per-(target, shape, M) — probe it, sweep it, dispatch adaptively.** AMX is *not* always best:
+  it underfills **narrow or small-M GEMMs** where AVX-512 wins. **Probe** the target's CPUID flags
+  (`uarch-perf-probe`; never infer the ISA from the part name — EMR has AMX **and** AVX-512-bf16/fp16; a client
+  like Panther Lake has **no AMX**), **M-sweep** each candidate ISA at the real GEMM shape, **find the crossover**,
+  and **dispatch the per-M optimum**. The donor dispatches its own ISA; your authored glue owns its ISA and needs
+  an AVX2/scalar fallback for AMX/AVX-512-less targets. **Conformance-gate the switch** (ISA paths aren't
+  bit-exact; a precision change like fp32-vs-bf16 is Phase-3-gated on *realistic* distributions; a dtype proxy
+  like fp16-for-bf16 is perf-only). *Worked: indexer score GEMM — AVX-512 wins 2.6×@M1→AMX@M64 (narrow K=128/N=64);
+  counter-example: sparse's fat GEMMs are already AMX-optimal, so the rule excludes them.*
 - **Tiling has two faces — overhead *and* reuse.** Sharding into tiles fills cores and cuts per-call overhead
   (fewer/bigger tiles at low M), but a tile also lets you **reuse a loaded operand from cache instead of
   re-reading it from DRAM**. Where an operand is re-read (BW-bound, reuse factor > 1), block/order the loop so
