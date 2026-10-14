@@ -1,0 +1,78 @@
+{
+ "indexer logits": [
+  [
+   "torch",
+   909
+  ],
+  [
+   "brgemm + fused epi",
+   343
+  ],
+  [
+   "512-bit flags",
+   293
+  ],
+  [
+   "fused q-prep + adaptive tile",
+   212
+  ]
+ ],
+ "compressor": [
+  [
+   "torch",
+   328
+  ],
+  [
+   "stream softmax + C1",
+   284
+  ],
+  [
+   "hand-exp Cephes (D1)",
+   64
+  ]
+ ],
+ "sparse attend": [
+  [
+   "torch",
+   740
+  ],
+  [
+   "fp32 bmm + fused softmax",
+   541
+  ],
+  [
+   "hand-exp Cephes",
+   465
+  ]
+ ],
+ "indexer top-k": [
+  [
+   "torch",
+   511
+  ],
+  [
+   "nth_element + chunked",
+   40
+  ]
+ ],
+ "MHC sinkhorn": [
+  [
+   "torch",
+   616
+  ],
+  [
+   "fused recurrence",
+   26
+  ]
+ ],
+ "MHC combine": [
+  [
+   "torch",
+   62
+  ],
+  [
+   "accumulate-once + AVX-512",
+   27
+  ]
+ ]
+}

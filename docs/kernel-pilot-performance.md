@@ -516,6 +516,30 @@ and the hc-fold redundant y traffic.
 
 ## 4. Re-optimization wave — streaming journeys for every kernel
 
+![Optimization journey per kernel — how each lever built the final speed-up](plots/kernel_journeys_v1.png)
+
+Every authored kernel's **optimization journey** — the latency after each named lever, from the torch baseline
+to the shipped kernel (M=32 streaming) — maintained as the levers land, so the per-kernel record shows *how*
+the speed-up was built (not just the endpoints). Data: [kernel_journeys.json](../plugin/validate/results/kernel_journeys.json)
+(regenerate: `make_kernel_journeys.py`).
+
+#### New opportunities from the DSA *dataflow* view (upside vs roofline)
+
+DeepSeek Sparse Attention is a **4-kernel pipeline** — compressor → indexer_logits → top-k → sparse-attend
+(externally verified against the DeepSeek-V3.2 spec + our coverage report) — so the kernels must be read **in
+context**, not as islands. Placing them in the graph **re-prioritizes** the backlog:
+
+| opportunity | kernel | upside vs roofline | priority | status |
+|---|---|---|---|---|
+| **ISA-adaptive AVX-512** | indexer_logits | **2.73×@M1** (160→59 µs) ≈ **85% of the nominal DRAM roof** at the decode floor; tie@M32 | **HIGH** — the indexer is the **long-context bottleneck** (scales with seq-length S) | measured; precision-gated → Phase-3 / `dpbf16` |
+| **logits→top-k streaming fusion** | indexer + top-k | ~0 at S=1024 (logits tensor 128 KB) but **grows with S** (the length-S logits DRAM round-trip) — a **long-context** lever that standalone S=1024 hides | MED (context-dependent) | untested — scope at the real deployment S |
+| **pipeline-dtype re-test** | sparse attend | LOW — the bf16-KV sim already showed casts aren't the whole wall (softmax + AMX-underutil remain, 7.5× off the bf16 roof); and sparse is **bounded by top-k** (constant cost, *not* the bottleneck) | **LOW** — deprioritize; the bf16 prize needs a flash rewrite, not a dtype swap | one confirming measurement, then close |
+| **fp8 indexer-query** | (missing op) | small direct perf (query is tiny); it is the architecture's *intended* precision | LOW (coverage) | GAP — op not yet on CPU |
+
+**Graph-view headline:** the **indexer** scales with context and is the real DSA bottleneck → its AVX-512
+adaptive path is the top lever; **sparse** is bounded by top-k and already near its practical ceiling →
+deprioritize. A standalone per-kernel % would have ranked these differently — the architecture view corrects it.
+
 Applying the compressor learnings (512-bit build flags, `objdump` ISA check, hand-inlined Cephes `exp` where
 exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parallel wave, consolidated and
 **3-replicate cross-run median** (EMR jobs 385457–59). Latencies are **streaming** at M=32 — the reliable number.

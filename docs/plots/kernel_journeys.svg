@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 640" width="1180" height="640" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+<rect width="1180" height="640" fill="#ffffff"/>
+<text x="58" y="34" font-size="21" font-weight="700" fill="#0b2447">Optimization journey per kernel — how each lever built the final speed-up</text>
+<text x="58" y="58" font-size="13" fill="#5b6b80">M=32 streaming (LLC-flushed) latency after each named lever, 3-replicate median (EMR). First bar = torch baseline; last = shipped. x = cumulative speedup vs torch. Lower is better.</text>
+<line x1="58" y1="490.0" x2="1160" y2="490.0" stroke="#eef2f7"/>
+<text x="52" y="494.0" font-size="11" fill="#9db0c6" text-anchor="end">16</text>
+<line x1="58" y1="423.8" x2="1160" y2="423.8" stroke="#eef2f7"/>
+<text x="52" y="427.8" font-size="11" fill="#9db0c6" text-anchor="end">32</text>
+<line x1="58" y1="357.6" x2="1160" y2="357.6" stroke="#eef2f7"/>
+<text x="52" y="361.6" font-size="11" fill="#9db0c6" text-anchor="end">64</text>
+<line x1="58" y1="291.4" x2="1160" y2="291.4" stroke="#eef2f7"/>
+<text x="52" y="295.4" font-size="11" fill="#9db0c6" text-anchor="end">128</text>
+<line x1="58" y1="225.2" x2="1160" y2="225.2" stroke="#eef2f7"/>
+<text x="52" y="229.2" font-size="11" fill="#9db0c6" text-anchor="end">256</text>
+<line x1="58" y1="159.0" x2="1160" y2="159.0" stroke="#eef2f7"/>
+<text x="52" y="163.0" font-size="11" fill="#9db0c6" text-anchor="end">512</text>
+<line x1="58" y1="92.8" x2="1160" y2="92.8" stroke="#eef2f7"/>
+<text x="52" y="96.8" font-size="11" fill="#9db0c6" text-anchor="end">1024</text>
+<text x="16" y="288" font-size="12" fill="#5b6b80" transform="rotate(-90 16 288)" text-anchor="middle">latency µs (log)</text>
+<rect x="58.0" y="104.2" width="33.0" height="385.8" fill="#d62728" rx="2"/>
+<text x="74.5" y="99.2" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">909</text>
+<text x="74.5" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 74.5 498.0)">torch</text>
+<rect x="101.0" y="197.3" width="33.0" height="292.7" fill="#e8873a" rx="2"/>
+<text x="117.5" y="192.3" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">343</text>
+<text x="117.5" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 117.5 498.0)">brgemm + fused epi</text>
+<rect x="144.0" y="212.3" width="33.0" height="277.7" fill="#6a8ec9" rx="2"/>
+<text x="160.5" y="207.3" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">293</text>
+<text x="160.5" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 160.5 498.0)">512-bit flags</text>
+<rect x="187.0" y="243.2" width="33.0" height="246.8" fill="#1f77b4" rx="2"/>
+<text x="203.5" y="238.2" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">212</text>
+<text x="203.5" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 203.5 498.0)">fused q-prep + adaptive tile</text>
+<text x="139.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">indexer logits</text>
+<text x="139.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">4.3×</text>
+<rect x="248.0" y="201.6" width="46.0" height="288.4" fill="#d62728" rx="2"/>
+<text x="271.0" y="196.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">328</text>
+<text x="271.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 271.0 498.0)">torch</text>
+<rect x="304.0" y="215.3" width="46.0" height="274.7" fill="#e8873a" rx="2"/>
+<text x="327.0" y="210.3" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">284</text>
+<text x="327.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 327.0 498.0)">stream softmax + C1</text>
+<rect x="360.0" y="357.6" width="46.0" height="132.4" fill="#1f77b4" rx="2"/>
+<text x="383.0" y="352.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">64</text>
+<text x="383.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 383.0 498.0)">hand-exp Cephes (D1)</text>
+<text x="327.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">compressor</text>
+<text x="327.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">5.1×</text>
+<rect x="436.0" y="123.9" width="46.0" height="366.1" fill="#d62728" rx="2"/>
+<text x="459.0" y="118.9" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">740</text>
+<text x="459.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 459.0 498.0)">torch</text>
+<rect x="492.0" y="153.8" width="46.0" height="336.2" fill="#e8873a" rx="2"/>
+<text x="515.0" y="148.8" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">541</text>
+<text x="515.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 515.0 498.0)">fp32 bmm + fused softmax</text>
+<rect x="548.0" y="168.2" width="46.0" height="321.8" fill="#1f77b4" rx="2"/>
+<text x="571.0" y="163.2" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">465</text>
+<text x="571.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 571.0 498.0)">hand-exp Cephes</text>
+<text x="515.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">sparse attend</text>
+<text x="515.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">1.6×</text>
+<rect x="652.0" y="159.2" width="46.0" height="330.8" fill="#d62728" rx="2"/>
+<text x="675.0" y="154.2" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">511</text>
+<text x="675.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 675.0 498.0)">torch</text>
+<rect x="708.0" y="402.5" width="46.0" height="87.5" fill="#1f77b4" rx="2"/>
+<text x="731.0" y="397.5" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">40</text>
+<text x="731.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 731.0 498.0)">nth_element + chunked</text>
+<text x="703.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">indexer top-k</text>
+<text x="703.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">12.8×</text>
+<rect x="840.0" y="141.4" width="46.0" height="348.6" fill="#d62728" rx="2"/>
+<text x="863.0" y="136.4" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">616</text>
+<text x="863.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 863.0 498.0)">torch</text>
+<rect x="896.0" y="443.6" width="46.0" height="46.4" fill="#1f77b4" rx="2"/>
+<text x="919.0" y="438.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">26</text>
+<text x="919.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 919.0 498.0)">fused recurrence</text>
+<text x="891.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">MHC sinkhorn</text>
+<text x="891.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">23.7×</text>
+<rect x="1028.0" y="360.6" width="46.0" height="129.4" fill="#d62728" rx="2"/>
+<text x="1051.0" y="355.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">62</text>
+<text x="1051.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 1051.0 498.0)">torch</text>
+<rect x="1084.0" y="440.0" width="46.0" height="50.0" fill="#1f77b4" rx="2"/>
+<text x="1107.0" y="435.0" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">27</text>
+<text x="1107.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 1107.0 498.0)">accumulate-once + AVX-512</text>
+<text x="1079.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">MHC combine</text>
+<text x="1079.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">2.3×</text>
+</svg>
