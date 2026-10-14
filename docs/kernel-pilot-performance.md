@@ -516,11 +516,13 @@ and the hc-fold redundant y traffic.
 
 ## 4. Re-optimization wave — streaming journeys for every kernel
 
-![Optimization journey per kernel — how each lever built the final speed-up](plots/kernel_journeys_v1.png)
+![Optimization journey per kernel — baseline → successive levers → roofline ceiling](plots/kernel_journeys_v2.png)
 
-Every authored kernel's **optimization journey** — the latency after each named lever, from the torch baseline
-to the shipped kernel (M=32 streaming) — maintained as the levers land, so the per-kernel record shows *how*
-the speed-up was built (not just the endpoints). Data: [kernel_journeys.json](../plugin/validate/results/kernel_journeys.json)
+Every authored kernel's **optimization journey** against its **roofline ceiling** — the latency after each named
+lever (torch baseline → shipped, M=32 streaming), with each kernel's bars descending toward its **operative-floor
+line** (purple dashed) and labelled with the cumulative speed-up (×) and **% of roofline** (or *at ceiling*).
+Maintained as the levers land, so the per-kernel record shows *how* the speed-up was built **and how close it got
+to the achievable floor**. Data: [kernel_journeys.json](../plugin/validate/results/kernel_journeys.json)
 (regenerate: `make_kernel_journeys.py`).
 
 #### New opportunities from the DSA *dataflow* view (upside vs roofline)

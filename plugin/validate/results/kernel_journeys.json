@@ -1,78 +1,102 @@
 {
- "indexer logits": [
-  [
-   "torch",
-   909
+ "indexer logits": {
+  "stages": [
+   [
+    "torch",
+    909
+   ],
+   [
+    "brgemm + fused epi",
+    343
+   ],
+   [
+    "512-bit flags",
+    293
+   ],
+   [
+    "fused q-prep + adaptive tile",
+    212
+   ]
   ],
-  [
-   "brgemm + fused epi",
-   343
+  "floor": 110,
+  "kind": "operative (GEMM/dispatch)"
+ },
+ "compressor": {
+  "stages": [
+   [
+    "torch",
+    328
+   ],
+   [
+    "stream softmax + C1",
+    284
+   ],
+   [
+    "hand-exp Cephes (D1)",
+    64
+   ]
   ],
-  [
-   "512-bit flags",
-   293
+  "floor": 48,
+  "kind": "DRAM-BW"
+ },
+ "sparse attend": {
+  "stages": [
+   [
+    "torch",
+    740
+   ],
+   [
+    "fp32 bmm + fused softmax",
+    541
+   ],
+   [
+    "hand-exp Cephes",
+    465
+   ]
   ],
-  [
-   "fused q-prep + adaptive tile",
-   212
-  ]
- ],
- "compressor": [
-  [
-   "torch",
-   328
+  "floor": 276,
+  "kind": "fp32 compute"
+ },
+ "indexer top-k": {
+  "stages": [
+   [
+    "torch",
+    511
+   ],
+   [
+    "nth_element + chunked",
+    40
+   ]
   ],
-  [
-   "stream softmax + C1",
-   284
+  "floor": 40,
+  "kind": "selection"
+ },
+ "MHC sinkhorn": {
+  "stages": [
+   [
+    "torch",
+    616
+   ],
+   [
+    "fused recurrence",
+    26
+   ]
   ],
-  [
-   "hand-exp Cephes (D1)",
-   64
-  ]
- ],
- "sparse attend": [
-  [
-   "torch",
-   740
+  "floor": 26,
+  "kind": "dispatch"
+ },
+ "MHC combine": {
+  "stages": [
+   [
+    "torch",
+    62
+   ],
+   [
+    "accumulate-once + AVX-512",
+    27
+   ]
   ],
-  [
-   "fp32 bmm + fused softmax",
-   541
-  ],
-  [
-   "hand-exp Cephes",
-   465
-  ]
- ],
- "indexer top-k": [
-  [
-   "torch",
-   511
-  ],
-  [
-   "nth_element + chunked",
-   40
-  ]
- ],
- "MHC sinkhorn": [
-  [
-   "torch",
-   616
-  ],
-  [
-   "fused recurrence",
-   26
-  ]
- ],
- "MHC combine": [
-  [
-   "torch",
-   62
-  ],
-  [
-   "accumulate-once + AVX-512",
-   27
-  ]
- ]
+  "floor": 26,
+  "kind": "operative-BW"
+ }
 }

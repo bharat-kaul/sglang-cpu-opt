@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 640" width="1180" height="640" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
 <rect width="1180" height="640" fill="#ffffff"/>
 <text x="58" y="34" font-size="21" font-weight="700" fill="#0b2447">Optimization journey per kernel — how each lever built the final speed-up</text>
-<text x="58" y="58" font-size="13" fill="#5b6b80">M=32 streaming (LLC-flushed) latency after each named lever, 3-replicate median (EMR). First bar = torch baseline; last = shipped. x = cumulative speedup vs torch. Lower is better.</text>
+<text x="58" y="58" font-size="13" fill="#5b6b80">M=32 streaming (LLC-flushed) latency after each named lever, 3-replicate median (EMR). First bar = torch baseline; bars descend toward the dashed ROOFLINE / operative-floor ceiling. Green × = speed-up vs torch; blue % = of the roofline (or &#x27;at ceiling&#x27;). Lower is better.</text>
 <line x1="58" y1="490.0" x2="1160" y2="490.0" stroke="#eef2f7"/>
 <text x="52" y="494.0" font-size="11" fill="#9db0c6" text-anchor="end">16</text>
 <line x1="58" y1="423.8" x2="1160" y2="423.8" stroke="#eef2f7"/>
@@ -29,8 +29,10 @@
 <rect x="187.0" y="243.2" width="33.0" height="246.8" fill="#1f77b4" rx="2"/>
 <text x="203.5" y="238.2" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">212</text>
 <text x="203.5" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 203.5 498.0)">fused q-prep + adaptive tile</text>
+<line x1="64.0" y1="305.9" x2="214.0" y2="305.9" stroke="#8a3ffb" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="214.0" y="301.9" font-size="9.5" fill="#8a3ffb" text-anchor="end">roofline 110 · operative (GEMM/dispatch)</text>
 <text x="139.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">indexer logits</text>
-<text x="139.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">4.3×</text>
+<text x="139.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">4.3×  <tspan fill="#8a3ffb">52% of roof</tspan></text>
 <rect x="248.0" y="201.6" width="46.0" height="288.4" fill="#d62728" rx="2"/>
 <text x="271.0" y="196.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">328</text>
 <text x="271.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 271.0 498.0)">torch</text>
@@ -40,8 +42,10 @@
 <rect x="360.0" y="357.6" width="46.0" height="132.4" fill="#1f77b4" rx="2"/>
 <text x="383.0" y="352.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">64</text>
 <text x="383.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 383.0 498.0)">hand-exp Cephes (D1)</text>
+<line x1="252.0" y1="385.1" x2="402.0" y2="385.1" stroke="#8a3ffb" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="402.0" y="381.1" font-size="9.5" fill="#8a3ffb" text-anchor="end">roofline 48 · DRAM-BW</text>
 <text x="327.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">compressor</text>
-<text x="327.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">5.1×</text>
+<text x="327.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">5.1×  <tspan fill="#8a3ffb">75% of roof</tspan></text>
 <rect x="436.0" y="123.9" width="46.0" height="366.1" fill="#d62728" rx="2"/>
 <text x="459.0" y="118.9" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">740</text>
 <text x="459.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 459.0 498.0)">torch</text>
@@ -51,30 +55,38 @@
 <rect x="548.0" y="168.2" width="46.0" height="321.8" fill="#1f77b4" rx="2"/>
 <text x="571.0" y="163.2" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">465</text>
 <text x="571.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 571.0 498.0)">hand-exp Cephes</text>
+<line x1="440.0" y1="218.0" x2="590.0" y2="218.0" stroke="#8a3ffb" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="590.0" y="214.0" font-size="9.5" fill="#8a3ffb" text-anchor="end">roofline 276 · fp32 compute</text>
 <text x="515.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">sparse attend</text>
-<text x="515.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">1.6×</text>
+<text x="515.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">1.6×  <tspan fill="#8a3ffb">59% of roof</tspan></text>
 <rect x="652.0" y="159.2" width="46.0" height="330.8" fill="#d62728" rx="2"/>
 <text x="675.0" y="154.2" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">511</text>
 <text x="675.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 675.0 498.0)">torch</text>
 <rect x="708.0" y="402.5" width="46.0" height="87.5" fill="#1f77b4" rx="2"/>
 <text x="731.0" y="397.5" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">40</text>
 <text x="731.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 731.0 498.0)">nth_element + chunked</text>
+<line x1="628.0" y1="402.5" x2="778.0" y2="402.5" stroke="#8a3ffb" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="778.0" y="398.5" font-size="9.5" fill="#8a3ffb" text-anchor="end">roofline 40 · selection</text>
 <text x="703.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">indexer top-k</text>
-<text x="703.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">12.8×</text>
+<text x="703.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">12.8×  <tspan fill="#8a3ffb">at ceiling</tspan></text>
 <rect x="840.0" y="141.4" width="46.0" height="348.6" fill="#d62728" rx="2"/>
 <text x="863.0" y="136.4" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">616</text>
 <text x="863.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 863.0 498.0)">torch</text>
 <rect x="896.0" y="443.6" width="46.0" height="46.4" fill="#1f77b4" rx="2"/>
 <text x="919.0" y="438.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">26</text>
 <text x="919.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 919.0 498.0)">fused recurrence</text>
+<line x1="816.0" y1="443.6" x2="966.0" y2="443.6" stroke="#8a3ffb" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="966.0" y="439.6" font-size="9.5" fill="#8a3ffb" text-anchor="end">roofline 26 · dispatch</text>
 <text x="891.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">MHC sinkhorn</text>
-<text x="891.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">23.7×</text>
+<text x="891.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">23.7×  <tspan fill="#8a3ffb">at ceiling</tspan></text>
 <rect x="1028.0" y="360.6" width="46.0" height="129.4" fill="#d62728" rx="2"/>
 <text x="1051.0" y="355.6" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">62</text>
 <text x="1051.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 1051.0 498.0)">torch</text>
 <rect x="1084.0" y="440.0" width="46.0" height="50.0" fill="#1f77b4" rx="2"/>
 <text x="1107.0" y="435.0" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">27</text>
 <text x="1107.0" y="498.0" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 1107.0 498.0)">accumulate-once + AVX-512</text>
+<line x1="1004.0" y1="443.6" x2="1154.0" y2="443.6" stroke="#8a3ffb" stroke-width="2" stroke-dasharray="5 3"/>
+<text x="1154.0" y="439.6" font-size="9.5" fill="#8a3ffb" text-anchor="end">roofline 26 · operative-BW</text>
 <text x="1079.0" y="76.0" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">MHC combine</text>
-<text x="1079.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">2.3×</text>
+<text x="1079.0" y="94.0" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">2.3×  <tspan fill="#8a3ffb">at ceiling</tspan></text>
 </svg>

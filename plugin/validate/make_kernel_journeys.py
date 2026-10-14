@@ -14,17 +14,20 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Each kernel: ordered [(lever label, M=32 streaming us)], first = torch baseline, last = shipped final.
+# Each kernel: stages = ordered [(lever label, M=32 streaming us)] (first=torch, last=shipped); floor = the
+# OPERATIVE roofline ceiling us (the honest achievable floor for the kernel's regime, not the nominal byte/FLOP
+# roof where that is the wrong ceiling); kind = short label for the floor line.
 JOURNEYS = {
-    "indexer logits": [("torch", 909), ("brgemm + fused epi", 343), ("512-bit flags", 293), ("fused q-prep + adaptive tile", 212)],
-    "compressor": [("torch", 328), ("stream softmax + C1", 284), ("hand-exp Cephes (D1)", 64)],
-    "sparse attend": [("torch", 740), ("fp32 bmm + fused softmax", 541), ("hand-exp Cephes", 465)],
-    "indexer top-k": [("torch", 511), ("nth_element + chunked", 40)],
-    "MHC sinkhorn": [("torch", 616), ("fused recurrence", 26)],
-    "MHC combine": [("torch", 62), ("accumulate-once + AVX-512", 27)],
+    "indexer logits": {"stages": [("torch", 909), ("brgemm + fused epi", 343), ("512-bit flags", 293), ("fused q-prep + adaptive tile", 212)], "floor": 110, "kind": "operative (GEMM/dispatch)"},
+    "compressor": {"stages": [("torch", 328), ("stream softmax + C1", 284), ("hand-exp Cephes (D1)", 64)], "floor": 48, "kind": "DRAM-BW"},
+    "sparse attend": {"stages": [("torch", 740), ("fp32 bmm + fused softmax", 541), ("hand-exp Cephes", 465)], "floor": 276, "kind": "fp32 compute"},
+    "indexer top-k": {"stages": [("torch", 511), ("nth_element + chunked", 40)], "floor": 40, "kind": "selection"},
+    "MHC sinkhorn": {"stages": [("torch", 616), ("fused recurrence", 26)], "floor": 26, "kind": "dispatch"},
+    "MHC combine": {"stages": [("torch", 62), ("accumulate-once + AVX-512", 27)], "floor": 26, "kind": "operative-BW"},
 }
-SUBTITLE = ("M=32 streaming (LLC-flushed) latency after each named lever, 3-replicate median (EMR). "
-            "First bar = torch baseline; last = shipped. x = cumulative speedup vs torch. Lower is better.")
+SUBTITLE = ("M=32 streaming (LLC-flushed) latency after each named lever, 3-replicate median (EMR). First bar = "
+            "torch baseline; bars descend toward the dashed ROOFLINE / operative-floor ceiling. Green × = speed-up "
+            "vs torch; blue % = of the roofline (or 'at ceiling'). Lower is better.")
 
 
 def esc(s):
@@ -57,7 +60,8 @@ def build_svg():
     gw = (plotW - gap * (n - 1)) / n
     pal = ["#d62728", "#e8873a", "#6a8ec9", "#1f77b4"]          # baseline -> ... -> final
     gx = padL
-    for name, stages in JOURNEYS.items():
+    for name, d in JOURNEYS.items():
+        stages, floor = d["stages"], d["floor"]
         m = len(stages)
         bw = min(46, (gw - 10 * (m - 1)) / m)
         inner = m * bw + 10 * (m - 1)
@@ -69,12 +73,16 @@ def build_svg():
             yy = ly(v)
             s.append(f'<rect x="{bx:.1f}" y="{yy:.1f}" width="{bw:.1f}" height="{y0-yy:.1f}" fill="{col}" rx="2"/>')
             s.append(f'<text x="{bx+bw/2:.1f}" y="{yy-5:.1f}" font-size="11" font-weight="600" fill="#31465e" text-anchor="middle">{v}</text>')
-            # lever label under bar, rotated
             s.append(f'<text x="{bx+bw/2:.1f}" y="{y0+8:.1f}" font-size="10" fill="#5b6b80" text-anchor="end" transform="rotate(-38 {bx+bw/2:.1f} {y0+8:.1f})">{esc(lab)}</text>')
             bx += bw + 10
-        # kernel name + cumulative speedup
+        # roofline / operative-floor ceiling: dashed line the bars descend toward
+        fy = ly(floor)
+        s.append(f'<line x1="{gx+6:.1f}" y1="{fy:.1f}" x2="{gx+gw-6:.1f}" y2="{fy:.1f}" stroke="#8a3ffb" stroke-width="2" stroke-dasharray="5 3"/>')
+        s.append(f'<text x="{gx+gw-6:.1f}" y="{fy-4:.1f}" font-size="9.5" fill="#8a3ffb" text-anchor="end">roofline {floor} \u00b7 {esc(d["kind"])}</text>')
+        pct = 100.0 * floor / final
+        roof_lbl = "at ceiling" if pct >= 80 else f"{pct:.0f}% of roof"
         s.append(f'<text x="{gx+gw/2:.1f}" y="{padT-10:.1f}" font-size="13" font-weight="700" fill="#0b2447" text-anchor="middle">{esc(name)}</text>')
-        s.append(f'<text x="{gx+gw/2:.1f}" y="{padT+8:.1f}" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">{base/final:.1f}\u00d7</text>')
+        s.append(f'<text x="{gx+gw/2:.1f}" y="{padT+8:.1f}" font-size="12" font-weight="700" fill="#1d9b62" text-anchor="middle">{base/final:.1f}\u00d7  <tspan fill="#8a3ffb">{roof_lbl}</tspan></text>')
         gx += gw + gap
     s.append('</svg>')
     return "\n".join(s)
