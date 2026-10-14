@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 656" width="1180" height="656" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+<rect width="1180" height="656" fill="#ffffff"/>
+<text x="26" y="34" font-size="21" font-weight="700" fill="#0b2447">Optimization journey across the M sweep — how the speed-up holds vs batch</text>
+<text x="26" y="56" font-size="13" fill="#5b6b80">Baseline (torch) vs shipped kernel across the M=1..64 sweep, streaming (LLC-flushed), 3-replicate median (EMR). Gap between the lines = speed-up; it</text>
+<text x="26" y="73" font-size="13" fill="#5b6b80">MOVES with M (adaptive tile, low-M serial dispatch, ISA crossover). Dashed = nominal roofline floor where that is the right ceiling. Log-log; lower is</text>
+<text x="26" y="90" font-size="13" fill="#5b6b80">better.</text>
+<line x1="26" y1="98" x2="48" y2="98" stroke="#d1495b" stroke-width="2.5"/><text x="54" y="102" font-size="12" fill="#444">torch baseline</text>
+<line x1="176" y1="98" x2="198" y2="98" stroke="#1d7874" stroke-width="2.5"/><text x="204" y="102" font-size="12" fill="#444">shipped kernel</text>
+<line x1="326" y1="98" x2="348" y2="98" stroke="#6a4c93" stroke-width="2" stroke-dasharray="5 4"/><text x="354" y="102" font-size="12" fill="#444">nominal roofline floor</text>
+<rect x="78" y="160" width="294" height="142" fill="#fbfcfe" stroke="#e6ecf3"/>
+<line x1="78" y1="297.0" x2="372" y2="297.0" stroke="#eef2f7"/>
+<text x="73" y="301.0" font-size="10" fill="#9db0c6" text-anchor="end">10</text>
+<line x1="78" y1="245.2" x2="372" y2="245.2" stroke="#eef2f7"/>
+<text x="73" y="249.2" font-size="10" fill="#9db0c6" text-anchor="end">100</text>
+<line x1="78" y1="193.3" x2="372" y2="193.3" stroke="#eef2f7"/>
+<text x="73" y="197.3" font-size="10" fill="#9db0c6" text-anchor="end">1000</text>
+<text x="78.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">1</text>
+<text x="127.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">2</text>
+<text x="176.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">4</text>
+<text x="225.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">8</text>
+<text x="274.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">16</text>
+<text x="323.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">32</text>
+<text x="372.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">64</text>
+<text x="225.0" y="335.0" font-size="11" fill="#5b6b80" text-anchor="middle">batch M (tokens, log₂)</text>
+<polyline points="78.0,302.0 127.0,302.0 176.0,302.0 225.0,291.9 274.0,276.3 323.0,260.7 372.0,245.1" fill="none" stroke="#6a4c93" stroke-width="1.8" stroke-dasharray="5 4" opacity="0.9"/>
+<polyline points="78.0,161.2 127.0,223.1 176.0,222.5 225.0,221.2 274.0,195.3 323.0,195.5 372.0,203.5" fill="none" stroke="#d1495b" stroke-width="2.4"/>
+<polyline points="78.0,232.0 127.0,238.0 176.0,237.3 225.0,235.6 274.0,233.5 323.0,228.3 372.0,219.0" fill="none" stroke="#1d7874" stroke-width="2.4"/>
+<circle cx="78.0" cy="161.2" r="2.4" fill="#d1495b"/>
+<circle cx="127.0" cy="223.1" r="2.4" fill="#d1495b"/>
+<circle cx="176.0" cy="222.5" r="2.4" fill="#d1495b"/>
+<circle cx="225.0" cy="221.2" r="2.4" fill="#d1495b"/>
+<circle cx="274.0" cy="195.3" r="2.4" fill="#d1495b"/>
+<circle cx="323.0" cy="195.5" r="2.4" fill="#d1495b"/>
+<circle cx="372.0" cy="203.5" r="2.4" fill="#d1495b"/>
+<circle cx="78.0" cy="232.0" r="2.4" fill="#1d7874"/>
+<circle cx="127.0" cy="238.0" r="2.4" fill="#1d7874"/>
+<circle cx="176.0" cy="237.3" r="2.4" fill="#1d7874"/>
+<circle cx="225.0" cy="235.6" r="2.4" fill="#1d7874"/>
+<circle cx="274.0" cy="233.5" r="2.4" fill="#1d7874"/>
+<circle cx="323.0" cy="228.3" r="2.4" fill="#1d7874"/>
+<circle cx="372.0" cy="219.0" r="2.4" fill="#1d7874"/>
+<text x="78" y="133.0" font-size="14" font-weight="700" fill="#0b2447">indexer logits</text>
+<text x="78" y="150.0" font-size="11.5" fill="#1d7874">1.9–23.2× across M · GEMM roofline</text>
+<rect x="460" y="160" width="294" height="142" fill="#fbfcfe" stroke="#e6ecf3"/>
+<line x1="460" y1="297.0" x2="754" y2="297.0" stroke="#eef2f7"/>
+<text x="455" y="301.0" font-size="10" fill="#9db0c6" text-anchor="end">10</text>
+<line x1="460" y1="245.2" x2="754" y2="245.2" stroke="#eef2f7"/>
+<text x="455" y="249.2" font-size="10" fill="#9db0c6" text-anchor="end">100</text>
+<line x1="460" y1="193.3" x2="754" y2="193.3" stroke="#eef2f7"/>
+<text x="455" y="197.3" font-size="10" fill="#9db0c6" text-anchor="end">1000</text>
+<text x="460.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">1</text>
+<text x="509.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">2</text>
+<text x="558.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">4</text>
+<text x="607.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">8</text>
+<text x="656.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">16</text>
+<text x="705.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">32</text>
+<text x="754.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">64</text>
+<text x="607.0" y="335.0" font-size="11" fill="#5b6b80" text-anchor="middle">batch M (tokens, log₂)</text>
+<polyline points="460.0,302.0 509.0,302.0 558.0,302.0 607.0,292.0 656.0,277.1 705.0,261.8 754.0,246.4" fill="none" stroke="#6a4c93" stroke-width="1.8" stroke-dasharray="5 4" opacity="0.9"/>
+<polyline points="460.0,223.9 509.0,237.5 558.0,233.3 607.0,229.8 656.0,224.6 705.0,218.4 754.0,215.6" fill="none" stroke="#d1495b" stroke-width="2.4"/>
+<polyline points="460.0,275.5 509.0,274.4 558.0,272.1 607.0,267.7 656.0,262.9 705.0,255.3 754.0,245.0" fill="none" stroke="#1d7874" stroke-width="2.4"/>
+<circle cx="460.0" cy="223.9" r="2.4" fill="#d1495b"/>
+<circle cx="509.0" cy="237.5" r="2.4" fill="#d1495b"/>
+<circle cx="558.0" cy="233.3" r="2.4" fill="#d1495b"/>
+<circle cx="607.0" cy="229.8" r="2.4" fill="#d1495b"/>
+<circle cx="656.0" cy="224.6" r="2.4" fill="#d1495b"/>
+<circle cx="705.0" cy="218.4" r="2.4" fill="#d1495b"/>
+<circle cx="754.0" cy="215.6" r="2.4" fill="#d1495b"/>
+<circle cx="460.0" cy="275.5" r="2.4" fill="#1d7874"/>
+<circle cx="509.0" cy="274.4" r="2.4" fill="#1d7874"/>
+<circle cx="558.0" cy="272.1" r="2.4" fill="#1d7874"/>
+<circle cx="607.0" cy="267.7" r="2.4" fill="#1d7874"/>
+<circle cx="656.0" cy="262.9" r="2.4" fill="#1d7874"/>
+<circle cx="705.0" cy="255.3" r="2.4" fill="#1d7874"/>
+<circle cx="754.0" cy="245.0" r="2.4" fill="#1d7874"/>
+<text x="460" y="133.0" font-size="14" font-weight="700" fill="#0b2447">compressor</text>
+<text x="460" y="150.0" font-size="11.5" fill="#1d7874">3.7–9.9× across M · DRAM-BW roofline</text>
+<rect x="842" y="160" width="294" height="142" fill="#fbfcfe" stroke="#e6ecf3"/>
+<line x1="842" y1="297.0" x2="1136" y2="297.0" stroke="#eef2f7"/>
+<text x="837" y="301.0" font-size="10" fill="#9db0c6" text-anchor="end">10</text>
+<line x1="842" y1="245.2" x2="1136" y2="245.2" stroke="#eef2f7"/>
+<text x="837" y="249.2" font-size="10" fill="#9db0c6" text-anchor="end">100</text>
+<line x1="842" y1="193.3" x2="1136" y2="193.3" stroke="#eef2f7"/>
+<text x="837" y="197.3" font-size="10" fill="#9db0c6" text-anchor="end">1000</text>
+<text x="842.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">1</text>
+<text x="891.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">2</text>
+<text x="940.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">4</text>
+<text x="989.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">8</text>
+<text x="1038.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">16</text>
+<text x="1087.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">32</text>
+<text x="1136.0" y="318.0" font-size="10" fill="#9db0c6" text-anchor="middle">64</text>
+<text x="989.0" y="335.0" font-size="11" fill="#5b6b80" text-anchor="middle">batch M (tokens, log₂)</text>
+<polyline points="842.0,300.3 891.0,284.7 940.0,269.1 989.0,253.5 1038.0,237.9 1087.0,222.3 1136.0,206.7" fill="none" stroke="#6a4c93" stroke-width="1.8" stroke-dasharray="5 4" opacity="0.9"/>
+<polyline points="842.0,214.4 891.0,214.7 940.0,214.5 989.0,212.5 1038.0,208.0 1087.0,200.1 1136.0,191.9" fill="none" stroke="#d1495b" stroke-width="2.4"/>
+<polyline points="842.0,244.1 891.0,240.3 940.0,238.5 989.0,230.8 1038.0,221.4 1087.0,210.6 1136.0,197.5" fill="none" stroke="#1d7874" stroke-width="2.4"/>
+<circle cx="842.0" cy="214.4" r="2.4" fill="#d1495b"/>
+<circle cx="891.0" cy="214.7" r="2.4" fill="#d1495b"/>
+<circle cx="940.0" cy="214.5" r="2.4" fill="#d1495b"/>
+<circle cx="989.0" cy="212.5" r="2.4" fill="#d1495b"/>
+<circle cx="1038.0" cy="208.0" r="2.4" fill="#d1495b"/>
+<circle cx="1087.0" cy="200.1" r="2.4" fill="#d1495b"/>
+<circle cx="1136.0" cy="191.9" r="2.4" fill="#d1495b"/>
+<circle cx="842.0" cy="244.1" r="2.4" fill="#1d7874"/>
+<circle cx="891.0" cy="240.3" r="2.4" fill="#1d7874"/>
+<circle cx="940.0" cy="238.5" r="2.4" fill="#1d7874"/>
+<circle cx="989.0" cy="230.8" r="2.4" fill="#1d7874"/>
+<circle cx="1038.0" cy="221.4" r="2.4" fill="#1d7874"/>
+<circle cx="1087.0" cy="210.6" r="2.4" fill="#1d7874"/>
+<circle cx="1136.0" cy="197.5" r="2.4" fill="#1d7874"/>
+<text x="842" y="133.0" font-size="14" font-weight="700" fill="#0b2447">sparse attend</text>
+<text x="842" y="150.0" font-size="11.5" fill="#1d7874">1.3–3.7× across M · fp32-compute roofline</text>
+<rect x="78" y="448" width="294" height="142" fill="#fbfcfe" stroke="#e6ecf3"/>
+<line x1="78" y1="585.0" x2="372" y2="585.0" stroke="#eef2f7"/>
+<text x="73" y="589.0" font-size="10" fill="#9db0c6" text-anchor="end">10</text>
+<line x1="78" y1="533.2" x2="372" y2="533.2" stroke="#eef2f7"/>
+<text x="73" y="537.2" font-size="10" fill="#9db0c6" text-anchor="end">100</text>
+<line x1="78" y1="481.3" x2="372" y2="481.3" stroke="#eef2f7"/>
+<text x="73" y="485.3" font-size="10" fill="#9db0c6" text-anchor="end">1000</text>
+<text x="78.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">1</text>
+<text x="127.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">2</text>
+<text x="176.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">4</text>
+<text x="225.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">8</text>
+<text x="274.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">16</text>
+<text x="323.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">32</text>
+<text x="372.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">64</text>
+<text x="225.0" y="623.0" font-size="11" fill="#5b6b80" text-anchor="middle">batch M (tokens, log₂)</text>
+<polyline points="78.0,567.4 127.0,567.0 176.0,548.8 225.0,533.8 274.0,512.6 323.0,496.5 372.0,495.8" fill="none" stroke="#d1495b" stroke-width="2.4"/>
+<polyline points="78.0,580.5 127.0,560.0 176.0,556.5 225.0,555.2 274.0,554.5 323.0,553.9 372.0,554.4" fill="none" stroke="#1d7874" stroke-width="2.4"/>
+<circle cx="78.0" cy="567.4" r="2.4" fill="#d1495b"/>
+<circle cx="127.0" cy="567.0" r="2.4" fill="#d1495b"/>
+<circle cx="176.0" cy="548.8" r="2.4" fill="#d1495b"/>
+<circle cx="225.0" cy="533.8" r="2.4" fill="#d1495b"/>
+<circle cx="274.0" cy="512.6" r="2.4" fill="#d1495b"/>
+<circle cx="323.0" cy="496.5" r="2.4" fill="#d1495b"/>
+<circle cx="372.0" cy="495.8" r="2.4" fill="#d1495b"/>
+<circle cx="78.0" cy="580.5" r="2.4" fill="#1d7874"/>
+<circle cx="127.0" cy="560.0" r="2.4" fill="#1d7874"/>
+<circle cx="176.0" cy="556.5" r="2.4" fill="#1d7874"/>
+<circle cx="225.0" cy="555.2" r="2.4" fill="#1d7874"/>
+<circle cx="274.0" cy="554.5" r="2.4" fill="#1d7874"/>
+<circle cx="323.0" cy="553.9" r="2.4" fill="#1d7874"/>
+<circle cx="372.0" cy="554.4" r="2.4" fill="#1d7874"/>
+<text x="78" y="421.0" font-size="14" font-weight="700" fill="#0b2447">indexer top-k</text>
+<text x="78" y="438.0" font-size="11.5" fill="#1d7874">0.7–13.5× across M · selection-bound</text>
+<rect x="460" y="448" width="294" height="142" fill="#fbfcfe" stroke="#e6ecf3"/>
+<line x1="460" y1="585.0" x2="754" y2="585.0" stroke="#eef2f7"/>
+<text x="455" y="589.0" font-size="10" fill="#9db0c6" text-anchor="end">10</text>
+<line x1="460" y1="533.2" x2="754" y2="533.2" stroke="#eef2f7"/>
+<text x="455" y="537.2" font-size="10" fill="#9db0c6" text-anchor="end">100</text>
+<line x1="460" y1="481.3" x2="754" y2="481.3" stroke="#eef2f7"/>
+<text x="455" y="485.3" font-size="10" fill="#9db0c6" text-anchor="end">1000</text>
+<text x="460.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">1</text>
+<text x="509.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">2</text>
+<text x="558.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">4</text>
+<text x="607.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">8</text>
+<text x="656.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">16</text>
+<text x="705.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">32</text>
+<text x="754.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">64</text>
+<text x="607.0" y="623.0" font-size="11" fill="#5b6b80" text-anchor="middle">batch M (tokens, log₂)</text>
+<polyline points="460.0,494.4 509.0,496.2 558.0,495.5 607.0,492.8 656.0,500.1 705.0,492.2 754.0,488.5" fill="none" stroke="#d1495b" stroke-width="2.4"/>
+<polyline points="460.0,585.9 509.0,567.0 558.0,565.1 607.0,566.1 656.0,565.9 705.0,563.0 754.0,562.2" fill="none" stroke="#1d7874" stroke-width="2.4"/>
+<circle cx="460.0" cy="494.4" r="2.4" fill="#d1495b"/>
+<circle cx="509.0" cy="496.2" r="2.4" fill="#d1495b"/>
+<circle cx="558.0" cy="495.5" r="2.4" fill="#d1495b"/>
+<circle cx="607.0" cy="492.8" r="2.4" fill="#d1495b"/>
+<circle cx="656.0" cy="500.1" r="2.4" fill="#d1495b"/>
+<circle cx="705.0" cy="492.2" r="2.4" fill="#d1495b"/>
+<circle cx="754.0" cy="488.5" r="2.4" fill="#d1495b"/>
+<circle cx="460.0" cy="585.9" r="2.4" fill="#1d7874"/>
+<circle cx="509.0" cy="567.0" r="2.4" fill="#1d7874"/>
+<circle cx="558.0" cy="565.1" r="2.4" fill="#1d7874"/>
+<circle cx="607.0" cy="566.1" r="2.4" fill="#1d7874"/>
+<circle cx="656.0" cy="565.9" r="2.4" fill="#1d7874"/>
+<circle cx="705.0" cy="563.0" r="2.4" fill="#1d7874"/>
+<circle cx="754.0" cy="562.2" r="2.4" fill="#1d7874"/>
+<text x="460" y="421.0" font-size="14" font-weight="700" fill="#0b2447">MHC sinkhorn</text>
+<text x="460" y="438.0" font-size="11.5" fill="#1d7874">18.7–58.4× across M · dispatch-bound</text>
+<rect x="842" y="448" width="294" height="142" fill="#fbfcfe" stroke="#e6ecf3"/>
+<line x1="842" y1="585.0" x2="1136" y2="585.0" stroke="#eef2f7"/>
+<text x="837" y="589.0" font-size="10" fill="#9db0c6" text-anchor="end">10</text>
+<line x1="842" y1="533.2" x2="1136" y2="533.2" stroke="#eef2f7"/>
+<text x="837" y="537.2" font-size="10" fill="#9db0c6" text-anchor="end">100</text>
+<line x1="842" y1="481.3" x2="1136" y2="481.3" stroke="#eef2f7"/>
+<text x="837" y="485.3" font-size="10" fill="#9db0c6" text-anchor="end">1000</text>
+<text x="842.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">1</text>
+<text x="891.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">2</text>
+<text x="940.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">4</text>
+<text x="989.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">8</text>
+<text x="1038.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">16</text>
+<text x="1087.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">32</text>
+<text x="1136.0" y="606.0" font-size="10" fill="#9db0c6" text-anchor="middle">64</text>
+<text x="989.0" y="623.0" font-size="11" fill="#5b6b80" text-anchor="middle">batch M (tokens, log₂)</text>
+<polyline points="842.0,548.5 891.0,542.8 940.0,544.8 989.0,543.7 1038.0,544.2 1087.0,544.0 1136.0,542.0" fill="none" stroke="#d1495b" stroke-width="2.4"/>
+<polyline points="842.0,580.7 891.0,565.6 940.0,565.3 989.0,564.9 1038.0,564.7 1087.0,562.3 1136.0,562.0" fill="none" stroke="#1d7874" stroke-width="2.4"/>
+<circle cx="842.0" cy="548.5" r="2.4" fill="#d1495b"/>
+<circle cx="891.0" cy="542.8" r="2.4" fill="#d1495b"/>
+<circle cx="940.0" cy="544.8" r="2.4" fill="#d1495b"/>
+<circle cx="989.0" cy="543.7" r="2.4" fill="#d1495b"/>
+<circle cx="1038.0" cy="544.2" r="2.4" fill="#d1495b"/>
+<circle cx="1087.0" cy="544.0" r="2.4" fill="#d1495b"/>
+<circle cx="1136.0" cy="542.0" r="2.4" fill="#d1495b"/>
+<circle cx="842.0" cy="580.7" r="2.4" fill="#1d7874"/>
+<circle cx="891.0" cy="565.6" r="2.4" fill="#1d7874"/>
+<circle cx="940.0" cy="565.3" r="2.4" fill="#1d7874"/>
+<circle cx="989.0" cy="564.9" r="2.4" fill="#1d7874"/>
+<circle cx="1038.0" cy="564.7" r="2.4" fill="#1d7874"/>
+<circle cx="1087.0" cy="562.3" r="2.4" fill="#1d7874"/>
+<circle cx="1136.0" cy="562.0" r="2.4" fill="#1d7874"/>
+<text x="842" y="421.0" font-size="14" font-weight="700" fill="#0b2447">MHC combine</text>
+<text x="842" y="438.0" font-size="11.5" fill="#1d7874">2.3–4.2× across M · operative-BW bound</text>
+</svg>

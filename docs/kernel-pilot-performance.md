@@ -525,6 +525,21 @@ Maintained as the levers land, so the per-kernel record shows *how* the speed-up
 to the achievable floor**. Data: [kernel_journeys.json](../plugin/validate/results/kernel_journeys.json)
 (regenerate: `make_kernel_journeys.py`).
 
+The bar chart above is **one operating point (M=32)**. Because several levers are **M-dependent** — the indexer's
+adaptive tile, sinkhorn's low-batch serial dispatch, the ISA crossover — the next chart plots the same journey
+**across the full M=1…64 sweep**, so the speed-up (gap between baseline and shipped) is shown *holding* (or not)
+with batch:
+
+![Optimization journey across the M sweep — how the speed-up holds vs batch](plots/kernel_journeys_msweep_v1.png)
+
+Baseline (torch) vs shipped kernel across **M=1…64**, streaming, 3-replicate median, with the **nominal roofline
+floor** overlaid where that is the right ceiling. The gap between the red and teal lines is the speed-up, and it
+**moves with M**: the indexer top-k crosses toward parity at M=1–2 (fixed selection floor vs a cheap small-batch
+torch sort), while sinkhorn/combine hold a flat dispatch-bound win across the whole sweep. This is the per-kernel
+analogue of the end-to-end wall-time-vs-M view. Data:
+[kernel_journeys_msweep.json](../plugin/validate/results/kernel_journeys_msweep.json) (regenerate:
+`make_kernel_journeys_msweep.py`).
+
 #### New opportunities from the DSA *dataflow* view (upside vs roofline)
 
 DeepSeek Sparse Attention is a **4-kernel pipeline** — compressor → indexer_logits → top-k → sparse-attend
