@@ -31,9 +31,24 @@ loading and running ~`(full_layers / proxy_layers)`× faster — and small enoug
 "Dummy weights + depth reduction is valid for perf" is TRUE for cost that is **per-layer-dominated and
 weight-value-independent**, and must NOT be asserted as a universal equivalence (playbook review #4). Before
 trusting a proxy number, check these axes and VERIFY (don't assume) when any applies:
-- **Data-dependent routing / sparsity** (MoE expert selection, top-k, early-exit): dummy weights change WHICH
-  experts/paths fire and the load balance → per-op cost shifts. Verify routing distribution vs real (or at
-  least note it); a dummy router already misled this repo once.
+- **Data-dependent routing / sparsity — the MoE *mode-collapse* trap** (MoE expert selection, top-k,
+  early-exit): a **dummy/random router routes degenerately** — it collapses the whole batch onto the *same*
+  few experts (or an unrealistically uniform spread), never the real learned distribution. This breaks **both**
+  perf and correctness, so a plain `--load-format dummy` MoE proxy is invalid until fixed:
+  - **Perf:** batched-MoE decode cost is set by the **distinct-expert working set**, which *grows with batch*
+    (`distinct_experts(B) · per_expert_layer_bytes`; see `model-roofline-analysis`). A collapsed router reads
+    **one** expert's weights for the whole batch → the measured wall-time **under-counts** the real expert
+    memory traffic and looks **falsely fast** (a spread-to-all router over-counts). The proxy must reproduce
+    the real model's expected `E(distinct experts | B)` or the tok/s is wrong at exactly the MoE op you care about.
+  - **Correctness:** a single-expert path never exercises the grouped-GEMM **gather/scatter across experts**
+    (`moe_align_block_size`, `sorted_ids`, per-expert offsets), so multi-expert routing/layout bugs stay hidden.
+  - **FIX (make the proxy INPUT induce a realistic expert distribution):** keep the **real router/gate weights**
+    (they are tiny — load them even when the *expert* weights are dummy), or seed/bias the gate so top-k hits
+    the model's expected distinct-expert count; drive **varied tokens** that spread across experts, never a
+    single repeated token/prompt. Match the real top-k and any shared-expert/grouping topology.
+  - **GATE:** measure the proxy's **distinct-expert-per-batch histogram** and confirm it matches the real
+    model's expected distribution (**not 1, not all-N**) *before* reporting any MoE wall-time or parity from
+    the proxy. *(A dummy router already misled this repo once.)*
 - **State evolution over depth** (recurrent / KDA / SSM / running KV): cost/behavior accumulates along depth,
   so depth reduction is NOT neutral — scale with care and confirm on full depth.
 - **Cache residency**: depth reduction shrinks the total weight/KV footprint → cache-fit can differ from the

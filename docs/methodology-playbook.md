@@ -171,6 +171,15 @@ flowchart LR
      linear model** `t(L) = t_fixed + L·t_layer` *per regime* (prefill/decode) — never naive
      `t_proxy/layers × full_layers`. The one full-depth dummy run **validates** the extrapolation and exposes
      residual depth-accumulating overhead to bisect (`runtime-config-tuning` for threads/affinity/NUMA/prepack).
+- **MoE proxy mode-collapse guard (when the model is MoE).** A depth-reduced **dummy-weight** proxy's random
+  router routes **degenerately** — it collapses the whole batch onto the *same* few experts, not the real
+  learned distribution — which **invalidates both the wall-time and the correctness check** until fixed:
+  batched-MoE decode cost tracks the **distinct-expert working set** (which grows with batch), so a collapsed
+  router under-counts expert memory traffic and looks **falsely fast**, and a single-expert path hides the
+  grouped-GEMM gather/scatter routing bugs. **Keep the real router/gate weights** (tiny — load them even with
+  dummy *expert* weights), drive **varied tokens** (never one repeated prompt), match the real top-k/grouping,
+  and **gate on the measured distinct-expert-per-batch histogram matching the real `E(distinct | B)`** (not 1,
+  not all-N) before trusting any MoE perf or parity from the proxy. (See `perf-proxy`.)
 - **The ceiling is the model-level throughput roofline (target measured tok/s ≥ 70–75% at *every* M).**
   Decode is memory-bound: `tok/s_roof(M) = M·BW / (W_active + M·KV_tok)`, where `W_active` = weight bytes
   read per step (**MoE-aware: active experts only**, at the checkpoint dtype) and `KV_tok` = KV bytes/token
