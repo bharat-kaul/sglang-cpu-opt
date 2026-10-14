@@ -389,3 +389,18 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
    the **indexer** scales with seq-length (the long-context bottleneck) while **sparse** is bounded by top-k;
    sparse's fp32-KV was a **standalone artifact** (the pipeline supplies bf16/fp8); and the indexer's AVX-512
    win was **pre-stated in Phase-0** but not carried forward.*
+
+**12. Benchmark the reference's *actual* algorithm/dtype/fusion — not a locally-plausible reformulation.** A
+   kernel's ceiling is the ceiling of the **algorithm the reference uses**, measured at the **dtype and fusion
+   structure it uses** — not of whatever formulation is convenient to write on CPU. External verification
+   (Phase 0) must therefore capture, from the reference source, three things beyond the op-list/shapes/edges:
+   the **algorithm** (e.g. FlashAttention-style fused gather+score+softmax+value vs a dense gather-then-two-GEMMs),
+   the **dtype flow** (e.g. fp8/bf16 *stored* KV with fused dequant vs fp32), and the **fusion boundaries** (what
+   is kept resident / never materialized to DRAM). Reconstructing a *different* formulation and measuring **its**
+   ceiling measures the **wrong wall** — and worse, a negative result obtained under that reformulation (e.g. a
+   bf16 GEMM that "lost") can be an **artifact of the reformulation** (a fp32→bf16 cast the reference never pays
+   on its natively-bf16 operand), which then wrongly **closes** a real opportunity. *Worked: DSA sparse-attend —
+   our dense-fp32 reformulation measured "compute-bound, at-ceiling," but the DeepSeek reference (`inference/
+   kernel.py` `sparse_attn_kernel`) is **flash-fused, bf16-KV-resident, nothing materialized**; the bf16 ceiling
+   is ~16× the fp32 one and the prior bf16 "loss" was the cast confound — the kernel reopened as HIGH. Likewise
+   the indexer: the reference stores index-KV **fp8**, so the traffic lever is 4× vs fp32, not 2×.*
