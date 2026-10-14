@@ -9,6 +9,15 @@ The gap between resident compute peak and streamed achievable is a data-movement
 problem. Blocking is how you close it: size the loops so the reused operand stays
 in cache and the compute unit never starves.
 
+**Reuse is general, not just GEMM.** The lever is: find any operand **re-read from
+DRAM** — a weight panel reused across output tiles, a KV latent reused across heads,
+a packed operand reused across tiles, or an intermediate kept in cache instead of
+round-tripped — and block/order the loop so it is read **once** and reused. The
+GEMM M/N/K hierarchy below is the archetype; the same **predict-then-measure**
+applies to any kernel: **predict** the DRAM-traffic cut (reuse factor = total reads
+÷ unique bytes; the gain is **capped at the compute ridge**), then **measure** that
+the operand is read from DRAM ≈ once.
+
 ## Trigger
 Working set (A, B, C) > L2, or roofline says memory/operand-feed bound. Load after
 `amx-vectorization` has chosen the inner tile.

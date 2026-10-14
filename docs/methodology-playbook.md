@@ -276,34 +276,49 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
   **ratified** by the task-accuracy gate before promotion. *(e.g. the sparse bf16 candidate.)*
 - **Closed — regime ceiling:** WRONG-CEILING or AT-CEILING kernels — no owed work; the low/high % is honest.
 
-**Rules.** (1) No kernel ships without a ledger row. (2) Never label a gap RECOVERABLE without **attribution**
-(stage timers / isolation microbench) separating achievable-BW shortfall from fixed convert/pack/dispatch
-overhead — the roofline % alone does not prove recoverability. (3) WRONG-CEILING is a first-class, legitimate
-disposition: a selection/dispatch/recurrence op at 2% of a byte roofline is *at ceiling*, not failing. (4) Each
-RECOVERABLE row is mirrored to its owning queue (Phase-2 backlog or the standalone author queue) so it is not
-rediscovered later. (5) The ledger is the per-kernel source of truth published on the standalone-kernel page.
-(6) **PREDICTED ≠ MEASURED.** The "opportunity (expected effect)" is a **hypothesis** — label it predicted/
-unvalidated and never publish a predicted multiple as a result. Validate upside **cost-scaled, cheapest-first**
-(whole-op component model → isolation microbench → minimal variant → full); the roofline of *one component*
-over-predicts when the op has other first-order costs the lever doesn't move or *inflates* (the sparse-attend
-bf16 miss). For an expensive pass the isolation microbench is **mandatory before committing**; for a cheap pass,
-measurement is the smoke test — but the predicted number is never the published outcome. *(See the standalone
-playbook [Stage 1.5](standalone-kernel-optimization-playbook.md#stage-15--validate-a-levers-upside-before-committing-cost-scaled).)*
+**Rules.**
+1. **Every kernel gets a row** — nothing ships without one.
+2. **No `RECOVERABLE` without attribution.** Prove the gap with stage timers or an isolation microbench that
+   separates a *real bandwidth shortfall* from *fixed convert/pack/dispatch overhead*. A low roofline-% alone
+   does **not** prove the gap is recoverable.
+3. **`WRONG-CEILING` is a valid result, not a failure.** A selection / dispatch / recurrence op at 2% of a byte
+   roofline is *at its real ceiling* — the byte roofline is simply the wrong yardstick.
+4. **Mirror every `RECOVERABLE` gap to its owning queue** (Phase-2 backlog or the author queue) so it isn't
+   rediscovered later.
+5. **The ledger is the per-kernel source of truth**, published on the standalone-kernel page.
+6. **Predicted ≠ measured.** The *opportunity* column is a **hypothesis** — label it unvalidated, and never
+   publish a predicted speedup as a result. Validate cheapest-first: component model → isolation microbench →
+   minimal variant → full. A one-component roofline over-predicts when the op has other first-order costs the
+   lever doesn't move (the sparse-attend bf16 miss) — so an **expensive** change needs the isolation microbench
+   *before* you commit; a **cheap** one, just measure it. *(See standalone
+   [Stage 1.5](standalone-kernel-optimization-playbook.md#stage-15--validate-a-levers-upside-before-committing-cost-scaled).)*
 
-**(7) A BOUND IS A TESTED HYPOTHESIS, NOT A WALL.** An `AT-CEILING` or `WRONG-CEILING` disposition is valid
-**only after** (a) a **config sweep** — tiles / grain / effective-threads, via `grain_size`/task-count, **never
-per-forward `set_num_threads`** (it rebuilds the OMP pool and loses affinity) — shows the bound does **not**
-move, *and* (b) the attribution-motivated knob has been **measured**: the **precision** lever where it hits the
-dominant component (bf16/fp8 — may win *or* lose, both published) and **authoring our own donor** inner loop
-when measurement localizes the bottleneck *there* (rare — otherwise document the donor's interface shortcoming,
-route around it, publish the gap). If the bound **moves** with config it was config (fix it, ship the per-M
-optimum); if it doesn't, it is algorithmic/hardware (at ceiling). *Closing on assertion is the anti-pattern —
-the sinkhorn low-batch win (adaptive serial dispatch, +1.15–2.09× bit-exact) was found precisely because the
-knob was tested, not assumed; and three other ceilings were **confirmed** by the knob measuring a loss.*
+**7. A bound is a tested hypothesis, not a wall.** Before you write `AT-CEILING` or `WRONG-CEILING`, do two things:
+   - **Sweep the config** — tiles / grain / effective-threads (via `grain_size` or task-count; **never**
+     per-forward `set_num_threads`, which loses thread affinity). If the bound **moves**, it was config → fix it
+     and ship the per-M optimum. If it **doesn't** move, it's algorithmic/hardware → the ceiling is earned.
+   - **Test the one knob attribution points to** — the **precision** lever where it hits the dominant component
+     (bf16/fp8 can win *or* lose; publish either), and **author your own inner GEMM** only if measurement puts
+     the bottleneck *inside* the donor (rare — otherwise route around it and publish the gap).
 
-**(8) TARGET PER COMPONENT, not the total %.** Decompose into data-movement / compute / dispatch and target
-**each**: data-movement ≥75% of the **operative** BW (DRAM when the working set exceeds cache; **cache BW when
-it fits** — not nominal DRAM); compute ≥ its ISA/dtype peak (AMX or AVX-512, per shape/M); overhead → 0 via
-adaptive config. The roofline-% of the *total* latency is a **diagnostic** of which component dominates the
-leftover gap, not the target — and the nominal roofline can be the **wrong ceiling** (an op at 24% of the
-nominal DRAM roof but ~52% of its measured *operative* GEMM/dispatch floor is near its real ceiling).
+   Closing on assertion is the anti-pattern: sinkhorn's low-batch win (adaptive serial dispatch, +1.15–2.09×,
+   bit-exact) was found because the knob was *tested*; three other ceilings were *confirmed* because the knob
+   measured a loss.
+
+**8. Target each component, not the total %.** Split the latency into **data-movement / compute / dispatch** and
+   give each its own target: data-movement ≥ 75% of the **operative** bandwidth (DRAM if the working set spills
+   cache, **cache bandwidth if it fits** — not nominal DRAM); compute ≥ its ISA/dtype peak (AMX or AVX-512);
+   overhead → 0. The roofline-% of the *total* is only a **diagnostic** of which component dominates — not the
+   target — and the nominal roofline can be the **wrong ceiling** (an op at 24% of the nominal DRAM roof but
+   ~52% of its measured *operative* floor is already near its real ceiling).
+
+**9. Hunt data reuse where tiling allows it — predict the traffic cut, then measure it.** When you shard into
+   tiles (rule 7), look for an operand that is **re-read from DRAM** and block/order the loop so it is read
+   **once** and reused from cache. This raises the op's effective arithmetic intensity (fewer DRAM bytes per
+   FLOP) and moves it right on the roofline — **capped at the compute ridge** (reuse turns a BW-bound op
+   compute-bound, then stops). **State the predicted floor first:** reuse factor = total reads ÷ unique bytes,
+   so the floor drops from `redundant_bytes/BW` to `unique_bytes/BW`. Then size the tile **jointly** for reuse
+   + cache-fit + core-fill (rule 7), re-assess per M (small M is often already cache-resident → overhead is the
+   lever; large M must block to keep reuse before eviction), own the **composition** not the donor's inner loop
+   (donor-first), and **validate on traffic** — confirm the operand is read from DRAM ≈ once (achieved bytes ≈
+   unique bytes); a latency win *without* a measured traffic drop means the reuse didn't bite.

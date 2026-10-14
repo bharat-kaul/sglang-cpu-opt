@@ -32,6 +32,15 @@ through, in the order it routes them.
   access-pattern fixes generalize) while **code/config/ISA do not** (the BW ceiling cache→DRAM, the compute ISA
   AVX↔AMX, and the per-M config are earned fresh — AVX-512 often beats AMX at M=1 where tiles underfill). Gate:
   **best-case per M, bit-exact throughout, no regression at the throughput point M=B.**
+- **Tiling has two faces — overhead *and* reuse.** Sharding into tiles fills cores and cuts per-call overhead
+  (fewer/bigger tiles at low M), but a tile also lets you **reuse a loaded operand from cache instead of
+  re-reading it from DRAM**. Where an operand is re-read (BW-bound, reuse factor > 1), block/order the loop so
+  it is read **once** and reused — this raises effective arithmetic intensity and moves the op right on the
+  roofline, **capped at the compute ridge** (reuse turns a BW-bound op compute-bound, then stops). **Predict**
+  the floor first (reuse factor = total reads ÷ unique bytes → floor `redundant_bytes/BW` → `unique_bytes/BW`),
+  size the tile jointly for reuse + cache-fit + core-fill, re-assess per M, own the *composition* not the
+  donor's inner loop, and **validate on measured DRAM traffic** (operand read ≈ once), not latency alone. See
+  Stage 3 and `cache-blocking-tiling`.
 
 ---
 
@@ -166,6 +175,18 @@ DSv4 set, indexer-logits and sparse keep their GEMMs on the oneDNN/`at::bmm` don
 64 cores). Tile the reduction so the per-task working set is L1/L2-resident; serial-threshold tiny-total-work
 cases (avoid thread-team spin-up that *regresses* at M=1). Pin threads once at init; one rank per NUMA domain
 (`sub-numa-clustering`); first-touch each rank's data into its own socket.
+
+**Tiling has two faces — pick the tile for both.** The *count* of tiles trades off overhead (fewer/bigger tiles
+cut per-call dispatch at low M; see the M=1 rule), while the *size* of a tile sets **data reuse**: a tile held
+in cache can be reused across the inner loop instead of re-read from DRAM. Where an operand is re-read
+(BW-bound, reuse factor > 1), **block and order the loop so it is read once and reused** — e.g. the indexer
+packs `q^T` once per request and reuses it across every S-tile, and keeps the scores L2-resident so the
+epilogue reads them from cache (no DRAM round-trip). **Predict** the gain first (reuse factor = total reads ÷
+unique bytes → the BW-floor drops from `redundant_bytes/BW` to `unique_bytes/BW`, **capped at the compute
+ridge** — reuse turns a BW-bound op compute-bound, then stops), then **validate on DRAM traffic** (achieved
+bytes ≈ unique operand bytes, not reuse× that — the `cache-blocking-tiling` gate). Re-assess per M: at small M
+the working set is often already cache-resident (reuse is free; the lever is overhead), at large M it spills
+cache so you must block to keep reuse before eviction.
 
 **Gate:** cores filled at small M; no small-M regression vs the serial/torch path.
 
