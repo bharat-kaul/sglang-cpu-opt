@@ -159,18 +159,30 @@ flowchart LR
      optimization **env-gated default-OFF** so gate-off reproduces the baseline byte-for-byte. Clear the known
      systemic pathologies on the *baseline* (threads bound once at init, one rank per NUMA domain, no
      per-forward `set_num_threads`).
-  3. **Integrate one optimization at a time**, env-gated, with a dummy-weight output-fingerprint gate per
-     toggle; record the wall-time delta per toggle.
+  3. **Integrate the authored kernels progressively — on the truncated `perf-proxy`.** The depth-reduced,
+     full-width proxy is the integration *vehicle* (queue-free, ~`full/proxy`× faster): wire each authored
+     kernel **one at a time**, env-gated default-OFF, with a per-toggle dummy-weight fingerprint gate, and
+     record each wall-time delta **broken down into kernel / framework / dispatch** (via `overhead-attribution`)
+     so every delta is bisectable to one op and the residual is *named*, not lumped. Predict full depth during
+     iteration with the **two-depth linear model** `t(L) = t_fixed + L·t_layer` *per regime* (prefill/decode) —
+     never naive `t_proxy/layers × full_layers`.
   4. **Carry forward the integration-class levers** surfaced during the standalone-kernel phase — memory-traffic,
      dtype, and data-layout wins that the kernel already supports but that are realized only in the serving path
      (e.g. a **bf16 KV cache**: numerically identical to what a bf16-rounding GEMM consumes, yet halves the
      dominant read and **amortizes across every op that reads that cache**, with the most leverage at decode
      M=1). Log each at discovery as a tracked Phase-2 lever (mechanism / amortization / expected delta /
      fingerprint-invariant gate / status), so it is optimized here instead of rediscovered later.
-  5. **Extrapolate from the `perf-proxy`** (depth-reduced, full-width, dummy weights) with the **two-depth
-     linear model** `t(L) = t_fixed + L·t_layer` *per regime* (prefill/decode) — never naive
-     `t_proxy/layers × full_layers`. The one full-depth dummy run **validates** the extrapolation and exposes
-     residual depth-accumulating overhead to bisect (`runtime-config-tuning` for threads/affinity/NUMA/prepack).
+  5. **Address framework / dispatch overhead last** (after the kernels are in). With the authored kernels
+     wired, the residual is the per-op **dispatch/framework tax** — OpenMP barriers, allocations, thread-pool
+     rebuilds, lost affinity — attacked with **fewer/bigger parallel regions, bind-once-at-init, one rank per
+     NUMA domain, prepack** (`runtime-config-tuning`). Doing it *after* kernel integration keeps the per-kernel
+     attribution clean: a global config pathology otherwise masquerades as uniform per-op cost.
+  6. **Full-depth dummy-weight run — measure & attribute.** Once proxy iteration converges, run the
+     **full-depth (all-layer) dummy-weight** model to *measure* the real wall time and **attribute it across
+     components** (per-kernel / framework / dispatch, via the per-op pivot). This both **validates the two-depth
+     extrapolation** and exposes any residual depth-accumulating overhead (allocator / thread-pool /
+     cache-residency) to bisect. Only now is the headline tok/s final — then the real-weight accuracy sign-off
+     (Phase 3).
 - **MoE proxy mode-collapse guard (when the model is MoE).** A depth-reduced **dummy-weight** proxy's random
   router routes **degenerately** — it collapses the whole batch onto the *same* few experts, not the real
   learned distribution — which **invalidates both the wall-time and the correctness check** until fixed:

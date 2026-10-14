@@ -76,14 +76,19 @@ Full data: [wall_time_progress.json](../plugin/validate/results/wall_time_progre
 ## Method & gates (per stage)
 1. **Freeze the kosher baseline** — tag the commit, golden dummy-weight fingerprint; every optimization is
    env-gated default-OFF so gate-off reproduces the baseline byte-for-byte.
-2. **Integrate one op**, measure proxy4 (+ periodic proxy8 recalibration), extrapolate to 43L per regime.
+2. **Integrate one op on the truncated proxy**, measure proxy4 (+ periodic proxy8 recalibration), extrapolate
+   to 43L per regime — recording each delta **broken down into kernel / framework / dispatch** so it is
+   bisectable to one op.
 3. **MoE routing fidelity** (this is an MoE model): keep the **real router/gate weights** + drive **varied
    tokens**, and gate the proxy's **distinct-expert-per-batch histogram** against the real `E(distinct | B)`
    (not 1, not all-N) before trusting any MoE wall-time — a collapsed dummy router under-counts expert traffic.
 4. **Gate:** the dummy-weight output fingerprint stays invariant (overhead/precision-equivalent transforms only).
 5. **Publish the delta** here — including a no-change/regression, with the root cause.
-6. After all ops: **one full-depth dummy run validates** the extrapolation and exposes residual depth-accumulating
-   overhead to bisect; then the real-weight **accuracy** sign-off (Phase 3).
+6. **Address framework / dispatch overhead last** (after the kernels are wired): fewer/bigger parallel regions,
+   bind-once-at-init, one rank per NUMA domain, prepack — doing it after keeps the per-kernel attribution clean.
+7. After all ops: **one full-depth dummy run measures** the real wall time and **attributes it across
+   components** (kernel / framework / dispatch), **validates** the two-depth extrapolation, and exposes residual
+   depth-accumulating overhead to bisect; then the real-weight **accuracy** sign-off (Phase 3).
 
 ## Provenance
 - Baseline + calibration: EMR job **385387** (`BATCHES=1` proxy4+proxy8, S=1024, reps=3, tp=1, bf16, dummy
