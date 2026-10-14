@@ -89,16 +89,27 @@ flowchart LR
 
 ### Phase 0 — Discovery & Provenance
 
-- **Accomplishes:** a trustworthy map of *what* must be built — the real op graph, every op **and fused op**,
-  per-op tensor shapes/dtypes, the knobs (batch/token **M**, KV-cache **S**/topk/page), and the dynamic
-  dispatch branches — plus a **provenance binding** of every future kernel to the published source op at a
-  pinned revision.
+- **Accomplishes:** a trustworthy map of *what* must be built — the model's **dataflow graph** (not just an op
+  *list*): every op **and fused op** as a **node**, plus the **edges** (producer→consumer), the **operands
+  shared across nodes** (e.g. a KV cache or a compressed representation read by several ops), the **per-edge
+  dtype/layout flow** (what each op actually *receives* from its producer), each node's **scaling dimension**
+  (what makes its cost grow — batch / seq / top-k / experts), and the **architectural *intent*** of each
+  sub-graph (e.g. a cheap low-precision *filter* feeding a precise *consumer*). Plus per-op shapes/dtypes, the
+  knobs (batch/token **M**, KV-cache **S**/topk/page), the dynamic dispatch branches, and a **provenance
+  binding** of every future kernel to the published source op at a pinned revision.
 - **Method:** `enablement-scope-discovery` + `model-op-decomposition` + `fusion-analysis` read the *actual*
-  model/reference (not assumptions); shapes are captured from a real run, never config-inferred.
+  model/reference (not assumptions); shapes are captured from a real run, never config-inferred. The
+  **dataflow graph (nodes + edges + shared operands + intent) is verified against the EXTERNAL reference
+  architecture** (the paper / official repo / reference kernels), not inferred from config or our own port — a
+  composite mechanism (e.g. a sparse-attention sub-graph: compress → index → select → attend) is only understood
+  once its stages and their hand-offs are confirmed against the source design.
   `model-profile-hotspots` + `model-roofline-analysis` rank the work by ROI and bound class.
-- **Gate (trust):** **shape-provenance gate** — a kernel target is admitted only with captured shapes +
+- **Gate (trust):** **graph-/shape-provenance gate** — a kernel target is admitted only with captured shapes +
   dtypes + the source-op contract (storage/compute/accumulator dtype, intermediate rounding, mask/sink,
-  output boundary, state). *A config-inferred shape is flagged UNVERIFIED and cannot carry a perf claim.*
+  output boundary, state) **and its place in the externally-verified dataflow graph** (what produces its
+  inputs, what consumes its outputs, which operands it shares, what dimension it scales with). *A
+  config-inferred shape — or a kernel scoped in isolation from its verified graph context — is flagged
+  UNVERIFIED and cannot carry a perf claim.*
 
 ### Phase 1 — All kernels in optimized C/C++ (the hard prerequisite)
 
@@ -341,3 +352,25 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
      Phase‑3‑gated), the conformance‑safe bf16 single‑bmm measured **slower**, and the shipped bf16 tiled
      brgemm stays the best bit‑exact path. Counter‑example — **sparse attend**: fat GEMMs where AMX is already
      the right, well‑utilized ISA, so an AVX‑512 swap can't help; the rule correctly excludes it.*
+
+**11. Optimize the graph, not the node — and enumerate the decision space it seeds.** A kernel is a **node** in
+   the model's dataflow graph (discovered + externally verified in Phase 0 — see the graph-provenance gate),
+   **not an island**. Before optimizing, read its graph context: what **produces** its inputs (upstream
+   dtype/layout/residency), what **consumes** its outputs, which operands are **shared**, which **dimension it
+   scales with**, and the architectural **intent**. Then build a **decision-space ledger** for the node whose
+   axes are *seeded by the graph*:
+   - **local axes:** donor · ISA (AMX/AVX-512/AVX2) · precision/dtype · algorithm · layout/packing · fusion;
+   - **graph axes** (only visible from the graph): the **true input dtype/layout the pipeline supplies** (a
+     standalone fp32/contiguous assumption may be an *artifact* — the real producer may emit bf16/fp8),
+     **cross-kernel fusion** of producer→consumer pairs (kill the intermediate DRAM round-trip),
+     **shared-operand residency** (read once, reused across nodes), and **pipeline-position priority**
+     (optimize the node that scales with the hard dimension, not the one with the worst *local* %).
+
+   **Dispose of every axis explicitly** — *shipped · measured-loss · N/A because X · **UNTESTED (named)***. An
+   unexplored alternative is **named as untested, never silently absent** — that is how a blind spot (an
+   alternative no one put on the list) is prevented. And **carry Phase-0 discovery findings forward** as
+   pre-seeded rows (e.g. *"the reference already ships an AVX-512 kernel here"* — a fact our coverage report
+   held but our kernel authoring ignored). *Worked: the DSA sub-graph (compressor→indexer→top-k→sparse-attn) —
+   the **indexer** scales with seq-length (the long-context bottleneck) while **sparse** is bounded by top-k;
+   sparse's fp32-KV was a **standalone artifact** (the pipeline supplies bf16/fp8); and the indexer's AVX-512
+   win was **pre-stated in Phase-0** but not carried forward.*

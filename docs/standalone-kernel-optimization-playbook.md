@@ -41,6 +41,15 @@ through, in the order it routes them.
   bit-exact; a precision change like fp32-vs-bf16 is Phase-3-gated on *realistic* distributions; a dtype proxy
   like fp16-for-bf16 is perf-only). *Worked: indexer score GEMM — AVX-512 wins 2.6×@M1→AMX@M64 (narrow K=128/N=64);
   counter-example: sparse's fat GEMMs are already AMX-optimal, so the rule excludes them.*
+- **Optimize the graph, not the node.** Your kernel is a **node** in the model's dataflow graph (discovered +
+  externally verified in Phase 0). Before you trust a standalone result, check its graph context: the **real
+  input dtype/layout the pipeline supplies** (a standalone fp32/contiguous assumption may be an *artifact*),
+  the **producer→consumer fusion** available, the **shared operand** you can read once, and whether this node
+  is even the **pipeline's bottleneck** (optimize the one that scales with the hard dimension). Enumerate the
+  decision space the graph seeds (local axes: donor/ISA/precision/algorithm/layout/fusion; graph axes:
+  input-dtype/cross-kernel-fusion/shared-residency/pipeline-priority) and **dispose of every axis explicitly**
+  — an untested alternative is *named*, never silently absent. See
+  [methodology §4 rule 11](methodology-playbook.md#4-per-kernel-performance-gap-ledger-model-agnostic).
 - **Tiling has two faces — overhead *and* reuse.** Sharding into tiles fills cores and cuts per-call overhead
   (fewer/bigger tiles at low M), but a tile also lets you **reuse a loaded operand from cache instead of
   re-reading it from DRAM**. Where an operand is re-read (BW-bound, reuse factor > 1), block/order the loop so

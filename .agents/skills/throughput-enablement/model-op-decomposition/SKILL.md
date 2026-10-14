@@ -23,6 +23,19 @@ not from assumptions about the family.
    its class and constructor args. Note repetition (× num_layers) and any
    per-layer variation (e.g. interleaved sliding-window layers, dense-vs-MoE
    layers, first-k-dense-then-MoE).
+1b. **DATAFLOW GRAPH, not just a list — externally verified.** Capture the **edges**
+   (producer→consumer), the **operands shared across ops** (a KV cache read by
+   several ops; a compressed representation reused downstream), the **per-edge
+   dtype/layout flow** (what dtype each op actually *receives* from its producer —
+   often NOT the standalone assumption), each op's **scaling dimension** (batch /
+   seq / top-k / experts), and the **architectural intent** of each composite
+   mechanism (a cheap low-precision *filter* feeding a precise *consumer*). For a
+   composite sub-graph (e.g. sparse attention = compress → index → select → attend),
+   confirm the stages and their hand-offs **against the EXTERNAL reference** (the
+   paper / official repo / reference kernels), not inferred from config or our own
+   port. This graph is what later lets each kernel be optimized **in context**
+   (right input dtype, cross-kernel fusion, pipeline-priority) instead of as an
+   island — a kernel scoped without it carries hidden blind spots.
 2. **Per-op signature.** For each op record: dtype (bf16/fp16/int8/fp8), the
    operand shapes at the target seq/batch, and the divisibility of GEMM dims
    (OC, IC) — coverage checks `OC%16==0`, `IC%32==0` for AMX packing.
