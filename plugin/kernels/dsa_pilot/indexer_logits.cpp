@@ -293,9 +293,43 @@ torch::Tensor indexer_logits_fp32avx(torch::Tensor q, torch::Tensor kv, torch::T
   return logits;
 }
 
+// STRUCTURAL variant: single bf16 at::bmm score GEMM (AMX, oneDNN tiles the whole batched GEMM) + bf16 epilogue,
+// vs the shipped MANUAL per-S-tile brgemm. bf16 inputs + fp32 accumulate -> same dtype/precision as the tiled
+// path (NOT a conformance change), so this isolates "let the donor tile" vs "manual tiling" (job 385664: the
+// manual tiled brgemm carried residual per-tile dispatch overhead that a single oneDNN bmm avoids).
+torch::Tensor indexer_logits_amxbmm(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
+  TORCH_CHECK(q.dim() == 3 && kv.dim() == 3 && weight.dim() == 2, "q/kv must be [N,H,D]/[N,S,D], weight [N,H]");
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && weight.device().is_cpu(), "CPU tensors only");
+  const int64_t N = q.size(0), H = q.size(1), S = kv.size(1);
+  auto qb = q.to(torch::kBFloat16).contiguous();
+  auto kvb = kv.to(torch::kBFloat16).contiguous();
+  auto wf = weight.to(torch::kFloat32).contiguous();
+  auto scores = at::bmm(kvb, qb.transpose(1, 2)).to(torch::kFloat32);   // [N,S,H] bf16 AMX score (fp32 accumulate)
+  auto logits = torch::empty({N, S}, torch::kFloat32);
+  const float* sp = scores.data_ptr<float>();
+  const float* wp = wf.data_ptr<float>();
+  float* lp = logits.data_ptr<float>();
+  at::parallel_for(0, N * S, 0, [&](int64_t i0, int64_t i1) {
+    for (int64_t i = i0; i < i1; ++i) {
+      const float* row = sp + i * H;
+      const float* w = wp + (i / S) * H;
+      float acc = 0.f;
+      for (int64_t h = 0; h < H; ++h) {                               // identical bf16 stage boundaries
+        float v = static_cast<float>(static_cast<at::BFloat16>(row[h]));
+        float rv = v > 0.f ? v : 0.f;
+        float wb = static_cast<float>(static_cast<at::BFloat16>(w[h]));
+        acc += static_cast<float>(static_cast<at::BFloat16>(rv * wb));
+      }
+      lp[i] = static_cast<float>(static_cast<at::BFloat16>(acc));
+    }
+  });
+  return logits;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("indexer_logits", &indexer_logits, "DSA indexer logits (single tiled path, integration entry)");
   m.def("indexer_logits_fused", &indexer_logits_fused, "DSA indexer logits (fused epilogue)");
   m.def("indexer_logits_tiled", &indexer_logits_tiled, "DSA indexer logits (tiled brgemm + fused epilogue, no DRAM scores)");
   m.def("indexer_logits_fp32avx", &indexer_logits_fp32avx, "DSA indexer logits via fp32 at::bmm score (AVX-512) [EXPERIMENTAL, ISA-adaptive test]");
+  m.def("indexer_logits_amxbmm", &indexer_logits_amxbmm, "DSA indexer logits via bf16 at::bmm score (AMX, single GEMM) [structural: donor-tiled vs manual tiling]");
 }

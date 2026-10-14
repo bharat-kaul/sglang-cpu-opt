@@ -58,18 +58,24 @@ def _setmatch(a, b, k):
 def main():
     il = load(name="adap_il", sources=[os.path.join(KD, "indexer_logits.cpp")], extra_cflags=CF, verbose=False)
     sha = subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"]).decode().strip()[:10]
-    print(f"# indexer ISA-adaptive HEAD={sha} threads={torch.get_num_threads()} node={os.uname().nodename}")
-    print(f"{'M':>4} {'AMX_us':>8} {'AVX_us':>8} {'AVX_speedup':>11} | setmatch@k " + " ".join(f"k{k}" for k in KS))
+    print(f"# indexer ISA/structure HEAD={sha} threads={torch.get_num_threads()} node={os.uname().nodename}")
+    print(f"{'M':>4} {'tiled':>7} {'amxbmm':>7} {'fp32avx':>7} | {'amx_spd':>7} {'avx_spd':>7} | "
+          f"{'amx_exact':>9} {'amx_setk512':>11} {'avx_setk512':>11}")
     for M in MS:
         q = torch.randn(M, H, D); kv = torch.randn(M, S, D); w = torch.randn(M, H)
-        l_amx = il.indexer_logits(q, kv, w)
+        l_tiled = il.indexer_logits(q, kv, w)
+        l_amx = il.indexer_logits_amxbmm(q, kv, w)
         l_avx = il.indexer_logits_fp32avx(q, kv, w)
-        t_amx = tstream(lambda: il.indexer_logits(q, kv, w))
+        t_tiled = tstream(lambda: il.indexer_logits(q, kv, w))
+        t_amx = tstream(lambda: il.indexer_logits_amxbmm(q, kv, w))
         t_avx = tstream(lambda: il.indexer_logits_fp32avx(q, kv, w))
-        sm = [f"{_setmatch(l_amx, l_avx, k):.3f}" for k in KS]
-        print(f"{M:>4} {t_amx:>8.1f} {t_avx:>8.1f} {t_amx / t_avx:>10.2f}x | {'':>10} " + "  ".join(sm))
-    print("# AVX_speedup>1 => AVX-512 fp32 score path wins the OP at that M. setmatch=1.000 => top-k selection")
-    print("# is identical (conformant); <1 => fp32 scores flip some selections (conformance decision).")
+        amx_exact = bool(torch.equal(l_tiled, l_amx))
+        amx_sm = _setmatch(l_tiled, l_amx, 512)
+        avx_sm = _setmatch(l_tiled, l_avx, 512)
+        print(f"{M:>4} {t_tiled:>7.1f} {t_amx:>7.1f} {t_avx:>7.1f} | {t_tiled / t_amx:>6.2f}x {t_tiled / t_avx:>6.2f}x | "
+              f"{str(amx_exact):>9} {amx_sm:>11.3f} {avx_sm:>11.3f}")
+    print("# amx_spd/avx_spd = shipped/variant (>1 = variant faster). amx_exact=True => single bf16 bmm is")
+    print("# bit-identical to the shipped tiled path => conformance-SAFE structural win; ship adaptive by M.")
 
 
 if __name__ == "__main__":
