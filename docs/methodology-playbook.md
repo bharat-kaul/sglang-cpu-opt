@@ -247,10 +247,25 @@ flowchart LR
 | 3 Accuracy | golden parity + full re-diff + task sign-off (user-chosen route) | numerically faithful *and* task-accurate vs a trusted reference |
 | cycle exit | roofline+pivot report pair + standalone-kernel page + certificate | "done" = runs + accurate + roofline-vs-measured, published |
 
+> **Definition of done includes publishing.** Any phase whose output changes a published fact is not complete
+> until the collateral is synced per the **PUBLISH-SYNC invariant** below — prose + charts (regenerated from
+> data, cache-busted) + gap ledger, committed and pushed. A measured win that isn't on the page didn't ship.
+
 **Cross-cutting invariants** (hold in every phase): PROVENANCE always (no claim without its bound evidence);
 DONOR-FIRST (never re-implement a library primitive); MEASURE don't assume (regime, ULP, streaming number,
 ISA via `objdump`); and `adversarial-self-audit` before submitting any gate/record/review-response — fix the
 vulnerability **class**, not the shown instance.
+
+**PUBLISH-SYNC invariant (collateral update is part of the work, not a follow-up).** Any change that alters a
+**published fact** — a skill/playbook edit, a performance-optimization pass, a new or revised measurement, a
+gap-ledger change, a kernel landing — **automatically** triggers, *in the same unit of work and before the task
+is called done*, a sync of the published collateral: **(a) prose** (README / THESIS / docs pages that state the
+fact), **(b) charts** regenerated **from the committed data** (`make_*.py` → re-render PNG, cache-bust the
+filename) with their embedding + caption updated, **(c) the gap ledger / opportunities / roofline tables**, and
+**(d) commit + push**. "Done" is not "the code or number changed"; "done" is "the published artifacts reflect it
+and are pushed." Charts are **generated-from-data** (edit the JSON / re-run the bench, re-run the generator) —
+never hand-edited pixels. No separate prompt is required to publish.
+
 
 ---
 

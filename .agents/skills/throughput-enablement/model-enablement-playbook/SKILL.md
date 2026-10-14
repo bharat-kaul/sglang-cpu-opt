@@ -141,6 +141,18 @@ gap exits this leg to the new-kernel loop rather than degrading the model. Recor
 the winning op→kernel mapping + measured efficiencies into the registry's
 learned-patterns so the next model starts from a known-good wiring.
 
+## PUBLISH-SYNC — collateral update is automatic, part of "done" (do NOT wait to be asked)
+
+Any step that changes a PUBLISHED fact — a skill/playbook/memory edit, a perf
+pass, a new/revised measurement, a gap-ledger change, a kernel landing — must, in
+the SAME unit of work and BEFORE the step is called done, sync the published
+collateral: (a) PROSE (README / THESIS / docs pages), (b) CHARTS regenerated FROM
+the committed data (`make_*.py` → re-render PNG, cache-bust the filename `_vN`) with
+embedding + caption updated, (c) the GAP LEDGER / opportunities / roofline tables,
+(d) COMMIT + PUSH. "Done" is not "the code/number/skill changed" — "done" is "the
+published artifacts reflect it and are pushed." Charts are generated-from-data,
+never hand-edited. The user should never have to prompt "now update GitHub."
+
 ## Why two performance proofs (skill 6)
 
 We reuse kernels that ALREADY hit their roofline on enabled models. So a correct
