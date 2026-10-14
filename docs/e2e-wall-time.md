@@ -30,6 +30,16 @@ kernels wired**. It is deliberately the slow starting point — exactly what Pha
 dtype bridge, so *model load* is instant — but a GEMM with random weights does the **identical FLOPs**, so
 *compute* is unchanged. The slowness is the unoptimized torch attention, not the weights.
 
+**⚠ But the dummy *router* can mislead MoE wall-time (mode collapse).** DSv4 routes each token to a small
+subset of its **256 experts**, and the batched-decode cost is set by the **distinct-expert working set** —
+which *grows with batch* (`distinct_experts(B)·per_expert_bytes`). A random dummy router routes **degenerately**
+(collapses the whole batch onto the same few experts), so a naive dummy proxy would read too few experts and
+report a **falsely fast** MoE decode (and a single-expert path would hide the grouped-GEMM gather/scatter
+routing bugs). This proxy therefore **keeps the real router/gate weights** (tiny — loaded even with dummy
+*expert* weights), drives **varied tokens**, and **gates on the measured distinct-expert-per-batch histogram
+matching the real `E(distinct | B)`** (not 1, not all-N) before any MoE wall-time is trusted. *(Methodology:
+the [perf-proxy MoE mode-collapse rule](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time).)*
+
 ## Calibration (two-depth linear model)
 Wall time is linear in depth because every DSv4 layer is the same MoE+MLA+DSA archetype, so we extrapolate
 from two shallow proxies instead of paying full depth each iteration:
@@ -67,9 +77,12 @@ Full data: [wall_time_progress.json](../plugin/validate/results/wall_time_progre
 1. **Freeze the kosher baseline** — tag the commit, golden dummy-weight fingerprint; every optimization is
    env-gated default-OFF so gate-off reproduces the baseline byte-for-byte.
 2. **Integrate one op**, measure proxy4 (+ periodic proxy8 recalibration), extrapolate to 43L per regime.
-3. **Gate:** the dummy-weight output fingerprint stays invariant (overhead/precision-equivalent transforms only).
-4. **Publish the delta** here — including a no-change/regression, with the root cause.
-5. After all ops: **one full-depth dummy run validates** the extrapolation and exposes residual depth-accumulating
+3. **MoE routing fidelity** (this is an MoE model): keep the **real router/gate weights** + drive **varied
+   tokens**, and gate the proxy's **distinct-expert-per-batch histogram** against the real `E(distinct | B)`
+   (not 1, not all-N) before trusting any MoE wall-time — a collapsed dummy router under-counts expert traffic.
+4. **Gate:** the dummy-weight output fingerprint stays invariant (overhead/precision-equivalent transforms only).
+5. **Publish the delta** here — including a no-change/regression, with the root cause.
+6. After all ops: **one full-depth dummy run validates** the extrapolation and exposes residual depth-accumulating
    overhead to bisect; then the real-weight **accuracy** sign-off (Phase 3).
 
 ## Provenance
