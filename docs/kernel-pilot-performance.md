@@ -544,18 +544,38 @@ analogue of the end-to-end wall-time-vs-M view. Data:
 
 DeepSeek Sparse Attention is a **4-kernel pipeline** — compressor → indexer_logits → top-k → sparse-attend
 (externally verified against the DeepSeek-V3.2 spec + our coverage report) — so the kernels must be read **in
-context**, not as islands. Placing them in the graph **re-prioritizes** the backlog:
+context**, not as islands. Two graph facts drive the re-triage: (1) the **indexer scales with context S**
+(it scores every context token to pick the top-512) while **sparse is capped at top-k=512** (does *not* scale
+with context); (2) the indexer's real producer is an **fp8→bf16 projection**, so the standalone **fp32 KV is an
+artifact** — the pipeline actually supplies **bf16**. Re-prioritized backlog (applying the ISA-adaptive and
+optimize-the-graph rules):
 
-| opportunity | kernel | upside vs roofline | priority | status |
-|---|---|---|---|---|
-| **ISA-adaptive AVX-512** | indexer_logits | **2.73×@M1** (160→59 µs) ≈ **85% of the nominal DRAM roof** at the decode floor; tie@M32 | **HIGH** — the indexer is the **long-context bottleneck** (scales with seq-length S) | measured; precision-gated → Phase-3 / `dpbf16` |
-| **logits→top-k streaming fusion** | indexer + top-k | ~0 at S=1024 (logits tensor 128 KB) but **grows with S** (the length-S logits DRAM round-trip) — a **long-context** lever that standalone S=1024 hides | MED (context-dependent) | untested — scope at the real deployment S |
-| **pipeline-dtype re-test** | sparse attend | LOW — the bf16-KV sim already showed casts aren't the whole wall (softmax + AMX-underutil remain, 7.5× off the bf16 roof); and sparse is **bounded by top-k** (constant cost, *not* the bottleneck) | **LOW** — deprioritize; the bf16 prize needs a flash rewrite, not a dtype swap | one confirming measurement, then close |
-| **fp8 indexer-query** | (missing op) | small direct perf (query is tiny); it is the architecture's *intended* precision | LOW (coverage) | GAP — op not yet on CPU |
+| # | opportunity | kernel | lever class | upside (evidence status) | priority | status |
+|---|---|---|---|---|---|---|
+| 1 | **bf16-KV (honor the graph dtype)** | indexer_logits | graph dtype-flow · Phase-2 integration · **conformance-safe** | **1.09–1.51× measured** (proxy) + **halves the length-S KV read** and removes the per-tile fp32→bf16 convert inside the ~110 µs operative floor; the producer already emits bf16 so standalone fp32-KV is the Rule-11 artifact | **HIGH** — decode-floor *and* long-context | measured proxy; needs the integration dummy-fingerprint check |
+| 2 | **AVX-512-bf16 (`dpbf16ps`) low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **conformance-safe** | captures the low-M **AMX-underfill** gap (N=64/K=128) *without* the fp32 precision change — the missing **bit-exact** version of the ISA win | **HIGH** — the one decisive untested lever | **UNTESTED (named)** — one isolation M-sweep (author a `dpbf16` variant) |
+| 3 | **AVX-512-fp32 low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **precision change** | **3.25×@M1 → tie@M32 → AMX@M64** (isolated, measured) | MED — fallback if #2 fails | measured; **Phase-3** accuracy-gated (fp32-vs-bf16 top-k set-match on *realistic* data) |
+| 4 | **logits→top-k streaming fusion** | indexer + top-k | cross-kernel fusion (Rule 11) | ~0 at S=1024 (logits 128 KB) but **grows ∝ S** (the length-S logits DRAM round-trip) — a long-context lever standalone S=1024 hides | MED (context-dependent) | untested — scope at the real deployment S |
+| 5 | **sparse attend** | sparse_attend | *graph re-rank (not a speedup)* | **deprioritized**: **compute-bound** (GEMMs 88% of 473 µs, 66% of fp32 ISA peak, *inside* the donor), `rawread` only 51 µs so **reuse/flash fusion can't move a GEMM-bound total**, and **capped at top-k=512** (does not scale with context); bf16/AMX = measured loss ×3 | **LOW** — at practical ceiling | closed (fp32 donor = ceiling); a flash rewrite targets the wrong (BW) component |
+| 6 | **fp8 indexer-query** | (missing op) | coverage GAP | small direct perf (query is tiny); the architecture's *intended* precision | LOW (coverage) | GAP — op not yet on CPU |
 
-**Graph-view headline:** the **indexer** scales with context and is the real DSA bottleneck → its AVX-512
-adaptive path is the top lever; **sparse** is bounded by top-k and already near its practical ceiling →
-deprioritize. A standalone per-kernel % would have ranked these differently — the architecture view corrects it.
+**Decision-space ledger — `indexer_logits` node** (seeded by the graph; every axis disposed explicitly):
+
+| axis | options · disposition |
+|---|---|
+| **donor** | oneDNN brgemm **(shipped)** · own inner GEMM — *N/A* (bottleneck is dispatch/convert, not the donor loop) |
+| **ISA** (Rule 10) | AMX-bf16 tiled **(shipped, bit-exact)** · AVX-512-bf16 `dpbf16ps` — **UNTESTED (#2, the key gap)** · AVX-512-fp32 — **measured 3.25×@M1, precision-gated (#3)** · bf16 single `at::bmm` — **measured loss** (oneDNN transposed-layout artifact) |
+| **precision / dtype** | bf16 compute **(shipped)** · fp32 scores — precision change (#3, Phase-3) |
+| **graph dtype-flow** | **bf16-KV — the real pipeline dtype (#1, HIGH, conformance-safe); fp32-KV standalone = artifact** |
+| **cross-kernel fusion** | logits→top-k streaming — **UNTESTED (#4), grows ∝ S** · compressor→indexer — *N/A* (different projection, no shared bytes) |
+| **pipeline position** | **scales with context S → the long-context bottleneck → highest-priority node** (vs sparse, which is top-k-capped) |
+
+**Graph-view headline:** the **indexer** is the real DSA bottleneck (it scales with context), and the graph adds
+**two conformance-safe levers the standalone view missed** — honor the bf16 KV the pipeline already supplies (#1)
+and the `dpbf16` low-M ISA path (#2) — distinct from the precision-gated fp32 win (#3); these **compound at long
+context** because the KV read that halves is exactly the part that grows with S. **Sparse** is bounded by top-k
+and compute-bound *inside the donor* → the graph view correctly re-ranks it **down** (the benefit there is *not
+building* a flash rewrite that targets the wrong component). A standalone per-kernel % would have mis-ranked both.
 
 Applying the compressor learnings (512-bit build flags, `objdump` ISA check, hand-inlined Cephes `exp` where
 exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parallel wave, consolidated and
