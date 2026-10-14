@@ -18,6 +18,10 @@ The method is **not** a monolith. A thin **spine** (two orchestrators) *routes* 
 **leaf** skills, loading each only when its trigger condition is met and gating every step against the
 measured roofline. The spine decides *which* technique and *in what order*; the leaves *do* the work.
 
+![Spine-leaf structure: two orchestrators route a target through leaf skills, each roofline-gated](spine-leaf-slide.png)
+
+<details><summary>Same structure as a Mermaid source graph</summary>
+
 ```mermaid
 flowchart TD
     subgraph SPINE["SPINE — orchestrators (routing + phase order + gates)"]
@@ -56,6 +60,8 @@ flowchart TD
     AUTHOR --> GATES
     GATES -->|pass| MEP
 ```
+
+</details>
 
 - **`cpu-optimization-playbook`** — the *new-kernel* leg: write/optimize a kernel; routes it through
   establish-achievable → parallelize → tile → vectorize/AMX → prepack/BRGEMM → quantize → fuse, each gated by

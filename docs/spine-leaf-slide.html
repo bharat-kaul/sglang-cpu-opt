@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Spine-Leaf Methodology Structure</title>
+<style>
+  :root{ --ink:#12233b; --muted:#5b6b80; --line:#dbe3ec; --star:#0b2447;
+    --spine:#4b3fbf; --disc:#2563a8; --auth:#0e7c86; --gate:#c02c48; --shared:#7c3aed; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#e7edf5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}
+  @page{size:1400px 1020px;margin:0}
+  @media print{body{background:#fff}}
+  .slide{width:1380px;margin:16px auto;background:linear-gradient(180deg,#ffffff,#fafcff);
+    border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 40px rgba(16,35,59,.14);padding:28px 34px}
+  .kicker{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  h1{margin:6px 0 4px;font-size:31px;line-height:1.15;color:var(--star)}
+  h1 span{color:var(--auth)}
+  .sub{font-size:16px;color:var(--muted);margin-bottom:16px;line-height:1.4}
+  .band{font-size:14px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--spine);margin:4px 0 8px}
+  .spine{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .orch{border:1px solid var(--line);border-top:5px solid var(--spine);border-radius:12px;background:#f5f4ff;padding:15px 18px}
+  .orch .tag{font-size:13px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--spine)}
+  .orch h2{margin:4px 0 5px;font-size:23px;color:var(--star);font-family:"SFMono-Regular",Menlo,Consolas,monospace}
+  .orch p{margin:0;font-size:15.5px;color:#31465e;line-height:1.35}
+  .flowstrip{display:flex;justify-content:center;gap:9px;align-items:center;font-size:16px;font-weight:700;color:var(--muted);margin:16px 0 8px;flex-wrap:wrap}
+  .flowstrip b{color:var(--star)} .flowstrip i{color:var(--gate);font-style:italic}
+  .flowstrip .ar{color:#9db0c6;font-weight:900;font-size:20px}
+  .leaves{display:grid;grid-template-columns:repeat(2,1fr);gap:15px;margin-top:6px}
+  .group{border:1px solid var(--line);border-radius:12px;background:#fff;padding:13px 16px}
+  .group.disc{border-top:4px solid var(--disc)} .group.auth{border-top:4px solid var(--auth)}
+  .group.gate{border-top:4px solid var(--gate)} .group.shared{border-top:4px solid var(--shared)}
+  .group h3{margin:0 0 3px;font-size:18px;color:var(--star)}
+  .group.disc h3{color:var(--disc)} .group.auth h3{color:var(--auth)}
+  .group.gate h3{color:var(--gate)} .group.shared h3{color:var(--shared)}
+  .group h3 em{font-weight:600;font-size:13px;color:var(--muted);font-style:normal}
+  .group .gs{font-size:14px;color:var(--muted);margin-bottom:9px;line-height:1.3}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .sk{font-size:14px;font-weight:600;padding:5px 10px;border-radius:7px;background:#f1f5fa;border:1px solid #e2e9f2;color:#31465e;font-family:"SFMono-Regular",Menlo,Consolas,monospace}
+  .sk .o{display:inline-block;min-width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;background:var(--auth);color:#fff;font-size:11px;font-weight:800;margin-right:5px;font-family:inherit}
+  .foot{margin-top:16px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+  .legend{display:flex;gap:16px;flex-wrap:wrap}
+  .lg{display:flex;gap:6px;align-items:center}
+  .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="kicker">CPU Enablement &amp; Kernel-Optimization Playbook · Methodology §1</div>
+  <h1>Spine-Leaf Structure — two <span>orchestrators</span> route a target through a library of leaf skills, each gated by the roofline</h1>
+  <div class="sub">The <b>spine</b> decides WHICH technique and in WHAT order; the <b>leaves</b> DO the work, each loaded only when its trigger fires.</div>
+
+  <div class="band">◆ Spine — orchestrators (routing + phase order + gates)</div>
+  <div class="spine">
+    <div class="orch">
+      <div class="tag">Throughput leg</div>
+      <h2>model-enablement-playbook</h2>
+      <p>Wire a whole model from <b>existing</b> kernels. Its <b>coverage-gate</b> hands any genuine kernel gap to the new-kernel leg.</p>
+    </div>
+    <div class="orch">
+      <div class="tag">New-kernel leg</div>
+      <h2>cpu-optimization-playbook</h2>
+      <p>Write / optimize a kernel: establish-achievable → parallelize → tile → vectorize/AMX → prepack/BRGEMM → quantize → fuse, each roofline-gated.</p>
+    </div>
+  </div>
+
+  <div class="flowstrip">
+    <b>MEP</b><span class="ar">→</span>Discovery<span class="ar">→</span><i>genuine gap</i><span class="ar">→</span><b>COP</b><span class="ar">→</span>Author<span class="ar">→</span>Gates<span class="ar">→</span><i>pass</i><span class="ar">↻</span><b>MEP</b>
+  </div>
+
+  <div class="leaves">
+    <div class="group disc">
+      <h3>Leaves · Discovery &amp; decomposition</h3>
+      <div class="gs">Read the ACTUAL model → the real op graph + ROI ranking.</div>
+      <div class="chips">
+        <span class="sk">enablement-scope-discovery</span><span class="sk">model-op-decomposition</span><span class="sk">fusion-analysis</span><span class="sk">model-profile-hotspots</span><span class="sk">model-roofline-analysis</span>
+      </div>
+    </div>
+    <div class="group gate">
+      <h3>Leaves · Gates <em>(integrity)</em></h3>
+      <div class="gs">Every phase output is trusted only after its gate passes.</div>
+      <div class="chips">
+        <span class="sk">kernel-feasibility-gate</span><span class="sk">coverage-gate</span><span class="sk">roofline-validation</span><span class="sk">accuracy-oracle / f4_acceptance</span><span class="sk">adversarial-self-audit</span><span class="sk">enablement-certificate</span>
+      </div>
+    </div>
+    <div class="group auth">
+      <h3>Leaves · Author &amp; optimize <em>(ordered, roofline-gated)</em></h3>
+      <div class="gs">Donor-first; apply the techniques in order, re-roofline after each.</div>
+      <div class="chips">
+        <span class="sk"><span class="o">0</span>establish-achievable-performance</span><span class="sk"><span class="o">1</span>kernel-authoring (donor-first)</span><span class="sk"><span class="o">2</span>openmp-parallelization</span><span class="sk"><span class="o">3</span>cache-blocking-tiling</span><span class="sk"><span class="o">4</span>amx-vectorization / cpu-gemm-amx-bf16</span><span class="sk"><span class="o">5</span>weight-prepacking-brgemm</span><span class="sk"><span class="o">6</span>quantization-amx-int8</span><span class="sk"><span class="o">7</span>inter-kernel-fusion</span><span class="sk"><span class="o">8</span>sub-numa-clustering / runtime-config-tuning</span>
+      </div>
+    </div>
+    <div class="group shared">
+      <h3>Leaves · Shared <em>(both legs)</em></h3>
+      <div class="gs">Cross-cutting skills used by the throughput AND new-kernel legs.</div>
+      <div class="chips">
+        <span class="sk">roofline-validation</span><span class="sk">establish-achievable-performance</span><span class="sk">perf-proxy</span><span class="sk">runtime-config-tuning</span><span class="sk">overhead-attribution</span><span class="sk">adversarial-self-audit</span><span class="sk">compute-from-native-precision</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="legend">
+      <div class="lg"><span class="dot" style="background:var(--spine)"></span>Spine</div>
+      <div class="lg"><span class="dot" style="background:var(--disc)"></span>Discovery</div>
+      <div class="lg"><span class="dot" style="background:var(--gate)"></span>Gates</div>
+      <div class="lg"><span class="dot" style="background:var(--auth)"></span>Author &amp; optimize</div>
+      <div class="lg"><span class="dot" style="background:var(--shared)"></span>Shared</div>
+    </div>
+    <div>docs/methodology-playbook.md · §1 Spine-leaf structure</div>
+  </div>
+</div>
+</body>
+</html>

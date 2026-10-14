@@ -21,3 +21,9 @@ python -c "from weasyprint import HTML; HTML(filename='docs/agentic-workflow-sli
 convert -density 120 -background white -alpha remove '/tmp/slide.pdf[0]' -quality 95 docs/agentic-workflow-slide.png
 identify docs/agentic-workflow-slide.png
 echo "Rendered docs/agentic-workflow-slide.png — review it, then: git add docs/agentic-workflow-slide.{html,png} && commit."
+
+# Spine-leaf structure slide (methodology-playbook.md §1) — same HTML→PDF→PNG method.
+python -c "from weasyprint import HTML; HTML(filename='docs/spine-leaf-slide.html').write_pdf('/tmp/spine_leaf.pdf')"
+convert -density 120 -background white -alpha remove '/tmp/spine_leaf.pdf[0]' -quality 95 docs/spine-leaf-slide.png
+identify docs/spine-leaf-slide.png
+echo "Rendered docs/spine-leaf-slide.png — review it, then: git add docs/spine-leaf-slide.{html,png} && commit."
