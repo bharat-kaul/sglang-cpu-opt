@@ -104,24 +104,48 @@ $$t(L) = t_{fixed} + L\cdot t_{layer},\quad t_{layer}=\frac{t_8-t_4}{4},\quad t_
 Per-layer cost dominates (decode 93%, prefill 98.5%), so $t_{fixed}$ is small and the extrapolation is
 well-conditioned. One full-depth dummy run will **validate** it before any headline number is final.
 
-## Progressive-improvement ledger
-Each optimization is integrated **one at a time**, **env-gated default-OFF**, and accepted only when its
-**dummy-weight output fingerprint is unchanged** (a perf transform, not a numeric change). A measured
-**no-change or regression is a valid, published stage** — the *why* is recorded, same as the standalone phase.
+## Progressive-improvement ledgers (segregated by phase)
+Two independent ledgers — **prefill (TTFT)** and **decode (TPOT)** — each records the wall time as (a) the
+authored kernels are integrated **one at a time**, then (b) the **end-to-end optimizations** (overhead/dispatch,
+bf16-KV, batching) land, every stage scored against **that phase's roofline**. Iteration metric = **perf-proxy
+(4-layer dummy) B=32 tok/s** (queue-free vehicle); the **43-layer** headline is extrapolated/validated at the end.
+Each stage is env-gated default-OFF, fingerprint/parity-gated; a measured **regression is a valid, recorded
+stage** — the *why* is kept.
 
-| # | stage | status | decode tok/s (B=1, 43L) | prefill TTFT | notes |
-|---|---|---|---:|---:|---|
-| 0 | **baseline** (torch-ref DSA, no opt kernels) | ✅ measured | **0.80** | **67.8 s** | job 385387; the denominator |
-| 1 | + indexer logits | ⏳ pending | — | — | oneDNN donor + fused epilogue; **bf16-KV** traffic lever here |
-| 2 | + indexer top-k | ⏳ pending | — | — | pure-authored selection |
-| 3 | + compressor | ⏳ pending | — | — | pure-authored, hand-`exp` (D1) |
-| 4 | + sparse attend | ⏳ pending | — | — | oneDNN donor + fused softmax (bf16 rejected standalone) |
-| 5 | + MHC sinkhorn | ⏳ pending | — | — | fused recurrence |
-| 6 | + MHC hash/combine | ⏳ pending | — | — | accumulate-once |
-| 7 | + Lane-A ceiling verify | ⏳ pending | — | — | MLA proj / MoE experts / lm_head at roofline |
-| 8 | + system/dispatch overhead | ⏳ pending | — | — | bind-once, fewer/bigger parallel regions, allocator/NUMA |
+### Prefill progression — TTFT, compute-bound (roofline = prefill_FLOPs / AMX-peak)
+*Prefill is where the authored DSA compute kernels are the main unrealized win (sparse-attn + indexer over the
+full S-token prompt).*
 
-Full data: [wall_time_progress.json](../plugin/validate/results/wall_time_progress.json).
+| # | stage | prefill tok/s (proxy B=32) | Δ vs baseline | status |
+|---|---|---:|---:|---|
+| P0 | **baseline** (torch-ref DSA) | **879** | 1.00× | ✅ job 385956 |
+| P1 | all C-kernels ON (naive, 1 flag) | **83.3** | **0.09×** | ✅ measured — **REGRESSED** (OpenMP oversubscription) |
+| P2 | + OpenMP-runtime fix (`-fopenmp-simd`) | — | — | ⏳ in progress |
+| P3 | per-kernel bisection (indexer/compressor/sparse/MHC, one at a time) | — | — | ⏳ (per-op flags ready) |
+| P4 | + dispatch/parallel-region overhead pass | — | — | ⏳ |
+| P5 | + incremental-sparse O(S²)→O(S·topk) | — | — | ⏳ (algorithmic) |
+| P6 | 43L extrapolation + roofline (% of TTFT ceiling) | — | — | ⏳ |
+
+### Decode progression — TPOT, memory-bound (roofline = M·BW / (W_active + M·KV_tok))
+*Decode's memory-bound core (MoE weight streaming) is already ~75% of the BW roofline at B=32; the open work is
+overhead + integration hygiene, not new compute kernels.*
+
+| # | stage | decode tok/s (proxy B=32) | Δ vs baseline | status |
+|---|---|---:|---:|---|
+| D0 | **baseline** (torch-ref DSA, batched + thread/spin-wait fixes) | **81.3** | 1.00× | ✅ job 385956 |
+| D1 | all C-kernels ON (naive, 1 flag) | **21.9** | **0.27×** | ✅ measured — **REGRESSED** (OpenMP oversubscription) |
+| D2 | + OpenMP-runtime fix (`-fopenmp-simd`) | — | — | ⏳ in progress |
+| D3 | per-kernel bisection (one at a time) | — | — | ⏳ (per-op flags ready) |
+| D4 | + framework/dispatch overhead pass (**~39% of decode**) | — | — | ⏳ the main decode lever |
+| D5 | + bf16-KV (long-context KV read; bit-identical) | — | — | ⏳ carry-forward lever |
+| D6 | 43L extrapolation + roofline (% of TPOT ceiling) | — | — | ⏳ |
+
+> **43L baseline headline** (two-depth extrapolation, job 385387, the unoptimized torch path): decode **0.80
+> tok/s** (B=1), prefill **67.8 s** (S=1024) — see the calibration table above. The proxy ledgers iterate the
+> integration; the 43L number is finalized at P6/D6.
+
+Full data: [wall_time_progress.json](../plugin/validate/results/wall_time_progress.json),
+[dsv4_p2integ_*](../plugin/validate/results/) (job 385956, OFF-vs-ON proxy).
 
 ## Method & gates (per stage)
 1. **Freeze the kosher baseline** — tag the commit, golden dummy-weight fingerprint; every optimization is
