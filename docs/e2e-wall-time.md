@@ -46,6 +46,26 @@ climbing toward the roofline.** The bf16-KV lever (bit-identical) stays the one 
   (the torch-reference baseline OOM/watchdog-kills at B≥8, so only B=1 is measurable pre-optimization).
 - **Node:** EMR Xeon 8592+ (64c/socket), `--constraint=ddr5600 --exclusive`, OMP64 close/cores, `numactl -N0 -m0`.
 
+## Prefill and decode are TWO work items (different rooflines, different maturity)
+
+Prefill and decode are tracked **separately** — different bound, roofline, levers, and status. Optimizing one
+says little about the other.
+
+| | **Prefill (TTFT)** — compute-bound | **Decode (TPOT)** — memory-bound |
+|---|---|---|
+| **roofline** | `TTFT_floor = prefill_FLOPs / peak` (AMX bf16) | `tok/s_roof(M) = M·BW / (W_active + M·KV_tok)` |
+| **DSA/MHC kernel leverage** | **HIGH** — indexer + sparse-attn run over the full S-token prompt (O(S·ctx)); the authored compute kernels are the main win | **LOW** — 1 query token/step; decode is dominated by MoE weight streaming, not DSA compute |
+| **Phase-1 state** | unoptimized torch O(S²) attention — the big *unrealized* opportunity | **near roofline** — batching + thread/affinity/spin-wait fixes → MoE at **~75%** of BW (170/226 GB/s) at B=32; ~10× over the B=1 start |
+| **open levers** | (1) wire the authored DSA kernels (after the OpenMP fix); (2) incremental-sparse decode O(S²)→O(S·topk) | (1) **framework/dispatch ≈ 39% of decode** (the overhead pass); (2) **bf16-KV** long-context KV read; (3) fix the C-kernel integration regression |
+| **status** | integration wired but **regressed** (OpenMP oversubscription) → real win not yet realized | **compute core DONE (~75% roof); wall-time NOT done** — needs the overhead/integration pass, not new compute kernels |
+
+**Are we done with decode?** The **memory-bound core is essentially done** — Phase-1 batching + thread/affinity/
+spin-wait put MoE weight streaming at ~75% of the BW roofline at B=32, and no kernel rewrite moves a
+weight-streaming ceiling. Decode as a **wall-time is not done**: the per-op pivot shows **framework/dispatch is
+~39% of decode** (the real remaining lever), the C-kernel swap currently **regresses** decode (OpenMP fix), and
+**bf16-KV** isn't wired. The remaining decode work is **overhead + integration-hygiene**, the *opposite* of
+prefill (where the authored DSA compute kernels are the main unrealized win).
+
 ## Baseline (measured) — the denominator every optimization is scored against
 
 | metric | full-depth (43L) | source |
