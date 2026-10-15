@@ -252,7 +252,9 @@ flowchart LR
 > data, cache-busted) + gap ledger, committed and pushed. A measured win that isn't on the page didn't ship.
 
 **Cross-cutting invariants** (hold in every phase): PROVENANCE always (no claim without its bound evidence);
-DONOR-FIRST (never re-implement a library primitive); MEASURE don't assume (regime, ULP, streaming number,
+DONOR-FIRST *for the compute inner loop* — never re-implement a library GEMM, **but own the composition/fusion
+when the op is dispatch- or materialization-bound** (donor-first is not a reason to ship a donor whose per-call
+dispatch dominates — see gap-ledger rule 14); MEASURE don't assume (regime, ULP, streaming number,
 ISA via `objdump`); and `adversarial-self-audit` before submitting any gate/record/review-response — fix the
 vulnerability **class**, not the shown instance.
 
@@ -423,3 +425,23 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
    the win). *Worked: the indexer "fp8 ceiling" was this error — fp8 has no AMX tile, so it is a BW-only lever
    that helps at long context but buys ~0 at S=1024 where the op is dispatch-bound (wave 385941: 0.1–3.7% of the
    BW roof). Same principle as the MXFP4 MoE: fp4 **moved**, bf16 **computed**.*
+
+**14. Donor-first has an EXIT CONDITION: own the *composition* when the op is dispatch/materialization-bound, not
+   the donor's inner loop.** Donor-first forbids re-implementing a **library GEMM inner loop** you can't beat —
+   that is a statement about **compute FLOPS**. It does **not** oblige you to accept the donor's **call shape**.
+   When the regime is **dispatch- or materialization-bound** (low M / small-op / decode), the donor's cost is
+   its **per-call primitive dispatch + the intermediate tensors it forces you to materialize** (e.g. two separate
+   `at::bmm` calls + a `[N,H,K]` scores round-trip + a separate softmax pass), which can **exceed** the GEMM win
+   it buys. The lever is then **FUSION / owning the composition**: one pass, intermediates kept **resident**
+   (L1/L2), producer→consumer fused (softmax into the value step; logits into top-k), **persistent** packed
+   micro-kernels instead of per-call primitive creation — *keeping the donor's math* where it is actually used.
+   **Decision rule:** attribute first (rule 8) — if **data-movement ≈ 0 and compute ≈ 0 but latency ≫ roofline**
+   (tiny `%roof` that is **flat** vs problem size), the op is **dispatch-bound → the donor is the wrong *shape*,
+   author the fusion** (not the inner GEMM). Conversely if the donor's inner GEMM **is** the bottleneck (high
+   `%roof`, compute-bound), keep it. *Don't get stuck shipping a donor whose per-call overhead dominates just
+   because "donor-first."* Still **measure** the own-fused path against the donor before committing (rule 6) —
+   over-blocking can reintroduce the very dispatch cost you set out to remove (the DSA sparse `blockbf16` flash
+   lost by splitting into 64-token blocks). *Worked: DSA sparse/indexer are dispatch-bound at decode — the fp32
+   donor forces 2 dispatches + a materialized score matrix; the lever is a fused one-pass kernel, not a faster
+   GEMM. The ISA knob (AVX-512 vs AMX, rule 10) is the sibling: AMX tile-setup is pure dispatch overhead at low
+   M, so the no-tile ISA wins there.*
