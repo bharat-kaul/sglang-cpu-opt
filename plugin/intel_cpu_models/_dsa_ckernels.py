@@ -34,10 +34,17 @@ def _dbg() -> bool:
 
 @atexit.register
 def _dbg_dump():
-    for op, (ct, tt, n) in sorted(_DBG.items()):
-        if n:
-            print(f"[CK_DBG] {op}: calls={n} C={ct*1e3:.1f}ms ({ct/n*1e6:.1f}us/call) "
-                  f"torch={tt*1e3:.1f}ms ({tt/n*1e6:.1f}us/call) C/torch={ct/max(tt,1e-9):.2f}x shape={_DBG_SHAPE.get(op)}", flush=True)
+    if not _DBG:
+        return
+    lines = [f"[CK_DBG] {op}: calls={n} C={ct*1e3:.1f}ms ({ct/n*1e6:.1f}us/call) "
+             f"torch={tt*1e3:.1f}ms ({tt/n*1e6:.1f}us/call) C/torch={ct/max(tt,1e-9):.2f}x shape={_DBG_SHAPE.get(op)}"
+             for op, (ct, tt, n) in sorted(_DBG.items()) if n]
+    out = os.environ.get("INTEL_CPU_DSV4_CK_DBG_OUT")   # worker subprocess: write to a file, not stdout
+    if out:
+        with open(out, "a") as f:
+            f.write("\n".join(lines) + "\n")
+    for ln in lines:
+        print(ln, flush=True)
 
 
 def enabled(op: str | None = None) -> bool:
