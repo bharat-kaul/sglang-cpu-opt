@@ -213,13 +213,21 @@ flowchart LR
   Decode is memory-bound: `tok/s_roof(M) = M·BW / (W_active + M·KV_tok)`, where `W_active` = weight bytes
   read per step (**MoE-aware: active experts only**, at the checkpoint dtype) and `KV_tok` = KV bytes/token
   (KV dtype). Prefill is compute-bound → a separate `FLOPs/peak` roofline, so **split the ceiling by phase.**
-  Plot `tok/s_roof(M)` as the **ceiling line** on the E2E progression chart; the measured-vs-roofline gap is
-  **integration efficiency**, attributed by the per-op pivot (e.g. MoE ~47%, authored DSA+MHC ~25–30%). The
-  roofline rewards memory-traffic levers directly — **bf16-KV halves `KV_tok`; fp4/fp8 experts shrink
-  `W_active`; both raise the ceiling** — and at M=1 the ceiling is both LOW (weights read for one token) and
-  hard to reach (overhead), so batching raises both the ceiling and the efficiency (DSv4 ~26% at M=1 vs ~75%
-  batched). The 70–75% headroom budgets non-overlap, dispatch gaps, and the authored-op slice (not pure
-  weight-GEMM).
+  The **TPOT** (time-per-output-token) roofline is the same ceiling inverted per request:
+  `TPOT_floor(M) = (W_active/M + KV_tok) / BW` — so batching amortizes `W_active` across `M` tokens (TPOT
+  falls as M rises until KV_tok/BW dominates), and a **prefill TTFT** floor = `prefill_FLOPs / peak`. Both the
+  wall-time (prefill FLOPs-bound) and TPOT (decode BW-bound) rooflines are rooted in **native-compute peak + BW**
+  (gap-ledger rule 13) — low-bit experts/KV cut the *bytes* (`W_active`, `KV_tok`), they do not raise a compute
+  ceiling the HW lacks. Plot `tok/s_roof(M)` as the **ceiling line** on the E2E progression chart; the
+  measured-vs-roofline gap is **integration efficiency**, attributed by the per-op pivot (e.g. MoE ~47%,
+  authored DSA+MHC ~25–30%). The roofline rewards memory-traffic levers directly — **bf16-KV halves `KV_tok`;
+  fp4/fp8 experts shrink `W_active`; both raise the ceiling** — and at M=1 the ceiling is both LOW (weights read
+  for one token) and hard to reach (overhead), so batching raises both the ceiling and the efficiency (DSv4
+  ~26% at M=1 vs ~75% batched). The 70–75% headroom budgets non-overlap, dispatch gaps, and the authored-op
+  slice (not pure weight-GEMM). **Execution loop:** integrate one kernel → measure wall-time + TPOT vs the
+  roofline → attribute the gap (kernel / framework / **dispatch & parallelization overhead**) → clear the
+  overhead (bind-once, fewer/bigger parallel regions, one rank per NUMA domain, prepack) → re-measure, so
+  **every integration step updates measured-vs-roofline** until the 70–75% target holds at every M.
 - **Gate (trust):** per-toggle **dummy-weight fingerprint** stays invariant (perf transform, not a numeric
   change); the full-depth run validates the extrapolation; the roofline+pivot report pair is emitted.
 
