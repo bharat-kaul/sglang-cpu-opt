@@ -73,9 +73,9 @@ def bench_sparse():
     def bf16(a): return (a[0].to(torch.bfloat16), a[1].to(torch.bfloat16), a[2], a[3])
     variants = [
         ("fp32_bestof_hx (baseline, bit-exact)", lambda a: m.sparse_attend_bestof_hx(*a), f32, True),
+        ("fp32_scalar_fused_own (no donor)", lambda a: m.sparse_attend(*a), f32, True),
         ("bf16_dense_native (no cast)", lambda a: m.sparse_attend_bf16bmm_hx(*a), bf16, False),
         ("bf16_flash_native (no cast)", lambda a: m.sparse_attend_blockbf16(*a), bf16, False),
-        ("bf16_scorehybrid_native", lambda a: m.sparse_attend_scorehybrid(*a), bf16, False),
     ]
     def build(M): return (torch.randn(M, 64, 512), torch.randn(M, 512, 512), torch.randn(64), 512 ** -0.5)
     return "sparse", variants, build, lambda a: _sparse_ref(*a), floor, {"bf16_flash_us": floor}
@@ -110,8 +110,11 @@ def main():
     name, variants, build, oracle, floor, floors = (bench_sparse() if args.kernel == "sparse" else bench_indexer())
 
     out = {"_schema": "reference-algorithm wave: variants at the reference dtype (bf16-native, no cast) vs the "
-                      "corrected roofline; cos vs the fp32 oracle. streaming LLC-flushed 3-replicate median (EMR).",
+                      "corrected roofline; cos vs the fp32 oracle. streaming LLC-flushed 3-replicate median (EMR). "
+                      "ONEDNN_MAX_CPU_ISA forces the oneDNN ISA (AVX512_CORE_BF16 = dpbf16, AMX disabled) for the "
+                      "donor-first conformance-safe low-M ISA test.",
            "kernel": name, "flags": CF, "node": os.uname().nodename, "job": os.environ.get("SLURM_JOB_ID"),
+           "onednn_max_cpu_isa": os.environ.get("ONEDNN_MAX_CPU_ISA", os.environ.get("DNNL_MAX_CPU_ISA", "default(AMX)")),
            "threads": torch.get_num_threads(), "M": {}}
     hdr = f"{'M':>4} {'variant':<38} {'us':>9} {'spd':>6} {'%roof':>6} {'cos':>10}"
     print(hdr); print("-" * len(hdr))
