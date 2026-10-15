@@ -1,0 +1,262 @@
+{
+  "_schema": "reference-algorithm wave: variants at the reference dtype (bf16-native, no cast) vs the corrected roofline; cos vs the fp32 oracle. streaming LLC-flushed 3-replicate median (EMR). ONEDNN_MAX_CPU_ISA forces the oneDNN ISA (AVX512_CORE_BF16 = dpbf16, AMX disabled) for the donor-first conformance-safe low-M ISA test.",
+  "kernel": "sparse",
+  "flags": [
+    "-O3",
+    "-fopenmp",
+    "-march=native",
+    "-mprefer-vector-width=512",
+    "-DCPU_CAPABILITY_AVX512"
+  ],
+  "node": "pcl-sprh03.sc.intel.com",
+  "job": "385952",
+  "onednn_max_cpu_isa": "default(AMX)",
+  "threads": 64,
+  "M": {
+    "1": {
+      "floor_us": {
+        "bf16_flash_us": 1.83
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 324.0,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 0.6,
+          "cos": 1.0,
+          "conformant": true
+        },
+        "fp32_scalar_fused_own (no donor)": {
+          "us": 332.1,
+          "speedup_vs_base": 0.98,
+          "pct_roof": 0.6,
+          "cos": 1.0,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 2045.9,
+          "speedup_vs_base": 0.16,
+          "pct_roof": 0.1,
+          "cos": 0.999991,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 675.5,
+          "speedup_vs_base": 0.48,
+          "pct_roof": 0.3,
+          "cos": 0.999997,
+          "conformant": false
+        }
+      }
+    },
+    "2": {
+      "floor_us": {
+        "bf16_flash_us": 3.66
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 345.9,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 1.1,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "fp32_scalar_fused_own (no donor)": {
+          "us": 399.8,
+          "speedup_vs_base": 0.87,
+          "pct_roof": 0.9,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 6226.7,
+          "speedup_vs_base": 0.06,
+          "pct_roof": 0.1,
+          "cos": 0.99999,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1302.3,
+          "speedup_vs_base": 0.27,
+          "pct_roof": 0.3,
+          "cos": 0.999996,
+          "conformant": false
+        }
+      }
+    },
+    "4": {
+      "floor_us": {
+        "bf16_flash_us": 7.31
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 358.6,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 2.0,
+          "cos": 1.000002,
+          "conformant": true
+        },
+        "fp32_scalar_fused_own (no donor)": {
+          "us": 524.7,
+          "speedup_vs_base": 0.68,
+          "pct_roof": 1.4,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 467.3,
+          "speedup_vs_base": 0.77,
+          "pct_roof": 1.6,
+          "cos": 0.999991,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1256.9,
+          "speedup_vs_base": 0.29,
+          "pct_roof": 0.6,
+          "cos": 0.999996,
+          "conformant": false
+        }
+      }
+    },
+    "8": {
+      "floor_us": {
+        "bf16_flash_us": 14.63
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 403.2,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 3.6,
+          "cos": 1.000002,
+          "conformant": true
+        },
+        "fp32_scalar_fused_own (no donor)": {
+          "us": 797.8,
+          "speedup_vs_base": 0.51,
+          "pct_roof": 1.8,
+          "cos": 1.000002,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 473.3,
+          "speedup_vs_base": 0.85,
+          "pct_roof": 3.1,
+          "cos": 0.999979,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1255.6,
+          "speedup_vs_base": 0.32,
+          "pct_roof": 1.2,
+          "cos": 0.999984,
+          "conformant": false
+        }
+      }
+    },
+    "16": {
+      "floor_us": {
+        "bf16_flash_us": 29.26
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 495.0,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 5.9,
+          "cos": 1.000007,
+          "conformant": true
+        },
+        "fp32_scalar_fused_own (no donor)": {
+          "us": 1257.9,
+          "speedup_vs_base": 0.39,
+          "pct_roof": 2.3,
+          "cos": 1.000007,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 500.2,
+          "speedup_vs_base": 0.99,
+          "pct_roof": 5.8,
+          "cos": 0.999975,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1283.7,
+          "speedup_vs_base": 0.39,
+          "pct_roof": 2.3,
+          "cos": 0.99998,
+          "conformant": false
+        }
+      }
+    },
+    "32": {
+      "floor_us": {
+        "bf16_flash_us": 58.51
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 653.1,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 9.0,
+          "cos": 1.000018,
+          "conformant": true
+        },
+        "fp32_scalar_fused_own (no donor)": {
+          "us": 2335.0,
+          "speedup_vs_base": 0.28,
+          "pct_roof": 2.5,
+          "cos": 1.000018,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 576.4,
+          "speedup_vs_base": 1.13,
+          "pct_roof": 10.2,
+          "cos": 0.99996,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1281.6,
+          "speedup_vs_base": 0.51,
+          "pct_roof": 4.6,
+          "cos": 0.999964,
+          "conformant": false
+        }
+      }
+    },
+    "64": {
+      "floor_us": {
+        "bf16_flash_us": 117.03
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 993.9,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 11.8,
+          "cos": 1.000059,
+          "conformant": true
+        },
+        "fp32_scalar_fused_own (no donor)": {
+          "us": 3921.8,
+          "speedup_vs_base": 0.25,
+          "pct_roof": 3.0,
+          "cos": 1.000059,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 1089.8,
+          "speedup_vs_base": 0.91,
+          "pct_roof": 10.7,
+          "cos": 0.999965,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1287.8,
+          "speedup_vs_base": 0.77,
+          "pct_roof": 9.1,
+          "cos": 0.99997,
+          "conformant": false
+        }
+      }
+    }
+  }
+}

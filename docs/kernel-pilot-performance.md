@@ -552,13 +552,24 @@ optimize-the-graph rules):
 
 | # | opportunity | kernel | lever class | upside (evidence status) | priority | status |
 |---|---|---|---|---|---|---|
-| 1 | **bf16-KV (honor the graph dtype)** | indexer_logits | graph dtype-flow · Phase-2 integration · **conformance-safe** | **MEASURED 1.09–1.25×** (wave job 385941, bf16-native vs fp32 KV; cos 1.0) — removes the per-tile fp32→bf16 convert | **MED** — modest but free + conformance-safe | measured; ship when the engine supplies bf16 KV |
+| 1 | **bf16-KV (honor the graph dtype)** | indexer_logits | graph dtype-flow · Phase-2 integration · **conformance-safe** | **MEASURED 1.10–1.19×, bit-exact** (waves 385941/385951, bf16-native vs fp32 KV; **cos 1.0** — the kernel rounds KV→bf16 anyway, so bf16-KV input is identical) — removes the per-tile fp32→bf16 convert | **MED** — modest, free, bit-exact | **SHIP** when the engine supplies bf16 KV (kernel already has the `kv_bf16` branch) |
 | 1b | **fp8-store KV (down-conversion)** | indexer_logits | **data-movement / BW optimization** (NOT a roofline — no native fp8 compute on AMX) | store KV fp8 (1 B), **upcast→bf16 in the GEMM**; cuts the length-S KV read **4× vs fp32**. **BW-only** — the indexer is **dispatch-bound at S=1024** (wave: 0.1–3.7% of the BW roof) so it buys **~0 there**; it bites **only at long context** | **MED** — conditional, long-context | hypothesis; BW-optimization, measure at the real deployment S |
-| 2 | **AVX-512-bf16 (`dpbf16ps`) low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **conformance-safe** | captures the low-M **AMX-underfill** gap (N=64/K=128) *without* the fp32 precision change — the missing **bit-exact** version of the ISA win | **MED** — the one still-untested ISA lever | **UNTESTED (named)** — one isolation M-sweep (author a `dpbf16` variant) |
-| 3 | **AVX-512-fp32 low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **precision change** | **MEASURED best: 1.14–1.38×** across M (wave 385941; isolated 3.25×@M1) | MED — fallback if #2 fails | measured; **Phase-3** accuracy-gated |
+| 2 | **AVX-512-bf16 (`dpbf16`) low-M ISA** | indexer_logits | ISA-adaptive (Rule 10) · conformance-safe | **MEASURED → already captured by the shipped path** (wave 385951, forced `ONEDNN_MAX_CPU_ISA=AVX512_CORE_BF16`): AVX-512-bf16 rescues the *batched* `at::bmm` AMX-underfill at M=1 (**12×**) but **loses M≥8** (AMX wins once it fills). The **shipped `m1` brgemm already avoids the underfill** by framing S=1024 as the GEMM M-dim, so there is **no net win** over the shipped path | **—** | **CLOSED by measurement** — shipped `m1` is already the low-M answer; a global ISA switch would hurt M≥8 |
+| 3 | **AVX-512-fp32 low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **precision change** | **MEASURED best: 1.18–1.32×** across M (waves 385941/385951; isolated 3.25×@M1) | MED — the only faster-than-shipped lever | measured; **Phase-3** accuracy-gated (fp32 scores) |
 | 4 | **logits→top-k streaming fusion** | indexer + top-k | cross-kernel fusion (Rule 11) | ~0 at S=1024 (logits 128 KB) but **grows ∝ S** (the length-S logits DRAM round-trip) | MED (context-dependent) | untested — scope at the real deployment S |
-| 5 | **flash-fused bf16 rewrite** (DeepSeek ref) | sparse_attend | formulation + dtype (reference-verified) | **TESTED → does NOT transfer to CPU.** bf16-native (cast removed) dense is **1.18×@M32 only** (loses at M1/8/64); the reference's **flash fusion LOSES 0.33–0.76×** at every M (wave 385941) — per-block AMX-underfill/dispatch overhead on CPU, and the bf16 GEMMs aren't compute-bound so the 16× bf16 peak is irrelevant. The GPU flash advantage is **GPU-specific** | **LOW** — at practical ceiling (fp32), now **direct-measured** | closed by measurement; the fp32 donor remains the CPU ceiling |
+| 5 | **own-fused / flash rewrite** (vs the fp32 donor) | sparse_attend | formulation + dtype (reference + donor-exit test) | **TESTED ×4 → the fp32 donor is the CPU ceiling.** bf16-native dense 1.18×@M32 only; reference **flash loses 0.33–0.76×**; and the **fully-fused scalar own path (no donor) ties at M=1 but loses 2–4× at M≥8** (wave 385951) — the donor's oneDNN GEMM efficiency beats every donor-free alternative, and the fusion needs a hand GEMM we've shown loses. Rule-14 exit condition **tested and not met** | **LOW** — at ceiling | closed by measurement; keep the fp32 donor |
 | 6 | **fp8 indexer-query / sparse-prefill** | (missing ops) | coverage GAP | the indexer runs in **fp8** in the reference (`act_quant`→`fp8_gemm`), and `sparse_prefill` has no CPU path | LOW (coverage) | GAP — ops not yet on CPU |
+
+**ISA + fusion wave (job 385951) — what it settled.** (1) **bf16-KV ships** — 1.10–1.19×, **bit-exact**
+(cos 1.0), conformance-safe; the only free win. (2) **`dpbf16` is a non-lever** — the AVX-512-bf16 ISA rescues
+the *batched `at::bmm`* AMX-underfill at M=1 (12×), but the **shipped `m1` brgemm already sidesteps it** by
+framing the long S dim as the GEMM's M (so AMX never underfills), and AVX-512-bf16 then **loses** at M≥8. **ISA
+lesson (Rule 10 sharpened): the AMX-underfill at low M is a *call-shape* artifact — fix it by framing the
+problem so AMX fills (big GEMM-M), not by switching ISA.** (3) **sparse own-fused loses** — the donor-free
+scalar path ties at M=1 and is 2–4× slower at M≥8, confirming (4th test) the fp32 donor is the CPU ceiling and
+Rule-14's exit condition, though the right *lens*, is **not met** for this kernel. (4) The only
+faster-than-shipped indexer path left is **AVX-512-fp32** (1.18–1.32×), which is a **precision change** gated to
+Phase-3. Net: the shipped kernels are at their CPU ceilings; **bf16-KV** is the one conformance-safe win to land.
 
 > **Roofline note (what the wave corrected).** The **roofline ceiling is the native-compute peak + BW** (AMX
 > bf16/int8/fp32 + 358 GB/s). **fp8/fp4 are *not* compute-roofline points** — GNR/EMR AMX has no fp8/fp4 tile, so
@@ -572,9 +583,9 @@ optimize-the-graph rules):
 | axis | options · disposition |
 |---|---|
 | **donor** | oneDNN brgemm **(shipped)** · own inner GEMM — *N/A* (bottleneck is dispatch/convert, not the donor loop) |
-| **ISA** (Rule 10) | AMX-bf16 tiled **(shipped, bit-exact)** · AVX-512-fp32 — **MEASURED best 1.14–1.38×, precision-gated (#3)** · AVX-512-bf16 `dpbf16ps` — **UNTESTED (#2)** · bf16 single `at::bmm` — **measured loss** (0.09×@M1) |
+| **ISA** (Rule 10) | AMX-bf16 tiled **(shipped, bit-exact)** · AVX-512-fp32 — **MEASURED best 1.18–1.32×, precision-gated (#3)** · AVX-512-bf16 `dpbf16` — **MEASURED, no net win** (shipped `m1` brgemm already frames S as GEMM-M so AMX fills; AVX-512-bf16 loses M≥8) · bf16 single `at::bmm` — **measured loss** (AMX-underfill at batch-1) |
 | **precision / dtype** | bf16 compute **(shipped)** · fp32 scores — precision change (#3, Phase-3) |
-| **graph dtype-flow** | **bf16-KV — MEASURED 1.09–1.25×, conformance-safe (#1)** · fp8-KV — **BW-only data-movement opt, long-context (#1b)**, not a ceiling |
+| **graph dtype-flow** | **bf16-KV — MEASURED 1.10–1.19× bit-exact, SHIP (#1)** · fp8-KV — **BW-only data-movement opt, long-context (#1b)**, not a ceiling |
 | **cross-kernel fusion** | logits→top-k streaming — **UNTESTED (#4), grows ∝ S** · compressor→indexer — *N/A* (different projection) |
 | **pipeline position** | **scales with context S → the long-context bottleneck → highest-priority node** (vs sparse, top-k-capped) |
 

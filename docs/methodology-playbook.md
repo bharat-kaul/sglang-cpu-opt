@@ -369,6 +369,13 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
      Phase‑3‑gated), the conformance‑safe bf16 single‑bmm measured **slower**, and the shipped bf16 tiled
      brgemm stays the best bit‑exact path. Counter‑example — **sparse attend**: fat GEMMs where AMX is already
      the right, well‑utilized ISA, so an AVX‑512 swap can't help; the rule correctly excludes it.*
+   - **AMX‑underfill at low M is often a CALL‑SHAPE artifact, not an ISA verdict — reframe before you switch.**
+     Measured (wave 385951): a *batched* `at::bmm` of the score GEMM is catastrophic at batch‑1 on AMX (12× slow)
+     and AVX‑512‑bf16 "rescues" it — but the **shipped single‑brgemm `m1` path already avoids it** by framing the
+     long sequence dim S as the GEMM's **M‑dimension** (so AMX fills), and then AMX *wins* at M≥8 while the forced
+     AVX‑512‑bf16 *loses*. So: when AMX underfills, first ask *can I reshape the GEMM so AMX fills* (batch→M,
+     coalesce tiles) — a conformance‑safe win — before concluding "switch ISA." The ISA switch is the last resort,
+     for shapes that genuinely can't be reframed.
 
 **11. Optimize the graph, not the node — and enumerate the decision space it seeds.** A kernel is a **node** in
    the model's dataflow graph (discovered + externally verified in Phase 0 — see the graph-provenance gate),
