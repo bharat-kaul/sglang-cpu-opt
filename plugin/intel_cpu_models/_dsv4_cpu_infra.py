@@ -2826,7 +2826,8 @@ def _install_mhc_cpu() -> None:
     os.environ["SGLANG_OPT_DEEPGEMM_HC_PRENORM"] = "0"
     import sglang.kernels.ops.layernorm.mhc as _mhc
 
-    _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "torch")(_mhc._hc_split_sinkhorn_torch)
+    _sink_torch = _mhc._hc_split_sinkhorn_torch
+    _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "torch")(_sink_torch)
 
     def _cpu_hc_combine(x_flat, pre, hc, out_dtype):
         # y[m, h] = sum_k pre[m, k] * x_flat[m, k*H + h]. einsum streams the contraction
@@ -2839,6 +2840,23 @@ def _install_mhc_cpu() -> None:
         return torch.einsum("mk,mkh->mh", pre.float(), xr).to(out_dtype)
 
     _mhc.hc_combine = _timed("mhc.combine", "torch")(_cpu_hc_combine)
+
+    # Phase-2 C/C++ kernel routing (INTEL_CPU_DSV4_DSA_CKERNEL=1): the sinkhorn/combine C kernels were
+    # authored against these exact torch references, so route the CPU MHC ops to them here (torch stays
+    # the per-call parity fallback under INTEL_CPU_DSV4_DSA_CKERNEL_CHECK=1).
+    try:
+        from . import _dsa_ckernels as _ck
+    except ImportError:  # standalone import context
+        import _dsa_ckernels as _ck
+    if _ck.enabled():
+        _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "ckernel")(
+            lambda mixes, hc_scale, hc_base, hc_mult=4, sinkhorn_iters=20, eps=1e-6: _ck.mhc_sinkhorn(
+                mixes, hc_scale, hc_base, hc_mult, sinkhorn_iters, eps,
+                lambda: _sink_torch(mixes, hc_scale, hc_base, hc_mult, sinkhorn_iters, eps)))
+        _mhc.hc_combine = _timed("mhc.combine", "ckernel")(
+            lambda x_flat, pre, hc, out_dtype: _ck.mhc_combine(
+                x_flat, pre, hc, out_dtype, lambda: _cpu_hc_combine(x_flat, pre, hc, out_dtype)))
+        logger.warning("[DSV4] MHC sinkhorn+combine routed to C/C++ kernels (INTEL_CPU_DSV4_DSA_CKERNEL=1).")
     if hasattr(_mhc, "_mhc_post_torch"):
         import torch
 

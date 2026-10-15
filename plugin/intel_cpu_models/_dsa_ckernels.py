@@ -70,3 +70,20 @@ def compress_softmax_pool(kv, score, ape, torch_fn):
     out = _mod("cp", "compressor.cpp").compressor_softmax_pool_fp32intrin(
         kv.contiguous(), score.contiguous(), ape.contiguous())
     return _parity("compressor", out, torch_fn)
+
+
+def mhc_sinkhorn(mixes, hc_scale, hc_base, hc_mult, iters, eps, torch_fn):
+    pre, post, comb = _mod("sk", "sinkhorn.cpp").mhc_sinkhorn(
+        mixes.contiguous(), hc_scale.contiguous(), hc_base.contiguous(), int(hc_mult), int(iters), float(eps))
+    if _check():
+        rp, ro, rc = torch_fn()
+        for nm, c, r in (("pre", pre, rp), ("post", post, ro), ("comb", comb, rc)):
+            cc = _cos(c, r)
+            assert cc >= _COS_MIN, f"DSA C-kernel mhc_sinkhorn.{nm} parity cos={cc:.6f} < {_COS_MIN}"
+    return pre, post, comb
+
+
+def mhc_combine(x_flat, pre, hc, out_dtype, torch_fn):
+    out = _mod("cb", "combine.cpp").mhc_combine(
+        x_flat.float().contiguous(), pre.float().contiguous(), int(hc)).to(out_dtype)
+    return _parity("mhc_combine", out, torch_fn)
