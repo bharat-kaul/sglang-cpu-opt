@@ -15,13 +15,17 @@ weight-streaming bound). Where it stands today:
 - **D0 baseline 82 tok/s ≈ 75% of the roofline** — decode's memory-bound core is *already* mature (Phase-1
   batching + thread/affinity/spin-wait fixes); no kernel rewrite moves a weight-streaming ceiling.
 - **D1 all-C-kernels (naive, one master flag) → 22 tok/s: a measured REGRESSION**, not a win. **Per-op bisection
-  (job 386002) localized it to the `compressor` kernel alone (81.7→21.4); `indexer` (81.0) and `topk` (81.6) are
-  neutral/clean** — so it is *not* a uniform OpenMP-runtime pathology but the compressor's **in-engine call
-  pattern** (shape/call-frequency the M=32 microbench didn't exercise). Recorded honestly; **no integration win
-  is claimed until ≥ the torch baseline**.
-- **D2–D5 pending (ghost bars):** root-cause + fix the **compressor** call pattern (indexer/topk ship as-is,
-  neutral) → re-measure → the **framework/dispatch overhead pass** (the *real* decode lever at ~39% of decode) →
-  **bf16-KV** (bit-identical). The chart updates as each lands, so the decode story is visible top-of-page.
+  (job 386002) localized it to TWO tiny-per-call ops — `compressor` (81.7→21.4) and `sinkhorn` (→21.2); `indexer`
+  (81.0), `topk` (81.6) and `combine` (77.3) are clean.** It is *not* OpenMP-runtime oversubscription (that would
+  hit every op) but **per-call parallel-region barrier overhead**: `at::parallel_for` spawns 32 threads for
+  trivial work (sinkhorn's 4×4 on 32 rows; the small decode compress window), ~128× per decode — while the
+  larger-work ops (indexer scores the whole context) amortize the barrier. The M=32 streaming microbench never
+  sees it. **No integration win is claimed until ≥ the torch baseline.**
+- **D2–D5 pending (ghost bars):** fix `compressor`+`sinkhorn` with an **adaptive serial / coarse-grain** path for
+  small row counts (the "fewer/bigger parallel regions" discipline — sinkhorn already has one standalone, its
+  threshold is just too low for the in-engine shape); `indexer`/`topk`/`combine` ship as-is (neutral). Then the
+  **framework/dispatch overhead pass** (the real decode lever at ~39% of decode) → **bf16-KV** (bit-identical).
+  The chart updates as each lands, so the decode story is visible top-of-page.
 
 The full segregated ledger (prefill vs decode, stage-by-stage) is below.
 

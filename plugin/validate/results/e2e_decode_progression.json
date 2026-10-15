@@ -5,11 +5,56 @@
   "ceiling_tok_s": 108.9,
   "ceiling_label": "decode BW roofline (weight-streaming; baseline \u2248 75% of 226 GB/s)",
   "stages": [
-    {"id": "D0", "label": "baseline", "sub": "torch, batched", "tok_s": 81.7, "status": "measured"},
-    {"id": "D1", "label": "all C-kernels", "sub": "naive 1-flag", "tok_s": 21.9, "status": "regressed"},
-    {"id": "D2", "label": "+OpenMP fix", "sub": "runtime", "tok_s": null, "status": "pending"},
-    {"id": "D3", "label": "+per-kernel", "sub": "bisected", "tok_s": null, "status": "pending"},
-    {"id": "D4", "label": "+overhead pass", "sub": "~39% framework", "tok_s": null, "status": "pending"},
-    {"id": "D5", "label": "+bf16-KV", "sub": "long-ctx KV", "tok_s": null, "status": "pending"}
-  ]
+    {
+      "id": "D0",
+      "label": "baseline",
+      "sub": "torch, batched",
+      "tok_s": 81.7,
+      "status": "measured"
+    },
+    {
+      "id": "D1",
+      "label": "all C-kernels",
+      "sub": "naive 1-flag",
+      "tok_s": 21.9,
+      "status": "regressed"
+    },
+    {
+      "id": "D2",
+      "label": "+OpenMP fix",
+      "sub": "runtime",
+      "tok_s": null,
+      "status": "pending"
+    },
+    {
+      "id": "D3",
+      "label": "+per-kernel",
+      "sub": "bisected",
+      "tok_s": null,
+      "status": "pending"
+    },
+    {
+      "id": "D4",
+      "label": "+overhead pass",
+      "sub": "~39% framework",
+      "tok_s": null,
+      "status": "pending"
+    },
+    {
+      "id": "D5",
+      "label": "+bf16-KV",
+      "sub": "long-ctx KV",
+      "tok_s": null,
+      "status": "pending"
+    }
+  ],
+  "bisection_job386002": {
+    "off": 81.7,
+    "indexer": 81.0,
+    "topk": 81.6,
+    "combine": 77.3,
+    "compressor": 21.4,
+    "sinkhorn": 21.2,
+    "note": "regressors = tiny-per-call ops (compressor, sinkhorn): per-call parallel-region barrier; fix = adaptive serial/coarse-grain"
+  }
 }
