@@ -5,6 +5,25 @@ kernel is integrated into the serving path. This is the **Phase 2** deliverable 
 [methodology playbook](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time); the per-kernel
 standalone results live on the [kernel-pilot performance page](kernel-pilot-performance.md).
 
+## Decode (TPOT) — prioritized work item: progression vs roofline
+
+![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v1.png)
+
+**Living chart** — perf-proxy (4-layer dummy) **B=32 decode tok/s** as each authored kernel integrates (one at a
+time) then the end-to-end optimizations land, scored against the **decode BW roofline** (decode is
+weight-streaming bound). Where it stands today:
+- **D0 baseline 82 tok/s ≈ 75% of the roofline** — decode's memory-bound core is *already* mature (Phase-1
+  batching + thread/affinity/spin-wait fixes); no kernel rewrite moves a weight-streaming ceiling.
+- **D1 all-C-kernels (naive, one master flag) → 22 tok/s: a measured REGRESSION**, not a win — the in-engine
+  C-kernel swap hit an **OpenMP-runtime pathology** (extensions build `-fopenmp` while ATen is OpenMP-backed on
+  a bundled libgomp → contending thread pools). Recorded honestly; **no integration win is claimed until ≥ the
+  torch baseline**.
+- **D2–D5 pending (ghost bars):** fix the OpenMP runtime → **bisect per-kernel** (per-op flags, job 386002) →
+  the **framework/dispatch overhead pass** (the *real* decode lever at ~39% of decode) → **bf16-KV** (bit-
+  identical). The chart updates as each lands, so the decode story is visible top-of-page.
+
+The full segregated ledger (prefill vs decode, stage-by-stage) is below.
+
 ![DSv4-Flash CPU end-to-end wall time — progressive improvement](plots/e2e_walltime_v1.png)
 
 Solid bar = measured & integrated (fingerprint-gated); dashed = pending Phase-2 integration.

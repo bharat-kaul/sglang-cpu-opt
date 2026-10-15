@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 520" width="1180" height="520" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+<rect width="1180" height="520" fill="#ffffff"/>
+<text x="70" y="36" font-size="22" font-weight="700" fill="#0b2447">Decode (TPOT) wall-time progression vs roofline</text>
+<text x="70" y="60" font-size="13" fill="#5b6b80">Perf-proxy (4-layer dummy) B=32 decode tok/s as the authored kernels integrate (one at a time) then the E2E optimizations land. Higher is better.</text>
+<text x="70" y="78" font-size="12.5" fill="#8a4b00">Memory-bound: the ceiling is weight-streaming BW — decode’s open work is overhead + integration hygiene, not new compute kernels.</text>
+<line x1="70" y1="434.0" x2="1156" y2="434.0" stroke="#eef2f7"/>
+<text x="62" y="438.0" font-size="11" fill="#9db0c6" text-anchor="end">0</text>
+<line x1="70" y1="377.9" x2="1156" y2="377.9" stroke="#eef2f7"/>
+<text x="62" y="381.9" font-size="11" fill="#9db0c6" text-anchor="end">20</text>
+<line x1="70" y1="321.8" x2="1156" y2="321.8" stroke="#eef2f7"/>
+<text x="62" y="325.8" font-size="11" fill="#9db0c6" text-anchor="end">40</text>
+<line x1="70" y1="265.8" x2="1156" y2="265.8" stroke="#eef2f7"/>
+<text x="62" y="269.8" font-size="11" fill="#9db0c6" text-anchor="end">60</text>
+<line x1="70" y1="209.7" x2="1156" y2="209.7" stroke="#eef2f7"/>
+<text x="62" y="213.7" font-size="11" fill="#9db0c6" text-anchor="end">80</text>
+<line x1="70" y1="153.6" x2="1156" y2="153.6" stroke="#eef2f7"/>
+<text x="62" y="157.6" font-size="11" fill="#9db0c6" text-anchor="end">100</text>
+<line x1="70" y1="97.5" x2="1156" y2="97.5" stroke="#eef2f7"/>
+<text x="62" y="101.5" font-size="11" fill="#9db0c6" text-anchor="end">120</text>
+<text x="18" y="263" font-size="12" fill="#5b6b80" transform="rotate(-90 18 263)" text-anchor="middle">decode tok/s (proxy B=32)</text>
+<line x1="70" y1="128.6" x2="1156" y2="128.6" stroke="#6a4c93" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1156" y="121.6" font-size="12.5" font-weight="600" fill="#6a4c93" text-anchor="end">roofline ceiling 109 tok/s — decode BW roofline (weight-streaming; baseline ≈ 75% of 226 GB/s)</text>
+<rect x="70.0" y="204.9" width="152.7" height="229.1" fill="#1d7874" rx="2"/>
+<text x="146.3" y="184.9" font-size="15" font-weight="700" fill="#1d7874" text-anchor="middle">82</text>
+<text x="146.3" y="199.9" font-size="11" fill="#1d7874" text-anchor="middle">75% of roof</text>
+<text x="146.3" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D0  baseline</text>
+<text x="146.3" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">torch, batched</text>
+<rect x="256.7" y="372.6" width="152.7" height="61.4" fill="#d1495b" rx="2"/>
+<text x="333.0" y="352.6" font-size="15" font-weight="700" fill="#d1495b" text-anchor="middle">22</text>
+<text x="333.0" y="367.6" font-size="11" fill="#d1495b" text-anchor="middle">20% of roof  ▼ REGRESSED</text>
+<text x="333.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D1  all C-kernels</text>
+<text x="333.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">naive 1-flag</text>
+<rect x="443.3" y="281.3" width="152.7" height="152.7" fill="#f1f3f7" stroke="#d6dee8" stroke-dasharray="4 3"/>
+<text x="519.7" y="357.7" font-size="12" fill="#aab6c6" text-anchor="middle" transform="rotate(-90 519.7 357.7)">pending</text>
+<text x="519.7" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D2  +OpenMP fix</text>
+<text x="519.7" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">runtime</text>
+<rect x="630.0" y="281.3" width="152.7" height="152.7" fill="#f1f3f7" stroke="#d6dee8" stroke-dasharray="4 3"/>
+<text x="706.3" y="357.7" font-size="12" fill="#aab6c6" text-anchor="middle" transform="rotate(-90 706.3 357.7)">pending</text>
+<text x="706.3" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D3  +per-kernel</text>
+<text x="706.3" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">bisected</text>
+<rect x="816.7" y="281.3" width="152.7" height="152.7" fill="#f1f3f7" stroke="#d6dee8" stroke-dasharray="4 3"/>
+<text x="893.0" y="357.7" font-size="12" fill="#aab6c6" text-anchor="middle" transform="rotate(-90 893.0 357.7)">pending</text>
+<text x="893.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D4  +overhead pass</text>
+<text x="893.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">~39% framework</text>
+<rect x="1003.3" y="281.3" width="152.7" height="152.7" fill="#f1f3f7" stroke="#d6dee8" stroke-dasharray="4 3"/>
+<text x="1079.7" y="357.7" font-size="12" fill="#aab6c6" text-anchor="middle" transform="rotate(-90 1079.7 357.7)">pending</text>
+<text x="1079.7" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D5  +bf16-KV</text>
+<text x="1079.7" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">long-ctx KV</text>
+<text x="70" y="510" font-size="11" fill="#9db0c6">Solid = measured (teal) · red = measured regression · ghost = pending · dashed = BW roofline. Data: results/e2e_decode_progression.json (job 386002).</text>
+</svg>
