@@ -7,7 +7,7 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Decode (TPOT) — prioritized work item: progression vs roofline
 
-![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v2.png)
+![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v3.png)
 
 **Living chart** — perf-proxy (4-layer dummy) **B=32 decode tok/s** as each authored kernel integrates (one at a
 time) then the end-to-end optimizations land, scored against the **decode BW roofline** (decode is
