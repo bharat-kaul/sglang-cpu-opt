@@ -9,6 +9,36 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 Solid bar = measured & integrated (fingerprint-gated); dashed = pending Phase-2 integration.
 
+## Phase-2 integration — status (in progress, honest)
+
+The authored DSA/MHC C/C++ kernels are now **wired into the serving forward**, env-gated
+(`INTEL_CPU_DSV4_DSA_CKERNEL=1`, per-op `INTEL_CPU_DSV4_CK_<op>`), default-OFF. **Op-level parity is validated**
+(indexer cos 0.99999 / compressor cos 1.0 / MHC sinkhorn+combine cos 1.0; bf16-KV bit-identical). But the first
+**end-to-end proxy measurement surfaced a regression, not a win** — the honest Phase-2 result:
+
+| perf-proxy (4-layer dummy) | prefill tok/s | decode tok/s |
+|---|---:|---:|
+| C-kernels OFF (torch) · B=1 | 249 | 8.4 |
+| C-kernels ON · B=1 | **27.9** (0.11×) | 7.3 (0.87×) |
+| C-kernels OFF (torch) · B=32 | 879 | 81.3 |
+| C-kernels ON · B=32 | **83.3** (0.09×) | 21.9 (0.27×) |
+
+(EMR, job 385956; [results](../plugin/validate/results/) `reference_wave`→`dsv4_p2integ_*`.)
+
+**Diagnosis (root-cause hypothesis): OpenMP runtime oversubscription**, not the kernel math. The ~10× prefill
+slowdown holds at **B=32** (where there is ample work), so it is not small-work barrier overhead — it is the
+classic **two-OpenMP-runtime** collision: the extensions build with `-fopenmp` (GNU libgomp) while torch uses
+Intel OpenMP (libiomp5) inside the engine → contending thread pools. The standalone microbench never sees it
+(no competing runtime), which is exactly why **Phase-2 integration ≠ Phase-1 microbench**. The kernels are
+correct and 4–24× faster *standalone*; in-engine they must share one thread runtime.
+
+**Next (the overhead pass, per the playbook):** (1) **bisect per-op** with the new `INTEL_CPU_DSV4_CK_<op>`
+flags (one kernel at a time) to confirm the pathology is uniform (runtime-level) vs op-specific; (2) **unify the
+OpenMP runtime** — build the extensions against torch's OpenMP / ensure `at::parallel_for` uses the engine pool
+and no nested `#pragma omp parallel`, and cap `OMP_NUM_THREADS`/`KMP` to prevent oversubscription; (3) re-measure
+OFF-vs-ON on the proxy, then full depth. **No integration win is claimed until measured ≥ the torch baseline and
+climbing toward the roofline.** The bf16-KV lever (bit-identical) stays the one clean carry-forward meanwhile.
+
 ## Operating point & headline
 - **Input** S = 1024, **output** G = 8/step (G=256 applied analytically), full depth **43 layers**.
 - **North-Star:** B=32 aggregate decode tok/s (throughput) **and** B=1 single-stream decode tok/s (latency floor).

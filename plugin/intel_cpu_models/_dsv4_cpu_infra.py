@@ -2848,15 +2848,18 @@ def _install_mhc_cpu() -> None:
         from . import _dsa_ckernels as _ck
     except ImportError:  # standalone import context
         import _dsa_ckernels as _ck
-    if _ck.enabled():
+    if _ck.enabled("sinkhorn"):
         _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "ckernel")(
             lambda mixes, hc_scale, hc_base, hc_mult=4, sinkhorn_iters=20, eps=1e-6: _ck.mhc_sinkhorn(
                 mixes, hc_scale, hc_base, hc_mult, sinkhorn_iters, eps,
                 lambda: _sink_torch(mixes, hc_scale, hc_base, hc_mult, sinkhorn_iters, eps)))
+    if _ck.enabled("combine"):
         _mhc.hc_combine = _timed("mhc.combine", "ckernel")(
             lambda x_flat, pre, hc, out_dtype: _ck.mhc_combine(
                 x_flat, pre, hc, out_dtype, lambda: _cpu_hc_combine(x_flat, pre, hc, out_dtype)))
-        logger.warning("[DSV4] MHC sinkhorn+combine routed to C/C++ kernels (INTEL_CPU_DSV4_DSA_CKERNEL=1).")
+    if _ck.enabled("sinkhorn") or _ck.enabled("combine"):
+        logger.warning("[DSV4] MHC routed to C/C++ kernels (sinkhorn=%s combine=%s).",
+                       _ck.enabled("sinkhorn"), _ck.enabled("combine"))
     if hasattr(_mhc, "_mhc_post_torch"):
         import torch
 

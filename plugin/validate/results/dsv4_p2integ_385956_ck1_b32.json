@@ -1,0 +1,13 @@
+{
+  "model": "/scratch/bkaul/models/DeepSeek-V4-Flash",
+  "tp": 1,
+  "batch": 32,
+  "input_len": 128,
+  "output_len": 32,
+  "linear_gflops_per_token": 0.0,
+  "prefill_tok_s": 83.3,
+  "decode_tok_s": 21.9,
+  "prefill_achieved_tflops": 0.0,
+  "streamed_ceiling_tflops": null,
+  "prefill_eff_abs": null
+}

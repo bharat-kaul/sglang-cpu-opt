@@ -40,6 +40,6 @@ def compress_softmax_pool(
     def _torch():
         w = (score.float() + ape.float().unsqueeze(0)).softmax(dim=1)
         return (w * kv.float()).sum(dim=1)
-    if _ck.enabled():
+    if _ck.enabled("compressor"):
         return _ck.compress_softmax_pool(kv, score, ape, _torch)
     return _torch()

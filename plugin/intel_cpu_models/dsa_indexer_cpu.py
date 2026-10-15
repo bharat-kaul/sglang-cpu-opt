@@ -36,7 +36,7 @@ def indexer_logits(q, kv, weight) -> torch.Tensor:
     def _torch():
         scores = torch.einsum("nhd,nsd->nhs", q.float(), kv.float())
         return (torch.relu(scores) * weight.float().unsqueeze(-1)).sum(dim=1)
-    if _ck.enabled():
+    if _ck.enabled("indexer"):
         return _ck.indexer_logits(q, kv, weight, _torch)
     return _torch()
 
@@ -46,6 +46,6 @@ def indexer_topk(logits: torch.Tensor, k: int) -> torch.Tensor:
     k = min(k, logits.shape[1])
     def _torch():
         return torch.topk(logits, k, dim=1, largest=True, sorted=False).indices
-    if _ck.enabled():
+    if _ck.enabled("topk"):
         return _ck.indexer_topk(logits, k, _torch)
     return _torch()

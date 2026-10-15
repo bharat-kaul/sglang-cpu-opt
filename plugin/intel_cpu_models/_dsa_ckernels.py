@@ -22,8 +22,14 @@ _CF = ["-O3", "-fopenmp", "-march=native", "-mprefer-vector-width=512", "-DCPU_C
 _COS_MIN = 0.9995   # tolerance for the per-call parity check (bf16 stage boundaries / ~1-ULP exp)
 
 
-def enabled() -> bool:
-    return os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL", "0") == "1"
+def enabled(op: str | None = None) -> bool:
+    """Master toggle INTEL_CPU_DSV4_DSA_CKERNEL=1; per-op override INTEL_CPU_DSV4_CK_<OP>=0/1 (for one-at-a-time
+    bisection, Phase-2 rule). op in {indexer, topk, compressor, sinkhorn, combine}."""
+    master = os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL", "0") == "1"
+    if op is None:
+        return master
+    v = os.environ.get("INTEL_CPU_DSV4_CK_" + op.upper())
+    return (v == "1") if v is not None else master
 
 
 def _check() -> bool:
