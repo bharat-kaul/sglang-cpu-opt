@@ -12,14 +12,32 @@ so an integration shape/dtype mismatch fails loud instead of silently diverging.
 """
 from __future__ import annotations
 
+import atexit
+import collections
 import functools
 import os
+import time
 
 import torch
 
 _KD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "kernels", "dsa_pilot")
 _CF = ["-O3", "-fopenmp", "-march=native", "-mprefer-vector-width=512", "-DCPU_CAPABILITY_AVX512"]
 _COS_MIN = 0.9995   # tolerance for the per-call parity check (bf16 stage boundaries / ~1-ULP exp)
+
+_DBG = collections.defaultdict(lambda: [0.0, 0.0, 0])   # op -> [c_time, torch_time, calls] (INTEL_CPU_DSV4_CK_DBG=1)
+_DBG_SHAPE = {}
+
+
+def _dbg() -> bool:
+    return os.environ.get("INTEL_CPU_DSV4_CK_DBG", "0") == "1"
+
+
+@atexit.register
+def _dbg_dump():
+    for op, (ct, tt, n) in sorted(_DBG.items()):
+        if n:
+            print(f"[CK_DBG] {op}: calls={n} C={ct*1e3:.1f}ms ({ct/n*1e6:.1f}us/call) "
+                  f"torch={tt*1e3:.1f}ms ({tt/n*1e6:.1f}us/call) C/torch={ct/max(tt,1e-9):.2f}x shape={_DBG_SHAPE.get(op)}", flush=True)
 
 
 def enabled(op: str | None = None) -> bool:
@@ -73,12 +91,28 @@ def indexer_topk(logits, k, torch_fn):
 
 
 def compress_softmax_pool(kv, score, ape, torch_fn):
+    if _dbg():
+        t0 = time.perf_counter()
+        out = _mod("cp", "compressor.cpp").compressor_softmax_pool_fp32intrin(
+            kv.contiguous(), score.contiguous(), ape.contiguous())
+        t1 = time.perf_counter(); torch_fn(); t2 = time.perf_counter()
+        d = _DBG["compressor"]; d[0] += t1 - t0; d[1] += t2 - t1; d[2] += 1
+        _DBG_SHAPE["compressor"] = tuple(kv.shape)
+        return out
     out = _mod("cp", "compressor.cpp").compressor_softmax_pool_fp32intrin(
         kv.contiguous(), score.contiguous(), ape.contiguous())
     return _parity("compressor", out, torch_fn)
 
 
 def mhc_sinkhorn(mixes, hc_scale, hc_base, hc_mult, iters, eps, torch_fn):
+    if _dbg():
+        t0 = time.perf_counter()
+        r = _mod("sk", "sinkhorn.cpp").mhc_sinkhorn(
+            mixes.contiguous(), hc_scale.contiguous(), hc_base.contiguous(), int(hc_mult), int(iters), float(eps))
+        t1 = time.perf_counter(); torch_fn(); t2 = time.perf_counter()
+        d = _DBG["sinkhorn"]; d[0] += t1 - t0; d[1] += t2 - t1; d[2] += 1
+        _DBG_SHAPE["sinkhorn"] = tuple(mixes.shape)
+        return r[0], r[1], r[2]
     pre, post, comb = _mod("sk", "sinkhorn.cpp").mhc_sinkhorn(
         mixes.contiguous(), hc_scale.contiguous(), hc_base.contiguous(), int(hc_mult), int(iters), float(eps))
     if _check():
