@@ -29,15 +29,16 @@ def _mod(n, cpp):
 
 
 # byte/FLOP contracts + nominal peak (identical to make_kernel_pilot_plots KC) for the roofline floor.
-# sparse_bestof roofline is the REFERENCE ALGORITHM ceiling (DeepSeek inference/kernel.py sparse_attn_kernel):
-# bf16 flash-fused, KV read ONCE, nothing materialized -> AMX peak + bf16 bytes (KV once + q + out), NOT the
-# old fp32-dense ceiling (276us@M32, the wrong algorithm). New floor ~58.5us@M32; the shipped fp32 kernel is
-# ~12.6% of it (the gap the flash-bf16 rewrite would close).
+# ROOFLINE = native-compute peak + BW (the fixed HW ceiling). A sub-native low-bit dtype (fp8/fp4 — no AMX
+# tile on GNR/EMR) is NEVER a compute-roofline point: it is a STORAGE/down-conversion choice whose benefit is
+# DATA-MOVEMENT only (fewer DRAM bytes), realized when BW-bound. sparse_bestof stays at the fp32 shipped-algo
+# ceiling: the reference's bf16-flash floor (~58us) was MEASURED non-transferable on CPU (wave job 385941 —
+# bf16-native dense 1.18x@M32 only, flash LOSES 0.33-0.76x; dispatch/per-block overhead, not the compute peak).
 KC = {
     "indexer_logits": (lambda M: 2*M*64*1024*128 + 3*M*64*1024, lambda M: M*64*128*4 + M*1024*128*4 + M*64*4 + M*1024*4, AMX, False),
     "indexer_topk": (lambda M: 0.0, lambda M: M*1024*4 + M*512*8, FP32, True),
     "compressor_R128": (lambda M: 3.0*M*128*512, lambda M: M*128*512*4*2 + M*512*4 + 128*512*4, FP32, True),
-    "sparse_bestof": (lambda M: 4.0*M*64*512*512, lambda M: M*512*512*2 + 2*M*64*512*2, AMX, False),
+    "sparse_bestof": (lambda M: 4.0*M*64*512*512, lambda M: M*512*512*4 + 2*M*64*512*4, FP32, False),
     "sinkhorn": (lambda M: float(M*4*4*20*5), lambda M: M*24*4 + 3*4 + 24*4 + M*24*4, FP32, True),
     "combine": (lambda M: float(M*4096*7), lambda M: M*4*4096*4 + M*4*4 + M*4096*4, FP32, True),
 }

@@ -552,30 +552,39 @@ optimize-the-graph rules):
 
 | # | opportunity | kernel | lever class | upside (evidence status) | priority | status |
 |---|---|---|---|---|---|---|
-| 1 | **bf16-KV (honor the graph dtype)** | indexer_logits | graph dtype-flow · Phase-2 integration · **conformance-safe** | **1.09–1.51× measured** (proxy) + **halves the length-S KV read** and removes the per-tile fp32→bf16 convert inside the ~110 µs operative floor | **HIGH** — decode-floor *and* long-context | measured proxy; superseded by #1b for storage |
-| 1b | **fp8-store KV + bf16 compute** (DeepSeek ref) | indexer_logits | graph dtype-flow (reference-verified) | the reference stores the index-KV **fp8 (1 byte)** and computes via `fp8_gemm`; on AMX = **store fp8, upcast fp8→bf16 in the GEMM** (the proven MXFP4-MoE pattern) → **halves the bf16 KV read again, 4× vs fp32** on the part that scales with S | **HIGH** — the long-context traffic lever | hypothesis; dtype reference-verified (`inference/kernel.py`) |
-| 2 | **AVX-512-bf16 (`dpbf16ps`) low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **conformance-safe** | captures the low-M **AMX-underfill** gap (N=64/K=128) *without* the fp32 precision change — the missing **bit-exact** version of the ISA win | **HIGH** — the one decisive untested ISA lever | **UNTESTED (named)** — one isolation M-sweep (author a `dpbf16` variant) |
-| 3 | **AVX-512-fp32 low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **precision change** | **3.25×@M1 → tie@M32 → AMX@M64** (isolated, measured) | MED — fallback if #2 fails | measured; **Phase-3** accuracy-gated |
+| 1 | **bf16-KV (honor the graph dtype)** | indexer_logits | graph dtype-flow · Phase-2 integration · **conformance-safe** | **MEASURED 1.09–1.25×** (wave job 385941, bf16-native vs fp32 KV; cos 1.0) — removes the per-tile fp32→bf16 convert | **MED** — modest but free + conformance-safe | measured; ship when the engine supplies bf16 KV |
+| 1b | **fp8-store KV (down-conversion)** | indexer_logits | **data-movement / BW optimization** (NOT a roofline — no native fp8 compute on AMX) | store KV fp8 (1 B), **upcast→bf16 in the GEMM**; cuts the length-S KV read **4× vs fp32**. **BW-only** — the indexer is **dispatch-bound at S=1024** (wave: 0.1–3.7% of the BW roof) so it buys **~0 there**; it bites **only at long context** | **MED** — conditional, long-context | hypothesis; BW-optimization, measure at the real deployment S |
+| 2 | **AVX-512-bf16 (`dpbf16ps`) low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **conformance-safe** | captures the low-M **AMX-underfill** gap (N=64/K=128) *without* the fp32 precision change — the missing **bit-exact** version of the ISA win | **MED** — the one still-untested ISA lever | **UNTESTED (named)** — one isolation M-sweep (author a `dpbf16` variant) |
+| 3 | **AVX-512-fp32 low-M path** | indexer_logits | ISA-adaptive (Rule 10) · **precision change** | **MEASURED best: 1.14–1.38×** across M (wave 385941; isolated 3.25×@M1) | MED — fallback if #2 fails | measured; **Phase-3** accuracy-gated |
 | 4 | **logits→top-k streaming fusion** | indexer + top-k | cross-kernel fusion (Rule 11) | ~0 at S=1024 (logits 128 KB) but **grows ∝ S** (the length-S logits DRAM round-trip) | MED (context-dependent) | untested — scope at the real deployment S |
-| 5 | **flash-fused bf16 rewrite** (DeepSeek ref) | sparse_attend | formulation + dtype (reference-verified) | **REOPENED.** The reference `sparse_attn_kernel` is **FlashAttention-style**: gather + score + online-softmax + value **fused in one kernel**, **bf16 KV resident** (read once, both GEMMs), top-k tiled in 64-blocks, **nothing materialized** to DRAM. bf16-native removes the fp32→bf16 cast that **confounded the prior bf16 loss**; bf16 AMX peak is **~16× the fp32 peak** and the GEMMs are 88% of the 473 µs | **HIGH** — was wrongly closed | hypothesis; prior bf16 loss was cast-confounded → author the flash-bf16 kernel + measure |
-| 6 | **fp8 indexer-query / sparse-prefill** | (missing ops) | coverage GAP | the indexer runs in **fp8** in the reference (`act_quant`→`fp8_gemm`), and `sparse_prefill` has no CPU path | MED (coverage) | GAP — ops not yet on CPU |
+| 5 | **flash-fused bf16 rewrite** (DeepSeek ref) | sparse_attend | formulation + dtype (reference-verified) | **TESTED → does NOT transfer to CPU.** bf16-native (cast removed) dense is **1.18×@M32 only** (loses at M1/8/64); the reference's **flash fusion LOSES 0.33–0.76×** at every M (wave 385941) — per-block AMX-underfill/dispatch overhead on CPU, and the bf16 GEMMs aren't compute-bound so the 16× bf16 peak is irrelevant. The GPU flash advantage is **GPU-specific** | **LOW** — at practical ceiling (fp32), now **direct-measured** | closed by measurement; the fp32 donor remains the CPU ceiling |
+| 6 | **fp8 indexer-query / sparse-prefill** | (missing ops) | coverage GAP | the indexer runs in **fp8** in the reference (`act_quant`→`fp8_gemm`), and `sparse_prefill` has no CPU path | LOW (coverage) | GAP — ops not yet on CPU |
+
+> **Roofline note (what the wave corrected).** The **roofline ceiling is the native-compute peak + BW** (AMX
+> bf16/int8/fp32 + 358 GB/s). **fp8/fp4 are *not* compute-roofline points** — GNR/EMR AMX has no fp8/fp4 tile, so
+> they are **storage/down-conversion** choices whose benefit is **data-movement (BW) only** (upcast to bf16 to
+> compute). A low-bit store therefore belongs in the **optimization/upside** ledger (a traffic cut, measured
+> against the fixed bf16+BW roofline), **not** relabeled as a lower roofline. Same principle we already use for
+> the MXFP4 MoE (fp4 moved, bf16 computed). The earlier "fp8 target ceiling" was this category error.
 
 **Decision-space ledger — `indexer_logits` node** (seeded by the graph; every axis disposed explicitly):
 
 | axis | options · disposition |
 |---|---|
 | **donor** | oneDNN brgemm **(shipped)** · own inner GEMM — *N/A* (bottleneck is dispatch/convert, not the donor loop) |
-| **ISA** (Rule 10) | AMX-bf16 tiled **(shipped, bit-exact)** · AVX-512-bf16 `dpbf16ps` — **UNTESTED (#2, the key gap)** · AVX-512-fp32 — **measured 3.25×@M1, precision-gated (#3)** · bf16 single `at::bmm` — **measured loss** (oneDNN transposed-layout artifact) |
+| **ISA** (Rule 10) | AMX-bf16 tiled **(shipped, bit-exact)** · AVX-512-fp32 — **MEASURED best 1.14–1.38×, precision-gated (#3)** · AVX-512-bf16 `dpbf16ps` — **UNTESTED (#2)** · bf16 single `at::bmm` — **measured loss** (0.09×@M1) |
 | **precision / dtype** | bf16 compute **(shipped)** · fp32 scores — precision change (#3, Phase-3) |
-| **graph dtype-flow** | **bf16-KV — the real pipeline dtype (#1, HIGH, conformance-safe); fp32-KV standalone = artifact** |
-| **cross-kernel fusion** | logits→top-k streaming — **UNTESTED (#4), grows ∝ S** · compressor→indexer — *N/A* (different projection, no shared bytes) |
-| **pipeline position** | **scales with context S → the long-context bottleneck → highest-priority node** (vs sparse, which is top-k-capped) |
+| **graph dtype-flow** | **bf16-KV — MEASURED 1.09–1.25×, conformance-safe (#1)** · fp8-KV — **BW-only data-movement opt, long-context (#1b)**, not a ceiling |
+| **cross-kernel fusion** | logits→top-k streaming — **UNTESTED (#4), grows ∝ S** · compressor→indexer — *N/A* (different projection) |
+| **pipeline position** | **scales with context S → the long-context bottleneck → highest-priority node** (vs sparse, top-k-capped) |
 
-**Graph-view headline:** the **indexer** is the real DSA bottleneck (it scales with context); honor the low-bit
-KV the pipeline supplies — **fp8-store + bf16-compute (#1b, reference-verified)** — and the `dpbf16` low-M ISA path
-(#2), both on the part that scales with S. **Sparse was wrongly closed:** the earlier "compute-bound, at-ceiling"
-verdict measured *my* dense-fp32 reformulation, not the reference's **flash-fused bf16** algorithm (#5) — see the
-reference gap analysis below.
+**Graph-view headline (post-wave).** The reference check was decisive — it forced the measurement, and the
+measurement **settled both kernels**: (1) **sparse** bf16/flash does **not** transfer to CPU (bf16-native dense
+1.18×@M32 only, flash loses 0.33–0.76×) — the fp32 donor **is** the practical CPU ceiling, now *directly*
+measured rather than inferred, and the GPU flash advantage is GPU-specific; (2) the **indexer** levers are real
+but **modest** — bf16-KV 1.09–1.25×, AVX-512-fp32 1.14–1.38× (precision-gated), and fp8 is a **long-context-only
+BW optimization** (the op is dispatch-bound at S=1024). Net: no 7.9× sparse prize; the indexer's small
+conformance-safe wins (bf16-KV, + the untested `dpbf16`) are the remaining levers.
 
 #### Gap analysis vs the DeepSeek reference implementation (`inference/kernel.py`)
 
@@ -585,8 +594,8 @@ dequant**, and implements sparse attention as a **fused flash kernel**, not dens
 
 | kernel | reference (`inference/kernel.py`) | our CPU impl | gap → upside |
 |---|---|---|---|
-| **sparse attend** | `sparse_attn_kernel`: gather + score + **online-softmax** + value **fused in one kernel**; top-k tiled in **64-blocks**; **bf16 KV gathered into shared memory per block, read once, used by both GEMMs**; scores cast bf16 (`acc_s_cast`); **no gathered-KV or score matrix materialized**; `attn_sink` in the denominator only | materialize gathered **fp32** KV → two **fp32** `at::bmm` → separate full-matrix softmax | **formulation + dtype** → **HIGH (#5)**: bf16-native (no cast) at the ~16× bf16 AMX ceiling + kill 2 DRAM round-trips + fuse softmax; **reopens** the kernel |
-| **indexer logits** | `act_quant`→`fp8_gemm` (per-128 block scales, fp32 accum, bf16 out); index-KV stored **fp8 (1 B)** | fp32 KV → per-tile bf16 convert → bf16 AMX brgemm (**4 B**) | **dtype/traffic** → **HIGH (#1b)**: fp8-store + bf16-compute, 4× less KV traffic on the length-S axis |
+| **sparse attend** | `sparse_attn_kernel`: gather + score + **online-softmax** + value **fused in one kernel**; top-k tiled in **64-blocks**; **bf16 KV gathered into shared memory per block, read once, used by both GEMMs**; scores cast bf16 (`acc_s_cast`); **no gathered-KV or score matrix materialized**; `attn_sink` in the denominator only | materialize gathered **fp32** KV → two **fp32** `at::bmm` → separate full-matrix softmax | **formulation + dtype** → **TESTED, does NOT transfer to CPU** (wave 385941): bf16-native dense 1.18×@M32 only (loses elsewhere), **flash loses 0.33–0.76×** (per-block AMX-underfill/dispatch > large MKL bmm; GEMMs not compute-bound so 16× bf16 peak is moot). fp32 donor = CPU ceiling |
+| **indexer logits** | `act_quant`→`fp8_gemm` (per-128 block scales, fp32 accum, bf16 out); index-KV stored **fp8 (1 B)** | fp32 KV → per-tile bf16 convert → bf16 AMX brgemm (**4 B**) | **dtype/traffic**: bf16-KV **measured 1.09–1.25×** (#1); **fp8-store is a BW-only data-movement opt** (no native fp8 compute), **long-context only** — dispatch-bound at S=1024 (#1b) |
 | **top-k → gather** | **no separate gather** — `topk_idxs` fed into the flash kernel, gather fused per-block | `nth_element` → **materialized** gather feeding bmms | **fuse the gather into sparse** (folds into #5) |
 | **MHC sinkhorn** | one fused kernel: `pre`/`post`/`comb` from one `mixes` read + 20 iters in-register (4×4) | fused, adaptive serial/parallel | small — already matches; **at ceiling** |
 | **MoE experts** (context) | `fp4_gemm` = **W4A8** (fp8 activations × fp4 weights, fp4→fp8 upcast, fp8×fp8) | MXFP4 **W4A16** (bf16 activations) | activations **fp8 not bf16**; AMX **int8** analog — precision-gated, **outside the DSA-6** |
@@ -597,8 +606,27 @@ algorithm — and we measured *its* ceiling and called it the kernel's. **Benchm
 algorithm, dtype, and fusion, not a locally-plausible reformulation.** Phase-0 external verification must capture
 the reference kernel's **algorithm (flash vs dense), dtype (fp8/bf16 vs fp32), and fusion structure** — not just
 the op-list, shapes, and edges. A reformulation's measured ceiling is only *its* ceiling; if the reference uses a
-different algorithm/dtype, the wrong wall was measured. (This also retro-explains the earlier bf16 "loss": it was
-measured under a fp32→bf16 cast the reference never pays.)
+different algorithm/dtype, the wrong wall was measured.
+
+**But the reference is the *right algorithm*, not necessarily the *right CPU algorithm* — the reference check
+sets the hypothesis; the target-HW measurement settles it.** The wave (job 385941) tested the reference's
+bf16-flash on CPU and it **lost** (flash 0.33–0.76×, bf16-native dense 1.18×@M32 only): the GPU flash win rests
+on cheap shared-memory residency + warp GEMMs, whereas on CPU the per-block AMX-underfill + pack/dispatch
+overhead exceeds the large MKL bmm, and the GEMMs aren't compute-bound so the 16× bf16 peak never engages. So
+the earlier "sparse at ceiling" **conclusion** was right (the fp32 donor is the CPU ceiling) even though its
+original **reasoning** was incomplete — and we now know it by *direct bf16-native + flash measurement*, not
+inference. The reference check was still essential: it converted an assumption into a falsifiable test, and the
+test gave a definitive answer. **Lesson: a GPU reference's algorithm/dtype is a hypothesis to measure on the
+target HW, never a guaranteed CPU win — fusion/precision that wins on a GPU can lose on a CPU.**
+
+**Roofline corollary (the fp8 ceiling was a category error).** The roofline's **compute ceiling is the peak of
+the dtypes the HW computes *natively*** (AMX bf16/int8/fp32). **fp8/fp4 are not compute-roofline points** on
+GNR/EMR — there is no tile — so a low-bit store (fp8/fp4) is a **data-movement / BW optimization** (store fewer
+bytes, upcast to bf16 to compute), and its benefit shows up **only when the op is BW-bound** (the indexer is
+dispatch-bound at S=1024, so fp8 buys ~0 there and only helps at long context). Keep the roofline at
+**native-compute + BW** and put low-bit down-conversion in the **optimization/upside** ledger — never relabel a
+storage optimization as a lower roofline. (We already apply this to the MXFP4 MoE: fp4 **moved**, bf16
+**computed**.)
 
 Applying the compressor learnings (512-bit build flags, `objdump` ISA check, hand-inlined Cephes `exp` where
 exp-bound, and **streaming / cold-cache timing**) to all six kernels as a parallel wave, consolidated and

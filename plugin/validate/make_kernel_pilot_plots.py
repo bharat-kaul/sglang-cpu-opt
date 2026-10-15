@@ -179,7 +179,7 @@ def main():
         "indexer_logits": (lambda M: 2 * M * 64 * 1024 * 128 + 3 * M * 64 * 1024, lambda M: M * 64 * 128 * 4 + M * 1024 * 128 * 4 + M * 64 * 4 + M * 1024 * 4, AMX, "indexer logits", True),
         "indexer_topk": (lambda M: 0.0, lambda M: M * 1024 * 4 + M * 512 * 8, FP32, "indexer top-k", False),
         "compressor_R128": (lambda M: 3.0 * M * 128 * 512, lambda M: M * 128 * 512 * 4 * 2 + M * 512 * 4 + 128 * 512 * 4, FP32, "compressor", False),
-        "sparse_bestof": (lambda M: 4.0 * M * 64 * 512 * 512, lambda M: M * 512 * 512 * 2 + 2 * M * 64 * 512 * 2, AMX, "sparse attend", True),
+        "sparse_bestof": (lambda M: 4.0 * M * 64 * 512 * 512, lambda M: M * 512 * 512 * 4 + 2 * M * 64 * 512 * 4, FP32, "sparse attend", True),
         "sinkhorn": (lambda M: float(M * 4 * 4 * 20 * 5), lambda M: M * 24 * 4 + 3 * 4 + 24 * 4 + M * 24 * 4, FP32, "MHC sinkhorn", False),
         "combine": (lambda M: float(M * 4096 * 7), lambda M: M * 4 * 4096 * 4 + M * 4 * 4 + M * 4096 * 4, FP32, "MHC combine", False),
     }

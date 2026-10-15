@@ -1,0 +1,261 @@
+{
+  "_schema": "reference-algorithm wave: variants at the reference dtype (bf16-native, no cast) vs the corrected roofline; cos vs the fp32 oracle. streaming LLC-flushed 3-replicate median (EMR).",
+  "kernel": "sparse",
+  "flags": [
+    "-O3",
+    "-fopenmp",
+    "-march=native",
+    "-mprefer-vector-width=512",
+    "-DCPU_CAPABILITY_AVX512"
+  ],
+  "node": "pcl-sprh01.sc.intel.com",
+  "job": "385942",
+  "threads": 64,
+  "M": {
+    "1": {
+      "floor_us": {
+        "bf16_flash_us": 1.83
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 324.6,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 0.6,
+          "cos": 1.0,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 2040.7,
+          "speedup_vs_base": 0.16,
+          "pct_roof": 0.1,
+          "cos": 0.999991,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 695.2,
+          "speedup_vs_base": 0.47,
+          "pct_roof": 0.3,
+          "cos": 0.999997,
+          "conformant": false
+        },
+        "bf16_scorehybrid_native": {
+          "us": 9483.9,
+          "speedup_vs_base": 0.03,
+          "pct_roof": 0.0,
+          "cos": 0.999991,
+          "conformant": false
+        }
+      }
+    },
+    "2": {
+      "floor_us": {
+        "bf16_flash_us": 3.66
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 347.6,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 1.1,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 5438.5,
+          "speedup_vs_base": 0.06,
+          "pct_roof": 0.1,
+          "cos": 0.99999,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1249.0,
+          "speedup_vs_base": 0.28,
+          "pct_roof": 0.3,
+          "cos": 0.999996,
+          "conformant": false
+        },
+        "bf16_scorehybrid_native": {
+          "us": 3891.4,
+          "speedup_vs_base": 0.09,
+          "pct_roof": 0.1,
+          "cos": 0.999993,
+          "conformant": false
+        }
+      }
+    },
+    "4": {
+      "floor_us": {
+        "bf16_flash_us": 7.31
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 362.9,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 2.0,
+          "cos": 1.000002,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 472.5,
+          "speedup_vs_base": 0.77,
+          "pct_roof": 1.5,
+          "cos": 0.999991,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1249.2,
+          "speedup_vs_base": 0.29,
+          "pct_roof": 0.6,
+          "cos": 0.999996,
+          "conformant": false
+        },
+        "bf16_scorehybrid_native": {
+          "us": 474.3,
+          "speedup_vs_base": 0.77,
+          "pct_roof": 1.5,
+          "cos": 0.999993,
+          "conformant": false
+        }
+      }
+    },
+    "8": {
+      "floor_us": {
+        "bf16_flash_us": 14.63
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 411.7,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 3.6,
+          "cos": 1.000002,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 485.4,
+          "speedup_vs_base": 0.85,
+          "pct_roof": 3.0,
+          "cos": 0.999979,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1250.9,
+          "speedup_vs_base": 0.33,
+          "pct_roof": 1.2,
+          "cos": 0.999984,
+          "conformant": false
+        },
+        "bf16_scorehybrid_native": {
+          "us": 512.1,
+          "speedup_vs_base": 0.8,
+          "pct_roof": 2.9,
+          "cos": 0.999994,
+          "conformant": false
+        }
+      }
+    },
+    "16": {
+      "floor_us": {
+        "bf16_flash_us": 29.26
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 496.9,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 5.9,
+          "cos": 1.000007,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 505.7,
+          "speedup_vs_base": 0.98,
+          "pct_roof": 5.8,
+          "cos": 0.999975,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1344.4,
+          "speedup_vs_base": 0.37,
+          "pct_roof": 2.2,
+          "cos": 0.99998,
+          "conformant": false
+        },
+        "bf16_scorehybrid_native": {
+          "us": 590.4,
+          "speedup_vs_base": 0.84,
+          "pct_roof": 5.0,
+          "cos": 0.999999,
+          "conformant": false
+        }
+      }
+    },
+    "32": {
+      "floor_us": {
+        "bf16_flash_us": 58.51
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 663.6,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 8.8,
+          "cos": 1.000018,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 562.6,
+          "speedup_vs_base": 1.18,
+          "pct_roof": 10.4,
+          "cos": 0.99996,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1345.1,
+          "speedup_vs_base": 0.49,
+          "pct_roof": 4.4,
+          "cos": 0.999964,
+          "conformant": false
+        },
+        "bf16_scorehybrid_native": {
+          "us": 1158.0,
+          "speedup_vs_base": 0.57,
+          "pct_roof": 5.1,
+          "cos": 1.000014,
+          "conformant": false
+        }
+      }
+    },
+    "64": {
+      "floor_us": {
+        "bf16_flash_us": 117.03
+      },
+      "variants": {
+        "fp32_bestof_hx (baseline, bit-exact)": {
+          "us": 1032.7,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 11.3,
+          "cos": 1.000059,
+          "conformant": true
+        },
+        "bf16_dense_native (no cast)": {
+          "us": 1115.6,
+          "speedup_vs_base": 0.93,
+          "pct_roof": 10.5,
+          "cos": 0.999965,
+          "conformant": false
+        },
+        "bf16_flash_native (no cast)": {
+          "us": 1357.2,
+          "speedup_vs_base": 0.76,
+          "pct_roof": 8.6,
+          "cos": 0.99997,
+          "conformant": false
+        },
+        "bf16_scorehybrid_native": {
+          "us": 1596.0,
+          "speedup_vs_base": 0.65,
+          "pct_roof": 7.3,
+          "cos": 1.000054,
+          "conformant": false
+        }
+      }
+    }
+  }
+}

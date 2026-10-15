@@ -83,10 +83,13 @@ def bench_sparse():
 
 def bench_indexer():
     m = _mod("indexer_logits.cpp")
-    def floor_fp8(M):
-        return max((M*64*128*2 + M*1024*128*1 + M*64*4 + M*1024*4) / BW, (2*M*64*1024*128) / AMX) * 1e6
-    def floor_bf16(M):
+    # ROOFLINE = native bf16 compute peak + BW (the fixed HW ceiling; %roof basis). fp8 is NOT a compute dtype
+    # on AMX -> it is a DATA-MOVEMENT optimization only: storing KV fp8 cuts the length-S read traffic, reported
+    # as a projected BW-floor, NOT a roofline. It helps only when BW-bound (long context), ~0 when dispatch-bound.
+    def roof_bf16(M):
         return max((M*64*128*2 + M*1024*128*2 + M*64*4 + M*1024*4) / BW, (2*M*64*1024*128) / AMX) * 1e6
+    def fp8_traffic_proj(M):
+        return max((M*64*128*2 + M*1024*128*1 + M*64*4 + M*1024*4) / BW, (2*M*64*1024*128) / AMX) * 1e6
     def f32(a): return a
     def bf16kv(a): return (a[0], a[1].to(torch.bfloat16), a[2])        # feed bf16 KV -> kv_bf16 branch (no convert)
     variants = [
@@ -96,8 +99,8 @@ def bench_indexer():
         ("bf16_amxbmm (single bf16 bmm)", lambda a: m.indexer_logits_amxbmm(*a), bf16kv, False),
     ]
     def build(M): return (torch.randn(M, 64, 128), torch.randn(M, 1024, 128), torch.randn(M, 64))
-    # report BOTH the fp8-store target ceiling and the bf16 ceiling
-    return "indexer", variants, build, lambda a: _idx_ref(*a), floor_fp8, {"fp8_us": floor_fp8, "bf16_us": floor_bf16}
+    # %roof vs the bf16+BW hardware roofline; fp8 reported separately as a BW-optimization traffic projection
+    return "indexer", variants, build, lambda a: _idx_ref(*a), roof_bf16, {"bf16_bw_roofline_us": roof_bf16, "fp8_store_traffic_proj_us": fp8_traffic_proj}
 
 
 def main():

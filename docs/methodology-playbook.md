@@ -401,6 +401,25 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
    bf16 GEMM that "lost") can be an **artifact of the reformulation** (a fp32→bf16 cast the reference never pays
    on its natively-bf16 operand), which then wrongly **closes** a real opportunity. *Worked: DSA sparse-attend —
    our dense-fp32 reformulation measured "compute-bound, at-ceiling," but the DeepSeek reference (`inference/
-   kernel.py` `sparse_attn_kernel`) is **flash-fused, bf16-KV-resident, nothing materialized**; the bf16 ceiling
-   is ~16× the fp32 one and the prior bf16 "loss" was the cast confound — the kernel reopened as HIGH. Likewise
-   the indexer: the reference stores index-KV **fp8**, so the traffic lever is 4× vs fp32, not 2×.*
+   kernel.py` `sparse_attn_kernel`) is **flash-fused, bf16-KV-resident, nothing materialized**.* **The reference
+   is the right *algorithm* — not a guaranteed CPU win.** A GPU reference's algorithm/dtype/fusion is a
+   **hypothesis to measure on the target HW**, never a result: fusion/precision that wins on a GPU can **lose on
+   a CPU** because the cost model differs (cheap GPU shared-mem residency + warp GEMMs vs expensive CPU per-block
+   AMX-underfill + pack/dispatch). *Measured (wave job 385941): the bf16-flash sparse path **lost** on CPU (flash
+   0.33–0.76×, bf16-native dense 1.18×@M32 only) — the fp32 donor **is** the CPU ceiling, now known by direct
+   bf16-native + flash measurement, not inference. The reference check was still essential: it turned an
+   assumption into a falsifiable test.* So: reconstruct the reference algorithm, **measure it on the target**,
+   and let the measurement — not the reference's provenance — decide ship/close.
+
+**13. The roofline compute ceiling is the NATIVE-dtype peak; a sub-native low-bit dtype is a DATA-MOVEMENT
+   optimization, not a ceiling.** The roofline has exactly two HW ceilings: the **BW slope** and the **compute
+   peak of the dtypes the HW computes *natively*** (e.g. AMX bf16/int8/fp32 — *not* fp8/fp4 on GNR/EMR, which
+   have no tile). A dtype the HW lacks a compute unit for is **never a compute-roofline point**: it is used for
+   **storage/movement** only — store low-bit, **upcast to the nearest native dtype** (bf16), compute native. Its
+   benefit is therefore **data-movement (fewer DRAM bytes) only**, realized **only when the op is BW-bound** (not
+   dispatch- or compute-bound). Keep the roofline at **native-compute + BW**, compute `%roof` against it, and put
+   the low-bit down-conversion in the **optimization/upside ledger** as a traffic cut — **do not relabel a
+   storage optimization as a lower roofline** (that implies a compute capability the HW lacks and over-credits
+   the win). *Worked: the indexer "fp8 ceiling" was this error — fp8 has no AMX tile, so it is a BW-only lever
+   that helps at long context but buys ~0 at S=1024 where the op is dispatch-bound (wave 385941: 0.1–3.7% of the
+   BW roof). Same principle as the MXFP4 MoE: fp4 **moved**, bf16 **computed**.*

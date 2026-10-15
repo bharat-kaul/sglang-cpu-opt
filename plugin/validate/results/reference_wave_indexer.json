@@ -1,0 +1,268 @@
+{
+  "_schema": "reference-algorithm wave: variants at the reference dtype (bf16-native, no cast) vs the corrected roofline; cos vs the fp32 oracle. streaming LLC-flushed 3-replicate median (EMR).",
+  "kernel": "indexer",
+  "flags": [
+    "-O3",
+    "-fopenmp",
+    "-march=native",
+    "-mprefer-vector-width=512",
+    "-DCPU_CAPABILITY_AVX512"
+  ],
+  "node": "pcl-sprh02.sc.intel.com",
+  "job": "385941",
+  "threads": 64,
+  "M": {
+    "1": {
+      "floor_us": {
+        "fp8_us": 0.42,
+        "bf16_us": 0.79
+      },
+      "variants": {
+        "fp32KV_tiled (baseline)": {
+          "us": 377.8,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 0.1,
+          "cos": 1.0,
+          "conformant": true
+        },
+        "bf16KV_tiled (no convert)": {
+          "us": 302.9,
+          "speedup_vs_base": 1.25,
+          "pct_roof": 0.1,
+          "cos": 1.0,
+          "conformant": true
+        },
+        "fp32avx (AVX-512 fp32 score)": {
+          "us": 274.1,
+          "speedup_vs_base": 1.38,
+          "pct_roof": 0.2,
+          "cos": 0.999994,
+          "conformant": false
+        },
+        "bf16_amxbmm (single bf16 bmm)": {
+          "us": 4191.5,
+          "speedup_vs_base": 0.09,
+          "pct_roof": 0.0,
+          "cos": 1.0,
+          "conformant": false
+        }
+      }
+    },
+    "2": {
+      "floor_us": {
+        "fp8_us": 0.85,
+        "bf16_us": 1.58
+      },
+      "variants": {
+        "fp32KV_tiled (baseline)": {
+          "us": 366.3,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 0.2,
+          "cos": 1.0,
+          "conformant": true
+        },
+        "bf16KV_tiled (no convert)": {
+          "us": 356.0,
+          "speedup_vs_base": 1.03,
+          "pct_roof": 0.2,
+          "cos": 1.0,
+          "conformant": true
+        },
+        "fp32avx (AVX-512 fp32 score)": {
+          "us": 280.9,
+          "speedup_vs_base": 1.3,
+          "pct_roof": 0.3,
+          "cos": 0.999995,
+          "conformant": false
+        },
+        "bf16_amxbmm (single bf16 bmm)": {
+          "us": 354.2,
+          "speedup_vs_base": 1.03,
+          "pct_roof": 0.2,
+          "cos": 1.0,
+          "conformant": false
+        }
+      }
+    },
+    "4": {
+      "floor_us": {
+        "fp8_us": 1.69,
+        "bf16_us": 3.16
+      },
+      "variants": {
+        "fp32KV_tiled (baseline)": {
+          "us": 362.3,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 0.5,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "bf16KV_tiled (no convert)": {
+          "us": 347.3,
+          "speedup_vs_base": 1.04,
+          "pct_roof": 0.5,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "fp32avx (AVX-512 fp32 score)": {
+          "us": 291.8,
+          "speedup_vs_base": 1.24,
+          "pct_roof": 0.6,
+          "cos": 0.99999,
+          "conformant": false
+        },
+        "bf16_amxbmm (single bf16 bmm)": {
+          "us": 362.1,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 0.5,
+          "cos": 1.000001,
+          "conformant": false
+        }
+      }
+    },
+    "8": {
+      "floor_us": {
+        "fp8_us": 3.39,
+        "bf16_us": 6.31
+      },
+      "variants": {
+        "fp32KV_tiled (baseline)": {
+          "us": 373.6,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 0.9,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "bf16KV_tiled (no convert)": {
+          "us": 367.0,
+          "speedup_vs_base": 1.02,
+          "pct_roof": 0.9,
+          "cos": 1.000001,
+          "conformant": true
+        },
+        "fp32avx (AVX-512 fp32 score)": {
+          "us": 306.1,
+          "speedup_vs_base": 1.22,
+          "pct_roof": 1.1,
+          "cos": 0.999993,
+          "conformant": false
+        },
+        "bf16_amxbmm (single bf16 bmm)": {
+          "us": 382.6,
+          "speedup_vs_base": 0.98,
+          "pct_roof": 0.9,
+          "cos": 1.000001,
+          "conformant": false
+        }
+      }
+    },
+    "16": {
+      "floor_us": {
+        "fp8_us": 6.78,
+        "bf16_us": 12.63
+      },
+      "variants": {
+        "fp32KV_tiled (baseline)": {
+          "us": 386.5,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 1.8,
+          "cos": 1.000004,
+          "conformant": true
+        },
+        "bf16KV_tiled (no convert)": {
+          "us": 367.9,
+          "speedup_vs_base": 1.05,
+          "pct_roof": 1.8,
+          "cos": 1.000004,
+          "conformant": true
+        },
+        "fp32avx (AVX-512 fp32 score)": {
+          "us": 328.2,
+          "speedup_vs_base": 1.18,
+          "pct_roof": 2.1,
+          "cos": 0.999995,
+          "conformant": false
+        },
+        "bf16_amxbmm (single bf16 bmm)": {
+          "us": 394.3,
+          "speedup_vs_base": 0.98,
+          "pct_roof": 1.7,
+          "cos": 1.000004,
+          "conformant": false
+        }
+      }
+    },
+    "32": {
+      "floor_us": {
+        "fp8_us": 13.55,
+        "bf16_us": 25.26
+      },
+      "variants": {
+        "fp32KV_tiled (baseline)": {
+          "us": 428.8,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 3.2,
+          "cos": 1.000005,
+          "conformant": true
+        },
+        "bf16KV_tiled (no convert)": {
+          "us": 393.2,
+          "speedup_vs_base": 1.09,
+          "pct_roof": 3.4,
+          "cos": 1.000005,
+          "conformant": true
+        },
+        "fp32avx (AVX-512 fp32 score)": {
+          "us": 369.6,
+          "speedup_vs_base": 1.16,
+          "pct_roof": 3.7,
+          "cos": 0.999997,
+          "conformant": false
+        },
+        "bf16_amxbmm (single bf16 bmm)": {
+          "us": 432.9,
+          "speedup_vs_base": 0.99,
+          "pct_roof": 3.1,
+          "cos": 1.000005,
+          "conformant": false
+        }
+      }
+    },
+    "64": {
+      "floor_us": {
+        "fp8_us": 27.11,
+        "bf16_us": 50.51
+      },
+      "variants": {
+        "fp32KV_tiled (baseline)": {
+          "us": 532.2,
+          "speedup_vs_base": 1.0,
+          "pct_roof": 5.1,
+          "cos": 1.000005,
+          "conformant": true
+        },
+        "bf16KV_tiled (no convert)": {
+          "us": 478.1,
+          "speedup_vs_base": 1.11,
+          "pct_roof": 5.7,
+          "cos": 1.000005,
+          "conformant": true
+        },
+        "fp32avx (AVX-512 fp32 score)": {
+          "us": 468.8,
+          "speedup_vs_base": 1.14,
+          "pct_roof": 5.8,
+          "cos": 0.999997,
+          "conformant": false
+        },
+        "bf16_amxbmm (single bf16 bmm)": {
+          "us": 475.3,
+          "speedup_vs_base": 1.12,
+          "pct_roof": 5.7,
+          "cos": 1.000005,
+          "conformant": false
+        }
+      }
+    }
+  }
+}
