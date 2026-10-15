@@ -37,13 +37,15 @@ std::vector<torch::Tensor> mhc_sinkhorn(torch::Tensor mixes, torch::Tensor hc_sc
   float* combp = comb.data_ptr<float>();
   const float e = (float)eps;
 
-  // Adaptive dispatch (job 385516): rows are INDEPENDENT (per-row recurrence) so serial==parallel bit-for-bit,
-  // and serial WINS for few rows (1.15-2.09x at rows<=8 — the parallel team spinup dominates the tiny 4x4 work);
-  // parallel wins at rows>=16. Ship the per-M optimum. SINK_SERIAL / SINK_PARALLEL override for diagnostics.
-  bool serial = rows <= 12;
-  if (std::getenv("SINK_PARALLEL")) serial = false;
-  if (std::getenv("SINK_SERIAL")) serial = true;
-  const int64_t _sgrain = serial ? rows : 0;                       // grain>=range -> one task = serial
+  // Adaptive dispatch: rows are INDEPENDENT (per-row recurrence) so serial==parallel bit-for-bit. Per-row work
+  // is TINY (hc=4, 20 iters on a 4x4), and IN-ENGINE this op is called ~128x per decode step — a full parallel
+  // team per call then dominates (job 386002: decode 81.7->21.2 when naively parallel at rows=32). Use a GRAIN
+  // so small row counts (decode batch, rows=B) stay SERIAL while large batches (prefill, rows=B*S) parallelize.
+  // SINK_SERIAL / SINK_PARALLEL / SINK_GRAIN override for diagnostics.
+  int64_t _sgrain = 512;                                            // rows<=grain -> one task = serial
+  if (std::getenv("SINK_PARALLEL")) _sgrain = 1;
+  if (std::getenv("SINK_SERIAL")) _sgrain = rows;
+  if (const char* g = std::getenv("SINK_GRAIN")) _sgrain = std::max<int64_t>(1, atol(g));
   at::parallel_for(0, rows, _sgrain, [&](int64_t r0, int64_t r1) {
     std::vector<float> C(hc * hc), rs(hc), cs(hc);
     for (int64_t r = r0; r < r1; ++r) {

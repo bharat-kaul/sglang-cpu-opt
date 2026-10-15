@@ -46,7 +46,13 @@ torch::Tensor compressor_softmax_pool(torch::Tensor kv, torch::Tensor score, tor
   DT = (DT + 15) / 16 * 16;                                          // round to an AVX-512 width
   const int64_t ndt = (D + DT - 1) / DT;
 
-  at::parallel_for(0, N * ndt, 0, [&](int64_t t0, int64_t t1) {
+  // IN-ENGINE this op is called frequently with SMALL per-call work at decode; the max-parallelism design
+  // (2*nthr tasks) then pays a 64-thread barrier PER CALL that dominates (job 386002: decode 81.7->21.4 naive).
+  // Run SERIAL when the per-call working set is small (decode window); keep full parallelism for large N (prefill).
+  int64_t _cgrain = 0;                                              // 0 = auto (max parallel)
+  if (N * R * D < 512 * 1024) _cgrain = N * ndt;                    // small per-call work -> one task = serial
+  if (const char* g = std::getenv("COMPRESS_GRAIN")) _cgrain = std::max<int64_t>(0, atol(g));
+  at::parallel_for(0, N * ndt, _cgrain, [&](int64_t t0, int64_t t1) {
     std::vector<float> m(DT), l(DT), acc(DT);
     for (int64_t t = t0; t < t1; ++t) {
       const int64_t n = t / ndt, dt = t % ndt, d0 = dt * DT;
