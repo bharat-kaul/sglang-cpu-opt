@@ -14,13 +14,14 @@ time) then the end-to-end optimizations land, scored against the **decode BW roo
 weight-streaming bound). Where it stands today:
 - **D0 baseline 82 tok/s ≈ 75% of the roofline** — decode's memory-bound core is *already* mature (Phase-1
   batching + thread/affinity/spin-wait fixes); no kernel rewrite moves a weight-streaming ceiling.
-- **D1 all-C-kernels (naive, one master flag) → 22 tok/s: a measured REGRESSION**, not a win — the in-engine
-  C-kernel swap hit an **OpenMP-runtime pathology** (extensions build `-fopenmp` while ATen is OpenMP-backed on
-  a bundled libgomp → contending thread pools). Recorded honestly; **no integration win is claimed until ≥ the
-  torch baseline**.
-- **D2–D5 pending (ghost bars):** fix the OpenMP runtime → **bisect per-kernel** (per-op flags, job 386002) →
-  the **framework/dispatch overhead pass** (the *real* decode lever at ~39% of decode) → **bf16-KV** (bit-
-  identical). The chart updates as each lands, so the decode story is visible top-of-page.
+- **D1 all-C-kernels (naive, one master flag) → 22 tok/s: a measured REGRESSION**, not a win. **Per-op bisection
+  (job 386002) localized it to the `compressor` kernel alone (81.7→21.4); `indexer` (81.0) and `topk` (81.6) are
+  neutral/clean** — so it is *not* a uniform OpenMP-runtime pathology but the compressor's **in-engine call
+  pattern** (shape/call-frequency the M=32 microbench didn't exercise). Recorded honestly; **no integration win
+  is claimed until ≥ the torch baseline**.
+- **D2–D5 pending (ghost bars):** root-cause + fix the **compressor** call pattern (indexer/topk ship as-is,
+  neutral) → re-measure → the **framework/dispatch overhead pass** (the *real* decode lever at ~39% of decode) →
+  **bf16-KV** (bit-identical). The chart updates as each lands, so the decode story is visible top-of-page.
 
 The full segregated ledger (prefill vs decode, stage-by-stage) is below.
 
