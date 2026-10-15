@@ -11,6 +11,11 @@ from __future__ import annotations
 
 import torch
 
+try:
+    from . import _dsa_ckernels as _ck
+except ImportError:  # standalone import (tests) — no parent package
+    import _dsa_ckernels as _ck
+
 
 def indexer_logits_reference(q, kv, weight) -> torch.Tensor:
     # q: [N, H, D]; kv: [N, S, D]; weight: [N, H] -> logits [N, S]
@@ -28,11 +33,19 @@ def indexer_logits_reference(q, kv, weight) -> torch.Tensor:
 
 def indexer_logits(q, kv, weight) -> torch.Tensor:
     """Vectorized CPU port. q:[N,H,D], kv:[N,S,D], weight:[N,H] -> [N,S]."""
-    scores = torch.einsum("nhd,nsd->nhs", q.float(), kv.float())
-    return (torch.relu(scores) * weight.float().unsqueeze(-1)).sum(dim=1)
+    def _torch():
+        scores = torch.einsum("nhd,nsd->nhs", q.float(), kv.float())
+        return (torch.relu(scores) * weight.float().unsqueeze(-1)).sum(dim=1)
+    if _ck.enabled():
+        return _ck.indexer_logits(q, kv, weight, _torch)
+    return _torch()
 
 
 def indexer_topk(logits: torch.Tensor, k: int) -> torch.Tensor:
     """Top-k KV indices per query. logits:[N,S] -> indices [N, min(k,S)] (int64)."""
     k = min(k, logits.shape[1])
-    return torch.topk(logits, k, dim=1, largest=True, sorted=False).indices
+    def _torch():
+        return torch.topk(logits, k, dim=1, largest=True, sorted=False).indices
+    if _ck.enabled():
+        return _ck.indexer_topk(logits, k, _torch)
+    return _torch()

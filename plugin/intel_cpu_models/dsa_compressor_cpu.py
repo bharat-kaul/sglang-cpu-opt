@@ -14,6 +14,11 @@ from __future__ import annotations
 
 import torch
 
+try:
+    from . import _dsa_ckernels as _ck
+except ImportError:  # standalone import (tests) — no parent package
+    import _dsa_ckernels as _ck
+
 
 def compress_softmax_pool_reference(
     kv: torch.Tensor, score: torch.Tensor, ape: torch.Tensor
@@ -32,5 +37,9 @@ def compress_softmax_pool(
     kv: torch.Tensor, score: torch.Tensor, ape: torch.Tensor
 ) -> torch.Tensor:
     """Vectorized CPU port (same math, no python loop). [N, ratio, D] -> [N, D]."""
-    w = (score.float() + ape.float().unsqueeze(0)).softmax(dim=1)
-    return (w * kv.float()).sum(dim=1)
+    def _torch():
+        w = (score.float() + ape.float().unsqueeze(0)).softmax(dim=1)
+        return (w * kv.float()).sum(dim=1)
+    if _ck.enabled():
+        return _ck.compress_softmax_pool(kv, score, ape, _torch)
+    return _torch()
