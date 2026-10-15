@@ -183,6 +183,20 @@ flowchart LR
      so every delta is bisectable to one op and the residual is *named*, not lumped. Predict full depth during
      iteration with the **two-depth linear model** `t(L) = t_fixed + L·t_layer` *per regime* (prefill/decode) —
      never naive `t_proxy/layers × full_layers`.
+     - **Resolve every integration AMBIGUITY against the reference oracle — the way fingerprinting resolves
+       correctness.** When the wiring is unclear (which op *form* does the serving path use? is attention MQA
+       `k==v` or generic? is there a sink and where — numerator or denominator? what dtype/layout does the
+       producer supply? does the kernel gather internally or take pre-gathered inputs?), **do not guess from a
+       local scaffold** — a Phase-0 *validator* (e.g. a dense-reducible reference op) is often a simplification,
+       not the deployment form. Consult the **two oracles**: the **reference source** (DeepSeek `inference/
+       kernel.py` / `model.py`) for the op's *signature + semantics* (MQA/sink/gather/scale/dtype), and the
+       **GPU per-(layer,op) capture** for the *parity gate* (diff the wired op against ground truth; first
+       divergent layer localizes the bug). *Worked: the DSA sparse-attend CPU validator was generic gather-SDPA
+       with no sink, but the reference `sparse_attn_kernel` (and the real serving attend) is **MQA `k==v` +
+       per-head sink in the denominator + gather-by-top-k-indices** — wiring to the validator's form would have
+       silently corrupted attention (the "zero-attention" bug class). The MHC sinkhorn/combine signatures were
+       likewise *confirmed* against the reference `hc_split_sinkhorn` before wiring.* Oracle-for-ambiguity is a
+       standing gate, not a one-off: an unverified integration assumption is as dangerous as an unverified number.
   4. **Carry forward the integration-class levers** surfaced during the standalone-kernel phase — memory-traffic,
      dtype, and data-layout wins that the kernel already supports but that are realized only in the serving path
      (e.g. a **bf16 KV cache**: numerically identical to what a bf16-rounding GEMM consumes, yet halves the
