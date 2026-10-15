@@ -104,6 +104,10 @@ not the 24% shown (‡).
 | 3.5 MHC sinkhorn | latency/dispatch | 0.017 | 26 | ~0% | 616 | 23.3× |
 | 3.6 MHC combine | BW (FP32) | 7.3 | 27 | 27% | 62 | 2.3× |
 
+> **See also — the optimization journey per kernel** (baseline → each lever → roofline ceiling, and how the
+> speed-up holds across the M=1…64 sweep): [§4 Re-optimization wave — streaming journeys](#4-re-optimization-wave--streaming-journeys-for-every-kernel).
+> The deep-dives below are *how* each lever was built; the journey charts are *how far* each kernel got toward its floor.
+
 ### Optimization levers per kernel (vs roofline)
 
 Which [playbook](standalone-kernel-optimization-playbook.md) stages each kernel actually used, and the roofline
