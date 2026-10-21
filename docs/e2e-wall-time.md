@@ -7,25 +7,26 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Decode (TPOT) — prioritized work item: progression vs roofline
 
-![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v3.png)
+![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v4.png)
 
 **Living chart** — perf-proxy (4-layer dummy) **B=32 decode tok/s** as each authored kernel integrates (one at a
 time) then the end-to-end optimizations land, scored against the **decode BW roofline** (decode is
 weight-streaming bound). Where it stands today:
-- **D0 baseline 82 tok/s ≈ 75% of the roofline** — decode's memory-bound core is *already* mature (Phase-1
+- **D0 baseline 91 tok/s ≈ 76% of the roofline** — decode's memory-bound core is *already* mature (Phase-1
   batching + thread/affinity/spin-wait fixes); no kernel rewrite moves a weight-streaming ceiling.
-- **D1 all-C-kernels (naive, one master flag) → 22 tok/s: a measured REGRESSION**, not a win. **Per-op bisection
-  (job 386002) localized it to TWO tiny-per-call ops — `compressor` (81.7→21.4) and `sinkhorn` (→21.2); `indexer`
-  (81.0), `topk` (81.6) and `combine` (77.3) are clean.** It is *not* OpenMP-runtime oversubscription (that would
-  hit every op) but **per-call parallel-region barrier overhead**: `at::parallel_for` spawns 32 threads for
-  trivial work (sinkhorn's 4×4 on 32 rows; the small decode compress window), ~128× per decode — while the
-  larger-work ops (indexer scores the whole context) amortize the barrier. The M=32 streaming microbench never
-  sees it. **No integration win is claimed until ≥ the torch baseline.**
-- **D2–D5 pending (ghost bars):** fix `compressor`+`sinkhorn` with an **adaptive serial / coarse-grain** path for
-  small row counts (the "fewer/bigger parallel regions" discipline — sinkhorn already has one standalone, its
-  threshold is just too low for the in-engine shape); `indexer`/`topk`/`combine` ship as-is (neutral). Then the
-  **framework/dispatch overhead pass** (the real decode lever at ~39% of decode) → **bf16-KV** (bit-identical).
-  The chart updates as each lands, so the decode story is visible top-of-page.
+- **D1 all-C-kernels — NEUTRAL, not a regression (corrected).** The controlled **held-fixed** A/B (job 386039,
+  all kernels OFF-vs-ON, mem-fraction fixed at 0.85, same job) measures **decode 91.2 → 94.2 (1.03×)** and
+  **prefill 880.2 → 1002.8 (1.14×)** — integrating the kernels is **perf-neutral at decode and a modest win at
+  prefill**. The earlier "22 tok/s regression" (and the per-op bisection that localized a 4× `compressor`+
+  `sinkhorn` hit, job 386002) was a **measurement artifact of a *sequential* bisection**: toggling ops across
+  separate runs drifts the scheduler/KV-pool regime (the torch baseline alone swung 81→24 with a `mem-fraction`
+  knob), manufacturing a phantom. **Lesson: only a held-fixed OFF-vs-ON A/B in one job is trustworthy** (now
+  encoded in the [playbook](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time)).
+- **D2–D5 pending (ghost bars):** the **framework/dispatch overhead pass** (the real decode lever at ~39% of
+  decode) → **bf16-KV** (bit-identical, halves the dominant KV read). A tiny-op hygiene pass (adaptive serial/
+  coarse-grain for `compressor`+`sinkhorn` below the grain-size floor) remains **optional** — the held-fixed A/B
+  shows no net regression to clear, so it is no longer a blocker. The chart updates as each lands, so the decode
+  story is visible top-of-page.
 
 The full segregated ledger (prefill vs decode, stage-by-stage) is below.
 
@@ -37,31 +38,33 @@ Solid bar = measured & integrated (fingerprint-gated); dashed = pending Phase-2 
 
 The authored DSA/MHC C/C++ kernels are now **wired into the serving forward**, env-gated
 (`INTEL_CPU_DSV4_DSA_CKERNEL=1`, per-op `INTEL_CPU_DSV4_CK_<op>`), default-OFF. **Op-level parity is validated**
-(indexer cos 0.99999 / compressor cos 1.0 / MHC sinkhorn+combine cos 1.0; bf16-KV bit-identical). But the first
-**end-to-end proxy measurement surfaced a regression, not a win** — the honest Phase-2 result:
+(indexer cos 0.99999 / compressor cos 1.0 / MHC sinkhorn+combine cos 1.0; bf16-KV bit-identical). The
+**controlled held-fixed end-to-end A/B now shows integration is perf-safe** — neutral at decode, a modest win at
+prefill:
 
-| perf-proxy (4-layer dummy) | prefill tok/s | decode tok/s |
+| perf-proxy (4-layer dummy), **held-fixed** OFF-vs-ON | prefill tok/s | decode tok/s |
 |---|---:|---:|
-| C-kernels OFF (torch) · B=1 | 249 | 8.4 |
-| C-kernels ON · B=1 | **27.9** (0.11×) | 7.3 (0.87×) |
-| C-kernels OFF (torch) · B=32 | 879 | 81.3 |
-| C-kernels ON · B=32 | **83.3** (0.09×) | 21.9 (0.27×) |
+| C-kernels OFF (torch) · B=32 | 880.2 | 91.2 |
+| C-kernels ON · B=32 | **1002.8** (1.14×) | **94.2** (1.03×) |
 
-(EMR, job 385956; [results](../plugin/validate/results/) `reference_wave`→`dsv4_p2integ_*`.)
+(EMR, **job 386039** — all kernels OFF-vs-ON, mem-fraction fixed 0.85, prefill+decode in the *same* job;
+[results](../plugin/validate/results/).)
 
-**Diagnosis (root-cause hypothesis): OpenMP runtime oversubscription**, not the kernel math. The ~10× prefill
-slowdown holds at **B=32** (where there is ample work), so it is not small-work barrier overhead — it is the
-classic **two-OpenMP-runtime** collision: the extensions build with `-fopenmp` (GNU libgomp) while torch uses
-Intel OpenMP (libiomp5) inside the engine → contending thread pools. The standalone microbench never sees it
-(no competing runtime), which is exactly why **Phase-2 integration ≠ Phase-1 microbench**. The kernels are
-correct and 4–24× faster *standalone*; in-engine they must share one thread runtime.
+> **⚠ Superseded — the earlier "10× regression" was a measurement artifact.** A prior *sequential* bisection
+> (job 385956/386002) reported a ~10× prefill and ~4× decode regression and hypothesized **OpenMP runtime
+> oversubscription** (GNU libgomp vs Intel libiomp5 collision). The **held-fixed** A/B above refutes it:
+> toggling ops across *separate* runs drifted the scheduler/KV-pool/batching regime between points (the torch
+> baseline alone swung decode 81→24 with a `mem-fraction` knob), manufacturing a phantom. The kernels are
+> perf-neutral-to-positive end-to-end. **Root lesson (now in the playbook): measure integration deltas with a
+> held-fixed OFF-vs-ON A/B in one job — never a sequential bisection; and a *tiny* op "regressing" large is a
+> tell for a global/measurement pathology, not a slow op.**
 
-**Next (the overhead pass, per the playbook):** (1) **bisect per-op** with the new `INTEL_CPU_DSV4_CK_<op>`
-flags (one kernel at a time) to confirm the pathology is uniform (runtime-level) vs op-specific; (2) **unify the
-OpenMP runtime** — build the extensions against torch's OpenMP / ensure `at::parallel_for` uses the engine pool
-and no nested `#pragma omp parallel`, and cap `OMP_NUM_THREADS`/`KMP` to prevent oversubscription; (3) re-measure
-OFF-vs-ON on the proxy, then full depth. **No integration win is claimed until measured ≥ the torch baseline and
-climbing toward the roofline.** The bf16-KV lever (bit-identical) stays the one clean carry-forward meanwhile.
+**Next (the real levers, per the playbook):** (1) the **framework/dispatch overhead pass** (~39% of decode) —
+fewer/bigger parallel regions, bind-once-at-init, one rank per NUMA domain; (2) **bf16-KV** (bit-identical,
+halves the dominant KV read) — the clean carry-forward lever; (3) **incremental-sparse** prefill O(S²)→O(S·topk);
+(4) **43L full-depth** validation + % of roofline headline. A tiny-op hygiene pass (adaptive serial/coarse-grain
+for `compressor`+`sinkhorn` below the grain-size floor) is **optional** — the held-fixed A/B shows no net
+regression to clear. Every stage stays env-gated default-OFF and fingerprint-gated.
 
 ## Operating point & headline
 - **Input** S = 1024, **output** G = 8/step (G=256 applied analytically), full depth **43 layers**.
@@ -80,15 +83,16 @@ says little about the other.
 | **roofline** | `TTFT_floor = prefill_FLOPs / peak` (AMX bf16) | `tok/s_roof(M) = M·BW / (W_active + M·KV_tok)` |
 | **DSA/MHC kernel leverage** | **HIGH** — indexer + sparse-attn run over the full S-token prompt (O(S·ctx)); the authored compute kernels are the main win | **LOW** — 1 query token/step; decode is dominated by MoE weight streaming, not DSA compute |
 | **Phase-1 state** | unoptimized torch O(S²) attention — the big *unrealized* opportunity | **near roofline** — batching + thread/affinity/spin-wait fixes → MoE at **~75%** of BW (170/226 GB/s) at B=32; ~10× over the B=1 start |
-| **open levers** | (1) wire the authored DSA kernels (after the OpenMP fix); (2) incremental-sparse decode O(S²)→O(S·topk) | (1) **framework/dispatch ≈ 39% of decode** (the overhead pass); (2) **bf16-KV** long-context KV read; (3) fix the C-kernel integration regression |
-| **status** | integration wired but **regressed** (OpenMP oversubscription) → real win not yet realized | **compute core DONE (~75% roof); wall-time NOT done** — needs the overhead/integration pass, not new compute kernels |
+| **open levers** | (1) wire the authored DSA kernels (**done — held-fixed A/B neutral-to-positive, 1.14× prefill**); (2) incremental-sparse decode O(S²)→O(S·topk) | (1) **framework/dispatch ≈ 39% of decode** (the overhead pass); (2) **bf16-KV** long-context KV read; (3) 43L full-depth validation |
+| **status** | integration wired & **perf-safe** (held-fixed A/B: 1.14× prefill, job 386039) → authored-DSA compute win still to be realized via incremental-sparse | **compute core DONE (~75% roof); wall-time NOT done** — needs the overhead/integration pass, not new compute kernels |
 
 **Are we done with decode?** The **memory-bound core is essentially done** — Phase-1 batching + thread/affinity/
 spin-wait put MoE weight streaming at ~75% of the BW roofline at B=32, and no kernel rewrite moves a
 weight-streaming ceiling. Decode as a **wall-time is not done**: the per-op pivot shows **framework/dispatch is
-~39% of decode** (the real remaining lever), the C-kernel swap currently **regresses** decode (OpenMP fix), and
-**bf16-KV** isn't wired. The remaining decode work is **overhead + integration-hygiene**, the *opposite* of
-prefill (where the authored DSA compute kernels are the main unrealized win).
+~39% of decode** (the real remaining lever), the C-kernel swap is **perf-neutral** at decode (held-fixed A/B
+1.03×, job 386039 — *not* the earlier phantom regression), and **bf16-KV** isn't wired. The remaining decode
+work is **overhead + integration-hygiene**, the *opposite* of prefill (where the authored DSA compute kernels
+are the main unrealized win).
 
 ## Baseline (measured) — the denominator every optimization is scored against
 
@@ -142,13 +146,13 @@ full S-token prompt).*
 
 | # | stage | prefill tok/s (proxy B=32) | Δ vs baseline | status |
 |---|---|---:|---:|---|
-| P0 | **baseline** (torch-ref DSA) | **879** | 1.00× | ✅ job 385956 |
-| P1 | all C-kernels ON (naive, 1 flag) | **83.3** | **0.09×** | ✅ measured — **REGRESSED** (OpenMP oversubscription) |
-| P2 | + OpenMP-runtime fix (`-fopenmp-simd`) | — | — | ⏳ in progress |
-| P3 | per-kernel bisection (indexer/compressor/sparse/MHC, one at a time) | — | — | ⏳ (per-op flags ready) |
-| P4 | + dispatch/parallel-region overhead pass | — | — | ⏳ |
-| P5 | + incremental-sparse O(S²)→O(S·topk) | — | — | ⏳ (algorithmic) |
-| P6 | 43L extrapolation + roofline (% of TTFT ceiling) | — | — | ⏳ |
+| P0 | **baseline** (torch-ref DSA) | **880** | 1.00× | ✅ job 386039 (held-fixed) |
+| P1 | all C-kernels ON (held-fixed A/B) | **1003** | **1.14×** | ✅ measured — **WIN** (job 386039) |
+| ~~P1′~~ | ~~all C-kernels ON (naive, sequential bisect)~~ | ~~83.3~~ | ~~0.09×~~ | ⊘ **superseded** — phantom from un-held-fixed sweep (job 385956) |
+| P2 | per-kernel held-fixed A/B (indexer/compressor/sparse/MHC) | — | — | ⏳ attribute the 1.14× to ops |
+| P3 | + dispatch/parallel-region overhead pass | — | — | ⏳ |
+| P4 | + incremental-sparse O(S²)→O(S·topk) | — | — | ⏳ (algorithmic) |
+| P5 | 43L extrapolation + roofline (% of TTFT ceiling) | — | — | ⏳ |
 
 ### Decode progression — TPOT, memory-bound (roofline = M·BW / (W_active + M·KV_tok))
 *Decode's memory-bound core (MoE weight streaming) is already ~75% of the BW roofline at B=32; the open work is
@@ -156,20 +160,21 @@ overhead + integration hygiene, not new compute kernels.*
 
 | # | stage | decode tok/s (proxy B=32) | Δ vs baseline | status |
 |---|---|---:|---:|---|
-| D0 | **baseline** (torch-ref DSA, batched + thread/spin-wait fixes) | **81.3** | 1.00× | ✅ job 385956 |
-| D1 | all C-kernels ON (naive, 1 flag) | **21.9** | **0.27×** | ✅ measured — **REGRESSED** (OpenMP oversubscription) |
-| D2 | + OpenMP-runtime fix (`-fopenmp-simd`) | — | — | ⏳ in progress |
-| D3 | per-kernel bisection (one at a time) | — | — | ⏳ (per-op flags ready) |
-| D4 | + framework/dispatch overhead pass (**~39% of decode**) | — | — | ⏳ the main decode lever |
-| D5 | + bf16-KV (long-context KV read; bit-identical) | — | — | ⏳ carry-forward lever |
-| D6 | 43L extrapolation + roofline (% of TPOT ceiling) | — | — | ⏳ |
+| D0 | **baseline** (torch-ref DSA, batched + thread/spin-wait fixes) | **91.2** | 1.00× | ✅ job 386039 (held-fixed) |
+| D1 | all C-kernels ON (held-fixed A/B) | **94.2** | **1.03×** | ✅ measured — **NEUTRAL** (job 386039) |
+| ~~D1′~~ | ~~all C-kernels ON (naive, sequential bisect)~~ | ~~21.9~~ | ~~0.27×~~ | ⊘ **superseded** — phantom from un-held-fixed sweep (job 385956/386002) |
+| D2 | per-kernel held-fixed A/B (one at a time) | — | — | ⏳ attribute the 1.03× to ops |
+| D3 | + framework/dispatch overhead pass (**~39% of decode**) | — | — | ⏳ the main decode lever |
+| D4 | + bf16-KV (long-context KV read; bit-identical) | — | — | ⏳ carry-forward lever |
+| D5 | 43L extrapolation + roofline (% of TPOT ceiling) | — | — | ⏳ |
 
 > **43L baseline headline** (two-depth extrapolation, job 385387, the unoptimized torch path): decode **0.80
 > tok/s** (B=1), prefill **67.8 s** (S=1024) — see the calibration table above. The proxy ledgers iterate the
-> integration; the 43L number is finalized at P6/D6.
+> integration; the 43L number is finalized at P5/D5.
 
 Full data: [wall_time_progress.json](../plugin/validate/results/wall_time_progress.json),
-[dsv4_p2integ_*](../plugin/validate/results/) (job 385956, OFF-vs-ON proxy).
+[dsv4_globalchk_386039](../plugin/validate/results/) (held-fixed OFF-vs-ON, prefill+decode); the superseded
+sequential sweep is [dsv4_p2integ_*](../plugin/validate/results/) (job 385956).
 
 ## Method & gates (per stage)
 1. **Freeze the kosher baseline** — tag the commit, golden dummy-weight fingerprint; every optimization is

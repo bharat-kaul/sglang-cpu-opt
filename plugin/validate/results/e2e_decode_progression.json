@@ -1,60 +1,58 @@
 {
-  "_schema": "Decode (TPOT) wall-time progression vs roofline. Iteration metric = perf-proxy (4-layer dummy) B=32 decode tok/s (job 386002). Roofline = decode BW ceiling (MoE weight-streaming); the Phase-1 baseline measures ~75% of the 226 GB/s BW roofline (170/226, committed deepseek_v4_flash_roofline). ceiling_tok_s = baseline / 0.75 as the first-order BW-achievable at the proxy (refined when the full tok/s roofline lands). Stages: measured / regressed / pending.",
-  "phase": "decode",
-  "metric": "proxy B=32 decode tok/s",
-  "ceiling_tok_s": 108.9,
-  "ceiling_label": "decode BW roofline (weight-streaming; baseline \u2248 75% of 226 GB/s)",
-  "stages": [
-    {
-      "id": "D0",
-      "label": "baseline",
-      "sub": "torch, batched",
-      "tok_s": 81.7,
-      "status": "measured"
-    },
-    {
-      "id": "D1",
-      "label": "all C-kernels",
-      "sub": "naive 1-flag",
-      "tok_s": 21.9,
-      "status": "regressed"
-    },
-    {
-      "id": "D2",
-      "label": "+OpenMP fix",
-      "sub": "runtime",
-      "tok_s": null,
-      "status": "pending"
-    },
-    {
-      "id": "D3",
-      "label": "+per-kernel",
-      "sub": "bisected",
-      "tok_s": null,
-      "status": "pending"
-    },
-    {
-      "id": "D4",
-      "label": "+overhead pass",
-      "sub": "~39% framework",
-      "tok_s": null,
-      "status": "pending"
-    },
-    {
-      "id": "D5",
-      "label": "+bf16-KV",
-      "sub": "long-ctx KV",
-      "tok_s": null,
-      "status": "pending"
-    }
-  ],
-  "bisection_job386002": {
-    "off": 81.7,
-    "indexer": 81.0,
-    "topk": 81.6,
-    "combine": 77.3,
-    "compressor": 21.4,
-    "sinkhorn": 21.2,
-    "note": "regressors = tiny-per-call ops (compressor, sinkhorn): per-call parallel-region barrier; fix = adaptive serial/coarse-grain"
+ "_schema": "Decode (TPOT) wall-time progression vs roofline. Iteration metric = perf-proxy (4-layer dummy) B=32 decode tok/s. Roofline = decode BW ceiling (MoE weight-streaming); baseline ~= 75% of 226 GB/s. IMPORTANT: in-engine decode tok/s is CONFIG-UNSTABLE (off swings 24/48/81/90 with mem-fraction + ~10% run-to-run at a FIXED config), so deltas MUST come from a CONTROLLED HELD-FIXED A/B (off vs on, same job, same config, adjacent), NOT a sequential multi-config bisection.",
+ "phase": "decode",
+ "metric": "proxy B=32 decode tok/s (controlled held-fixed all-kernels A/B, job 386039, 4L mem-frac 0.85)",
+ "ceiling_tok_s": 120.0,
+ "ceiling_label": "decode BW roofline (weight-streaming; baseline \u2248 75% of 226 GB/s)",
+ "stages": [
+  {
+   "id": "D0",
+   "label": "baseline",
+   "sub": "torch, held-fixed (job 386039)",
+   "tok_s": 91.2,
+   "status": "measured"
+  },
+  {
+   "id": "D1",
+   "label": "+DSA/MHC C-kernels",
+   "sub": "NEUTRAL (held-fixed A/B, job 386039)",
+   "tok_s": 94.2,
+   "status": "measured"
+  },
+  {
+   "id": "D2",
+   "label": "+overhead pass",
+   "sub": "~39% framework",
+   "tok_s": null,
+   "status": "pending"
+  },
+  {
+   "id": "D3",
+   "label": "+bf16-KV",
+   "sub": "long-ctx KV",
+   "tok_s": null,
+   "status": "pending"
   }
+ ],
+ "retracted_regression": {
+  "note": "An earlier sequential 7-config bisection (jobs 386002/386010) reported compressor 21.4 + sinkhorn 21.2 vs off 81.7 -- a ~3.8x REGRESSION. RETRACTED: it did not reproduce in a controlled held-fixed off-vs-on A/B at THREE configs. Root cause = MEASUREMENT ARTIFACT: in-engine decode tok/s is config-unstable (3x swing with mem-fraction, ~10% run-to-run) and the sequential multi-config bisection drifted across 7 heavy engine inits (off itself read 81.7 in the bisection vs 90.0 in the controlled A/B at the SAME 0.85 config). Lesson: validate the instrument with a controlled adjacent A/B before concluding an in-engine regression; a tiny op showing a large E2E 'regression' is a red flag to check the instrument FIRST.",
+  "held_fixed_AB": {
+   "0.05_2L": [
+    48.4,
+    49.1
+   ],
+   "0.5_4L": [
+    24.0,
+    23.8
+   ],
+   "0.85_4L": [
+    90.0,
+    91.9
+   ],
+   "0.85_4L_allkernels_386039": [
+    91.2,
+    94.2
+   ]
+  }
+ }
 }

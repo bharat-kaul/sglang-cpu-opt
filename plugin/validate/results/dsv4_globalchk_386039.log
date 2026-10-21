@@ -1,0 +1,67 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/data/nfs_home/bkaul/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2a59476c9bfcb90b3ddc372c36762471b7dfad1c/server/bin/remote-cli:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/data/nfs_home/bkaul/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2a59476c9bfcb90b3ddc372c36762471b7dfad1c/server/bin/remote-cli:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_TIMEIT=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_TIMEIT=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 INTEL_CPU_DSV4_DECODE_THREADS=32
++ OMP_WAIT_POLICY=passive
++ KMP_BLOCKTIME=0
++ INTEL_CPU_DSV4_DECODE_THREADS=32
++ cd /data/nfs_home/bkaul
++ for CK in off on
++ echo '############ CK=off ############'
+############ CK=off ############
++ ENVX=
++ '[' off = on ']'
++ tail -40
++ grep -iE 'DSV4 TIMEIT|prefill_tok|decode_tok|moe|attn|dsa\.|mhc\.|dense'
++ env python /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/throughput_bench.py --model /scratch/bkaul/models/DeepSeek-V4-Flash --config /scratch/bkaul/models/DeepSeek-V4-Flash/config.json --tp 1 --batch 32 --input-len 128 --output-len 8 --layers 4 --load-format dummy --mem-fraction 0.85
+[2026-10-15 01:35:32] [GEMM TIMEIT] torch.get_num_threads()=64 dense_cap=None
+[2026-10-15 01:35:33] [MOE DIAG] tokens=(4096, 4096) xdtype=torch.bfloat16 topk_ids=(4096, 6) w13=(256, 4096, 2048)/torch.uint8 w2=(256, 4096, 1024)/torch.uint8 threads=64 amx=?
+  "prefill_tok_s": 880.2,
+  "decode_tok_s": 91.2,
++ for CK in off on
++ echo '############ CK=on ############'
+############ CK=on ############
++ ENVX=
++ '[' on = on ']'
++ ENVX=INTEL_CPU_DSV4_DSA_CKERNEL=1
++ tail -40
++ env INTEL_CPU_DSV4_DSA_CKERNEL=1 python /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/throughput_bench.py --model /scratch/bkaul/models/DeepSeek-V4-Flash --config /scratch/bkaul/models/DeepSeek-V4-Flash/config.json --tp 1 --batch 32 --input-len 128 --output-len 8 --layers 4 --load-format dummy --mem-fraction 0.85
++ grep -iE 'DSV4 TIMEIT|prefill_tok|decode_tok|moe|attn|dsa\.|mhc\.|dense'
+[2026-10-15 01:36:45] [GEMM TIMEIT] torch.get_num_threads()=64 dense_cap=None
+[2026-10-15 01:36:46] [MOE DIAG] tokens=(4096, 4096) xdtype=torch.bfloat16 topk_ids=(4096, 6) w13=(256, 4096, 2048)/torch.uint8 w2=(256, 4096, 1024)/torch.uint8 threads=64 amx=?
+  "prefill_tok_s": 1002.8,
+  "decode_tok_s": 94.2,
++ echo '[done globalchk]'
+[done globalchk]

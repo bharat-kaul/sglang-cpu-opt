@@ -20,10 +20,10 @@ export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 INTEL_CPU_DSV4_DECODE_THREADS=32
 cd /data/nfs_home/bkaul
 for CK in off on; do
   echo "############ CK=$CK ############"
-  ENVX=""; [ "$CK" = on ] && ENVX="INTEL_CPU_DSV4_CK_COMPRESSOR=1 INTEL_CPU_DSV4_CK_SINKHORN=1"
+  ENVX=""; [ "$CK" = on ] && ENVX="INTEL_CPU_DSV4_DSA_CKERNEL=1"
   env $ENVX python $WT/plugin/validate/throughput_bench.py \
     --model /scratch/bkaul/models/DeepSeek-V4-Flash --config /scratch/bkaul/models/DeepSeek-V4-Flash/config.json \
-    --tp 1 --batch 32 --input-len 128 --output-len 8 --layers 2 --load-format dummy --mem-fraction 0.05 2>&1 \
-    | grep -iE "DSV4 TIMEIT|decode_tok|moe|attn|dsa\.|mhc\.|dense" | tail -40
+    --tp 1 --batch 32 --input-len 128 --output-len 8 --layers 4 --load-format dummy --mem-fraction 0.85 2>&1 \
+    | grep -iE "DSV4 TIMEIT|prefill_tok|decode_tok|moe|attn|dsa\.|mhc\.|dense" | tail -40
 done
 echo "[done globalchk]"

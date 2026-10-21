@@ -75,7 +75,7 @@ def build_svg(d):
         s.append(f'<text x="{cx:.1f}" y="{y0+18:.1f}" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">{esc(st["id"])}  {esc(st["label"])}</text>')
         s.append(f'<text x="{cx:.1f}" y="{y0+34:.1f}" font-size="10.5" fill="#8294a8" text-anchor="middle">{esc(st.get("sub",""))}</text>')
 
-    s.append(f'<text x="{padL}" y="{H-10}" font-size="11" fill="#9db0c6">Solid = measured (teal) \u00b7 red = measured regression \u00b7 ghost = pending \u00b7 dashed = BW roofline. Data: results/e2e_decode_progression.json (job 386002).</text>')
+    s.append(f'<text x="{padL}" y="{H-10}" font-size="11" fill="#9db0c6">Solid = measured (teal) \u00b7 ghost = pending \u00b7 dashed = BW roofline. Deltas from a controlled held-fixed A/B (off vs on, same job/config). Data: results/e2e_decode_progression.json.</text>')
     s.append('</svg>')
     return "\n".join(s)
 

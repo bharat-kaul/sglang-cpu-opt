@@ -208,6 +208,24 @@ flowchart LR
      rebuilds, lost affinity — attacked with **fewer/bigger parallel regions, bind-once-at-init, one rank per
      NUMA domain, prepack** (`runtime-config-tuning`). Doing it *after* kernel integration keeps the per-kernel
      attribution clean: a global config pathology otherwise masquerades as uniform per-op cost.
+     - **Measure every integration delta with a HELD-FIXED A/B, never a sequential bisection — the instrument
+       lies otherwise.** The only trustworthy integration number is **gate-OFF vs gate-ON with every other knob
+       (mem-fraction, layers, batch, threads, affinity) held identical in the *same* job**. A **sequential
+       per-op sweep** (toggle op1, measure; toggle op2, measure; …) silently drifts the scheduler/KV-pool/
+       batching regime between points and manufactures **phantom regressions** — the baseline itself can swing
+       3× from a config knob (`mem-fraction` 0.85→0.5 moved the torch decode 81→24) that has nothing to do with
+       the kernels. *Worked (DSv4): a sequential bisection "found" a 4× `compressor`+`sinkhorn` decode
+       regression and a 10× prefill regression (jobs 385956/386002); the controlled held-fixed all-kernels
+       OFF-vs-ON (job 386039, mem-fraction fixed) showed the opposite — prefill **1.14×** and decode **1.03×**,
+       i.e. neutral-to-positive. The regression was the measurement, not the kernels.*
+     - **A tiny-per-call op "regressing" large is a tell for a GLOBAL pathology (or a measurement confound), not
+       a slow op.** When bisection flags a trivial op (a 4×4 sinkhorn, a small compress window) with a big
+       end-to-end hit, the op cannot *do* that much work — it is either perturbing global thread state
+       (per-call parallel-region barrier: `at::parallel_for` spawning N threads for trivial work ~128×/decode)
+       or the number came from an un-held-fixed sweep. **Fix the integration *pattern* once** (adaptive serial/
+       coarse-grain below the grain-size floor; keep dispatch thread-pool-neutral — no nested `#pragma omp
+       parallel`, no per-forward `set_num_threads`), **not** the kernel — and **re-confirm on a held-fixed A/B**
+       before recording it. "Validate the instrument before you document the pathology."
   6. **Full-depth dummy-weight run — measure & attribute.** Once proxy iteration converges, run the
      **full-depth (all-layer) dummy-weight** model to *measure* the real wall time and **attribute it across
      components** (per-kernel / framework / dispatch, via the per-op pivot). This both **validates the two-depth
