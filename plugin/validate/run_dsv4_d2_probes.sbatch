@@ -41,8 +41,8 @@ export INTEL_CPU_DSV4_DUMP_OPS=$RDIR/dsv4_d2_sgl_ops_${J}.json       # (c)
 set +x
 stdbuf -oL -eL python -u $WT/plugin/validate/task_gsm8k_chunked.py \
   --model "$CKPT" --data /scratch/$USER/gsm8k_test.jsonl --device cpu --tp 1 \
-  --perf-probe --perf-only --perf-m-sweep "32,1" --perf-thread-sweep "8,32,64,128" \
-  --perf-reps 3 --perf-input 128 --perf-output 4 --num-questions 1 --mem-fraction 0.70 2>&1 \
+  --perf-probe --perf-only --perf-m-sweep "32,1" --perf-thread-sweep "8,16,42" \
+  --perf-reps 2 --perf-input 128 --perf-output 4 --num-questions 1 --mem-fraction 0.70 2>&1 \
   | stdbuf -oL tee /scratch/$USER/dsv4_d2probes_${J}_pass1.log \
   | stdbuf -oL grep -iE "PERF-SWEEP|DUMP_OPS|died|OOM|Error|Traceback"
 echo "[pass1 exit=${PIPESTATUS[0]}] clean sweep + op-dump"
@@ -58,7 +58,7 @@ set +x
 stdbuf -oL -eL python -u $WT/plugin/validate/task_gsm8k_chunked.py \
   --model "$CKPT" --data /scratch/$USER/gsm8k_test.jsonl --device cpu --tp 1 \
   --perf-probe --perf-only --perf-m-sweep "32" --perf-thread-sweep "8" \
-  --perf-reps 3 --perf-input 128 --perf-output 6 --num-questions 1 --mem-fraction 0.70 2>&1 \
+  --perf-reps 2 --perf-input 128 --perf-output 4 --num-questions 1 --mem-fraction 0.70 2>&1 \
   | stdbuf -oL tee /scratch/$USER/dsv4_d2probes_${J}_pass2.log \
   | stdbuf -oL grep -iE "PERF-SWEEP|DSV4 TIMEIT|phase|decode|died|OOM|Error|Traceback"
 echo "[pass2 exit=${PIPESTATUS[0]}] TIMEIT attribution"

@@ -213,12 +213,23 @@ def main():
         def _fresh(m):
             return [[_rng.randrange(3, _vocab - 1) for _ in range(_S)] for _ in range(m)]
 
+        def _flush():
+            # Reset radix/KV-cache state so each measurement starts clean — repeated independent
+            # synthetic batches otherwise accumulate and degrade decode catastrophically (the
+            # measurement confound this probe exists to avoid). Best-effort.
+            try:
+                engine.flush_cache()
+            except Exception:
+                pass
+
         def _timed(m):
             _p1 = {"temperature": 0.0, "max_new_tokens": 1}
             _pG = {"temperature": 0.0, "max_new_tokens": _G}
-            engine.generate(input_ids=_fresh(m), sampling_params=_p1)  # warmup (never timed)
+            _flush(); engine.generate(input_ids=_fresh(m), sampling_params={"temperature": 0.0, "max_new_tokens": 2})  # warms the DECODE path (one step); never timed
+            _flush()
             _t0 = time.perf_counter(); engine.generate(input_ids=_fresh(m), sampling_params=_p1)
             _tp = time.perf_counter() - _t0
+            _flush()
             _t0 = time.perf_counter(); engine.generate(input_ids=_fresh(m), sampling_params=_pG)
             _tf = time.perf_counter() - _t0
             _d = (_tf - _tp) / _steps
