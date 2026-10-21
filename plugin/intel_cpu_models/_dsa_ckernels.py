@@ -49,8 +49,20 @@ def _dbg_dump():
 
 def enabled(op: str | None = None) -> bool:
     """Master toggle INTEL_CPU_DSV4_DSA_CKERNEL=1; per-op override INTEL_CPU_DSV4_CK_<OP>=0/1 (for one-at-a-time
-    bisection, Phase-2 rule). op in {indexer, topk, compressor, sinkhorn, combine}."""
-    master = os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL", "0") == "1"
+    bisection, Phase-2 rule). op in {indexer, topk, compressor, sinkhorn, combine, sparse_attend}.
+
+    A control FILE (INTEL_CPU_DSV4_CK_CTL_FILE, one int re-read each call) overrides the master so a
+    PERSISTENT process can do a HELD-FIXED eager-vs-C A/B on ONE resident load (write 0, measure; write
+    1, measure) — the measurement-integrity rule A1."""
+    ctl = os.environ.get("INTEL_CPU_DSV4_CK_CTL_FILE")
+    if ctl:
+        try:
+            with open(ctl) as _f:
+                master = _f.read().strip() == "1"
+        except Exception:
+            master = os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL", "0") == "1"
+    else:
+        master = os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL", "0") == "1"
     if op is None:
         return master
     v = os.environ.get("INTEL_CPU_DSV4_CK_" + op.upper())
