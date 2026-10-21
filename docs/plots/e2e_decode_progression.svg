@@ -2,7 +2,7 @@
 <rect width="1180" height="520" fill="#ffffff"/>
 <text x="70" y="36" font-size="22" font-weight="700" fill="#0b2447">Decode (TPOT) wall-time progression vs roofline</text>
 <text x="70" y="60" font-size="13" fill="#5b6b80">Perf-proxy (4-layer dummy) B=32 decode tok/s as the authored kernels integrate (one at a time) then the E2E optimizations land. Higher is better.</text>
-<text x="70" y="78" font-size="12.5" fill="#8a4b00">Memory-bound: the ceiling is weight-streaming BW — decode’s open work is overhead + integration hygiene, not new compute kernels.</text>
+<text x="70" y="78" font-size="12.5" fill="#8a4b00">Full-node (all NUMA, 128c) = the max-throughput config (single-NUMA per-rank is 2.8× lower). Gap to roof = ~40% unoptimized torch DSA/MHC decode ops → port them + MoE thread-cap.</text>
 <line x1="70" y1="434.0" x2="1156" y2="434.0" stroke="#eef2f7"/>
 <text x="62" y="438.0" font-size="11" fill="#9db0c6" text-anchor="end">0</text>
 <line x1="70" y1="383.1" x2="1156" y2="383.1" stroke="#eef2f7"/>
@@ -19,24 +19,24 @@
 <text x="62" y="132.6" font-size="11" fill="#9db0c6" text-anchor="end">120</text>
 <text x="18" y="263" font-size="12" fill="#5b6b80" transform="rotate(-90 18 263)" text-anchor="middle">decode tok/s (proxy B=32)</text>
 <line x1="70" y1="128.6" x2="1156" y2="128.6" stroke="#6a4c93" stroke-width="2" stroke-dasharray="7 5"/>
-<text x="1156" y="121.6" font-size="12.5" font-weight="600" fill="#6a4c93" text-anchor="end">roofline ceiling 120 tok/s — decode BW roofline (weight-streaming; baseline ≈ 75% of 226 GB/s)</text>
+<text x="1156" y="121.6" font-size="12.5" font-weight="600" fill="#6a4c93" text-anchor="end">roofline ceiling 120 tok/s — decode BW roofline — MoE weight-streaming at full-node (all 3 SNC NUMA domains / 128c); the gap is the ~40% compute-bound torch DSA/MHC decode ops, not pure BW loss</text>
 <rect x="70.0" y="201.9" width="246.0" height="232.1" fill="#1d7874" rx="2"/>
 <text x="193.0" y="181.9" font-size="15" font-weight="700" fill="#1d7874" text-anchor="middle">91</text>
 <text x="193.0" y="196.9" font-size="11" fill="#1d7874" text-anchor="middle">76% of roof</text>
 <text x="193.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D0  baseline</text>
-<text x="193.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">torch, held-fixed (job 386039)</text>
+<text x="193.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">torch DSA, full-node (128c, all NUMA)</text>
 <rect x="350.0" y="194.3" width="246.0" height="239.7" fill="#1d7874" rx="2"/>
 <text x="473.0" y="174.3" font-size="15" font-weight="700" fill="#1d7874" text-anchor="middle">94</text>
 <text x="473.0" y="189.3" font-size="11" fill="#1d7874" text-anchor="middle">78% of roof</text>
 <text x="473.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D1  +DSA/MHC C-kernels</text>
-<text x="473.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">NEUTRAL (held-fixed A/B, job 386039)</text>
+<text x="473.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">+DSA/MHC C-kernels — NEUTRAL (held-fixed A/B)</text>
 <rect x="630.0" y="281.3" width="246.0" height="152.7" fill="#f1f3f7" stroke="#d6dee8" stroke-dasharray="4 3"/>
 <text x="753.0" y="357.7" font-size="12" fill="#aab6c6" text-anchor="middle" transform="rotate(-90 753.0 357.7)">pending</text>
-<text x="753.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D2  +overhead pass</text>
-<text x="753.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">~39% framework</text>
+<text x="753.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D2  +port torch decode ops</text>
+<text x="753.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">mla.attend loop + MHC + indexer (~40% torch)</text>
 <rect x="910.0" y="281.3" width="246.0" height="152.7" fill="#f1f3f7" stroke="#d6dee8" stroke-dasharray="4 3"/>
 <text x="1033.0" y="357.7" font-size="12" fill="#aab6c6" text-anchor="middle" transform="rotate(-90 1033.0 357.7)">pending</text>
-<text x="1033.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D3  +bf16-KV</text>
-<text x="1033.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">long-ctx KV</text>
+<text x="1033.0" y="452.0" font-size="12.5" font-weight="700" fill="#0b2447" text-anchor="middle">D3  +MoE thread-cap</text>
+<text x="1033.0" y="468.0" font-size="10.5" fill="#8294a8" text-anchor="middle">expert_apply ~26%, thread-count fix</text>
 <text x="70" y="510" font-size="11" fill="#9db0c6">Solid = measured (teal) · ghost = pending · dashed = BW roofline. Deltas from a controlled held-fixed A/B (off vs on, same job/config). Data: results/e2e_decode_progression.json.</text>
 </svg>

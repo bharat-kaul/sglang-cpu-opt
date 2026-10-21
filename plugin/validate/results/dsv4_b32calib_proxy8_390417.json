@@ -1,0 +1,27 @@
+{
+  "model": "/scratch/bkaul/models/flash-v4.1-proxy8",
+  "layers": 8,
+  "input_len": 128,
+  "output_len": 8,
+  "reps": 3,
+  "results": {
+    "1": {
+      "decode_ms": 278.035,
+      "prefill_ms": 5278.271,
+      "decode_ms_reps": [
+        280.993,
+        276.854,
+        278.035
+      ]
+    },
+    "32": {
+      "decode_ms": 1835.272,
+      "prefill_ms": 99592.866,
+      "decode_ms_reps": [
+        1880.177,
+        1817.498,
+        1835.272
+      ]
+    }
+  }
+}

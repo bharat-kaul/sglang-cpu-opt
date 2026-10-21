@@ -1,35 +1,35 @@
 {
  "_schema": "Decode (TPOT) wall-time progression vs roofline. Iteration metric = perf-proxy (4-layer dummy) B=32 decode tok/s. Roofline = decode BW ceiling (MoE weight-streaming); baseline ~= 75% of 226 GB/s. IMPORTANT: in-engine decode tok/s is CONFIG-UNSTABLE (off swings 24/48/81/90 with mem-fraction + ~10% run-to-run at a FIXED config), so deltas MUST come from a CONTROLLED HELD-FIXED A/B (off vs on, same job, same config, adjacent), NOT a sequential multi-config bisection.",
  "phase": "decode",
- "metric": "proxy B=32 decode tok/s (controlled held-fixed all-kernels A/B, job 386039, 4L mem-frac 0.85)",
+ "metric": "proxy B=32 decode tok/s \u2014 FULL-NODE (all NUMA domains, 128c), the max-throughput config; single-NUMA per-rank = 32 tok/s (BW-bound, 2.8x lower)",
  "ceiling_tok_s": 120.0,
- "ceiling_label": "decode BW roofline (weight-streaming; baseline \u2248 75% of 226 GB/s)",
+ "ceiling_label": "decode BW roofline \u2014 MoE weight-streaming at full-node (all 3 SNC NUMA domains / 128c); the gap is the ~40% compute-bound torch DSA/MHC decode ops, not pure BW loss",
  "stages": [
   {
    "id": "D0",
    "label": "baseline",
-   "sub": "torch, held-fixed (job 386039)",
+   "sub": "torch DSA, full-node (128c, all NUMA)",
    "tok_s": 91.2,
    "status": "measured"
   },
   {
    "id": "D1",
    "label": "+DSA/MHC C-kernels",
-   "sub": "NEUTRAL (held-fixed A/B, job 386039)",
+   "sub": "+DSA/MHC C-kernels \u2014 NEUTRAL (held-fixed A/B)",
    "tok_s": 94.2,
    "status": "measured"
   },
   {
    "id": "D2",
-   "label": "+overhead pass",
-   "sub": "~39% framework",
+   "label": "+port torch decode ops",
+   "sub": "mla.attend loop + MHC + indexer (~40% torch)",
    "tok_s": null,
    "status": "pending"
   },
   {
    "id": "D3",
-   "label": "+bf16-KV",
-   "sub": "long-ctx KV",
+   "label": "+MoE thread-cap",
+   "sub": "expert_apply ~26%, thread-count fix",
    "tok_s": null,
    "status": "pending"
   }
@@ -54,5 +54,27 @@
     94.2
    ]
   }
+ },
+ "full_node_calibration": {
+  "config": "OMP_NUM_THREADS=128, all NUMA domains (no single-domain bind), B=32, S=128, 4L+8L dummy proxy, job 390445",
+  "decode_tok_s": {
+   "4L": 91.2,
+   "8L": 48.2
+  },
+  "extrapolation_43L": {
+   "decode_tok_s": 9.4,
+   "ms_per_step": 3403,
+   "t_layer_ms": 78.26,
+   "t_fixed_ms": 37.85
+  },
+  "single_numa_1SNC": {
+   "4L_decode_tok_s": 32.0,
+   "43L_decode_tok_s": 3.66,
+   "note": "1 SNC domain, BW-bound, 2.8x lower \u2014 not the throughput config"
+  }
+ },
+ "decode_attribution_390418": {
+  "config": "held-fixed OFF-vs-ON, 4L B=32 S=128, TIMEIT phase-split",
+  "finding": "decode is ~40% unoptimized TORCH (dsa.mla.attend per-token loop ~18%, mhc.hc_pre+hc_post ~17%, dsa.indexer einsum ~3.5%) + moe.expert_apply ~26% (thread-cap) + framework only ~5%. CK on~=off (neutral). The doc's earlier \"framework/dispatch ~39%\" lever was WRONG; the real lever is porting the torch DSA/MHC decode ops to kernels."
  }
 }

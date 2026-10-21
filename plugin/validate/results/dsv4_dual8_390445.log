@@ -1,0 +1,56 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-6d62b1d5dace93a33b3a6d3eca1317bd5e15bcb1/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-6d62b1d5dace93a33b3a6d3eca1317bd5e15bcb1/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 INTEL_CPU_DSV4_DECODE_THREADS=32 OMP_NUM_THREADS=128
++ OMP_WAIT_POLICY=passive
++ KMP_BLOCKTIME=0
++ INTEL_CPU_DSV4_DECODE_THREADS=32
++ OMP_NUM_THREADS=128
++ cd /data/nfs_home/bkaul
++ for NL in 4 8
++ echo '############ dual-NUMA 4L ############'
+############ dual-NUMA 4L ############
++ grep -iE 'prefill_tok|decode_tok'
++ python /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/throughput_bench.py --model /scratch/bkaul/models/DeepSeek-V4-Flash --config /scratch/bkaul/models/DeepSeek-V4-Flash/config.json --tp 1 --batch 32 --input-len 128 --output-len 8 --layers 4 --load-format dummy --mem-fraction 0.85
+  "prefill_tok_s": 875.9,
+  "decode_tok_s": 91.2,
++ for NL in 4 8
++ echo '############ dual-NUMA 8L ############'
+############ dual-NUMA 8L ############
++ grep -iE 'prefill_tok|decode_tok'
++ python /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/throughput_bench.py --model /scratch/bkaul/models/DeepSeek-V4-Flash --config /scratch/bkaul/models/DeepSeek-V4-Flash/config.json --tp 1 --batch 32 --input-len 128 --output-len 8 --layers 8 --load-format dummy --mem-fraction 0.85
+  "prefill_tok_s": 420.7,
+  "decode_tok_s": 48.2,
++ echo '[done dual8]'
+[done dual8]

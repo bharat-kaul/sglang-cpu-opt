@@ -429,6 +429,13 @@ def _install_phase_tag() -> None:
             return _orig_fwd(self, *a, **k)
         finally:
             _PHASE = ""
+            # Flush TIMEIT after EACH model forward: the scheduler runs in a subprocess that is
+            # hard-killed on shutdown, so the atexit dump never fires. Each flush overwrites with the
+            # cumulative _TIMES, so the final forward's write is complete and survives the kill.
+            try:
+                _dump_times()
+            except Exception:  # noqa: BLE001
+                pass
 
     cls.forward = _fwd
     cls._phase_tagged = True

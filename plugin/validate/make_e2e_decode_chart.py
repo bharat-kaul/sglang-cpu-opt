@@ -36,7 +36,7 @@ def build_svg(d):
     s.append(f'<rect width="{W}" height="{H}" fill="#ffffff"/>')
     s.append(f'<text x="{padL}" y="36" font-size="22" font-weight="700" fill="#0b2447">Decode (TPOT) wall-time progression vs roofline</text>')
     s.append(f'<text x="{padL}" y="60" font-size="13" fill="#5b6b80">Perf-proxy (4-layer dummy) B=32 decode tok/s as the authored kernels integrate (one at a time) then the E2E optimizations land. Higher is better.</text>')
-    s.append(f'<text x="{padL}" y="78" font-size="12.5" fill="#8a4b00">Memory-bound: the ceiling is weight-streaming BW \u2014 decode\u2019s open work is overhead + integration hygiene, not new compute kernels.</text>')
+    s.append(f'<text x="{padL}" y="78" font-size="12.5" fill="#8a4b00">Full-node (all NUMA, 128c) = the max-throughput config (single-NUMA per-rank is 2.8\u00d7 lower). Gap to roof = ~40% unoptimized torch DSA/MHC decode ops \u2192 port them + MoE thread-cap.</text>')
 
     # y gridlines
     for gv in range(0, int(ymax) + 1, 20):

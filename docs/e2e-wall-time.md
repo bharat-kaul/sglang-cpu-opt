@@ -7,26 +7,28 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Decode (TPOT) — prioritized work item: progression vs roofline
 
-![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v6.png)
+![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v7.png)
 
-**Living chart** — perf-proxy (4-layer dummy) **B=32 decode tok/s** as each authored kernel integrates (one at a
-time) then the end-to-end optimizations land, scored against the **decode BW roofline** (decode is
-weight-streaming bound). Where it stands today:
-- **D0 baseline 91 tok/s ≈ 76% of the roofline** — decode's memory-bound core is *already* mature (Phase-1
-  batching + thread/affinity/spin-wait fixes); no kernel rewrite moves a weight-streaming ceiling.
-- **D1 all-C-kernels — NEUTRAL, not a regression (corrected).** The controlled **held-fixed** A/B (job 386039,
-  all kernels OFF-vs-ON, mem-fraction fixed at 0.85, same job) measures **decode 91.2 → 94.2 (1.03×)** and
-  **prefill 880.2 → 1002.8 (1.14×)** — integrating the kernels is **perf-neutral at decode and a modest win at
-  prefill**. The earlier "22 tok/s regression" (and the per-op bisection that localized a 4× `compressor`+
-  `sinkhorn` hit, job 386002) was a **measurement artifact of a *sequential* bisection**: toggling ops across
-  separate runs drifts the scheduler/KV-pool regime (the torch baseline alone swung 81→24 with a `mem-fraction`
-  knob), manufacturing a phantom. **Lesson: only a held-fixed OFF-vs-ON A/B in one job is trustworthy** (now
-  encoded in the [playbook](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time)).
-- **D2–D5 pending (ghost bars):** the **framework/dispatch overhead pass** (the real decode lever at ~39% of
-  decode) → **bf16-KV** (bit-identical, halves the dominant KV read). A tiny-op hygiene pass (adaptive serial/
-  coarse-grain for `compressor`+`sinkhorn` below the grain-size floor) remains **optional** — the held-fixed A/B
-  shows no net regression to clear, so it is no longer a blocker. The chart updates as each lands, so the decode
-  story is visible top-of-page.
+**Living chart** — perf-proxy (4-layer dummy) **B=32 decode tok/s** at the **full-node** config (all 3 SNC NUMA
+domains / 128c — the max-throughput config), scored against the decode BW roofline (MoE weight-streaming). Where
+it stands today:
+- **D0 baseline 91 tok/s ≈ 76% of the roofline** — the MoE weight-streaming core is mature (Phase-1 batching +
+  thread/affinity/spin-wait). **Config matters enormously: this is the full-node number; the single-NUMA
+  per-rank bind is only 32 tok/s (2.8× lower, BW-bound)** — see the NUMA note below. The max-throughput
+  demonstration uses the full node.
+- **D1 all-C-kernels — NEUTRAL, not a regression (corrected).** The controlled **held-fixed** A/B (job 386039/
+  390418, all kernels OFF-vs-ON, same job) measures **decode 91.2 → 94.2 (1.03×)** and **prefill 880.2 → 1002.8
+  (1.14×)** — integrating the kernels is **perf-neutral at decode and a modest win at prefill**. The earlier "22
+  tok/s regression" was a **measurement artifact of a *sequential* bisection** (toggling ops across separate runs
+  drifts the scheduler/KV-pool regime; the torch baseline alone swung 81→24 with a `mem-fraction` knob). **Lesson:
+  only a held-fixed OFF-vs-ON A/B in one job is trustworthy** ([playbook](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time)).
+- **D2–D3 pending (ghost bars) — the REAL decode levers (measured, job 390418 TIMEIT attribution):** decode is
+  **~40% unoptimized TORCH compute**, *not* framework/dispatch (which is only ~5%). The recoverable buckets are
+  **`dsa.mla.attend`** (the per-token Python-loop sparse attention, ~18%), **MHC `hc_pre`+`hc_post`** (~17%), and
+  the **`dsa.indexer` torch einsum** (~3.5%) — **port these torch decode ops to kernels** (D2) — plus the
+  **`moe.expert_apply` thread-cap** (~26%, a thread-count pathology, not a kernel) (D3). The earlier
+  "framework/dispatch ≈ 39%" lever was **wrong** (that bucket is ~5%); bf16-KV is a prefill/long-context lever,
+  not a decode one (the serving attention KV read is already bf16; the indexer is a ~3.5% torch einsum).
 
 The full segregated ledger (prefill vs decode, stage-by-stage) is below.
 
@@ -59,19 +61,28 @@ prefill:
 > held-fixed OFF-vs-ON A/B in one job — never a sequential bisection; and a *tiny* op "regressing" large is a
 > tell for a global/measurement pathology, not a slow op.**
 
-**Next (the real levers, per the playbook):** (1) the **framework/dispatch overhead pass** (~39% of decode) —
-fewer/bigger parallel regions, bind-once-at-init, one rank per NUMA domain; (2) **bf16-KV** (bit-identical,
-halves the dominant KV read) — the clean carry-forward lever; (3) **incremental-sparse** prefill O(S²)→O(S·topk);
-(4) **43L full-depth** validation + % of roofline headline. A tiny-op hygiene pass (adaptive serial/coarse-grain
-for `compressor`+`sinkhorn` below the grain-size floor) is **optional** — the held-fixed A/B shows no net
-regression to clear. Every stage stays env-gated default-OFF and fingerprint-gated.
+**Next (the real levers, measured by the job-390418 decode attribution):** (1) **port the ~40% unoptimized-torch
+decode ops to kernels** — `dsa.mla.attend` (the per-token Python-loop sparse attention, ~18%), MHC `hc_pre`+
+`hc_post` (~17%), `dsa.indexer` einsum (~3.5%); (2) **MoE `expert_apply` thread-cap** (~26%, a thread-count
+pathology — cap threads around the MoE apply, `runtime-config-tuning`, not a new kernel); (3) **incremental-sparse**
+prefill O(S²)→O(S·topk). Framework/dispatch is only ~5% (the earlier "~39%" claim was wrong), and bf16-KV is a
+prefill/long-context lever (the serving attention KV is already bf16). Every stage stays env-gated default-OFF
+and fingerprint-gated.
 
 ## Operating point & headline
 - **Input** S = 1024, **output** G = 8/step (G=256 applied analytically), full depth **43 layers**.
 - **North-Star:** B=32 aggregate decode tok/s (throughput) **and** B=1 single-stream decode tok/s (latency floor).
-  The baseline below is the **B=1 latency floor**; the B=32 throughput point is added once decode-batching is wired
-  (the torch-reference baseline OOM/watchdog-kills at B≥8, so only B=1 is measurable pre-optimization).
-- **Node:** EMR Xeon 8592+ (64c/socket), `--constraint=ddr5600 --exclusive`, OMP64 close/cores, `numactl -N0 -m0`.
+- **Max-throughput demonstration (full-node):** **4L proxy decode 91.2 tok/s; 43L B=32 extrapolates to 9.4
+  tok/s** (two-depth, job 390445: 4L=91.2, 8L=48.2 → t_layer=78.3 ms, t_fixed=37.9 ms). The B=1 latency floor is
+  **0.80 tok/s** (43L).
+- **⚠ NUMA config is the single biggest throughput knob.** This node is **one socket, 128 cores, 3 SNC NUMA
+  domains**. The **full-node** config (all 3 domains, `OMP_NUM_THREADS=128`, no single-domain bind — the
+  established canonical throughput config, cf. the Olmo2 certificate) gives **91 tok/s @ 4L**; a **single-NUMA
+  per-rank** bind (`numactl -N0 -m0`, 1 SNC domain) gives only **32 tok/s** — a **2.8× gap**, confirmed by a
+  held-fixed same-harness A/B (job 390442: 90.8 vs 32.0). Decode is weight-streaming BW-bound, so using all
+  memory controllers is decisive. The demonstration and all ledger numbers below are **full-node**.
+- **Node:** EMR Xeon (single socket, 128c, 3 SNC domains), `--constraint=ddr5600 --exclusive`,
+  `OMP_NUM_THREADS=128 OMP_PROC_BIND=close OMP_PLACES=cores`, all NUMA domains.
 
 ## Prefill and decode are TWO work items (different rooflines, different maturity)
 
@@ -82,27 +93,30 @@ says little about the other.
 |---|---|---|
 | **roofline** | `TTFT_floor = prefill_FLOPs / peak` (AMX bf16) | `tok/s_roof(M) = M·BW / (W_active + M·KV_tok)` |
 | **DSA/MHC kernel leverage** | **HIGH** — indexer + sparse-attn run over the full S-token prompt (O(S·ctx)); the authored compute kernels are the main win | **LOW** — 1 query token/step; decode is dominated by MoE weight streaming, not DSA compute |
-| **Phase-1 state** | unoptimized torch O(S²) attention — the big *unrealized* opportunity | **near roofline** — batching + thread/affinity/spin-wait fixes → MoE at **~75%** of BW (170/226 GB/s) at B=32; ~10× over the B=1 start |
-| **open levers** | (1) wire the authored DSA kernels (**done — held-fixed A/B neutral-to-positive, 1.14× prefill**); (2) incremental-sparse decode O(S²)→O(S·topk) | (1) **framework/dispatch ≈ 39% of decode** (the overhead pass); (2) **bf16-KV** long-context KV read; (3) 43L full-depth validation |
-| **status** | integration wired & **perf-safe** (held-fixed A/B: 1.14× prefill, job 386039) → authored-DSA compute win still to be realized via incremental-sparse | **compute core DONE (~75% roof); wall-time NOT done** — needs the overhead/integration pass, not new compute kernels |
+| **Phase-1 state** | unoptimized torch O(S²) attention — the big *unrealized* opportunity | **~76% of roof** (full-node) on the MoE weight-streaming core; the gap is the ~40% compute-bound torch DSA/MHC decode ops, not pure BW |
+| **open levers** | (1) wire the authored DSA kernels (**done — held-fixed A/B neutral-to-positive, 1.14× prefill**); (2) incremental-sparse decode O(S²)→O(S·topk) | (1) **port the ~40% torch decode ops to kernels** (`mla.attend` loop + MHC + indexer); (2) **MoE `expert_apply` thread-cap** (~26%); (3) 43L full-depth validation |
+| **status** | integration wired & **perf-safe** (held-fixed A/B: 1.14× prefill, job 386039) → authored-DSA compute win still to be realized via incremental-sparse | **MoE core ~76% roof; wall-time NOT done** — the lever is **porting the torch DSA/MHC decode ops to kernels** + the MoE thread-cap (measured attribution), not a framework pass |
 
-**Are we done with decode?** The **memory-bound core is essentially done** — Phase-1 batching + thread/affinity/
-spin-wait put MoE weight streaming at ~75% of the BW roofline at B=32, and no kernel rewrite moves a
-weight-streaming ceiling. Decode as a **wall-time is not done**: the per-op pivot shows **framework/dispatch is
-~39% of decode** (the real remaining lever), the C-kernel swap is **perf-neutral** at decode (held-fixed A/B
-1.03×, job 386039 — *not* the earlier phantom regression), and **bf16-KV** isn't wired. The remaining decode
-work is **overhead + integration-hygiene**, the *opposite* of prefill (where the authored DSA compute kernels
-are the main unrealized win).
+**Are we done with decode?** No. The **MoE weight-streaming core** is near roofline (~76% at full-node B=32),
+but the **job-390418 TIMEIT attribution shows ~40% of decode is unoptimized TORCH compute** — `dsa.mla.attend`
+(per-token Python loop, ~18%), MHC `hc_pre`+`hc_post` (~17%), `dsa.indexer` einsum (~3.5%) — plus `moe.expert_apply`
+(~26%, a thread-count pathology). Framework/dispatch is only ~5%. So the path to higher decode tok/s is **porting
+those torch decode ops to kernels + the MoE thread-cap**, and the C-kernel swap is **perf-neutral** at decode
+(held-fixed A/B 1.03×, job 390418). The remaining decode work is **porting the torch DSA/MHC decode ops to
+kernels** (not a framework pass), the *same class* of compute-kernel work as prefill but on the decode-shaped
+(M=1-per-seq) ops.
 
 ## Baseline (measured) — the denominator every optimization is scored against
 
 | metric | full-depth (43L) | source |
 |---|---:|---|
-| **decode** | **1253 ms/step = 0.80 tok/s** (B=1) | two-depth extrapolation, job 385387 |
+| **decode (B=1 latency floor)** | **1253 ms/step = 0.80 tok/s** | two-depth extrapolation, job 385387 |
+| **decode (B=32 throughput, full-node)** | **3403 ms/step = 9.40 tok/s** | two-depth extrapolation, job 390445 (4L=91.2, 8L=48.2 tok/s) |
 | **prefill (TTFT)** | **67.8 s** (S=1024) | two-depth extrapolation, job 385387 |
 
-This is the **unoptimized** path: torch-reference DSA with the materialized O(S²) attention and **no authored
-kernels wired**. It is deliberately the slow starting point — exactly what Phase-2 integration replaces.
+The **B=32 full-node** row is the max-throughput demonstration headline (all 3 SNC NUMA domains / 128c). The
+B=1 row is the unoptimized single-stream floor. Both are the torch-reference-DSA path; the authored-kernel +
+torch-op-port levers (D2/D3) raise the B=32 number from here.
 
 **Why "dummy weights" are not fast:** `--load-format dummy` removes the checkpoint read and the fp4/fp8→bf16
 dtype bridge, so *model load* is instant — but a GEMM with random weights does the **identical FLOPs**, so
@@ -154,23 +168,23 @@ full S-token prompt).*
 | P4 | + incremental-sparse O(S²)→O(S·topk) | — | — | ⏳ (algorithmic) |
 | P5 | 43L extrapolation + roofline (% of TTFT ceiling) | — | — | ⏳ |
 
-### Decode progression — TPOT, memory-bound (roofline = M·BW / (W_active + M·KV_tok))
-*Decode's memory-bound core (MoE weight streaming) is already ~75% of the BW roofline at B=32; the open work is
-overhead + integration hygiene, not new compute kernels.*
+### Decode progression — TPOT (full-node, all NUMA domains / 128c — the max-throughput config)
+*The MoE weight-streaming core is ~76% of the BW roofline at B=32; the job-390418 attribution shows the open work
+is **porting the ~40% unoptimized-torch decode ops to kernels** (`dsa.mla.attend` loop + MHC + indexer) + the MoE
+`expert_apply` thread-cap — not a framework/dispatch pass (that bucket is only ~5%).*
 
-| # | stage | decode tok/s (proxy B=32) | Δ vs baseline | status |
+| # | stage | decode tok/s (proxy B=32, full-node) | Δ vs baseline | status |
 |---|---|---:|---:|---|
-| D0 | **baseline** (torch-ref DSA, batched + thread/spin-wait fixes) | **91.2** | 1.00× | ✅ job 386039 (held-fixed) |
-| D1 | all C-kernels ON (held-fixed A/B) | **94.2** | **1.03×** | ✅ measured — **NEUTRAL** (job 386039) |
+| D0 | **baseline** (torch-ref DSA, full-node 128c/all-NUMA) | **91.2** | 1.00× | ✅ job 386039/390418 (held-fixed) |
+| D1 | all C-kernels ON (held-fixed A/B) | **94.2** | **1.03×** | ✅ measured — **NEUTRAL** (job 390418) |
 | ~~D1′~~ | ~~all C-kernels ON (naive, sequential bisect)~~ | ~~21.9~~ | ~~0.27×~~ | ⊘ **superseded** — phantom from un-held-fixed sweep (job 385956/386002) |
-| D2 | per-kernel held-fixed A/B (one at a time) | — | — | ⏳ attribute the 1.03× to ops |
-| D3 | + framework/dispatch overhead pass (**~39% of decode**) | — | — | ⏳ the main decode lever |
-| D4 | + bf16-KV (long-context KV read; bit-identical) | — | — | ⏳ carry-forward lever |
-| D5 | 43L extrapolation + roofline (% of TPOT ceiling) | — | — | ⏳ |
+| D2 | + port torch decode ops to kernels (`mla.attend` ~18% + MHC ~17% + indexer ~3.5%) | — | — | ⏳ **the main decode lever** (job 390418 attribution) |
+| D3 | + MoE `expert_apply` thread-cap (~26%, thread-count fix) | — | — | ⏳ runtime-config, not a kernel |
+| D4 | 43L extrapolation (full-node) | **9.40** | — | ✅ job 390445 (4L=91.2, 8L=48.2 → 43L) |
 
-> **43L baseline headline** (two-depth extrapolation, job 385387, the unoptimized torch path): decode **0.80
-> tok/s** (B=1), prefill **67.8 s** (S=1024) — see the calibration table above. The proxy ledgers iterate the
-> integration; the 43L number is finalized at P5/D5.
+> **NUMA is the biggest throughput knob (confirmed, job 390442):** full-node (all 3 SNC domains, 128c) = **90.8
+> tok/s @ 4L**; single-NUMA per-rank (`numactl -N0 -m0`, 1 domain) = **32.0 tok/s** — a **2.8× BW-bound gap** on
+> the identical harness. All decode numbers here are full-node.
 
 Full data: [wall_time_progress.json](../plugin/validate/results/wall_time_progress.json),
 [dsv4_globalchk_386039](../plugin/validate/results/) (held-fixed OFF-vs-ON, prefill+decode); the superseded
