@@ -1,11 +1,28 @@
 # D2 — CPU serving-integration scope: route DSV4 decode through the optimized AMX kernels
 
-**Goal:** replace the eager-torch *correctness-first scaffold* (the cause of ~46 s/step real-weight M=32
-decode) with the optimized AMX CPU kernels, so decode moves toward its roofline. The kernels largely already
-exist (sgl_kernel CPU corpus); this is a **wiring/integration** effort, not a from-scratch authoring one.
+**Goal:** replace the eager-torch *correctness-first scaffold* (the cause of ~41–46 s/step real-weight M=32
+decode) with optimized AMX CPU kernels, so decode moves toward its roofline.
+
+> **⚠️ Scope corrected by the D2 pre-commit probes (jobs 390564/390570, `results/d2_precommit_probes.json`).**
+> The original framing — "the kernels largely already exist; this is wiring, not authoring" — is **wrong**.
+> On-node enumeration of the 77 registered CPU `sgl_kernel::` ops shows:
+> - **FlashMLA is CUDA-only.** `sgl_kernel.flash_mla`'s functions all `raise _IMPORT_ERROR` because the backing
+>   `flashmla_ops` CUDA extension fails to import on CPU — there is **no working CPU MLA serving kernel to wire**
+>   (which is exactly why the plugin fabricates `_torch_flash_mla_with_kvcache`).
+> - **The CPU attention ops that DO exist** (`decode_attention_cpu`, `extend_attention_cpu`,
+>   `flash_attn_varlen_func`) are **MHA/GQA-oriented** and do not match the MLA-absorbed form (`v==k` single
+>   latent, per-head sink, top-k gather) — so they must be **adapted**, not drop-in wired.
+> - **The DSA compute kernels** (`plugin/kernels/dsa_pilot/{sparse_attend,indexer_logits,indexer_topk,compressor,sinkhorn,combine}.cpp`)
+>   were **authored standalone but are NOT built/registered** into the serving runtime.
+>
+> **Net:** D2 is a **build + adapt + multi-week serving-integration** effort (the cpu-serving-integration
+> "chain integration" surface), **not** light wiring. The MoE is the only piece already fully AMX-wired.
+> Weigh this against Amdahl (attention ≈ 20% ⇒ ~1.25× if only it is done), a **memory-bound** decode
+> (perf-stat: IPC ~1.2, cache-miss ~54%, LLC-miss ~47%), and the fact that the model already **runs + is
+> accurate (gsm8k 0.797)**.
 
 Pipeline position (cpu-serving-integration): the DSV4 CPU path is at **stage 1 (structural bypass — runs +
-accurate but eager-torch)**; this scope is **stage 2 (wire the optimized kernels)**.
+accurate but eager-torch)**; this scope is **stage 2 (build/adapt + wire the optimized kernels)**.
 
 ## 1. Current state — the eager-torch scaffold ("Route 2", `_install_dsa_cpu_wire`)
 
@@ -25,11 +42,22 @@ dispatch-bound across 43 layers → ~46 s/step. Threads give only ~1.35× (confi
 
 ## 2. How the optimized kernels are reached (the mechanism)
 
-Not the `sgl_kernel` python module (`import sgl_kernel` fails) — the AMX CPU kernels are **registered torch
-operators**: `torch.ops.sgl_kernel.<op>` (e.g. `fused_experts_cpu`, `convert_weight_packed`). Registration is
-LAZY — it happens when the engine worker loads the kernel extension, so enumerate on-node, not on the login
-shell. The donor compute kernels live in sglang's `kernels/aot/csrc/cpu/` (x86 AMX): `flash_attn.cpp`,
-`decode.cpp` (DSA `index_gemm_kernel_nt`=Q@Kᵀ, `index_gemm_kernel_nn`=P@V), `gemm*.cpp`, `moe.cpp`.
+The `sgl_kernel` python module **imports fine** on CPU (77 registered ops) — the earlier note that
+"`import sgl_kernel` fails" was wrong; what fails is the **`flashmla_ops` CUDA extension** inside
+`sgl_kernel.flash_mla`. The AMX CPU kernels are **registered torch operators** reached via
+`torch.ops.sgl_kernel.<op>` (e.g. `fused_experts_cpu`, `convert_weight_packed`, `decode_attention_cpu`).
+Registration is lazy (worker-side), so enumerate on-node — which the D2 probe did authoritatively:
+
+| CPU attention/relevant op | present? | usable for DSV4 MLA-sparse as-is? |
+|---|---|---|
+| `decode_attention_cpu`, `extend_attention_cpu`, `flash_attn_varlen_func` | ✅ registered | ❌ MHA/GQA form — needs absorbed/sink/top-k **adaptation** |
+| `qkv_proj_with_rope[_fused_weight]`, `fused_qkvzba_split_reshape_cat_cpu` | ✅ registered | ✅ projection/rope building blocks (wireable) |
+| `topk_softmax_cpu`, `copy_all_layer_kv_cache_cpu` | ✅ registered | ✅ routing / KV-copy building blocks |
+| `flash_mla*` (dense + sparse MLA serving) | ❌ CUDA-only | — must adapt a CPU donor or build the authored kernel |
+| `index_gemm`, `sparse`, `indexer`, `compress` | ❌ not registered | authored on disk (`dsa_pilot/*.cpp`) but **unbuilt/unwired** |
+
+Donor compute sources (x86 AMX) live in sglang's `kernels/aot/csrc/cpu/` (`flash_attn.cpp`, `gemm*.cpp`,
+`moe.cpp`) and the plugin's authored `plugin/kernels/dsa_pilot/`.
 
 ## 3. The wiring surface (what to change), attention path FIRST
 
@@ -67,13 +95,22 @@ stays runnable as the A/B oracle. (Attention correctness is weight-independent �
 accuracy still needs a real-weight run at the end.)
 
 ## 5. First concrete step (on-node, cheap)
-1. **Enumerate the available CPU attention ops:** in the engine worker (or a tiny-faithful load), print
-   `torch._C._dispatch_get_all_op_names()` filtered to `sgl_kernel::` — confirm which of
-   {flash/extend/decode attention, `index_gemm`} are built for CPU. This decides *wire-existing* vs
-   *author-adapt-from-donor* for each piece.
-2. **Stand up the tiny-faithful config** + the eager-vs-optimized A/B flag harness.
-3. **Wire the MLA decode attention** (first target) and A/B-diff vs the eager oracle on tiny-faithful; then
-   re-measure the real-weight decode headline.
+1. ~~**Enumerate the available CPU attention ops**~~ — **DONE** (D2 pre-commit probe,
+   `results/d2_precommit_probes.json`): resolved the wire-vs-author fork — see the §2 table and the ⚠️ box.
+   No CPU MLA/sparse serving op exists; the DSA compute kernels are authored-but-unbuilt; the generic CPU
+   attention ops need absorbed-form adaptation. **So each attention piece is adapt/build+wire, not drop-in.**
+2. **Decision gate BEFORE building:** given the above + Amdahl (attention ≈20% ⇒ ~1.25×), a memory-bound
+   decode, and an already-accurate running model (gsm8k 0.797), confirm the effort is worth the multi-week
+   build/adapt/integration surface, or re-scope to the highest-ROI single piece first.
+3. If proceeding: **stand up the tiny-faithful config** + the eager-vs-optimized A/B flag harness, then
+   **build+wire one piece** (attention first — adapt a CPU donor or build `dsa_pilot/sparse_attend.cpp`),
+   A/B-diff vs the eager oracle on tiny-faithful, and re-measure the real-weight decode headline.
+
+> **Measurement caveat (from the probes):** the synthetic resident-engine perf-probe accumulates radix/KV
+> state and degrades decode after the FIRST measurement (390564 rep1 ran >29 min vs rep0 ~140 s); `flush_cache()`
+> blocks pathologically on the CPU engine. A clean held-fixed sweep must measure each config in a **fresh
+> engine (reload)**. The real-weight M=32 decode baseline is **~0.5–0.8 tok/s (~41–46 s/step)**, reproducible;
+> the earlier 1.59 tok/s was an outlier.
 
 ## Gate (cpu-serving-integration PROOF)
 Done = runs end-to-end on CPU + accuracy-parity vs the eager/reference oracle (real weights) + published

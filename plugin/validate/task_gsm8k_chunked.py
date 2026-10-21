@@ -213,10 +213,16 @@ def main():
         def _fresh(m):
             return [[_rng.randrange(3, _vocab - 1) for _ in range(_S)] for _ in range(m)]
 
+        _do_flush = os.environ.get("INTEL_CPU_DSV4_PERF_FLUSH", "0") == "1"
+
         def _flush():
             # Reset radix/KV-cache state so each measurement starts clean — repeated independent
-            # synthetic batches otherwise accumulate and degrade decode catastrophically (the
-            # measurement confound this probe exists to avoid). Best-effort.
+            # synthetic batches otherwise accumulate and degrade decode. OFF by default: on the CPU
+            # engine flush_cache() blocks for a long time (it drains + rebuilds), so it costs more
+            # than it saves here; opt in with INTEL_CPU_DSV4_PERF_FLUSH=1. The robust clean-held-fixed
+            # alternative is a FRESH engine per config (reload), not a resident repeated measurement.
+            if not _do_flush:
+                return
             try:
                 engine.flush_cache()
             except Exception:

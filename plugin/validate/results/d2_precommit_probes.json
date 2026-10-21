@@ -1,0 +1,40 @@
+{
+  "purpose": "D2 pre-commit de-risking probes (adversarial self-audit): resolve the four under-verified claims BEFORE committing to the multi-week serving-integration. Jobs 390564 + 390570 on pcl-gnrap01 (GNR, tp=1, MXFP4 MoE, DECODE_THREADS cap, spin-wait).",
+  "probe_c_wire_vs_author": {
+    "question": "Does a CPU MLA/sparse attention serving kernel EXIST to wire, or must it be authored?",
+    "method": "in-worker torch._C._dispatch_get_all_op_names() filtered to sgl_kernel:: + inspect sgl_kernel.flash_mla source (INTEL_CPU_DSV4_DUMP_OPS).",
+    "registered_sgl_kernel_op_count": 77,
+    "attention_ops_present_cpu": [
+      "sgl_kernel::decode_attention_cpu (MHA/GQA)",
+      "sgl_kernel::extend_attention_cpu (MHA/GQA)",
+      "sgl_kernel::flash_attn_varlen_func (MHA/GQA)",
+      "sgl_kernel::qkv_proj_with_rope[_fused_weight]",
+      "sgl_kernel::fused_qkvzba_split_reshape_cat_cpu",
+      "sgl_kernel::topk_softmax_cpu",
+      "sgl_kernel::copy_all_layer_kv_cache_cpu"
+    ],
+    "attention_ops_ABSENT_cpu": ["flash_mla*", "index_gemm*", "sparse*", "indexer*", "compress*"],
+    "flash_mla_status": "sgl_kernel/flash_mla.py imports as a python module but every function (flash_mla_with_kvcache, flash_mla_sparse_fwd, get_mla_metadata) guards `if _flashmla_import_error is not None: raise _IMPORT_ERROR`. The backing `sgl_kernel.flashmla_ops` is a CUDA extension (requires 'CUDA Driver >= 12.4') and FAILS to import on the CPU-only venv -> every call RAISES. => FlashMLA is CUDA-only; NO working CPU FlashMLA kernel.",
+    "authored_dsa_kernels_on_disk": ["plugin/kernels/dsa_pilot/sparse_attend.cpp", "indexer_logits.cpp", "indexer_topk.cpp", "compressor.cpp", "sinkhorn.cpp", "combine.cpp"],
+    "authored_dsa_kernels_registered_as_cpu_ops": false,
+    "verdict": "NOT a drop-in 'wire existing registered ops' effort. (1) The MLA-absorbed sparse decode attention has NO ready CPU serving kernel: FlashMLA is CUDA-only, and the generic CPU attention ops (decode_attention_cpu/flash_attn_varlen_func) are MHA/GQA-oriented and do not match the absorbed form (v==k single latent, per-head sink, top-k gather) — so ADAPT-or-author. (2) The DSA compute kernels (indexer/compressor/sparse_attend/sinkhorn/combine) were AUTHORED standalone but are UNBUILT/UNWIRED into the serving runtime. => D2 = build + adapt + the multi-week serving-integration/chain-wiring surface, NOT light wiring. MoE is the only piece already fully AMX-wired.",
+    "doc_correction": "docs/d2-serving-integration-scope.md claimed 'kernels largely exist; wiring not authoring' and '`import sgl_kernel` fails'. BOTH wrong: import sgl_kernel SUCCEEDS (77 ops); the CUDA flashmla_ops extension is what fails; and the attention serving kernel must be adapted/authored, not wired."
+  },
+  "probe_a_clean_decode_baseline": {
+    "question": "Is the ~46 s/step real-weight M=32 decode inherent, or a measurement artifact (the 20-vs-46 s/step discrepancy)?",
+    "held_fixed_measurement": {"job": 390564, "M": 32, "threads": 8, "decode_tok_s": 0.78, "ms_per_step": 41085.8, "note": "clean rep0 (decode-path warm); reproduces sweep 390560's ~0.69 tok/s / ~46 s/step"},
+    "prior_runs": {"390473_outlier": "1.59 tok/s / ~20 s/step", "390537_sweep": "0.51 tok/s", "390560_sweep": "0.69 tok/s"},
+    "verdict": "The slow decode (~0.5-0.8 tok/s, ~41-46 s/step) is REAL and reproducible across independent jobs. The 1.59 tok/s (390473) was the OUTLIER, not the baseline. Decode genuinely sits at ~0.5-0.8 tok/s at M=32."
+  },
+  "probe_b_threads_held_fixed": {
+    "question": "Are threads really not the lever at M=32 (prior 1.35x was cross-run)?",
+    "status": "NOT cleanly re-measured in-process — the resident-engine repeated-measurement approach accumulates radix/KV-cache state and degrades decode catastrophically (390564 rep1 ran >29min vs rep0 ~140s). flush_cache() blocks pathologically on the CPU engine (390570 stalled). A clean held-fixed thread curve needs a FRESH engine per config.",
+    "corroborating_new_evidence": "perf stat -a during decode (both jobs, consistent): IPC ~1.2, cache-miss ~54%, LLC-load-miss ~47% => decode is MEMORY-BOUND (streaming weights/KV from DRAM), which independently explains why more threads give little (bandwidth/dispatch-bound, not compute-bound) — consistent with the prior ~1.35x thread ceiling.",
+    "verdict": "Threads-not-the-lever stands, now corroborated by a memory-bound counter signature; the exact in-process curve remains unmeasured (would need per-config reload)."
+  },
+  "probe_d_attribution": {
+    "status": "Not refined this run (pass-2 TIMEIT pass not reached; GNR cycles redirected after the decision-changing probe-c result). Prior directional attribution (390473) stands with its known single-run + parent/child double-counting caveats: attn ~20%, MHC ~13%, indexer ~6%, compressor ~3%, MoE ~29% (thread-cfg)."
+  },
+  "methodology_finding": "The synthetic perf-probe (repeated independent M-wide batches on a resident engine) accumulates cache/pool state and degrades decode after the FIRST measurement. Only the first measurement per fresh cache is trustworthy. For a clean held-fixed sweep, measure each config in a FRESH engine (reload), not via resident reps. flush_cache() is NOT a viable substitute on the CPU engine (it blocks).",
+  "bottom_line": "The pivotal de-risk (probe c) FLIPPED the D2 assumption: it is NOT light wiring of existing kernels — the attention serving kernel is CUDA-only on CPU and the DSA compute kernels are authored-but-unbuilt, so D2 is a build+adapt+multi-week-serving-integration effort. Combined with Amdahl (attention ~20% => ~1.25x if only that is done) and a memory-bound decode, the ROI of the full effort should be weighed against the fact that the model already RUNS + is accurate (gsm8k 0.797). Recommend NOT starting the wiring blind: decide scope with these corrected facts."
+}
