@@ -968,6 +968,7 @@ def _install_cpu_interleave_mem() -> None:
 
 
 _OPS_DUMPED = False
+_PROFILED_ONCE = False
 
 
 def _dump_sgl_ops_once() -> None:
@@ -1137,6 +1138,27 @@ def _install_decode_thread_cap() -> None:
             logger.warning("[DECODE THREADCAP] M=%d threads %d -> %d", M, prev, cap)
         _tt.set_num_threads(cap)
         try:
+            _prof_out = _os.environ.get("INTEL_CPU_DSV4_PROFILE_OUT")
+            global _PROFILED_ONCE
+            if _prof_out and is_decode and not _PROFILED_ONCE:
+                _PROFILED_ONCE = True
+                import json as _json
+
+                import torch.profiler as _prof
+                with _prof.profile(activities=[_prof.ProfilerActivity.CPU]) as _p:
+                    _r = _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
+                # independent cross-check of the provenance COUNTER: the actual op-level self-CPU time.
+                # Confirm C kernels (dsv4ck*/sgl_kernel) dominate and no unexpected eager aten op is large.
+                _evs = sorted(_p.key_averages(), key=lambda e: e.self_cpu_time_total, reverse=True)[:30]
+                _top = [{"op": e.key, "self_cpu_ms": round(e.self_cpu_time_total / 1000.0, 3),
+                         "calls": e.count} for e in _evs]
+                try:
+                    with open(_prof_out, "w") as _f:
+                        _json.dump({"M": M, "top_ops_by_self_cpu_ms": _top}, _f, indent=2)
+                    logger.warning("[PROFILE] wrote one-decode-step op profile -> %s", _prof_out)
+                except Exception:  # noqa: BLE001
+                    pass
+                return _r
             return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
         finally:
             _tt.set_num_threads(prev)
@@ -1681,6 +1703,8 @@ def _batched_mla_attend(
                 _tacc("mla.b.pv", _ts, "kernel")
             return out
         except Exception as _e:  # noqa: BLE001 — parity fail / bad shape -> eager oracle fallback
+            if _ck.strict():
+                raise
             logger.warning("[DSA] sparse_attend C kernel fell back to eager: %r", _e)
     scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, nk) * softmax_scale
     try:
@@ -2387,6 +2411,11 @@ def _install_fp4_expert_cpu_dequant() -> None:
             x, topk_weights = apply_topk_weights_cpu(
                 rc.apply_router_weight_on_input, topk_weights, x
             )
+            try:
+                from . import _dsa_ckernels as _ckmoe
+                _ckmoe.mark("moe", "c_kernel")
+            except Exception:  # noqa: BLE001
+                pass
             out = _tt.ops.sgl_kernel.fused_experts_cpu(
                 x,
                 layer.w13_weight,
@@ -3155,6 +3184,8 @@ def _cpu_forward_c4_indexer(self, x, q_lora, forward_batch, c4_indexer, *args, *
             kv_bc = ck.unsqueeze(0).expand(q.shape[0], ck.shape[0], ck.shape[1]).contiguous()  # [N,S,chd]
             logits = _dix.indexer_logits(q, kv_bc, w)  # fused relu*weight*sum (C); marks c_kernel
         except Exception as _e:  # noqa: BLE001 — degenerate shapes (tiny S) -> eager oracle fallback
+            if _ck.strict():
+                raise
             logger.warning("[DSA] indexer C kernel fell back to eager: %r", _e)
             _use_ck_idx = False
             _ck.mark("indexer", "eager")

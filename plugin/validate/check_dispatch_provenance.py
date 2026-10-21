@@ -15,7 +15,7 @@ import json
 import sys
 
 # The hot decode compute chain that MUST be all-C/C++ (the graph-loop analysis nodes).
-HOT_OPS = ["indexer", "topk", "compressor", "sinkhorn", "combine", "sparse_attend"]
+HOT_OPS = ["indexer", "topk", "compressor", "sinkhorn", "combine", "sparse_attend", "moe"]
 
 
 def gate(prov: dict):

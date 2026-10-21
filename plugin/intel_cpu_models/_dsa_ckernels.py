@@ -73,6 +73,15 @@ def _check() -> bool:
     return os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL_CHECK", "0") == "1"
 
 
+def strict() -> bool:
+    """INTEL_CPU_DSV4_CK_STRICT=1: a kernel failure RAISES instead of silently falling back to eager.
+    Run a PERFORMANCE check in strict mode — if it completes, ZERO silent eager fallbacks occurred, so
+    the measured number is the C/C++ path (not accidentally eager). The answer to 'how do you know the
+    kernels are actually used': run strict + the dispatch-provenance gate (eager==0) + a profiler
+    cross-check, on BOTH decode and prefill."""
+    return os.environ.get("INTEL_CPU_DSV4_CK_STRICT", "0") == "1"
+
+
 # --- Dispatch-provenance registry (playbook gate H) -------------------------------------------
 # Records, per hot op, which implementation ACTUALLY RAN: 'c_kernel' (authored C/C++ via this
 # module) vs 'eager' (a Python/eager-torch reimplementation in the serving forward). The gate
