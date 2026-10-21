@@ -80,6 +80,9 @@ def main():
                         "sweep yields the M-ADAPTIVE cap table; empty = just --perf-batch")
     p.add_argument("--perf-only", action="store_true",
                    help="exit after the perf-probe (skip gsm8k) — for a page-cache-amortized thread sweep")
+    p.add_argument("--perf-reps", type=int, default=1,
+                   help="measure each (M,threads) config this many times on the resident load (held-fixed) "
+                        "and report median + min/max — resolves run-to-run variance, firms attribution")
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
@@ -221,8 +224,9 @@ def main():
             _d = (_tf - _tp) / _steps
             return (m * _S / _tp), (m / _d), _d * 1e3
 
-        print(f"[PERF-SWEEP] ===== resident M x threads factorial  M={_mlist} threads={_tlist} S={_S} G={_G} =====", flush=True)
+        print(f"[PERF-SWEEP] ===== resident M x threads factorial  M={_mlist} threads={_tlist} S={_S} G={_G} reps={args.perf_reps} =====", flush=True)
         _swp_json = os.environ.get("INTEL_CPU_DSV4_SWEEP_JSON", "")
+        import statistics as _stats
         _res = {}
         _rows = []
         for _m in _mlist:
@@ -230,16 +234,32 @@ def main():
                 if _t and _ctl:
                     with open(_ctl, "w") as _f:
                         _f.write(str(_t))
-                _pref, _dec, _dms = _timed(_m)
-                _res[(_m, _t)] = _dec
-                print(f"[PERF-SWEEP] M={_m:4d} threads={_t:4d}  decode_tok_s={_dec:8.2f}  ms/step={_dms:9.1f}  prefill_tok_s={_pref:8.1f}", flush=True)
+                _decs = []
+                _prefs = []
+                _dmss = []
+                for _r in range(max(1, args.perf_reps)):
+                    _pref, _dec, _dms = _timed(_m)
+                    _decs.append(_dec); _prefs.append(_pref); _dmss.append(_dms)
+                    if args.perf_reps > 1:
+                        print(f"[PERF-SWEEP]   rep={_r} M={_m} threads={_t}  decode_tok_s={_dec:8.2f}  ms/step={_dms:9.1f}", flush=True)
+                _dec_med = _stats.median(_decs)
+                _dms_med = _stats.median(_dmss)
+                _pref_med = _stats.median(_prefs)
+                _res[(_m, _t)] = _dec_med
+                _spread = (max(_decs) / min(_decs)) if min(_decs) > 0 else 0.0
+                print(f"[PERF-SWEEP] M={_m:4d} threads={_t:4d}  decode_tok_s(med)={_dec_med:8.2f}  "
+                      f"ms/step(med)={_dms_med:9.1f}  spread={_spread:4.2f}x  "
+                      f"[min={min(_decs):.2f} max={max(_decs):.2f}]  prefill_tok_s(med)={_pref_med:8.1f}", flush=True)
                 # CHECKPOINT each config to a durable json (survives a wall-kill; unbuffered observable)
-                _rows.append({"M": _m, "threads": _t, "decode_tok_s": round(_dec, 2),
-                              "decode_ms_step": round(_dms, 1), "prefill_tok_s": round(_pref, 1)})
+                _rows.append({"M": _m, "threads": _t, "reps": len(_decs),
+                              "decode_tok_s": round(_dec_med, 2), "decode_tok_s_all": [round(x, 2) for x in _decs],
+                              "decode_tok_s_min": round(min(_decs), 2), "decode_tok_s_max": round(max(_decs), 2),
+                              "decode_spread_x": round(_spread, 3),
+                              "decode_ms_step": round(_dms_med, 1), "prefill_tok_s": round(_pref_med, 1)})
                 if _swp_json:
                     _best = {m: max(((t, _res[(m, t)]) for t in _tlist if (m, t) in _res), key=lambda x: x[1])
                              for m in _mlist if any((m, t) in _res for t in _tlist)}
-                    _atomic_write(_swp_json, {"S": _S, "G": _G, "rows": _rows,
+                    _atomic_write(_swp_json, {"S": _S, "G": _G, "reps": args.perf_reps, "rows": _rows,
                                              "adaptive_cap": {str(m): {"best_threads": b[0], "tok_s": round(b[1], 2)}
                                                               for m, b in _best.items()}})
         print("[PERF-SWEEP] ===== M-ADAPTIVE cap (best threads per M) =====", flush=True)

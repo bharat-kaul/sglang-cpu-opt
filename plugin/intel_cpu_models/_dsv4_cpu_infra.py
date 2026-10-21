@@ -967,6 +967,72 @@ def _install_cpu_interleave_mem() -> None:
     )
 
 
+_OPS_DUMPED = False
+
+
+def _dump_sgl_ops_once() -> None:
+    """Probe (c): authoritative in-worker enumeration of registered CPU ops.
+
+    Runs inside the scheduler/worker process (where the model forward executes and all kernel
+    shared-libs are loaded), gated by INTEL_CPU_DSV4_DUMP_OPS=<json path>. Resolves the
+    'wire vs author' fork for D2: lists every dispatcher-registered sgl_kernel:: op (via
+    torch._C._dispatch_get_all_op_names, which sees C++ registrations regardless of the lazy
+    python wrapper), flags attention/mla/flash/index/gemm/sparse-relevant names, and records
+    whether sgl_kernel.flash_mla is a REAL module (a CPU MLA serving kernel to wire) or the
+    torch stub this plugin fabricates (=> authoring, not wiring).
+    """
+    global _OPS_DUMPED
+    if _OPS_DUMPED:
+        return
+    out = _os.environ.get("INTEL_CPU_DSV4_DUMP_OPS", "")
+    if not out:
+        return
+    _OPS_DUMPED = True
+    import torch as _tt
+
+    info: dict = {}
+    try:
+        names = list(_tt._C._dispatch_get_all_op_names())
+    except Exception as e:  # noqa: BLE001
+        names = []
+        info["dispatch_enum_error"] = repr(e)
+    sgl = sorted(n for n in names if n.startswith("sgl_kernel::"))
+    kw = ("attn", "mla", "flash", "index", "gemm", "sparse", "softmax", "sdpa", "paged", "kv")
+    info["sgl_kernel_op_count"] = len(sgl)
+    info["sgl_kernel_ops"] = sgl
+    info["attention_relevant"] = sorted(n for n in sgl if any(k in n.lower() for k in kw))
+    # Is there a REAL sgl_kernel.flash_mla CPU module, or does the plugin stub it?
+    fm = {}
+    try:
+        import sgl_kernel.flash_mla as _fm  # noqa: F401
+        fm["importable"] = True
+        fm["file"] = getattr(_fm, "__file__", None)
+        fm["is_torch_stub"] = getattr(_fm, "__file__", None) is None
+        fm["symbols"] = sorted(a for a in dir(_fm) if not a.startswith("__"))
+    except Exception as e:  # noqa: BLE001
+        fm["importable"] = False
+        fm["error"] = repr(e)
+    info["sgl_kernel.flash_mla"] = fm
+    # Stock intel_amx CPU attention backend availability (the MLA-rejecting donor path).
+    amx = {}
+    try:
+        import sgl_kernel as _sk
+        amx["sgl_kernel_file"] = getattr(_sk, "__file__", None)
+        amx["has_flash_attn_varlen"] = hasattr(getattr(_tt.ops, "sgl_kernel", object()), "flash_attn_varlen_func") \
+            if hasattr(_tt.ops, "sgl_kernel") else False
+    except Exception as e:  # noqa: BLE001
+        amx["error"] = repr(e)
+    info["sgl_kernel_pkg"] = amx
+    try:
+        _atomic_dump = __import__("json").dumps(info, indent=2)
+        with open(out, "w") as _f:
+            _f.write(_atomic_dump)
+        logger.warning("[DUMP_OPS] wrote %d sgl_kernel ops -> %s (flash_mla real=%s)",
+                       len(sgl), out, fm.get("importable") and not fm.get("is_torch_stub"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[DUMP_OPS] write failed: %r", e)
+
+
 def _install_decode_thread_cap() -> None:
     """Cap threads for the whole M=1 decode forward (tp=1 only; tp>1 uses core-binding headroom).
 
@@ -1012,6 +1078,7 @@ def _install_decode_thread_cap() -> None:
     st = {}
 
     def _fwd(self, input_ids, positions, forward_batch, *a, **k):
+        _dump_sgl_ops_once()
         if "world" not in st:
             try:
                 import torch.distributed as _d
