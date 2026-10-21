@@ -986,7 +986,12 @@ def _install_decode_thread_cap() -> None:
     shm barrier is sized correctly (tp-safe, no hang).
     """
     spec = _os.environ.get("INTEL_CPU_DSV4_DECODE_THREADS", "")
-    if not (spec.isdigit() or spec == "auto"):
+    ctl_file = _os.environ.get("INTEL_CPU_DSV4_DECODE_THREADS_FILE", "")
+    # Accept: digit (fixed), "auto" (bound-headroom), an M-ADAPTIVE map "M1:T1,M2:T2,..." (pick the
+    # threads for the largest breakpoint M<=current decode batch), or a dynamic control FILE (one int,
+    # re-read each forward) that lets a PERSISTENT process sweep threads on the RESIDENT model.
+    is_adaptive = ":" in spec
+    if not (spec.isdigit() or spec == "auto" or is_adaptive or ctl_file):
         return
     import torch as _tt
 
@@ -998,6 +1003,12 @@ def _install_decode_thread_cap() -> None:
     _orig_fwd = cls.forward
     fixed = int(spec) if spec.isdigit() else None
     headroom = int(_os.environ.get("INTEL_CPU_DSV4_DECODE_HEADROOM", "2"))
+    adaptive = None
+    if is_adaptive:
+        try:
+            adaptive = sorted((int(a), int(b)) for a, b in (p.split(":") for p in spec.split(",")))
+        except Exception:  # noqa: BLE001
+            adaptive = None
     st = {}
 
     def _fwd(self, input_ids, positions, forward_batch, *a, **k):
@@ -1034,10 +1045,29 @@ def _install_decode_thread_cap() -> None:
         if not is_decode:
             return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
         prev = _tt.get_num_threads()
-        cap = min(fixed if fixed is not None else max(1, prev - headroom), prev)
-        if "n" not in st:
-            st["n"] = 1
-            logger.warning("[DECODE THREADCAP] threads %d -> %d (M=1 decode)", prev, cap)
+        try:
+            M = int(input_ids.shape[0])
+        except Exception:  # noqa: BLE001
+            M = 1
+        # dynamic control FILE (one int) wins — lets a persistent process sweep threads per experiment
+        want = None
+        if ctl_file:
+            try:
+                with open(ctl_file) as _cf:
+                    want = int(_cf.read().strip())
+            except Exception:  # noqa: BLE001
+                want = None
+        if want is None and adaptive:  # M-adaptive: largest breakpoint M <= current decode batch
+            want = adaptive[0][1]
+            for mb, tb in adaptive:
+                if M >= mb:
+                    want = tb
+        if want is None:
+            want = fixed if fixed is not None else max(1, prev - headroom)
+        cap = min(max(1, want), prev)
+        if st.get("last_cap") != cap or st.get("last_M") != M:
+            st["last_cap"], st["last_M"] = cap, M
+            logger.warning("[DECODE THREADCAP] M=%d threads %d -> %d", M, prev, cap)
         _tt.set_num_threads(cap)
         try:
             return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)

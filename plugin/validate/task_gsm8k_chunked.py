@@ -66,6 +66,20 @@ def main():
                         "overrides --num-shards/--shard-index slicing. For re-sharding a straggler tail "
                         "across many nodes — the ids carry the global q so gens/combine stay consistent.")
     p.set_defaults(resume=True)
+    p.add_argument("--perf-probe", action="store_true",
+                   help="before gsm8k, run a B-batch prefill+decode on the RESIDENT engine to measure "
+                        "real-weight tok/s + (with TIMEIT) the decode op attribution — one load, many answers")
+    p.add_argument("--perf-batch", type=int, default=32)
+    p.add_argument("--perf-input", type=int, default=128)
+    p.add_argument("--perf-output", type=int, default=8)
+    p.add_argument("--perf-thread-sweep", default="",
+                   help="comma list of decode thread counts to sweep on the RESIDENT model (via the control "
+                        "file), e.g. 8,16,32,64,128 — one load, full sweep; 0/empty = use the engine default")
+    p.add_argument("--perf-m-sweep", default="",
+                   help="comma list of decode batch sizes M to sweep, e.g. 1,8,32 — factorial with the thread "
+                        "sweep yields the M-ADAPTIVE cap table; empty = just --perf-batch")
+    p.add_argument("--perf-only", action="store_true",
+                   help="exit after the perf-probe (skip gsm8k) — for a page-cache-amortized thread sweep")
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
@@ -157,6 +171,13 @@ def main():
         extra_kw["context_length"] = int(os.environ["CONTEXT_LEN"])
     if os.environ.get("MAX_RUNNING"):
         extra_kw["max_running_requests"] = int(os.environ["MAX_RUNNING"])
+    # DSV4-Flash native context is ~1M and it has SWA; on a NUMA/SNC-domain-bound MXFP4 run the KV
+    # pool over-reserves and the scheduler is OOM-killed (SIGKILL -9) during init. Cap it like the
+    # canonical bench_one_batch (--max-total-tokens / --swa-full-tokens-ratio), read from env.
+    if os.environ.get("MAX_TOTAL_TOKENS"):
+        extra_kw["max_total_tokens"] = int(os.environ["MAX_TOTAL_TOKENS"])
+    if os.environ.get("SWA_RATIO"):
+        extra_kw["swa_full_tokens_ratio"] = float(os.environ["SWA_RATIO"])
 
     engine = sgl.Engine(
         model_path=args.model, device=args.device, tp_size=args.tp, dtype=args.dtype,
@@ -169,6 +190,67 @@ def main():
     )
     sp = {"temperature": 0.0, "max_new_tokens": args.max_new_tokens,
           "stop": ["Question", "Assistant:"]}
+
+    # --- perf-probe: amortize the 149GB load into real-weight perf + decode attribution + an
+    # M x THREADS factorial sweep on the RESIDENT model. The in-worker decode-thread hook reads the
+    # control FILE (INTEL_CPU_DSV4_DECODE_THREADS_FILE) each forward, so we sweep thread counts on the
+    # one resident load (no reload) -> the M-ADAPTIVE cap table (best threads per batch M). ---
+    if args.perf_probe:
+        import random as _rnd
+        import shutil as _sh
+        with open(f"{args.model}/config.json") as _cf:
+            _vocab = json.load(_cf)["vocab_size"]
+        _rng = _rnd.Random(0)
+        _S, _G = args.perf_input, args.perf_output
+        _steps = max(_G - 1, 1)
+        _ctl = os.environ.get("INTEL_CPU_DSV4_DECODE_THREADS_FILE", "")
+        _mlist = [int(x) for x in (args.perf_m_sweep or str(args.perf_batch)).split(",") if x.strip()]
+        _tlist = [int(x) for x in (args.perf_thread_sweep or "0").split(",") if x.strip()]
+
+        def _fresh(m):
+            return [[_rng.randrange(3, _vocab - 1) for _ in range(_S)] for _ in range(m)]
+
+        def _timed(m):
+            _p1 = {"temperature": 0.0, "max_new_tokens": 1}
+            _pG = {"temperature": 0.0, "max_new_tokens": _G}
+            engine.generate(input_ids=_fresh(m), sampling_params=_p1)  # warmup (never timed)
+            _t0 = time.perf_counter(); engine.generate(input_ids=_fresh(m), sampling_params=_p1)
+            _tp = time.perf_counter() - _t0
+            _t0 = time.perf_counter(); engine.generate(input_ids=_fresh(m), sampling_params=_pG)
+            _tf = time.perf_counter() - _t0
+            _d = (_tf - _tp) / _steps
+            return (m * _S / _tp), (m / _d), _d * 1e3
+
+        print(f"[PERF-SWEEP] ===== resident M x threads factorial  M={_mlist} threads={_tlist} S={_S} G={_G} =====", flush=True)
+        _swp_json = os.environ.get("INTEL_CPU_DSV4_SWEEP_JSON", "")
+        _res = {}
+        _rows = []
+        for _m in _mlist:
+            for _t in _tlist:
+                if _t and _ctl:
+                    with open(_ctl, "w") as _f:
+                        _f.write(str(_t))
+                _pref, _dec, _dms = _timed(_m)
+                _res[(_m, _t)] = _dec
+                print(f"[PERF-SWEEP] M={_m:4d} threads={_t:4d}  decode_tok_s={_dec:8.2f}  ms/step={_dms:9.1f}  prefill_tok_s={_pref:8.1f}", flush=True)
+                # CHECKPOINT each config to a durable json (survives a wall-kill; unbuffered observable)
+                _rows.append({"M": _m, "threads": _t, "decode_tok_s": round(_dec, 2),
+                              "decode_ms_step": round(_dms, 1), "prefill_tok_s": round(_pref, 1)})
+                if _swp_json:
+                    _best = {m: max(((t, _res[(m, t)]) for t in _tlist if (m, t) in _res), key=lambda x: x[1])
+                             for m in _mlist if any((m, t) in _res for t in _tlist)}
+                    _atomic_write(_swp_json, {"S": _S, "G": _G, "rows": _rows,
+                                             "adaptive_cap": {str(m): {"best_threads": b[0], "tok_s": round(b[1], 2)}
+                                                              for m, b in _best.items()}})
+        print("[PERF-SWEEP] ===== M-ADAPTIVE cap (best threads per M) =====", flush=True)
+        for _m in _mlist:
+            _best = max(((_t, _res[(_m, _t)]) for _t in _tlist), key=lambda x: x[1])
+            print(f"[PERF-SWEEP] M={_m:4d} -> best threads={_best[0]:4d} ({_best[1]:.2f} tok/s)", flush=True)
+        print("[PERF-SWEEP] ===== done =====", flush=True)
+        if args.perf_only:
+            engine.shutdown()
+            print("[PERF-SWEEP] --perf-only set; exiting before gsm8k.", flush=True)
+            return
 
     correct, invalid, done = resume_correct, resume_invalid, resume_done
     t0 = time.perf_counter()

@@ -1,0 +1,74 @@
+{
+  "shards_found": 8,
+  "questions_scored": 320,
+  "correct": 255,
+  "invalid": 0,
+  "accuracy": 0.7969,
+  "any_partial": false,
+  "detail": [
+    {
+      "file": "dsv4_gsmwave_390511_sh0.json",
+      "shard": 0,
+      "done": 40,
+      "total": 40,
+      "correct": 31,
+      "partial": false
+    },
+    {
+      "file": "dsv4_gsmwave_390511_sh1.json",
+      "shard": 1,
+      "done": 40,
+      "total": 40,
+      "correct": 37,
+      "partial": false
+    },
+    {
+      "file": "dsv4_gsmwave_390511_sh2.json",
+      "shard": 2,
+      "done": 40,
+      "total": 40,
+      "correct": 30,
+      "partial": false
+    },
+    {
+      "file": "dsv4_gsmwave_390511_sh3.json",
+      "shard": 3,
+      "done": 40,
+      "total": 40,
+      "correct": 35,
+      "partial": false
+    },
+    {
+      "file": "dsv4_gsmwave_390511_sh4.json",
+      "shard": 4,
+      "done": 40,
+      "total": 40,
+      "correct": 31,
+      "partial": false
+    },
+    {
+      "file": "dsv4_gsmwave_390511_sh5.json",
+      "shard": 5,
+      "done": 40,
+      "total": 40,
+      "correct": 31,
+      "partial": false
+    },
+    {
+      "file": "dsv4_gsmwave_390511_sh6.json",
+      "shard": 6,
+      "done": 40,
+      "total": 40,
+      "correct": 31,
+      "partial": false
+    },
+    {
+      "file": "dsv4_gsmwave_390511_sh7.json",
+      "shard": 7,
+      "done": 40,
+      "total": 40,
+      "correct": 29,
+      "partial": false
+    }
+  ]
+}
