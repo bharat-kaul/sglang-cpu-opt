@@ -381,8 +381,68 @@ torch::Tensor sparse_attend_scorehybrid(torch::Tensor q, torch::Tensor kv, torch
   return at::bmm(scores, kc);                                                 // fp32 value GEMM (donor, unchanged)
 }
 
+// SERVING-INTEGRATION variant (graph-loop analysis): matches _batched_mla_attend's structure — a
+// SHARED latent kv[K,D] (k==v, concatenated main+extra sources) with a PER-QUERY mask[N,K] (1=attend),
+// per-head sink. Fused scalar online-softmax: scores/probs NEVER materialize to DRAM. Masked keys are
+// skipped (p=0, == masked_fill(-inf)); an all-masked row -> out 0 (== the eager empty-row path).
+// q:[N,H,D]; kv:[K,D]; mask:[N,K] (bool/uint8); sink:[H]; scale (pass softmax_scale) -> out:[N,H,D] fp32.
+torch::Tensor sparse_attend_masked(torch::Tensor q, torch::Tensor kv, torch::Tensor mask,
+                                   torch::Tensor sink, double scale_) {
+  TORCH_CHECK(q.device().is_cpu() && kv.device().is_cpu() && mask.device().is_cpu() && sink.device().is_cpu(),
+              "CPU tensors only");
+  TORCH_CHECK(std::isfinite(scale_), "scale must be finite");
+  TORCH_CHECK(q.dim() == 3 && kv.dim() == 2 && mask.dim() == 2 && sink.dim() == 1, "bad dims");
+  TORCH_CHECK(q.size(2) == kv.size(1), "q/kv head_dim mismatch");
+  TORCH_CHECK(mask.size(0) == q.size(0) && mask.size(1) == kv.size(0), "mask must be [N,K]");
+  TORCH_CHECK(sink.size(0) == q.size(1), "sink must be [H]");
+  auto qc = q.to(torch::kFloat32).contiguous();
+  auto kc = kv.to(torch::kFloat32).contiguous();
+  auto sc = sink.to(torch::kFloat32).contiguous();
+  auto mc = mask.to(torch::kBool).contiguous();
+  const int64_t N = qc.size(0), H = qc.size(1), D = qc.size(2), K = kc.size(0);
+  const float scale = scale_ > 0 ? (float)scale_ : (float)(1.0 / std::sqrt((double)D));
+  auto out = torch::zeros({N, H, D}, torch::kFloat32);
+  const float* qp = qc.data_ptr<float>();
+  const float* kp = kc.data_ptr<float>();
+  const float* sp = sc.data_ptr<float>();
+  const bool* mp = mc.data_ptr<bool>();
+  float* op = out.data_ptr<float>();
+
+  at::parallel_for(0, N * H, 0, [&](int64_t i0, int64_t i1) {
+    std::vector<float> acc(D);
+    for (int64_t i = i0; i < i1; ++i) {
+      const int64_t n = i / H, h = i % H;
+      const float* qrow = qp + (n * H + h) * D;
+      const bool* mrow = mp + n * K;
+      float m = sp[h], l = 1.f;                    // sink: logit sp[h], weight exp(0)=1, no value
+      for (int64_t d = 0; d < D; ++d) acc[d] = 0.f;
+      for (int64_t kk = 0; kk < K; ++kk) {
+        if (!mrow[kk]) continue;                   // masked key -> p=0 (== masked_fill(-inf))
+        const float* kvr = kp + kk * D;
+        float s = 0.f;
+        #pragma omp simd reduction(+ : s)
+        for (int64_t d = 0; d < D; ++d) s += qrow[d] * kvr[d];
+        s *= scale;
+        float mnew = s > m ? s : m;
+        float corr = std::exp(m - mnew), e = std::exp(s - mnew);
+        l = l * corr + e;
+        #pragma omp simd
+        for (int64_t d = 0; d < D; ++d) acc[d] = acc[d] * corr + e * kvr[d];
+        m = mnew;
+      }
+      float inv = 1.f / l;                          // all-masked row: l=1 (sink only), acc=0 -> out 0
+      float* orow = op + (n * H + h) * D;
+      #pragma omp simd
+      for (int64_t d = 0; d < D; ++d) orow[d] = acc[d] * inv;
+    }
+  });
+  return out;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("sparse_attend", &sparse_attend, "DSA MLA sparse attend (MQA flash, per-head sink; scalar online-softmax)");
+  m.def("sparse_attend_masked", &sparse_attend_masked, "SERVING: shared kv[K,D] + per-query mask[N,K] + sink, fused online-softmax (matches _batched_mla_attend)");
+  m.def("sparse_attend_fp32bmm", &sparse_attend_fp32bmm, "DSA MLA sparse attend via fp32 bmm donor + fused softmax (+sink)");
   m.def("sparse_attend_fp32bmm", &sparse_attend_fp32bmm, "DSA MLA sparse attend via fp32 bmm donor + fused softmax (+sink)");
   m.def("sparse_attend_bestof", &sparse_attend_bestof, "DSA MLA sparse attend best-of dispatch (N==1 scalar, else fp32 bmm donor)");
   m.def("sparse_attend_fp32bmm_hx", &sparse_attend_fp32bmm_hx, "fp32 bmm donor + HAND-EXP (inlined Cephes exp512) fused softmax; ~1 ULP, F4-screened");

@@ -1655,10 +1655,37 @@ def _batched_mla_attend(
     if _TIMEIT_ON:
         _tacc("mla.b.cvt", _ts, "framework")
         _ts = time.perf_counter()
-    scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, nk) * softmax_scale
+    # FUSED C/C++ sparse attend (serving-integration, graph-loop): shared kv + per-query mask + per-head
+    # sink, online-softmax, no score/p DRAM materialization. Gated by DSA_CKERNEL; the eager block below
+    # is the A/B oracle + fallback. Requires the absorbed-MLA form k==v (D == head_dim_v) and a sink.
+    _use_ck_attn = False
     try:
         from . import _dsa_ckernels as _ck
-        _ck.mark("sparse_attend", "eager")
+        _use_ck_attn = _ck.enabled("sparse_attend") and head_dim_v == D and attn_sink is not None
+    except Exception:  # noqa: BLE001
+        _use_ck_attn = False
+    if _use_ck_attn:
+        try:
+            q_in = q[:, 0, :, :D].to(torch.float32).contiguous()   # [T,H,D]
+            kv_sh = K_all[:, :D].to(torch.float32).contiguous()    # [nk,D] shared latent (k==v)
+
+            def _oracle():
+                sc = torch.matmul(q_in.reshape(T * H, D), kv_sh.t()).reshape(T, H, nk) * softmax_scale
+                sc = sc.masked_fill(~mask.unsqueeze(1), float("-inf"))
+                snk = attn_sink.reshape(1, H, 1).float().expand(T, H, 1)
+                pp = torch.nan_to_num(torch.cat([sc, snk], dim=-1).softmax(dim=-1)[..., :-1], nan=0.0)
+                return torch.matmul(pp.reshape(T * H, nk), kv_sh).reshape(T, H, D)
+
+            out = _ck.sparse_attend_masked(q_in, kv_sh, mask, attn_sink, float(softmax_scale), _oracle)
+            if _TIMEIT_ON:
+                _tacc("mla.b.pv", _ts, "kernel")
+            return out
+        except Exception as _e:  # noqa: BLE001 — parity fail / bad shape -> eager oracle fallback
+            logger.warning("[DSA] sparse_attend C kernel fell back to eager: %r", _e)
+    scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, nk) * softmax_scale
+    try:
+        from . import _dsa_ckernels as _ckm
+        _ckm.mark("sparse_attend", "eager")
     except Exception:  # noqa: BLE001
         pass
     if _TIMEIT_ON:

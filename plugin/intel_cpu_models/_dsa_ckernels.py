@@ -201,3 +201,11 @@ def mhc_combine(x_flat, pre, hc, out_dtype, torch_fn):
     out = _mod("cb", "combine.cpp").mhc_combine(
         x_flat.float().contiguous(), pre.float().contiguous(), int(hc)).to(out_dtype)
     return _parity("mhc_combine", out, torch_fn)
+
+
+def sparse_attend_masked(q, kv, mask, sink, scale, torch_fn):
+    # SERVING sparse attend: shared kv[K,D] + per-query mask[N,K] + per-head sink, fused online-softmax.
+    out = _mod("sa", "sparse_attend.cpp").sparse_attend_masked(
+        q.contiguous(), kv.contiguous(), mask.contiguous(), sink.contiguous(), float(scale))
+    mark("sparse_attend", "c_kernel")  # after success
+    return _parity("sparse_attend", out, torch_fn)
