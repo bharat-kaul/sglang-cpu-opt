@@ -34,18 +34,27 @@ def main():
     a = ap.parse_args()
     d = json.load(open(os.path.join(RES, "wall_time_progress.json")))
     op = d.get("operating_point", {})
-    steps = d.get("ledger", [])
+    hp = d.get("headline_progression")
 
-    # short label + full-depth decode tok/s per stage (numeric = done, else pending)
+    # Prefer the focused headline progression (43L B=32 full-node); fall back to the per-op ledger.
     rows = []
-    for st in steps:
-        lbl = st.get("op") or "baseline"
-        lbl = {"baseline": "baseline", "indexer_logits": "+indexer\nlogits", "indexer_topk": "+indexer\ntop-k",
-               "compressor": "+compressor", "sparse_attend": "+sparse\nattend", "mhc_sinkhorn": "+MHC\nsinkhorn",
-               "mhc_hash": "+MHC\nhash", "laneA_verify": "+LaneA\nverify", "system_overhead": "+system\noverhead"}.get(lbl, lbl)
-        tok = _num(st.get("decode_tok_s_full"))
-        pre = _num(st.get("prefill_s_full"))
-        rows.append((lbl, tok, pre))
+    if hp:
+        axis_label = hp.get("axis", "decode tok/s (43L)")
+        northstar = ("North-Star: full-depth (43L) B=32 decode tok/s at FULL-NODE (all 3 SNC NUMA domains / 128c) "
+                     "\u2014 the max-throughput config; higher = better; prefill TTFT annotated.")
+        for st in hp["stages"]:
+            rows.append((st["label"], _num(st.get("decode_tok_s")), _num(st.get("prefill_s"))))
+    else:
+        axis_label = "decode tok/s (B=1, 43L)"
+        northstar = (f"North-Star: full-depth (43L) single-stream decode tok/s (B={op.get('batch_B',1)}, "
+                     f"S={op.get('input_S',1024)}) \u2014 higher = better; prefill TTFT annotated.")
+        steps = d.get("ledger", [])
+        for st in steps:
+            lbl = st.get("op") or "baseline"
+            lbl = {"baseline": "baseline", "indexer_logits": "+indexer\nlogits", "indexer_topk": "+indexer\ntop-k",
+                   "compressor": "+compressor", "sparse_attend": "+sparse\nattend", "mhc_sinkhorn": "+MHC\nsinkhorn",
+                   "mhc_hash": "+MHC\nhash", "laneA_verify": "+LaneA\nverify", "system_overhead": "+system\noverhead"}.get(lbl, lbl)
+            rows.append((lbl, _num(st.get("decode_tok_s_full")), _num(st.get("prefill_s_full"))))
 
     W, H = 860, 460
     L, R, T, B = 70, 30, 74, 70
@@ -55,17 +64,16 @@ def main():
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}">',
          f'<rect x="0" y="0" width="{W}" height="{H}" fill="#ffffff"/>',
          _txt(16, 24, "DSv4-Flash CPU end-to-end wall time \u2014 progressive improvement", 15, "start", "#111", "bold"),
-         _txt(16, 42, f"North-Star: full-depth (43L) single-stream decode tok/s (B={op.get('batch_B',1)}, "
-                      f"S={op.get('input_S',1024)}) \u2014 higher = better; prefill TTFT annotated.", 10, "start", "#666"),
-         _txt(16, 57, "Solid = measured & integrated (fingerprint-gated). Dashed = pending Phase-2 integration. "
-                      "Baseline = torch-ref DSA, no opt kernels; dummy-weight two-depth extrapolation.", 10, "start", "#999")]
+         _txt(16, 42, northstar, 10, "start", "#666"),
+         _txt(16, 57, "Solid = measured (fingerprint-gated). Dashed = pending (D2/D3: port torch decode ops, MoE "
+                      "thread-cap). Baseline = torch-ref DSA, dummy-weight two-depth extrapolation.", 10, "start", "#999")]
     # y gridlines
     for g in range(0, 6):
         yv = ymax * g / 5
         y = T + ph - ph * (yv / ymax)
         s.append(f'<line x1="{L}" y1="{y:.1f}" x2="{L+pw}" y2="{y:.1f}" stroke="#eee"/>')
         s.append(_txt(L - 8, y + 4, f"{yv:.2f}", 10, "end", "#666"))
-    s.append(_txt(18, T + ph / 2, "decode tok/s (B=1, 43L)", 11, "middle", "#444")
+    s.append(_txt(18, T + ph / 2, axis_label, 11, "middle", "#444")
              .replace('text-anchor="middle"', f'text-anchor="middle" transform="rotate(-90 18 {T+ph/2:.0f})"'))
     n = len(rows)
     gw = pw / max(n, 1)

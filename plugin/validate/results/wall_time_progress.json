@@ -1,71 +1,372 @@
 {
-  "_schema": "DSv4-Flash progressive wall-time ledger. Perf runs use DUMMY weights + a DEPTH-REDUCED proxy (every DSv4 layer is the identical MoE+MLA+DSA archetype, so wall time is linear in depth). Each iteration records BOTH (a) measured proxy-4 wall time and (b) full-depth wall time derived ANALYTICALLY by depth-scaling. After all ops are integrated, ONE full-depth dummy run validates the analytical prediction. Each op is integrated only after a cosine-fingerprint gate passes. PENDING = not yet measured.",
-  "platform": "emr",
-  "roofline_basis": "machine_peak (BW 358.4 GB/s, AMX 124.6 TF@1.9GHz, ridge 348)",
-  "operating_point": {
-    "_decision": "user-confirmed Phase-2 KPI = target C (BOTH): headline the throughput point, carry the single-stream latency floor. M is the DECODE BATCH, not a free dial.",
-    "input_len_S": 1024,
-    "output_len_G": 256,
-    "headline": {"batch_B": 32, "metric": "aggregate decode tok/s = B*1000/decode_ms_per_step", "regime": "throughput serving (decode M=B, off the M=1 cliff)"},
-    "latency_floor": {"batch_B": 1, "metric": "single-stream tok/s = 1000/decode_ms_per_step; per_token_latency_ms = decode_ms_per_step", "regime": "low-latency single stream (decode M=1)"},
-    "report": "headline tok/s at (S=1024,B=32,G=256) AND the prefill/decode split of the SAME run; batch sweep {1,8,16,32,64} covers floor+headline+sweet-spot; G enters only analytically (per-step decode x G).",
-    "node_rule": "TARGET AMX host (EMR) only; proxy4+proxy8 on the SAME node+config so t_layer=(t8-t4)/4 is valid."
+ "_schema": "DSv4-Flash progressive wall-time ledger. Perf runs use DUMMY weights + a DEPTH-REDUCED proxy (every DSv4 layer is the identical MoE+MLA+DSA archetype, so wall time is linear in depth). Each iteration records BOTH (a) measured proxy-4 wall time and (b) full-depth wall time derived ANALYTICALLY by depth-scaling. After all ops are integrated, ONE full-depth dummy run validates the analytical prediction. Each op is integrated only after a cosine-fingerprint gate passes. PENDING = not yet measured.",
+ "platform": "emr",
+ "roofline_basis": "machine_peak (BW 358.4 GB/s, AMX 124.6 TF@1.9GHz, ridge 348)",
+ "operating_point": {
+  "_decision": "user-confirmed Phase-2 KPI = target C (BOTH): headline the throughput point, carry the single-stream latency floor. M is the DECODE BATCH, not a free dial.",
+  "input_len_S": 1024,
+  "output_len_G": 256,
+  "headline": {
+   "batch_B": 32,
+   "metric": "aggregate decode tok/s = B*1000/decode_ms_per_step",
+   "regime": "throughput serving (decode M=B, off the M=1 cliff)"
   },
-  "scaling": {
-    "proxy_layers": 4,
-    "proxy_layers_calibration": [4, 8],
-    "full_layers": 43,
-    "model": {"proxy4": "flash-v4.1-proxy4", "proxy8": "flash-v4.1-proxy8", "full": "flash-v4.1-dummy"},
-    "method": "Linear depth model t(L) = t_fixed + L * t_layer. Calibrate t_fixed (non-layer: embed + lm_head + framework/sampling) and baseline t_layer ONCE from proxy4 + proxy8 at step 0: t_layer = (t8 - t4)/4, t_fixed = t4 - 4*t_layer. Per iteration measure proxy4 only; t_layer(iter) = (t_proxy4(iter) - t_fixed)/4; predicted full = t_fixed + 43 * t_layer(iter). t_fixed is config-invariant unless a NON-layer op (e.g. lm_head) is optimized -> recalibrate.",
-    "baseline_calibration_job": "385387 (BATCHES=1, proxy4+proxy8, dummy wts, M=1)",
-    "decode_calibration": {"t_fixed_ms": 90.16, "t_layer_ms": 27.04, "proxy4_ms_step": 198.327, "proxy8_ms_step": 306.490, "full43_ms_step": 1252.9, "full43_tok_s": 0.798},
-    "prefill_calibration": {"t_fixed_ms": 1007.17, "t_layer_ms": 1552.24, "proxy4_ms": 7216.137, "proxy8_ms": 13425.104, "full43_s": 67.75},
-    "t_fixed_ms": {"M1": 90.16, "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"},
-    "t_layer_ms_baseline": {"M1": 27.04, "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}
+  "latency_floor": {
+   "batch_B": 1,
+   "metric": "single-stream tok/s = 1000/decode_ms_per_step; per_token_latency_ms = decode_ms_per_step",
+   "regime": "low-latency single stream (decode M=1)"
   },
-  "timing_recipe": {
-    "weights": "DETERMINISTIC_DUMMY=1 (in-memory; NO real/full weight load)",
-    "input": "sglang bench_one_batch random DISTINCT token ids -> decorrelated per-token -> MoE routing disperses (avoids broadcast mode-collapse); verify in-engine with plugin/validate/moe_balanced_input policy",
-    "bind": "one socket = one NUMA domain, OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores, bound ONCE at init",
-    "measure": "bench_wall_time.py: prefill_ms + steady-state decode_ms/step (step 0 cold excluded); DSA ENABLED; S(in)=1024, out=8 (per-step decode; G=256 applied analytically); >=3 runs median. Report BOTH prefill and decode per batch.",
-    "M_points": [1, 8, 16, 32, 64],
-    "M_priority": "headline B=32 + latency-floor B=1 MANDATORY; 8/16/64 for the sweet-spot curve"
-  },
-  "integration_gate": {
-    "metric": "per-layer + per-op cosine fingerprint vs reference (torch eager / GPU oracle) on the SAME dummy weights",
-    "threshold": "cos >= 0.9999; set-match for top-k ops",
-    "rule": "integrate one op at a time; re-run proxy only after the op's fingerprint gate passes"
-  },
-  "ledger": [
-    {
-      "step": 0,
-      "label": "baseline (unoptimized plugin, all ops torch/donor as-is)",
-      "op": null,
-      "integrated": false,
-      "cosine_gate": "n/a",
-      "decode_ms_step_full": 1252.9,
-      "decode_tok_s_full": 0.798,
-      "prefill_s_full": 67.75,
-      "wall_ms_proxy4": {"M1": 198.327, "M8": "OOM", "M16": "OOM", "M32": "OOM", "M64": "OOM"},
-      "wall_ms_full_scaled": {"M1": 1252.9, "M8": "OOM", "M16": "OOM", "M32": "OOM", "M64": "OOM"},
-      "speedup_proxy4_vs_baseline": 1.0,
-      "speedup_full_vs_baseline": 1.0,
-      "note": "Reference wall time + depth calibration (job 385387, proxy4+proxy8 M=1). wall_ms = DECODE ms/step. M>=8 OOM/watchdog-kills on the torch-reference materialized-attention baseline (O(S^2)); the optimized DSA kernels remove that path. decode 1252.9 ms/step = 0.798 tok/s single-stream; prefill 67.75 s TTFT (S=1024)."
-    },
-    {"step": 1, "label": "op#1 DSA indexer logits", "op": "indexer_logits", "commit": "e3fdcb9", "standalone": "DONE (BW-bound; off machine-peak 5.9/7.7/13.2x @64/32/16)", "integrated": false, "cosine_gate": "PENDING", "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING"},
-    {"step": 2, "label": "op#2 DSA indexer top-k (512)", "op": "indexer_topk", "commit": "06faec0", "standalone": "DONE (N=8 fallback decision open)", "integrated": false, "cosine_gate": "PENDING", "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING"},
-    {"step": 3, "label": "op#3 DSA compressor (softmax-pool)", "op": "compressor", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING"},
-    {"step": 4, "label": "op#4 DSA sparse attend (top-512 KV)", "op": "sparse_attend", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING"},
-    {"step": 5, "label": "op#5 MHC sinkhorn (20 iters)", "op": "mhc_sinkhorn", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING"},
-    {"step": 6, "label": "op#6 MHC hash (3 layers)", "op": "mhc_hash", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING"},
-    {"step": 7, "label": "op#7 Lane-A ceiling verification (MLA proj / MoE experts / attn / lm_head)", "op": "laneA_verify", "standalone": "TODO", "integrated": false, "cosine_gate": "PENDING", "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING"},
-    {"step": 8, "label": "Phase B: framework / dispatch / OpenMP overhead reduction (ALL ops integrated)", "op": "system_overhead", "phase": "B", "standalone": "n/a", "integrated": true, "cosine_gate": "bit-exact / cos>=0.9999 (overhead fixes must NOT change tokens)", "levers": ["bind threads ONCE at init (never per-forward set_num_threads -> avoids OMP pool rebuild + affinity loss)", "collapse many tiny torch ops into fewer/bigger parallel regions (cut per-op barrier/dispatch count)", "OMP spin-wait (OMP_WAIT_POLICY), allocator (tcmalloc/jemalloc), NUMA first-touch, thread-cap", "remove dtype-cast / dispatch churn on the hot path"], "wall_ms_proxy4": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "wall_ms_full_scaled": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"}, "speedup_proxy4_vs_baseline": "PENDING", "speedup_full_vs_baseline": "PENDING", "surface_before_full_run": true, "note": "Measured on the fully-integrated proxy AFTER all ops are at roofline. t_fixed (framework/dispatch) and per-layer OMP/dispatch overhead are BOTH attacked here; proxy exposes them at 1/10 depth cost. Show the wall-time improvement, SURFACE it, THEN launch the single full-depth run."}
+  "report": "headline tok/s at (S=1024,B=32,G=256) AND the prefill/decode split of the SAME run; batch sweep {1,8,16,32,64} covers floor+headline+sweet-spot; G enters only analytically (per-step decode x G).",
+  "node_rule": "TARGET AMX host (EMR) only; proxy4+proxy8 on the SAME node+config so t_layer=(t8-t4)/4 is valid."
+ },
+ "scaling": {
+  "proxy_layers": 4,
+  "proxy_layers_calibration": [
+   4,
+   8
   ],
-  "full_depth_validation": {
-    "when": "after all ops integrated (one-off full-depth dummy run, flash-v4.1-dummy, 43 layers)",
-    "measured_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"},
-    "predicted_ms": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"},
-    "error_pct": {"M1": "PENDING", "M8": "PENDING", "M16": "PENDING", "M32": "PENDING", "M64": "PENDING"},
-    "note": "Validates the depth-scaling model end to end: measured full-depth vs analytically predicted from proxy4."
+  "full_layers": 43,
+  "model": {
+   "proxy4": "flash-v4.1-proxy4",
+   "proxy8": "flash-v4.1-proxy8",
+   "full": "flash-v4.1-dummy"
+  },
+  "method": "Linear depth model t(L) = t_fixed + L * t_layer. Calibrate t_fixed (non-layer: embed + lm_head + framework/sampling) and baseline t_layer ONCE from proxy4 + proxy8 at step 0: t_layer = (t8 - t4)/4, t_fixed = t4 - 4*t_layer. Per iteration measure proxy4 only; t_layer(iter) = (t_proxy4(iter) - t_fixed)/4; predicted full = t_fixed + 43 * t_layer(iter). t_fixed is config-invariant unless a NON-layer op (e.g. lm_head) is optimized -> recalibrate.",
+  "baseline_calibration_job": "385387 (BATCHES=1, proxy4+proxy8, dummy wts, M=1)",
+  "decode_calibration": {
+   "t_fixed_ms": 90.16,
+   "t_layer_ms": 27.04,
+   "proxy4_ms_step": 198.327,
+   "proxy8_ms_step": 306.49,
+   "full43_ms_step": 1252.9,
+   "full43_tok_s": 0.798
+  },
+  "prefill_calibration": {
+   "t_fixed_ms": 1007.17,
+   "t_layer_ms": 1552.24,
+   "proxy4_ms": 7216.137,
+   "proxy8_ms": 13425.104,
+   "full43_s": 67.75
+  },
+  "t_fixed_ms": {
+   "M1": 90.16,
+   "M8": "PENDING",
+   "M16": "PENDING",
+   "M32": "PENDING",
+   "M64": "PENDING"
+  },
+  "t_layer_ms_baseline": {
+   "M1": 27.04,
+   "M8": "PENDING",
+   "M16": "PENDING",
+   "M32": "PENDING",
+   "M64": "PENDING"
   }
+ },
+ "timing_recipe": {
+  "weights": "DETERMINISTIC_DUMMY=1 (in-memory; NO real/full weight load)",
+  "input": "sglang bench_one_batch random DISTINCT token ids -> decorrelated per-token -> MoE routing disperses (avoids broadcast mode-collapse); verify in-engine with plugin/validate/moe_balanced_input policy",
+  "bind": "one socket = one NUMA domain, OMP_NUM_THREADS=64 OMP_PROC_BIND=close OMP_PLACES=cores, bound ONCE at init",
+  "measure": "bench_wall_time.py: prefill_ms + steady-state decode_ms/step (step 0 cold excluded); DSA ENABLED; S(in)=1024, out=8 (per-step decode; G=256 applied analytically); >=3 runs median. Report BOTH prefill and decode per batch.",
+  "M_points": [
+   1,
+   8,
+   16,
+   32,
+   64
+  ],
+  "M_priority": "headline B=32 + latency-floor B=1 MANDATORY; 8/16/64 for the sweet-spot curve"
+ },
+ "integration_gate": {
+  "metric": "per-layer + per-op cosine fingerprint vs reference (torch eager / GPU oracle) on the SAME dummy weights",
+  "threshold": "cos >= 0.9999; set-match for top-k ops",
+  "rule": "integrate one op at a time; re-run proxy only after the op's fingerprint gate passes"
+ },
+ "ledger": [
+  {
+   "step": 0,
+   "label": "baseline (unoptimized plugin, all ops torch/donor as-is)",
+   "op": null,
+   "integrated": false,
+   "cosine_gate": "n/a",
+   "decode_ms_step_full": 1252.9,
+   "decode_tok_s_full": 0.798,
+   "prefill_s_full": 67.75,
+   "wall_ms_proxy4": {
+    "M1": 198.327,
+    "M8": "OOM",
+    "M16": "OOM",
+    "M32": "OOM",
+    "M64": "OOM"
+   },
+   "wall_ms_full_scaled": {
+    "M1": 1252.9,
+    "M8": "OOM",
+    "M16": "OOM",
+    "M32": "OOM",
+    "M64": "OOM"
+   },
+   "speedup_proxy4_vs_baseline": 1.0,
+   "speedup_full_vs_baseline": 1.0,
+   "note": "Reference wall time + depth calibration (job 385387, proxy4+proxy8 M=1). wall_ms = DECODE ms/step. M>=8 OOM/watchdog-kills on the torch-reference materialized-attention baseline (O(S^2)); the optimized DSA kernels remove that path. decode 1252.9 ms/step = 0.798 tok/s single-stream; prefill 67.75 s TTFT (S=1024)."
+  },
+  {
+   "step": 1,
+   "label": "op#1 DSA indexer logits",
+   "op": "indexer_logits",
+   "commit": "e3fdcb9",
+   "standalone": "DONE (BW-bound; off machine-peak 5.9/7.7/13.2x @64/32/16)",
+   "integrated": false,
+   "cosine_gate": "PENDING",
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING"
+  },
+  {
+   "step": 2,
+   "label": "op#2 DSA indexer top-k (512)",
+   "op": "indexer_topk",
+   "commit": "06faec0",
+   "standalone": "DONE (N=8 fallback decision open)",
+   "integrated": false,
+   "cosine_gate": "PENDING",
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING"
+  },
+  {
+   "step": 3,
+   "label": "op#3 DSA compressor (softmax-pool)",
+   "op": "compressor",
+   "standalone": "TODO",
+   "integrated": false,
+   "cosine_gate": "PENDING",
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING"
+  },
+  {
+   "step": 4,
+   "label": "op#4 DSA sparse attend (top-512 KV)",
+   "op": "sparse_attend",
+   "standalone": "TODO",
+   "integrated": false,
+   "cosine_gate": "PENDING",
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING"
+  },
+  {
+   "step": 5,
+   "label": "op#5 MHC sinkhorn (20 iters)",
+   "op": "mhc_sinkhorn",
+   "standalone": "TODO",
+   "integrated": false,
+   "cosine_gate": "PENDING",
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING"
+  },
+  {
+   "step": 6,
+   "label": "op#6 MHC hash (3 layers)",
+   "op": "mhc_hash",
+   "standalone": "TODO",
+   "integrated": false,
+   "cosine_gate": "PENDING",
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING"
+  },
+  {
+   "step": 7,
+   "label": "op#7 Lane-A ceiling verification (MLA proj / MoE experts / attn / lm_head)",
+   "op": "laneA_verify",
+   "standalone": "TODO",
+   "integrated": false,
+   "cosine_gate": "PENDING",
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING"
+  },
+  {
+   "step": 8,
+   "label": "Phase B: framework / dispatch / OpenMP overhead reduction (ALL ops integrated)",
+   "op": "system_overhead",
+   "phase": "B",
+   "standalone": "n/a",
+   "integrated": true,
+   "cosine_gate": "bit-exact / cos>=0.9999 (overhead fixes must NOT change tokens)",
+   "levers": [
+    "bind threads ONCE at init (never per-forward set_num_threads -> avoids OMP pool rebuild + affinity loss)",
+    "collapse many tiny torch ops into fewer/bigger parallel regions (cut per-op barrier/dispatch count)",
+    "OMP spin-wait (OMP_WAIT_POLICY), allocator (tcmalloc/jemalloc), NUMA first-touch, thread-cap",
+    "remove dtype-cast / dispatch churn on the hot path"
+   ],
+   "wall_ms_proxy4": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "wall_ms_full_scaled": {
+    "M1": "PENDING",
+    "M8": "PENDING",
+    "M16": "PENDING",
+    "M32": "PENDING",
+    "M64": "PENDING"
+   },
+   "speedup_proxy4_vs_baseline": "PENDING",
+   "speedup_full_vs_baseline": "PENDING",
+   "surface_before_full_run": true,
+   "note": "Measured on the fully-integrated proxy AFTER all ops are at roofline. t_fixed (framework/dispatch) and per-layer OMP/dispatch overhead are BOTH attacked here; proxy exposes them at 1/10 depth cost. Show the wall-time improvement, SURFACE it, THEN launch the single full-depth run."
+  }
+ ],
+ "full_depth_validation": {
+  "when": "after all ops integrated (one-off full-depth dummy run, flash-v4.1-dummy, 43 layers)",
+  "measured_ms": {
+   "M1": "PENDING",
+   "M8": "PENDING",
+   "M16": "PENDING",
+   "M32": "PENDING",
+   "M64": "PENDING"
+  },
+  "predicted_ms": {
+   "M1": "PENDING",
+   "M8": "PENDING",
+   "M16": "PENDING",
+   "M32": "PENDING",
+   "M64": "PENDING"
+  },
+  "error_pct": {
+   "M1": "PENDING",
+   "M8": "PENDING",
+   "M16": "PENDING",
+   "M32": "PENDING",
+   "M64": "PENDING"
+  },
+  "note": "Validates the depth-scaling model end to end: measured full-depth vs analytically predicted from proxy4."
+ },
+ "headline_progression": {
+  "_note": "Max-throughput North-Star: 43L B=32 decode tok/s, FULL-NODE (all 3 SNC NUMA domains / 128c). Derived by two-depth extrapolation (job 390445: 4L=91.2, 8L=48.2 -> 9.40 tok/s). C-kernels held-fixed-neutral at decode (job 390418). D2/D3 pending per the job-390418 attribution (port torch DSA/MHC decode ops + MoE thread-cap).",
+  "axis": "decode tok/s (B=32, 43L, full-node)",
+  "stages": [
+   {
+    "label": "baseline",
+    "decode_tok_s": 9.4,
+    "prefill_s": 67.75,
+    "status": "measured"
+   },
+   {
+    "label": "+DSA/MHC\nC-kernels",
+    "decode_tok_s": 9.4,
+    "prefill_s": 59.4,
+    "status": "measured"
+   },
+   {
+    "label": "+port torch\ndecode ops",
+    "decode_tok_s": null,
+    "prefill_s": null,
+    "status": "pending"
+   },
+   {
+    "label": "+MoE\nthread-cap",
+    "decode_tok_s": null,
+    "prefill_s": null,
+    "status": "pending"
+   }
+  ]
+ }
 }

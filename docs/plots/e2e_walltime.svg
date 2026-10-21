@@ -1,55 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 460" width="860" height="460">
 <rect x="0" y="0" width="860" height="460" fill="#ffffff"/>
 <text x="16.0" y="24.0" font-family="monospace" font-size="15" fill="#111" text-anchor="start" font-weight="bold">DSv4-Flash CPU end-to-end wall time — progressive improvement</text>
-<text x="16.0" y="42.0" font-family="monospace" font-size="10" fill="#666" text-anchor="start" font-weight="normal">North-Star: full-depth (43L) single-stream decode tok/s (B=1, S=1024) — higher = better; prefill TTFT annotated.</text>
-<text x="16.0" y="57.0" font-family="monospace" font-size="10" fill="#999" text-anchor="start" font-weight="normal">Solid = measured &amp; integrated (fingerprint-gated). Dashed = pending Phase-2 integration. Baseline = torch-ref DSA, no opt kernels; dummy-weight two-depth extrapolation.</text>
+<text x="16.0" y="42.0" font-family="monospace" font-size="10" fill="#666" text-anchor="start" font-weight="normal">North-Star: full-depth (43L) B=32 decode tok/s at FULL-NODE (all 3 SNC NUMA domains / 128c) — the max-throughput config; higher = better; prefill TTFT annotated.</text>
+<text x="16.0" y="57.0" font-family="monospace" font-size="10" fill="#999" text-anchor="start" font-weight="normal">Solid = measured (fingerprint-gated). Dashed = pending (D2/D3: port torch decode ops, MoE thread-cap). Baseline = torch-ref DSA, dummy-weight two-depth extrapolation.</text>
 <line x1="70" y1="390.0" x2="830" y2="390.0" stroke="#eee"/>
 <text x="62.0" y="394.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">0.00</text>
 <line x1="70" y1="326.8" x2="830" y2="326.8" stroke="#eee"/>
-<text x="62.0" y="330.8" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">0.36</text>
+<text x="62.0" y="330.8" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">3.38</text>
 <line x1="70" y1="263.6" x2="830" y2="263.6" stroke="#eee"/>
-<text x="62.0" y="267.6" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">0.72</text>
+<text x="62.0" y="267.6" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">6.77</text>
 <line x1="70" y1="200.4" x2="830" y2="200.4" stroke="#eee"/>
-<text x="62.0" y="204.4" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">1.08</text>
+<text x="62.0" y="204.4" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">10.15</text>
 <line x1="70" y1="137.2" x2="830" y2="137.2" stroke="#eee"/>
-<text x="62.0" y="141.2" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">1.44</text>
+<text x="62.0" y="141.2" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">13.54</text>
 <line x1="70" y1="74.0" x2="830" y2="74.0" stroke="#eee"/>
-<text x="62.0" y="78.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">1.80</text>
-<text x="18.0" y="232.0" font-family="monospace" font-size="11" fill="#444" text-anchor="middle" transform="rotate(-90 18 232)" font-weight="normal">decode tok/s (B=1, 43L)</text>
-<rect x="86.9" y="249.9" width="50.7" height="140.1" fill="#1f77b4"/>
-<text x="112.2" y="235.9" font-family="monospace" font-size="11" fill="#111" text-anchor="middle" font-weight="bold">0.80</text>
-<text x="112.2" y="246.9" font-family="monospace" font-size="8" fill="#1f77b4" text-anchor="middle" font-weight="normal">tok/s</text>
-<text x="112.2" y="384.0" font-family="monospace" font-size="8" fill="#fff" text-anchor="middle" font-weight="normal">TTFT 68s</text>
-<text x="112.2" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="bold">baseline</text>
-<rect x="171.3" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="196.7" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="196.7" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+indexer</text>
-<text x="196.7" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">logits</text>
-<rect x="255.8" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="281.1" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="281.1" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+indexer</text>
-<text x="281.1" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">top-k</text>
-<rect x="340.2" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="365.6" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="365.6" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+compressor</text>
-<rect x="424.7" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="450.0" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="450.0" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+sparse</text>
-<text x="450.0" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">attend</text>
-<rect x="509.1" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="534.4" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="534.4" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+MHC</text>
-<text x="534.4" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">sinkhorn</text>
-<rect x="593.6" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="618.9" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="618.9" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+MHC</text>
-<text x="618.9" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">hash</text>
-<rect x="678.0" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="703.3" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="703.3" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+LaneA</text>
-<text x="703.3" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">verify</text>
-<rect x="762.4" y="326.8" width="50.7" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
-<text x="787.8" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
-<text x="787.8" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+system</text>
-<text x="787.8" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">overhead</text>
+<text x="62.0" y="78.0" font-family="monospace" font-size="10" fill="#666" text-anchor="end" font-weight="normal">16.92</text>
+<text x="18.0" y="232.0" font-family="monospace" font-size="11" fill="#444" text-anchor="middle" transform="rotate(-90 18 232)" font-weight="normal">decode tok/s (B=32, 43L, full-node)</text>
+<rect x="108.0" y="214.4" width="114.0" height="175.6" fill="#1f77b4"/>
+<text x="165.0" y="200.4" font-family="monospace" font-size="11" fill="#111" text-anchor="middle" font-weight="bold">9.40</text>
+<text x="165.0" y="211.4" font-family="monospace" font-size="8" fill="#1f77b4" text-anchor="middle" font-weight="normal">tok/s</text>
+<text x="165.0" y="384.0" font-family="monospace" font-size="8" fill="#fff" text-anchor="middle" font-weight="normal">TTFT 68s</text>
+<text x="165.0" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="bold">baseline</text>
+<rect x="298.0" y="214.4" width="114.0" height="175.6" fill="#1f77b4"/>
+<text x="355.0" y="200.4" font-family="monospace" font-size="11" fill="#111" text-anchor="middle" font-weight="bold">9.40</text>
+<text x="355.0" y="211.4" font-family="monospace" font-size="8" fill="#1f77b4" text-anchor="middle" font-weight="normal">tok/s</text>
+<text x="355.0" y="384.0" font-family="monospace" font-size="8" fill="#fff" text-anchor="middle" font-weight="normal">TTFT 59s</text>
+<text x="355.0" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+DSA/MHC</text>
+<text x="355.0" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">C-kernels</text>
+<rect x="488.0" y="326.8" width="114.0" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
+<text x="545.0" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
+<text x="545.0" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+port torch</text>
+<text x="545.0" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">decode ops</text>
+<rect x="678.0" y="326.8" width="114.0" height="63.2" fill="#f5f5f5" stroke="#bbb" stroke-dasharray="4,3"/>
+<text x="735.0" y="322.8" font-family="monospace" font-size="9" fill="#bbb" text-anchor="middle" font-weight="normal">pending</text>
+<text x="735.0" y="406.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">+MoE</text>
+<text x="735.0" y="417.0" font-family="monospace" font-size="9" fill="#444" text-anchor="middle" font-weight="normal">thread-cap</text>
 </svg>

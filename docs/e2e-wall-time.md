@@ -32,7 +32,7 @@ it stands today:
 
 The full segregated ledger (prefill vs decode, stage-by-stage) is below.
 
-![DSv4-Flash CPU end-to-end wall time — progressive improvement](plots/e2e_walltime_v2.png)
+![DSv4-Flash CPU end-to-end wall time — progressive improvement](plots/e2e_walltime_v3.png)
 
 Solid bar = measured & integrated (fingerprint-gated); dashed = pending Phase-2 integration.
 
