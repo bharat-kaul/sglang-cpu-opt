@@ -1,0 +1,27 @@
+name: doc-images
+
+# Keeps every chart/image referenced in docs/ RENDERABLE on GitHub: fails if a markdown image
+# points at a missing file, an SVG (GitHub blanks inline <img> SVGs), a git-LFS pointer, a 0-byte
+# stub, or a non-raster — and if a chart's bytes changed without a versioned-filename bump (which
+# would leave GitHub's camo proxy serving the STALE image). See plugin/validate/check_doc_images.py.
+
+on:
+  push:
+    paths:
+      - "docs/**"
+      - "plugin/validate/check_doc_images.py"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "plugin/validate/check_doc_images.py"
+
+jobs:
+  check-doc-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate doc image references (exist + raster + no stale-cache)
+        run: python plugin/validate/check_doc_images.py

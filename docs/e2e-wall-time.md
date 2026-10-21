@@ -7,7 +7,7 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Decode (TPOT) — prioritized work item: progression vs roofline
 
-![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v4.png)
+![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v6.png)
 
 **Living chart** — perf-proxy (4-layer dummy) **B=32 decode tok/s** as each authored kernel integrates (one at a
 time) then the end-to-end optimizations land, scored against the **decode BW roofline** (decode is
@@ -30,7 +30,7 @@ weight-streaming bound). Where it stands today:
 
 The full segregated ledger (prefill vs decode, stage-by-stage) is below.
 
-![DSv4-Flash CPU end-to-end wall time — progressive improvement](plots/e2e_walltime_v1.png)
+![DSv4-Flash CPU end-to-end wall time — progressive improvement](plots/e2e_walltime_v2.png)
 
 Solid bar = measured & integrated (fingerprint-gated); dashed = pending Phase-2 integration.
 

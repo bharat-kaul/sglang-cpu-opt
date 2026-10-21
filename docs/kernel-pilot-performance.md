@@ -24,7 +24,7 @@ regenerate plots with [make_kernel_pilot_plots.py](../plugin/validate/make_kerne
 
 ## 1. Per-kernel at the operating point (M=32, S=1024, streaming): roofline vs baseline vs C/C++
 
-![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v5.png)
+![Per-kernel roofline vs baseline vs C/C++ at M=32 (streaming)](plots/operating_point_v6.png)
 
 | kernel | implementation | baseline (torch) µs | C/C++ µs | **speedup** | roofline floor µs | % of roofline |
 |---|---|---:|---:|---:|---:|---:|
@@ -53,7 +53,7 @@ cross-kernel byte/FLOP contract.
 
 ## 2. % of nominal roofline across the M-sweep (1→64): arithmetic intensity (streaming)
 
-![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v5.png)
+![% of nominal roofline vs M (streaming)](plots/roofline_msweep_v6.png)
 
 | kernel | M=1 | M=2 | M=4 | M=8 | M=16 | M=32 | M=64 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -520,7 +520,7 @@ and the hc-fold redundant y traffic.
 
 ## 4. Re-optimization wave — streaming journeys for every kernel
 
-![Optimization journey per kernel — baseline → successive levers → roofline ceiling](plots/kernel_journeys_v2.png)
+![Optimization journey per kernel — baseline → successive levers → roofline ceiling](plots/kernel_journeys_v3.png)
 
 Every authored kernel's **optimization journey** against its **roofline ceiling** — the latency after each named
 lever (torch baseline → shipped, M=32 streaming), with each kernel's bars descending toward its **operative-floor
@@ -534,7 +534,7 @@ adaptive tile, sinkhorn's low-batch serial dispatch, the ISA crossover — the n
 **across the full M=1…64 sweep**, so the speed-up (gap between baseline and shipped) is shown *holding* (or not)
 with batch:
 
-![Optimization journey across the M sweep — how the speed-up holds vs batch](plots/kernel_journeys_msweep_v1.png)
+![Optimization journey across the M sweep — how the speed-up holds vs batch](plots/kernel_journeys_msweep_v2.png)
 
 Baseline (torch) vs shipped kernel across **M=1…64**, streaming, 3-replicate median, with the **nominal roofline
 floor** overlaid where that is the right ceiling. The gap between the red and teal lines is the speed-up, and it

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Local fast guard: block a commit that would break a doc chart's GitHub rendering.
+# Enable once per clone:  git config core.hooksPath .githooks
+exec python plugin/validate/check_doc_images.py

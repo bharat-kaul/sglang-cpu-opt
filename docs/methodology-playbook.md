@@ -18,7 +18,7 @@ The method is **not** a monolith. A thin **spine** (two orchestrators) *routes* 
 **leaf** skills, loading each only when its trigger condition is met and gating every step against the
 measured roofline. The spine decides *which* technique and *in what order*; the leaves *do* the work.
 
-![Spine-leaf structure: two orchestrators route a target through leaf skills, each roofline-gated](spine-leaf-slide.png)
+![Spine-leaf structure: two orchestrators route a target through leaf skills, each roofline-gated](spine-leaf-slide_v2.png)
 
 <details><summary>Same structure as a Mermaid source graph</summary>
 
@@ -307,6 +307,19 @@ filename) with their embedding + caption updated, **(c) the gap ledger / opportu
 **(d) commit + push**. "Done" is not "the code or number changed"; "done" is "the published artifacts reflect it
 and are pushed." Charts are **generated-from-data** (edit the JSON / re-run the bench, re-run the generator) —
 never hand-edited pixels. No separate prompt is required to publish.
+
+> **Chart-RENDER invariant (so an updated chart actually shows on GitHub, every time).** GitHub proxies repo
+> images through the `camo` cache **keyed on the file URL**, so a chart whose *bytes* change under the *same
+> filename* keeps rendering the **stale** image. Therefore every content change to a chart **must bump its
+> versioned filename** (`foo_v4.png → foo_v5.png`) and update every markdown reference — a new URL forces a
+> fresh fetch. This is mechanized, not manual:
+> - `python plugin/validate/bump_chart.py docs/plots/<chart>.png` (or `--all`) renames to the next `_vN`,
+>   rewrites all `docs/**/*.md` references, and refreshes the render-guard manifest.
+> - `python plugin/validate/check_doc_images.py` is the **gate**: it fails if any doc image is missing, is an
+>   **SVG** (GitHub blanks inline `<img>` SVGs — always rasterize to PNG), is a git-LFS pointer / 0-byte stub /
+>   non-raster, **or** if a referenced chart's bytes changed without a filename bump (the stale-camo trap). It
+>   runs locally via the `.githooks/pre-commit` hook (`git config core.hooksPath .githooks`) and in CI
+>   (`.github/workflows/doc-images.yml`) on every `docs/**` change. Never reference a `.svg` from a docs page.
 
 
 ---
