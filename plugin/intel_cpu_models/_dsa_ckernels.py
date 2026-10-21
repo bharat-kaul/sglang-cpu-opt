@@ -61,6 +61,61 @@ def _check() -> bool:
     return os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL_CHECK", "0") == "1"
 
 
+# --- Dispatch-provenance registry (playbook gate H) -------------------------------------------
+# Records, per hot op, which implementation ACTUALLY RAN: 'c_kernel' (authored C/C++ via this
+# module) vs 'eager' (a Python/eager-torch reimplementation in the serving forward). The gate
+# (prov_gate) asserts the serving path dispatches to the C kernel and NO eager op remains in the
+# hot chain — the check that catches an authored-but-bypassed kernel (the DSV4 D2 miss).
+_PROV: "dict[str, dict[str, int]]" = collections.defaultdict(lambda: {"c_kernel": 0, "eager": 0})
+
+
+def mark(op: str, impl: str) -> None:
+    """impl in {'c_kernel','eager'}. Call at the ACTUAL dispatch site of a hot op. Write-through to
+    INTEL_CPU_DSV4_PROV_OUT each call (the chain runs in a WORKER subprocess whose atexit may not
+    fire on kill — lesson D3; the dict is tiny and stabilizes after layer 0, so writes are idempotent)."""
+    _PROV[op][impl] = _PROV[op].get(impl, 0) + 1
+    out = os.environ.get("INTEL_CPU_DSV4_PROV_OUT")
+    if out:
+        try:
+            prov_dump(out)
+        except Exception:
+            pass
+
+
+def prov_snapshot() -> dict:
+    return {op: dict(d) for op, d in _PROV.items()}
+
+
+def prov_dump(path: str) -> None:
+    import json
+    with open(path, "w") as f:
+        json.dump(prov_snapshot(), f, indent=2)
+
+
+def prov_gate(hot_ops) -> "list[str]":
+    """Return the list of GAP messages: a hot op that ran eager (>0) or never dispatched to its
+    C kernel (c_kernel==0). Empty list = gate PASS."""
+    gaps = []
+    for op in hot_ops:
+        d = _PROV.get(op, {"c_kernel": 0, "eager": 0})
+        if d.get("eager", 0) > 0:
+            gaps.append(f"{op}: ran EAGER {d['eager']}x in the hot chain (wire it to the C kernel)")
+        if d.get("c_kernel", 0) == 0:
+            gaps.append(f"{op}: C kernel NEVER dispatched (authored-but-bypassed WIRING GAP)")
+    return gaps
+
+
+@atexit.register
+def _prov_dump_atexit():
+    out = os.environ.get("INTEL_CPU_DSV4_PROV_OUT")
+    if out and _PROV:
+        try:
+            prov_dump(out)
+        except Exception:
+            pass
+
+
+
 @functools.lru_cache(maxsize=None)
 def _mod(name: str, cpp: str):
     from torch.utils.cpp_extension import load
@@ -70,7 +125,13 @@ def _mod(name: str, cpp: str):
 def _cos(a: torch.Tensor, b: torch.Tensor) -> float:
     a = a.detach().to(torch.float32).flatten()
     b = b.detach().to(torch.float32).flatten()
-    return float(torch.dot(a, b) / (a.norm() * b.norm() + 1e-20))
+    na, nb = a.norm(), b.norm()
+    # Both (near-)zero vectors are a MATCH, not a mismatch — cos is undefined (0/0) there. The DSA
+    # indexer's relu can legitimately zero all logits on dummy-weight / all-negative-score inputs;
+    # without this guard the parity check false-fails on an otherwise-correct kernel.
+    if float(na) < 1e-12 and float(nb) < 1e-12:
+        return 1.0
+    return float(torch.dot(a, b) / (na * nb + 1e-20))
 
 
 def _parity(name: str, c_out: torch.Tensor, torch_fn) -> torch.Tensor:
@@ -83,11 +144,14 @@ def _parity(name: str, c_out: torch.Tensor, torch_fn) -> torch.Tensor:
 
 def indexer_logits(q, kv, weight, torch_fn):
     out = _mod("il", "indexer_logits.cpp").indexer_logits(q.contiguous(), kv.contiguous(), weight.contiguous())
+    mark("indexer", "c_kernel")  # after success — a failed brgemm raises before this
     return _parity("indexer_logits", out, torch_fn)
 
 
 def indexer_topk(logits, k, torch_fn):
     # top-k returns INDICES (int64) — parity is a per-row SET match (order-free), not cos
+    out = _mod("tk", "indexer_topk.cpp").indexer_topk(logits.contiguous(), int(k))
+    mark("topk", "c_kernel")
     out = _mod("tk", "indexer_topk.cpp").indexer_topk(logits.contiguous(), int(k))
     if _check():
         ref = torch_fn()
@@ -98,6 +162,7 @@ def indexer_topk(logits, k, torch_fn):
 
 
 def compress_softmax_pool(kv, score, ape, torch_fn):
+    mark("compressor", "c_kernel")
     if _dbg():
         t0 = time.perf_counter()
         out = _mod("cp", "compressor.cpp").compressor_softmax_pool_fp32intrin(
@@ -112,6 +177,7 @@ def compress_softmax_pool(kv, score, ape, torch_fn):
 
 
 def mhc_sinkhorn(mixes, hc_scale, hc_base, hc_mult, iters, eps, torch_fn):
+    mark("sinkhorn", "c_kernel")
     if _dbg():
         t0 = time.perf_counter()
         r = _mod("sk", "sinkhorn.cpp").mhc_sinkhorn(
@@ -131,6 +197,7 @@ def mhc_sinkhorn(mixes, hc_scale, hc_base, hc_mult, iters, eps, torch_fn):
 
 
 def mhc_combine(x_flat, pre, hc, out_dtype, torch_fn):
+    mark("combine", "c_kernel")
     out = _mod("cb", "combine.cpp").mhc_combine(
         x_flat.float().contiguous(), pre.float().contiguous(), int(hc)).to(out_dtype)
     return _parity("mhc_combine", out, torch_fn)

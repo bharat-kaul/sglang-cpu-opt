@@ -1656,6 +1656,11 @@ def _batched_mla_attend(
         _tacc("mla.b.cvt", _ts, "framework")
         _ts = time.perf_counter()
     scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, nk) * softmax_scale
+    try:
+        from . import _dsa_ckernels as _ck
+        _ck.mark("sparse_attend", "eager")
+    except Exception:  # noqa: BLE001
+        pass
     if _TIMEIT_ON:
         _tacc("mla.b.qk", _ts, "kernel")
         _ts = time.perf_counter()
@@ -3104,12 +3109,44 @@ def _cpu_forward_c4_indexer(self, x, q_lora, forward_batch, c4_indexer, *args, *
     key_start = torch.cat(key_start_list, 0)  # [S] window start position
 
     # (4) logits (relu, per-head weight, sum) + causal mask + top-k.
-    scores = torch.einsum("nhd,sd->nhs", q, ck)  # [N, nh, S]
-    logits = (torch.relu(scores) * w.unsqueeze(-1)).sum(dim=1)  # [N, S]
+    # FUSED C/C++ path (graph-loop analysis): indexer_logits.cpp fuses the einsum→relu→per-head-
+    # weight→sum into ONE kernel (scores never materialize to DRAM); indexer_topk.cpp fuses the
+    # selection. Gated by INTEL_CPU_DSV4_DSA_CKERNEL; the eager einsum/topk stays as the A/B oracle
+    # (DSA_CKERNEL_CHECK=1 asserts C==torch per call). The authored kernel's contract is per-query
+    # kv[N,S,D]; the serving's compressed KV `ck[S,D]` is SHARED across the N queries, so broadcast
+    # it (step-1a: correctness-first dispatch+parity; a shared-KV kernel variant is the step-1b perf
+    # follow-up that removes the broadcast).
+    _use_ck_idx = False
+    try:
+        from . import _dsa_ckernels as _ck
+        from . import dsa_indexer_cpu as _dix
+        _use_ck_idx = _ck.enabled("indexer")
+    except Exception:  # noqa: BLE001
+        _use_ck_idx = False
+    if _use_ck_idx:
+        try:
+            kv_bc = ck.unsqueeze(0).expand(q.shape[0], ck.shape[0], ck.shape[1]).contiguous()  # [N,S,chd]
+            logits = _dix.indexer_logits(q, kv_bc, w)  # fused relu*weight*sum (C); marks c_kernel
+        except Exception as _e:  # noqa: BLE001 — degenerate shapes (tiny S) -> eager oracle fallback
+            logger.warning("[DSA] indexer C kernel fell back to eager: %r", _e)
+            _use_ck_idx = False
+            _ck.mark("indexer", "eager")
+            scores = torch.einsum("nhd,sd->nhs", q, ck)
+            logits = (torch.relu(scores) * w.unsqueeze(-1)).sum(dim=1)
+    else:
+        if "_ck" in dir():
+            _ck.mark("indexer", "eager")
+        scores = torch.einsum("nhd,sd->nhs", q, ck)  # [N, nh, S]
+        logits = (torch.relu(scores) * w.unsqueeze(-1)).sum(dim=1)  # [N, S]
     causal = key_start.unsqueeze(0) <= positions.reshape(-1, 1)  # query sees only past windows
     logits = logits.masked_fill(~causal, float("-inf"))
     ktop = min(int(c4_indexer.index_topk), logits.shape[1])
-    topk = torch.topk(logits, ktop, dim=1).indices  # [N, ktop] compressed-block indices
+    if _use_ck_idx:
+        topk = _dix.indexer_topk(logits, ktop)  # fused top-k (C); marks c_kernel
+    else:
+        if "_ck" in dir():
+            _ck.mark("topk", "eager")
+        topk = torch.topk(logits, ktop, dim=1).indices  # [N, ktop] compressed-block indices
     _TOPK_STASH[c4_indexer.layer_id] = topk
     # Publish the per-query position-keep mask for step-4 sparse attention: block j -> original
     # positions [j*ratio, (j+1)*ratio). Consumed+cleared by the next MLA attention (same layer).
