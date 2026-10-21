@@ -25,7 +25,7 @@ cd /data/nfs_home/bkaul
 set +x
 stdbuf -oL -eL python -u $WT/plugin/validate/task_gsm8k_chunked.py \
   --model "$CKPT" --data /scratch/$USER/gsm8k_test.jsonl --device cpu --tp 1 \
-  --perf-probe --perf-only --perf-m-sweep "1,32" --perf-thread-sweep "8,16,32,64,128" \
+  --perf-probe --perf-only --perf-m-sweep "32,1" --perf-thread-sweep "128,96,64,32,16,8" \
   --perf-input 128 --perf-output 4 --num-questions 1 --mem-fraction 0.70 2>&1 \
   | stdbuf -oL tee /scratch/$USER/dsv4_mtsweep_${SLURM_JOB_ID}_full.log \
   | stdbuf -oL grep -iE "PERF-SWEEP|died|OOM|Error|Traceback"

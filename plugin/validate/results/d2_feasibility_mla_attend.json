@@ -1,0 +1,26 @@
+{
+  "op": "dsa.mla.attend (batched MLA decode attention, _batched_mla_attend)",
+  "gate": "kernel-feasibility-gate",
+  "date": "2026-10-21",
+  "step0_bucket": {
+    "bucket": "torch",
+    "decode_share": 0.20,
+    "source": "job 390418 real-weight decode TIMEIT (phase-split)",
+    "note": "eager torch.matmul + multi-pass softmax; NOT a mis-dispatched kernel -> authoring/co-design justified. Correction: the batched bf16 path is the DEFAULT (ATTN_LOOP!=1); the per-token Python loop is only the fallback."
+  },
+  "step1_roofline": {
+    "shapes": {"M_decode": 32, "H_query": 64, "KV_heads": 1, "D": 512, "topk_keys": 512, "layers": 43},
+    "flops_per_decode_step": "~92 GFLOP (QK 2*M*H*Kk*D + PV 2*M*H*Kk*Dv, all layers)",
+    "compute_floor": {"bf16_amx_124TF": "~0.7 ms", "fp32_7.78TF": "~12 ms"},
+    "measured": "~20% of decode = ~4-12 s/step => ~300-1000x above the compute floor",
+    "regime": "dispatch/pass-bound (eager multi-pass softmax is the largest inner piece, mla.b.softmax ~7%; 'dispatch/pass-bound, not exp-bound' per code). NOT compute-bound.",
+    "lever": "FUSION (flash-attention online softmax: QK+mask+softmax+PV one pass, no [T,H,nk] score materialization). Partial manual-fused-softmax path already exists (ATTN_FUSED=1)."
+  },
+  "step3_amdahl": {
+    "this_op_decode_share": 0.20,
+    "torch_bucket_total": "~0.42 (attn 0.20 + MHC 0.13 + indexer 0.06 + compressor 0.03)",
+    "note": "biggest single torch op; fusing toward the floor recovers most of its 20%"
+  },
+  "decision": "GO (user-approved roofline). cheap_first: measure the existing ATTN_FUSED=1 manual-fused-softmax path (held-fixed A/B, weight-independent -> dummy proxy) BEFORE authoring the full fused flash-attention MLA kernel.",
+  "ab_run": "job 390559 (dummy 4L, B=32, S=256, ATTN_FUSED 0 vs 1, phase-split TIMEIT)"
+}
