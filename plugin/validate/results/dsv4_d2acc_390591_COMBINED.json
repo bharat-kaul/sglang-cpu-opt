@@ -1,0 +1,74 @@
+{
+  "shards_found": 8,
+  "questions_scored": 320,
+  "correct": 245,
+  "invalid": 1,
+  "accuracy": 0.7656,
+  "any_partial": false,
+  "detail": [
+    {
+      "file": "dsv4_d2acc_390591_sh0.json",
+      "shard": 0,
+      "done": 40,
+      "total": 40,
+      "correct": 29,
+      "partial": false
+    },
+    {
+      "file": "dsv4_d2acc_390591_sh1.json",
+      "shard": 1,
+      "done": 40,
+      "total": 40,
+      "correct": 35,
+      "partial": false
+    },
+    {
+      "file": "dsv4_d2acc_390591_sh2.json",
+      "shard": 2,
+      "done": 40,
+      "total": 40,
+      "correct": 32,
+      "partial": false
+    },
+    {
+      "file": "dsv4_d2acc_390591_sh3.json",
+      "shard": 3,
+      "done": 40,
+      "total": 40,
+      "correct": 34,
+      "partial": false
+    },
+    {
+      "file": "dsv4_d2acc_390591_sh4.json",
+      "shard": 4,
+      "done": 40,
+      "total": 40,
+      "correct": 27,
+      "partial": false
+    },
+    {
+      "file": "dsv4_d2acc_390591_sh5.json",
+      "shard": 5,
+      "done": 40,
+      "total": 40,
+      "correct": 30,
+      "partial": false
+    },
+    {
+      "file": "dsv4_d2acc_390591_sh6.json",
+      "shard": 6,
+      "done": 40,
+      "total": 40,
+      "correct": 32,
+      "partial": false
+    },
+    {
+      "file": "dsv4_d2acc_390591_sh7.json",
+      "shard": 7,
+      "done": 40,
+      "total": 40,
+      "correct": 26,
+      "partial": false
+    }
+  ]
+}
