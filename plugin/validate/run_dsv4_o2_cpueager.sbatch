@@ -23,6 +23,8 @@ export INTEL_CPU_DSV4_DSA_CKERNEL=0   # all-C/C++ production chain
 cd /data/nfs_home/bkaul
 set +x
 set -o pipefail
+export INTEL_CPU_DSV4_LAYER_CAPTURE=$WT/plugin/validate/results/o2_layers_cpu_eager.json
+export INTEL_CPU_DSV4_LAYER_CAPTURE_LEG=cpu_eager
 python -u $WT/plugin/validate/capture_logits.py \
   --frozen $WT/plugin/validate/results/p1_frozen_tokenids.json \
   --device cpu --tp 1 --leg cpu_eager --topk 5 --max-seqs 6 --mem-fraction 0.70 \
