@@ -20,6 +20,7 @@ export TORCH_EXTENSIONS_DIR=/scratch/$USER/torch_ext_dsv4_stable
 export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 INTEL_CPU_DSV4_DECODE_THREADS=64
 export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
 export INTEL_CPU_DSV4_DSA_CKERNEL=1   # all-C/C++ production chain
+export INTEL_CPU_DSV4_PROV_OUT=$WT/plugin/validate/results/o2_cpu_prov_${SLURM_JOB_ID}.json  # CERTIFY all-C
 cd /data/nfs_home/bkaul
 set +x
 set -o pipefail
@@ -27,7 +28,9 @@ python -u $WT/plugin/validate/capture_logits.py \
   --frozen $WT/plugin/validate/results/p1_frozen_tokenids.json \
   --device cpu --tp 1 --leg cpu_c --topk 5 --max-seqs 6 --mem-fraction 0.70 \
   --out $WT/plugin/validate/results/o2_logits_cpu_c.json 2>&1 \
-  | grep -iE "capture|Error|Traceback|OOM|died"
+  | grep -iE "capture|fell back|Error|Traceback|OOM|died"
 RC=${PIPESTATUS[0]}
-echo "[exit=${RC}] o2 cpu capture"
+echo "--- dispatch-provenance (capture must be all-C: eager==0) ---"
+python $WT/plugin/validate/check_dispatch_provenance.py $WT/plugin/validate/results/o2_cpu_prov_${SLURM_JOB_ID}.json || true
+echo "[exit=${RC}] o2 cpu capture (certified)"
 exit $RC
