@@ -38,5 +38,24 @@
     "reframe": "The 18% divergence localizes to the attention backend -- the exact subsystem that changed 2x between our 0.5.20 base and the 0.5.22 reference. So the divergence is heavily confounded by (and plausibly largely caused by) the version gap, NOT proven to be a CPU-plugin logic bug. Earlier 'CPU has a real bug' was OVER-ATTRIBUTED: never version-matched.",
     "decisive_calibration": "run upstream 0.5.22 natively on CPU (device=cpu, no plugin) if it works -> CPU-0.5.22 vs GPU-0.5.22 is version+code matched = pure hardware signal. If ~100%, divergence enters via plugin/0.5.20; if ~82%, inherent.",
     "implication": "The honest path may be to REBASE the CPU port onto sglang 0.5.22 (the matured DSV4 attention) rather than hunt a 'bug' in the 0.5.20-based port."
+  },
+  "DEFINITIVE_CALIBRATION": {
+    "version_matched_proof": {
+      "GPU-0.5.20_vs_GPU-0.5.22": "0.9775 (first_div ~64-80) -> sglang VERSION effect is only ~2%, benign/late; the 2577-line backend rewrite barely changes V4-path outputs",
+      "CPU-0.5.20_vs_GPU-0.5.20_MATCHED": "0.8214 (first_div POS 1)",
+      "CPU-0.5.20_vs_GPU-0.5.22": "0.818 (first_div pos 1) -- same as matched -> version NOT the cause",
+      "CPU-C_vs_CPU-eager": "0.961 (first_div ~68) -> kernel drift ~4%, benign/late"
+    },
+    "corrected_conclusions": [
+      "RETRACTED: the 'version-confound' triage. Two GPU versions agree 97.8%; version explains only ~2% of the divergence, not the 18%.",
+      "CONFIRMED + version-controlled: a REAL ~16% CPU-plugin divergence from GPU (82% vs the 97.8% GPU-vs-GPU floor), from POSITION 1, in the CPU MLA attention core.",
+      "It is a shared-blindspot defect: every CPU-internal parity probe passes (rope cos=1, proj cos=1, MoE 0.999997) yet CPU differs from GPU -> CPU matches its OWN oracle but not the authoritative computation."
+    ],
+    "noise_floors": {
+      "two_correct_impls_agree": "~0.98 (GPU-vs-GPU)",
+      "benign_late_drift_signature": "first_div > 60",
+      "pathological_signature": "first_div = 1 (immediate systematic)"
+    },
+    "next": "Build an INDEPENDENT (non-CPU-oracle) attention reference from the authoritative model math to break the shared blindspot and localize the attention-core defect (batched MLA algorithm / QK-norm scope / fp8-KV precision)."
   }
 }
