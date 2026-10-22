@@ -1,0 +1,23 @@
+{
+  "headline": "CPU post-trained DSV4-Flash diverges from GPU reference on ~18% of next-tokens (teacher-forced, same prefix, same position, from token 1) -> REAL correctness bug, not bf16 noise. Localized to the CPU PREFILL ATTENTION-CORE path; MoE/C-kernels/rope/projections/softmax-scale EXONERATED by hard parity.",
+  "harness_validated": "GPU + our harness on Flash-Base = 0.923 (1211/1311) vs published 0.908 -> harness is CORRECT; the low CPU number is not a harness artifact.",
+  "exonerated_with_evidence": {
+    "C_kernels": "CPU-eager-vs-GPU 0.822 == CPU-C-vs-GPU 0.818 -> bug is in the CPU COMMON path, not the wired C kernels. CPU-C vs CPU-eager per-layer = gradual accumulation (cos 0.9999->0.98), no cliff.",
+    "MXFP4_MoE_kernel": "in-situ kernel-vs-fp4-oracle cos=0.999997; e8m0 scale path correct; LUT/nibble match sglang authority",
+    "MoE_overall": "CPU FP4->bf16 MoE (independent of MXFP4 kernel) vs GPU = 0.821 == MXFP4 0.818 -> MoE fully exonerated",
+    "rope_application": "KROPE_SHADOW cos=1.000000 maxerr=0 (kernel rope == independent complex-multiply); YaRN freqs_cis computed by shared device-agnostic sglang precompute_freqs_cis",
+    "fp8_projections": "FP8_PARITY cos=1.000000 (q/k/kv/o proj fp8 W8A16 == torch block-dequant)",
+    "softmax_scale": "self.softmax_scale = head_dim**-0.5 in shared model code (deepseek_v4.py:665), no mscale on either side; flash_mla applies no internal mscale -> identical CPU/GPU"
+  },
+  "ruled_out_artifacts": {
+    "position_offbyone": "shift-0 agreement 0.822, all other shifts ~0.01 -> alignment correct",
+    "greedy_amplification": "teacher-forced removes it; divergence from position 1",
+    "cross_build_per_layer_capture": "INVALID tool: GPU-vs-CPU layer cosine ~0 + 50x-250x magnitude = different capture semantics across the two sglang builds (container vs venv), NOT a model signal"
+  },
+  "remaining_suspects": ["MLA prefill attention CORE (softmax/mask/value/absorbed-v)", "QK-norm RMS scope (nope-only vs full - flagged ambiguous in KROPE comment)", "fp8 KV-cache quant/pack (_cpu_quant_to_nope_fp8_rope_bf16_pack)", "compressor (c4/c128 softmax-pool) in prefill"],
+  "key_deductions": {
+    "sparse_selection_is_noop_here": "at ~1130-token ctx with index_topk=512 over ~9-280 compressed blocks, top-k selects ALL -> DSA sparse selection cannot be the bug at this context length; the divergence is in DENSE attention math",
+    "divergence_is_prefill": "the teacher-forced capture is a single prefill forward; rope+proj (prefill-active) are clean -> the bug is in the prefill attention core, not decode-specific"
+  },
+  "next_decisive_test": "ATTN_SHADOW with MAX_NEW>=2 (job 391271): batched MLA vs reference loop self-consistency; if it diverges, the attention-core impl is self-inconsistent. Then build an independent layer-0 attention reference to compare vs GPU."
+}
