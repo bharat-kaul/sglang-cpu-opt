@@ -69,7 +69,7 @@ in Python for now; measure its residual after the inner fusions (likely small vs
 2. **Seam re-measure:** `e2e(fused) − Σ isolated(kernel)` → confirm the glue (casts/staging/loops) is gone; the
    fused region's floor is `max(isolated floors)` under overlap, not the sum.
 3. **End-to-end A/B** vs the eager scaffold on the **tiny-faithful** config (all arch switches, dummy weights) —
-   a numerical regression harness; then **real-weight accuracy** vs the oracle (gsm8k parity to the 0.797 baseline).
+   a numerical regression harness; then **real-weight accuracy** vs the oracle (gsm8k parity to the eager-chain baseline (0.797 historical custom-protocol; EMR 390878 C-chain = 245/320=0.766, within noise)).
 4. `roofline-validation` on each fused region (compute vs the memory-bound decode floor).
 
 ## 5. First executable steps (bounded — the fused C++ kernels already exist)
@@ -92,5 +92,5 @@ Steps:
    the eager `_batched_mla_attend` / `dsa_attention.py` ref) and **wire `_batched_mla_attend`** to it.
 3. **Run with `INTEL_CPU_DSV4_DSA_CKERNEL=1 ...CHECK=1`** on **tiny-faithful** (mirror `make_glm5_tiny.py`) —
    the built-in per-call parity asserts C==torch oracle; then **real-weight** decode re-measure + gsm8k parity
-   vs the 0.797 baseline.
+   vs the eager-chain baseline (0.797 historical custom-protocol — see the accuracy-status note).
 4. Measure the **seam collapse** (`e2e − Σ isolated`) and `roofline-validation` each fused region.

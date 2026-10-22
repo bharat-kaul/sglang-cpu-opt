@@ -28,6 +28,7 @@ export INTEL_CPU_DSV4_PROV_OUT=/scratch/$USER/dsv4_d2acc_prov_${SLURM_ARRAY_JOB_
 CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
 cd /data/nfs_home/bkaul
 set +x
+set -o pipefail
 python -u $WT/plugin/validate/task_gsm8k_chunked.py \
   --model "$CKPT" --data /scratch/$USER/gsm8k_test.jsonl --device cpu --tp 1 \
   --num-questions 320 --num-shots 8 --chunk-size 16 --max-new-tokens 256 \
@@ -35,4 +36,6 @@ python -u $WT/plugin/validate/task_gsm8k_chunked.py \
   --out $WT/plugin/validate/results/dsv4_d2acc_${SLURM_ARRAY_JOB_ID}_sh${SLURM_ARRAY_TASK_ID}.json \
   --gens-out /scratch/$USER/dsv4_d2acc_${SLURM_ARRAY_JOB_ID}_gens${SLURM_ARRAY_TASK_ID}.json 2>&1 \
   | grep -iE "chunk |acc=|accuracy|verdict|died|OOM|Error|resume|DSA C-kernel|parity"
-echo "[exit=${PIPESTATUS[0]}] d2acc shard $SLURM_ARRAY_TASK_ID"
+RC=${PIPESTATUS[0]}   # the PRODUCER's exit (pipefail also makes the pipe fail), not grep's
+echo "[exit=${RC}] d2acc shard $SLURM_ARRAY_TASK_ID"
+exit $RC              # propagate nonzero child exit to the scheduler (review P0: wrapper failure propagation)

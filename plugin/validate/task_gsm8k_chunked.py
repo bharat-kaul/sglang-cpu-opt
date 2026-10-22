@@ -86,6 +86,8 @@ def main():
     p.add_argument("--perf-ck-sweep", default="",
                    help="comma list of DSA C-kernel toggle values to sweep (0=eager, 1=fused C) via the CK "
                         "control file — a HELD-FIXED eager-vs-C decode A/B on ONE resident load (lesson A1)")
+    p.add_argument("--gens-schema-v2", action="store_true",
+                   help="wrap gens-out as {run_identity, gens:[...]} (self-identifying); default = plain list")
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
@@ -130,6 +132,8 @@ def main():
         try:
             with open(args.gens_out) as f:
                 gens = json.load(f)
+            if isinstance(gens, dict):      # v2 self-identifying form {run_identity, gens:[...]}
+                gens = gens.get("gens", [])
         except Exception as e:
             print(f"[resume] ignoring unreadable gens {args.gens_out}: {e}", flush=True)
             gens = []
@@ -184,6 +188,8 @@ def main():
         extra_kw["max_total_tokens"] = int(os.environ["MAX_TOTAL_TOKENS"])
     if os.environ.get("SWA_RATIO"):
         extra_kw["swa_full_tokens_ratio"] = float(os.environ["SWA_RATIO"])
+    if os.environ.get("LOAD_FORMAT"):
+        extra_kw["load_format"] = os.environ["LOAD_FORMAT"]  # "dummy" for tiny-faithful harness tests
 
     engine = sgl.Engine(
         model_path=args.model, device=args.device, tp_size=args.tp, dtype=args.dtype,
@@ -295,6 +301,27 @@ def main():
             return
 
     correct, invalid, done = resume_correct, resume_invalid, resume_done
+    # Run-identity stamp (review P0): bind every saved artifact to exactly what produced it, so a
+    # result is self-identifying and resume/compare can reject a mismatched continuation.
+    def _git_sha():
+        try:
+            import subprocess
+            return subprocess.check_output(["git", "-C", os.path.dirname(os.path.abspath(__file__)),
+                                            "rev-parse", "HEAD"], text=True).strip()
+        except Exception:
+            return None
+    _toggles = {k: os.environ.get(k) for k in (
+        "INTEL_CPU_DSV4_DSA_CKERNEL", "INTEL_CPU_DSV4_DSA_CKERNEL_CHECK", "INTEL_CPU_DSV4_CK_STRICT",
+        "INTEL_CPU_DSV4_MXFP4_MOE", "INTEL_CPU_DSV4_DSA_CPU", "INTEL_CPU_DSV4_DECODE_THREADS",
+        "INTEL_CPU_DSV4_CK_CTL_FILE", "CONTEXT_LEN", "SWA_RATIO", "MAX_TOTAL_TOKENS") if os.environ.get(k) is not None}
+    run_identity = {
+        "model": args.model, "device": args.device, "tp": args.tp, "dtype": args.dtype,
+        "quantization": args.quantization, "num_shots": args.num_shots,
+        "max_new_tokens": args.max_new_tokens, "chunk_size": args.chunk_size,
+        "num_shards": args.num_shards, "shard_index": args.shard_index,
+        "sampling_params": sp, "git_sha": _git_sha(), "env_toggles": _toggles,
+        "scorer": "extract_final_answer(task_gsm8k)", "protocol_version": 2,
+    }
     t0 = time.perf_counter()
     for start in range(0, total, args.chunk_size):
         if start < resume_done:
@@ -302,7 +329,14 @@ def main():
         chunk_p = prompts[start:start + args.chunk_size]
         chunk_l = labels[start:start + args.chunk_size]
         outs = engine.generate(chunk_p, sp)
-        texts = [o["text"] if isinstance(o, dict) else o for o in outs]
+        # review P0: require EXACTLY one response per requested question — a short `outs` with `zip`
+        # would silently truncate scoring while `done` still advances by the label count.
+        if len(outs) != len(chunk_l):
+            raise RuntimeError(f"engine returned {len(outs)} outputs for {len(chunk_l)} prompts "
+                               f"(chunk at {start}) — refusing to checkpoint a truncated chunk")
+        recs = [o if isinstance(o, dict) else {"text": o} for o in outs]
+        texts = [r.get("text", "") for r in recs]
+        metas = [r.get("meta_info", {}) if isinstance(r, dict) else {} for r in recs]
         preds = [extract_final_answer(t) for t in texts]
         correct += sum(int(pr == l) for pr, l in zip(preds, chunk_l))
         invalid += sum(int(pr == INVALID) for pr in preds)
@@ -316,15 +350,22 @@ def main():
             "accuracy": round(acc, 4), "correct": correct, "invalid": invalid,
             "elapsed_s": round(dt, 1), "acc_min": args.acc_min,
             "verdict": "PARTIAL" if done < total else ("PASS" if acc >= args.acc_min else "REPORT"),
+            "run_identity": run_identity,
         }
         print(f"[chunk {start // args.chunk_size}] done={done}/{total} "
               f"acc={acc:.4f} invalid={invalid} elapsed={dt:.0f}s", flush=True)
         if args.out:
             _atomic_write(args.out, result)
         if args.gens_out:
-            gens.extend({"q": q_ids[start + j], "gold": l, "text": t}
-                        for j, (t, l) in enumerate(zip(texts, chunk_l)))
-            _atomic_write(args.gens_out, gens)
+            # Enriched schema (review P0): keep immutable identity + termination metadata so a saved
+            # generation is scorable/auditable offline (finish reason, token counts, pred).
+            gens.extend({"q": q_ids[start + j], "gold": l, "text": t, "pred": p,
+                         "completion_tokens": m.get("completion_tokens"),
+                         "prompt_tokens": m.get("prompt_tokens"),
+                         "finish_reason": m.get("finish_reason")}
+                        for j, (t, m, p, l) in enumerate(zip(texts, metas, preds, chunk_l)))
+            _atomic_write(args.gens_out, {"run_identity": run_identity, "gens": gens}
+                          if args.gens_schema_v2 else gens)
 
     engine.shutdown()
     print(json.dumps(result, indent=2))

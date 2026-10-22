@@ -1,5 +1,16 @@
 # D2 — CPU serving-integration scope: route DSV4 decode through the optimized AMX kernels
 
+> **⚠️ ACCURACY-CLAIM STATUS (per the GSM8K methodology review, `plugin/validate/reports/dsv4_gsm8k_accuracy_methodology_review.md`).**
+> Every "gsm8k 0.797 / 0.766" number below is a **historical custom-protocol measurement** — **NOT** a
+> published-score reproduction and **NOT** a CPU-numerical-correctness certificate. Specifically:
+> - The published **90.8%** is for **DeepSeek-V4-Flash-*Base* (FP8)** — a *different checkpoint* from the
+>   post-trained FP4+FP8 Flash we run; the card gives no GSM8K number for our checkpoint. "Below published"
+>   was a false comparison.
+> - Our runs score **320/1319** contiguous test questions with a custom 8-shot prompt + extractor and a
+>   **256-token cap** (38.75% of outputs hit the cap); parity is vs **CPU-eager**, not a trusted GPU reference.
+> - Correctness is resolved by the **P1 GPU-reference paired run** (GPU vs CPU-eager vs CPU-C, identical token
+>   IDs); the published number by a **separate Flash-Base track**. Until then: report, don't certify.
+
 **Goal:** replace the eager-torch *correctness-first scaffold* (the cause of ~41–46 s/step real-weight M=32
 decode) with optimized AMX CPU kernels, so decode moves toward its roofline.
 
@@ -19,7 +30,7 @@ decode) with optimized AMX CPU kernels, so decode moves toward its roofline.
 > "chain integration" surface), **not** light wiring. The MoE is the only piece already fully AMX-wired.
 > Weigh this against Amdahl (attention ≈ 20% ⇒ ~1.25× if only it is done), a **memory-bound** decode
 > (perf-stat: IPC ~1.2, cache-miss ~54%, LLC-miss ~47%), and the fact that the model already **runs + is
-> accurate (gsm8k 0.797)**.
+> accurate (gsm8k 0.797, historical custom-protocol)**.
 
 Pipeline position (cpu-serving-integration): the DSV4 CPU path is at **stage 1 (structural bypass — runs +
 accurate but eager-torch)**; this scope is **stage 2 (build/adapt + wire the optimized kernels)**.
@@ -37,7 +48,7 @@ The GPU serving kernels are replaced on CPU by eager-torch reimplementations ove
 | hc_pre / MHC | eager torch `hc_pre` + `hc_split_sinkhorn` + `hc_combine` | 13% | `:455` |
 | MoE experts | **already AMX** `torch.ops.sgl_kernel.fused_experts_cpu` (MXFP4) | 29% (thread-cfg) | `:2291` |
 
-Result: runs end-to-end + accurate (**gsm8k 0.797**), but the DSA/MHC/attention path is ~42% eager torch,
+Result: runs end-to-end + accurate (**gsm8k 0.797, historical custom-protocol — see status note**), but the DSA/MHC/attention path is ~42% eager torch,
 dispatch-bound across 43 layers → ~46 s/step. Threads give only ~1.35× (confirmed not the lever).
 
 ## 2. How the optimized kernels are reached (the mechanism)
@@ -100,7 +111,7 @@ accuracy still needs a real-weight run at the end.)
    No CPU MLA/sparse serving op exists; the DSA compute kernels are authored-but-unbuilt; the generic CPU
    attention ops need absorbed-form adaptation. **So each attention piece is adapt/build+wire, not drop-in.**
 2. **Decision gate BEFORE building:** given the above + Amdahl (attention ≈20% ⇒ ~1.25×), a memory-bound
-   decode, and an already-accurate running model (gsm8k 0.797), confirm the effort is worth the multi-week
+   decode, and an already-accurate running model (gsm8k 0.797, historical custom-protocol), confirm the effort is worth the multi-week
    build/adapt/integration surface, or re-scope to the highest-ROI single piece first.
 3. If proceeding: **stand up the tiny-faithful config** + the eager-vs-optimized A/B flag harness, then
    **build+wire one piece** (attention first — adapt a CPU donor or build `dsa_pilot/sparse_attend.cpp`),
