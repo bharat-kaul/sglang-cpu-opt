@@ -14,10 +14,29 @@
     "greedy_amplification": "teacher-forced removes it; divergence from position 1",
     "cross_build_per_layer_capture": "INVALID tool: GPU-vs-CPU layer cosine ~0 + 50x-250x magnitude = different capture semantics across the two sglang builds (container vs venv), NOT a model signal"
   },
-  "remaining_suspects": ["MLA prefill attention CORE (softmax/mask/value/absorbed-v)", "QK-norm RMS scope (nope-only vs full - flagged ambiguous in KROPE comment)", "fp8 KV-cache quant/pack (_cpu_quant_to_nope_fp8_rope_bf16_pack)", "compressor (c4/c128 softmax-pool) in prefill"],
+  "remaining_suspects": [
+    "MLA prefill attention CORE (softmax/mask/value/absorbed-v)",
+    "QK-norm RMS scope (nope-only vs full - flagged ambiguous in KROPE comment)",
+    "fp8 KV-cache quant/pack (_cpu_quant_to_nope_fp8_rope_bf16_pack)",
+    "compressor (c4/c128 softmax-pool) in prefill"
+  ],
   "key_deductions": {
     "sparse_selection_is_noop_here": "at ~1130-token ctx with index_topk=512 over ~9-280 compressed blocks, top-k selects ALL -> DSA sparse selection cannot be the bug at this context length; the divergence is in DENSE attention math",
     "divergence_is_prefill": "the teacher-forced capture is a single prefill forward; rope+proj (prefill-active) are clean -> the bug is in the prefill attention core, not decode-specific"
   },
-  "next_decisive_test": "ATTN_SHADOW with MAX_NEW>=2 (job 391271): batched MLA vs reference loop self-consistency; if it diverges, the attention-core impl is self-inconsistent. Then build an independent layer-0 attention reference to compare vs GPU."
+  "next_decisive_test": "ATTN_SHADOW with MAX_NEW>=2 (job 391271): batched MLA vs reference loop self-consistency; if it diverges, the attention-core impl is self-inconsistent. Then build an independent layer-0 attention reference to compare vs GPU.",
+  "TRIAGE_BREAKTHROUGH_version_confound": {
+    "finding": "The CPU-vs-GPU comparison was NEVER version-controlled. CPU plugin built on sglang 0.5.20.dev373; GPU reference runs container sglang 0.5.22.",
+    "code_delta": {
+      "deepseek_v4.py": "2319 lines changed",
+      "deepseek_v4_backend.py (MLA attention/fp8-KV/DSA)": "2577 lines changed, file DOUBLED 2425->4466",
+      "indexer.py": 190,
+      "compressor_v2.py": 119
+    },
+    "nature": "Only 7 dsv41 refs in 0.5.22 backend -> the ~2000-line growth is the V4 path ITSELF (new compress ratios 1/2, forward_low_ratio_sources, new flashmla scheduling), not V4.1 additions. DSV4 attention support was immature in 0.5.20 and substantially reworked by 0.5.22.",
+    "both_use_V4_path": "checkpoint model_type=deepseek_v4 (not v41); container is_dsv41=False -> both run the V4 path, so V4.1 is NOT the issue; the V4 attention CODE differs by version",
+    "reframe": "The 18% divergence localizes to the attention backend -- the exact subsystem that changed 2x between our 0.5.20 base and the 0.5.22 reference. So the divergence is heavily confounded by (and plausibly largely caused by) the version gap, NOT proven to be a CPU-plugin logic bug. Earlier 'CPU has a real bug' was OVER-ATTRIBUTED: never version-matched.",
+    "decisive_calibration": "run upstream 0.5.22 natively on CPU (device=cpu, no plugin) if it works -> CPU-0.5.22 vs GPU-0.5.22 is version+code matched = pure hardware signal. If ~100%, divergence enters via plugin/0.5.20; if ~82%, inherent.",
+    "implication": "The honest path may be to REBASE the CPU port onto sglang 0.5.22 (the matured DSV4 attention) rather than hunt a 'bug' in the 0.5.20-based port."
+  }
 }
