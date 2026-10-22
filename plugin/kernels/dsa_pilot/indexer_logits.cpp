@@ -244,6 +244,7 @@ torch::Tensor indexer_logits_m1(torch::Tensor q, torch::Tensor kv, torch::Tensor
 
 // Integration entry point: the SINGLE tiled path (brgemm + L1 fused epilogue) for ALL M (F2 — no per-M
 // dispatch, so the numerical contract does not change at a boundary).
+torch::Tensor indexer_logits_fp32avx(torch::Tensor q, torch::Tensor kv, torch::Tensor weight);  // fwd decl (small-S decode path)
 torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor weight) {
   // Validate the COMMON contract HERE so the N==1 specialization cannot bypass it (P1-F2): both the m1 and
   // tiled paths read raw pointers assuming these hold.
@@ -253,6 +254,15 @@ torch::Tensor indexer_logits(torch::Tensor q, torch::Tensor kv, torch::Tensor we
   TORCH_CHECK(q.size(2) == kv.size(2), "q/kv head_dim mismatch");
   TORCH_CHECK(weight.size(0) == q.size(0) && weight.size(1) == q.size(1), "weight must be [N,H]");
   if (q.size(0) == 0) return torch::empty({0, kv.size(1)}, torch::kFloat32);   // empty batch -> [0,S]
+  // DECODE-SHAPE parity+perf fix: at small S (decode: few compressed keys) the bf16 SCORE rounding of the
+  // AMX tiled/m1 path flips relu's sign on borderline scores -> logits diverge from the fp32 einsum oracle
+  // (cos ~0.995-0.999 < 0.9995, seen at S=1 on real weights -> fell back to eager). The fp32avx path keeps
+  // scores in FP32 (AVX-512 bmm) with the SAME bf16 epilogue -> passes parity, AND is up to 3.25x FASTER at
+  // low M (AMX underfills the narrow score GEMM there). Route small S here; prefill (large S) keeps the AMX
+  // tiled path unchanged. Threshold env-overridable (INDEXER_FP32_SMAX, default 64).
+  const char* _smax = std::getenv("INDEXER_FP32_SMAX");
+  const int64_t s_fp32_max = _smax ? atol(_smax) : 64;
+  if (kv.size(1) <= s_fp32_max) return indexer_logits_fp32avx(q, kv, weight);
   // F2: scores round to the SAME bf16 stage boundaries on BOTH paths (tiled brgemm; m1 single brgemm) ->
   // IDENTICAL numerics across the N==1 boundary. m1 avoids the tiny-tile overhead that bound N=1.
   if (q.size(0) == 1) return indexer_logits_m1(q, kv, weight);
