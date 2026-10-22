@@ -12,6 +12,8 @@
 set -x
 export XDG_RUNTIME_DIR=/tmp/xdg-$(id -u); mkdir -p "$XDG_RUNTIME_DIR" /tmp/podman-runroot; chmod 700 "$XDG_RUNTIME_DIR"
 export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
+PROOT=/scratch/bkaul/podman/root; PRUN=/scratch/bkaul/podman/runroot; mkdir -p "$PROOT" "$PRUN"
+PODMAN_GLOBAL="--root $PROOT --runroot $PRUN --events-backend=file --cgroup-manager=cgroupfs"
 nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
 IMG=docker.io/lmsysorg/sglang:latest
 WT=/data/nfs_home/bkaul/dsv4-tree-pilot
@@ -21,7 +23,7 @@ for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVA
 echo "=== exposing $N GPUs, tp=$N ==="
 # NATIVE: no SGLANG_EXTERNAL_MODEL_PACKAGE, no INTEL_CPU_* -> pure CUDA reference. paired_eval.py adds
 # its own dir to sys.path so `from task_gsm8k import ...` resolves; frozen file + model under /scratch.
-podman run --rm $DEVARGS --ipc=host --network=host \
+podman $PODMAN_GLOBAL run --rm $DEVARGS --ipc=host --network=host \
   -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e NCCL_DEBUG=WARN -e NCCL_CUMEM_ENABLE=0 \
   -e MAX_TOTAL_TOKENS=8192 -e SWA_RATIO=0.8 \
