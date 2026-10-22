@@ -28,12 +28,15 @@ cd /data/nfs_home/bkaul
 run_leg () {  # $1 = ck value (0 eager / 1 C), $2 = tag
   export INTEL_CPU_DSV4_DSA_CKERNEL=$1
   export INTEL_CPU_DSV4_SWEEP_JSON=$RDIR/dsv4_perfdelta_${J}_ck$1.json
+  export INTEL_CPU_DSV4_PROV_OUT=$RDIR/dsv4_perfdelta_${J}_prov_ck$1.json   # CERTIFY what dispatched
   stdbuf -oL python -u $WT/plugin/validate/task_gsm8k_chunked.py \
     --model "$CKPT" --data /scratch/$USER/gsm8k_test.jsonl --device cpu --tp 1 \
     --perf-probe --perf-only --perf-m-sweep "32" --perf-thread-sweep "8" \
     --perf-reps 3 --perf-input 128 --perf-output 4 --num-questions 1 --mem-fraction 0.70 2>&1 \
     | stdbuf -oL grep -iE "PERF-SWEEP|fell back|died|OOM|Error|Traceback"
   echo "[leg ck=$1 ($2) exit=${PIPESTATUS[0]}]"
+  echo "--- dispatch-provenance for ck=$1 (must be all-C on ck=1 for the number to be certified) ---"
+  python $WT/plugin/validate/check_dispatch_provenance.py $RDIR/dsv4_perfdelta_${J}_prov_ck$1.json || true
 }
 
 set +x
