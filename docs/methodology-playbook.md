@@ -273,6 +273,25 @@ flowchart LR
   as a **user decision** (cost vs external-validation tradeoff), never silently chosen.
 - **Gate (trust):** golden per-op parity + full-model re-diff; an optimization becomes the default only after
   it passes both. `enablement-certificate` records runs-end-to-end + accuracy-parity + roofline-vs-measured.
+- **COMPARATOR-PROVENANCE (mandatory before any "we're at X vs published Y").** A published number is a
+  **claim**, not a motivating given, until you open its authoritative source and bind Y to
+  `{exact checkpoint VARIANT, HF revision hash, eval harness + protocol (shots/extraction/generation-budget),
+  the specific table cell}`. If any differ from what you ran, the comparison is **NOT apples-to-apples** —
+  label it so until reconciled; never write the exoneration ("the gap is the harness, not the port") before
+  the binding. This is symmetric to pinning a kernel's donor source op, applied to the EVALUATION comparator.
+  *Worked miss (DSV4): "CPU gsm8k ~0.77 below the published 90.8%" was carried for weeks — 90.8% is
+  Flash-**Base** (FP8); we ran the post-trained Flash (FP4+FP8), which has no published gsm8k number. Our
+  compute-path provenance (shape/dispatch/scope) could not catch it: it instruments the computation, not the
+  comparator — a different axis that needs its own binding.*
+- **TWO CHECKPOINTS, TWO ROLES — don't fuse the model you OPTIMIZE with the model you VALIDATE accuracy
+  against.** When the architecture is identical, the kernels/harness are validated on *either* variant.
+  **Accuracy anchor →** the variant that has the PUBLISHED number (e.g. Base): run it so the CPU-correctness
+  claim is apples-to-apples vs an external number (no self-generated gap to explain). **Perf/tok-s headline →**
+  the variant whose footprint the demonstration depends on (e.g. the FP4 post-trained checkpoint that fits one
+  NUMA domain — an FP4-specific story that does NOT transfer to an FP8 Base). Report the perf-checkpoint's
+  accuracy as **CPU-vs-GPU equivalence on identical token IDs** (route B), and the correctness anchor as the
+  **published-number reproduction on the Base variant** (route A) — two runs, two legitimate claims, neither
+  forced to carry the other's burden.
 
 ---
 
