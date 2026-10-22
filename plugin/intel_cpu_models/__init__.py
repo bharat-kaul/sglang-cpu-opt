@@ -48,3 +48,11 @@ try:
     install_deterministic_dummy()
 except Exception as _e:  # noqa: BLE001
     logger.warning("intel_cpu_models: deterministic dummy not installed: %s", _e)
+
+# Per-layer hidden-state capture (gated INTEL_CPU_DSV4_LAYER_CAPTURE=<file>): the DEBUGGER that
+# localizes a CPU/GPU (or CPU-C/CPU-eager) divergence to the first divergent LAYER. Hardware-agnostic
+# (same package the GPU run loads via SGLANG_EXTERNAL_MODEL_PACKAGE); inert unless the env is set.
+try:
+    import dsv4_layer_capture  # noqa: F401  (import side-effect installs the gated patch)
+except Exception as _e:  # noqa: BLE001
+    logger.warning("intel_cpu_models: layer-capture not installed: %s", _e)
