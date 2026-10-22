@@ -32,7 +32,9 @@ PODMAN="podman $PG run --rm $DEV --ipc=host --network=host -v /scratch:/scratch 
 # difference vs CPU is the BACKEND — a SWA/context mismatch would change the attention mask and
 # manufacture a false divergence.
 echo "########## RUN A: Option 2 logit capture (post-trained) ##########"
-$PODMAN -e CONTEXT_LEN=4096 -e MAX_TOTAL_TOKENS=131072 -e SWA_RATIO=0.5 "$IMG" \
+$PODMAN -e CONTEXT_LEN=4096 -e MAX_TOTAL_TOKENS=131072 -e SWA_RATIO=0.5 \
+  -e PYTHONPATH=$WT/plugin -e SGLANG_EXTERNAL_MODEL_PACKAGE=dsv4_layer_capture \
+  -e INTEL_CPU_DSV4_LAYER_CAPTURE=$RDIR/o2_layers_gpu.json -e INTEL_CPU_DSV4_LAYER_CAPTURE_LEG=gpu "$IMG" \
   python $WT/plugin/validate/capture_logits.py \
     --frozen $RDIR/p1_frozen_tokenids.json \
     --device cuda --tp $N --leg gpu --topk 5 --max-seqs 6 --mem-fraction 0.85 \

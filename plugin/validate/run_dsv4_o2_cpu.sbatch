@@ -21,6 +21,8 @@ export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 INTEL_CPU_DSV4_DECODE_THREADS=64
 export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
 export INTEL_CPU_DSV4_DSA_CKERNEL=1   # all-C/C++ production chain
 export INTEL_CPU_DSV4_PROV_OUT=$WT/plugin/validate/results/o2_cpu_prov_${SLURM_JOB_ID}.json  # CERTIFY all-C
+export INTEL_CPU_DSV4_LAYER_CAPTURE=$WT/plugin/validate/results/o2_layers_cpu_c.json  # per-layer debugger
+export INTEL_CPU_DSV4_LAYER_CAPTURE_LEG=cpu_c
 cd /data/nfs_home/bkaul
 set +x
 set -o pipefail
