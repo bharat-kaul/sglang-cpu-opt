@@ -16,10 +16,10 @@ export TORCH_EXTENSIONS_DIR=/scratch/$USER/torch_ext_dsv4_stable
 export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 INTEL_CPU_DSV4_DECODE_THREADS=64
 export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
 # ALL internal parity/shadow probes on -> any cos<1 / FAIL = a CPU self-inconsistency bug
-export INTEL_CPU_DSV4_KROPE_SHADOW=1 INTEL_CPU_DSV4_ATTN_SHADOW=1 INTEL_CPU_DSV4_FP8_PARITY=1
+export INTEL_CPU_DSV4_KROPE_SHADOW=1 INTEL_CPU_DSV4_ATTN_SHADOW=1 INTEL_CPU_DSV4_FP8_PARITY=1 INTEL_CPU_DSV4_ATTN_DEBUG=1
 export ATTN_DBG_FILE=$WT/plugin/validate/results/attn_probes.txt
 rm -f $ATTN_DBG_FILE
-export MODEL_PATH=/scratch/bkaul/models/DeepSeek-V4-Flash MAX_NEW=1 LOG_LEVEL=warning
+export MODEL_PATH=/scratch/bkaul/models/DeepSeek-V4-Flash MAX_NEW=8 LOG_LEVEL=warning
 export SMOKE_PROMPTS="What is 25 times 4? Think step by step."
 cd /data/nfs_home/bkaul
 python -u $WT/plugin/validate/_smoke.py 2>&1 | grep -iE "KROPE|ATTN|FP8 PARITY|PARITY|shadow|cos=|smoke OK|Error|Traceback" | tail -20
