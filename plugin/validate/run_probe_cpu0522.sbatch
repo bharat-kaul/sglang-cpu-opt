@@ -7,7 +7,7 @@
 #SBATCH --time=00:40:00
 #SBATCH --job-name=dsv4_cpu0522
 #SBATCH --output=/scratch/bkaul/dsv4_cpu0522_%j.log
-export XDG_RUNTIME_DIR=/tmp/xdg-$(id -u); mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+export XDG_RUNTIME_DIR=/scratch/bkaul/xdg_${SLURM_JOB_ID}; mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 PROOT=/scratch/bkaul/podman/root; PRUN=/scratch/bkaul/podman/runroot
 podman --root $PROOT --runroot $PRUN --events-backend=file run --rm \
   -v /scratch:/scratch --ipc=host --network=host \
