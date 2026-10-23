@@ -95,4 +95,119 @@ def _install_layer_capture() -> None:
     logger.warning("[LAYER_CAPTURE] installed (one-shot per-layer last-token capture).")
 
 
+_ATTN_IO_DONE = False
+
+
+def _install_attn_io_capture() -> None:
+    """Oracle-anchored ATTENTION SUB-OP I/O capture (hardware-agnostic: GPU oracle AND CPU plugin).
+
+    Gated by INTEL_CPU_DSV4_ATTNIO_CAPTURE=<outfile.pt>. Taps the NATIVE MQALayer at layer 0 and saves
+    FULL tensors at the exact sub-op boundaries the two implementations share:
+      - 'attn_in'   : the MQALayer input hidden (post input_layernorm) — the attention INPUT
+      - 'q_final'   : _compute_q_b output = Q post norm+rope (into the attention core)
+      - 'kv'        : _compute_kv_to_cache / wkv output = the compressed KV
+      - 'woa_in'    : the wo_a input = the attention-CORE output (pre o_proj) — THE key quantity
+      - 'attn_out'  : the MQALayer output
+    Comparing these across GPU-oracle vs CPU localizes the drift: if q_final/kv match but woa_in diverges,
+    the bug is the attention CORE compute (QK/softmax/PV/sink). Cross-feeding GPU's q_final+kv through the
+    CPU core and diffing vs GPU's woa_in pinpoints compute-vs-upstream. One-shot, layer-0, first forward.
+    """
+    out = os.environ.get("INTEL_CPU_DSV4_ATTNIO_CAPTURE")
+    if not out:
+        return
+    try:
+        import sglang.srt.models.deepseek_v4 as _m
+        import torch
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[ATTNIO] import failed: %r", e)
+        return
+    Attn = getattr(_m, "MQALayer", None)
+    if Attn is None or getattr(Attn, "_attnio_hooked", False):
+        return
+    Attn._attnio_hooked = True
+    _stash = {}
+
+    def _save(name, t):
+        try:
+            if torch.is_tensor(t):
+                _stash[name] = t.detach().float().cpu()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _is_l0(self):
+        return int(getattr(self, "layer_id", getattr(self, "layer_idx", -1))) == 0
+
+    # wo_a input = attention-core output (pre o_proj); wkv output = compressed KV. Patch module
+    # forwards per-instance on first layer-0 call (capture their I/O without re-invoking).
+    _submod_patched = {"done": False}
+
+    def _patch_submods(self):
+        if _submod_patched["done"]:
+            return
+        _submod_patched["done"] = True
+        woa = getattr(self, "wo_a", None)
+        if woa is not None:
+            _ow = woa.forward
+            def _woaw(x, *a, **k):
+                if "woa_in" not in _stash:
+                    _save("woa_in", x)
+                return _ow(x, *a, **k)
+            woa.forward = _woaw
+        wkv = getattr(self, "wkv", None)
+        if wkv is not None:
+            _okvf = wkv.forward
+            def _wkvw(x, *a, **k):
+                r = _okvf(x, *a, **k)
+                if "kv" not in _stash:
+                    _save("kv", r[0] if isinstance(r, tuple) else r)
+                return r
+            wkv.forward = _wkvw
+
+    _oqb = getattr(Attn, "_compute_q_b", None)
+    if _oqb is not None:
+        def _qbw(self, q, positions, q_out=None, *a, **k):
+            r = _oqb(self, q, positions, q_out, *a, **k)
+            if _is_l0(self) and "q_final" not in _stash:
+                _save("q_final", r)
+                _save("q_lora", q)
+            return r
+        Attn._compute_q_b = _qbw
+
+    _okv = getattr(Attn, "_compute_kv_to_cache", None)
+    _owkv_attr = None
+    _ofwd = Attn.forward
+
+    def _fwd(self, *a, **k):
+        global _ATTN_IO_DONE
+        first_l0 = _is_l0(self) and not _ATTN_IO_DONE
+        if first_l0:
+            _patch_submods(self)
+            # attn input hidden = positional arg (x) — find the first 2D+ float tensor
+            xin = k.get("x")
+            if xin is None:
+                xin = k.get("hidden_states")
+            if xin is None:
+                for z in a:
+                    if torch.is_tensor(z) and z.is_floating_point() and z.dim() >= 2:
+                        xin = z
+                        break
+            _save("attn_in", xin)
+        r = _ofwd(self, *a, **k)
+        if first_l0:
+            _ATTN_IO_DONE = True
+            o = r[0] if isinstance(r, (tuple, list)) else r
+            _save("attn_out", o)
+            try:
+                _stash["_meta"] = {"layer_id": 0, "leg": os.environ.get("INTEL_CPU_DSV4_ATTNIO_LEG", "unknown")}
+                torch.save(_stash, out)
+                logger.warning("[ATTNIO] saved %s -> %s", list(_stash.keys()), out)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[ATTNIO] save failed: %r", e)
+        return r
+
+    Attn.forward = _fwd
+    logger.warning("[ATTNIO] installed (layer-0 attention sub-op I/O capture).")
+
+
 _install_layer_capture()
+_install_attn_io_capture()
