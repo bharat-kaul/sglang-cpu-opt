@@ -95,5 +95,20 @@
     "clean_signal_remains": "OUTPUT logits (teacher-forced, token-aligned): CPU 0.81 vs GPU-vs-GPU 0.98 floor = real bug, from token1. Precision RULED OUT (step 2). Everything else exonerated.",
     "honest_conclusion": "The bug is REAL, version-controlled, localized to the attention/MHC/upstream path, NOT precision/MoE/kernels/rope/version. Line-level pinpoint is BLOCKED by the difficulty of capturing provably-comparable intermediates across two very different implementations of a complex MHC-cluster-architecture model. This needs either (a) the model authors' reference inference code as the oracle (not sglang-GPU, whose code path differs from our plugin), or (b) a deep, careful instrumentation that identifies a provably-identical semantic boundary in BOTH paths -- substantial focused work, not rapid toggles.",
     "compute_spent": "many ~15-min real-weight capture runs; diminishing returns on per-op capture."
+  },
+  "REFERENCE_ANCHORED_FIXES_AND_REFRAME": {
+    "ops_verified_vs_AUTHORS_reference (cos~1.0, cheap op-level, no model load)": {
+      "MHC sinkhorn": "cos 1.0 vs kernel.py hc_split_sinkhorn",
+      "MHC combine": "cos 1.0",
+      "attention sink-softmax": "cos 1.0 vs sparse_attn"
+    },
+    "fixes_applied (reference-backed, all CORRECT per authors' spec)": {
+      "KV fp8 round-trip": "reference act_quant(kv[...,:-rope],64,ue8m0,inplace) -> our dense stash kept raw bf16; fixed to fp8-roundtrip nope dims",
+      "sliding-window mask": "reference get_window_topk_idxs limits to 128-window; our indices=None path did dense causal; fixed to 128-window"
+    },
+    "measurement_result": "ALL fixes left CPU-vs-sglang-GPU top-1 UNCHANGED at ~0.82 (baseline 0.8214, fp32 0.8185, kvfix 0.8220, swafix 0.8220). first_div stuck at position 1. CPU-eager (DSA_CKERNEL=0) also 0.822 == CPU-C -> the divergence is in LOGIC shared by eager AND C paths, invariant to attention precision/mask/KV changes.",
+    "CRITICAL_REFRAME": "My oracle has been sglang-GPU, NOT the authors' reference. The authors' reference (inference/model.py) is the TRUE SPEC. If sglang-GPU itself deviates from the reference on these ops (e.g. sglang also does dense or non-fp8-KV), then matching the reference makes CPU DIVERGE from sglang-GPU but closer to CORRECT. The stable 0.82-vs-sglang is NOT the right success metric for reference-backed fixes. The RIGHT metric is gsm8k ACCURACY vs published 90.8 -- the fixes may improve accuracy even while top-1-vs-sglang is flat.",
+    "remaining_dominant_suspect": "Stable 0.82 across all attention/KV changes -> the dominant divergence is NOT attention precision/mask/KV. It is in routing/selection LOGIC shared by eager+C: MoE gate/router (biased_grouped_topk -> wrong experts = wrong FFN every layer), or MHC hc_post, or the q per-head RMSNorm. Check these vs the reference next.",
+    "next": "(a) run gsm8k accuracy WITH the reference-backed fixes (the real metric). (b) verify MoE Gate/router + hc_post + q-norm vs the authors' reference."
   }
 }
