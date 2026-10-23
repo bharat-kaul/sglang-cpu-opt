@@ -1415,6 +1415,30 @@ def _cpu_quant_to_nope_fp8_rope_bf16_pack(k_bf16):
     )
 
 
+def _fp8_roundtrip_nope_bf16(k_bf16):
+    # QAT KV match: fused fp8 quant+DEQUANT of the NOPE dims (rope dims stay bf16), mirroring the
+    # reference `act_quant(kv[...,:-rope], 64, ue8m0, inplace=True)` (inference/model.py). Returns a
+    # bf16 tensor whose nope dims are fp8(e4m3, pow2/ue8m0 per-64-tile)-ROUND-TRIPPED -> the KEYS the
+    # QAT-trained model expects. rope dims unchanged (bf16).
+    import torch
+
+    from sglang.kernels.ops.attention.dsv4.index_buf_accessor import fp8_dtype
+
+    T = k_bf16.shape[0]
+    if T == 0:
+        return k_bf16
+    dim_nope, tile = 448, 64
+    num_tiles = dim_nope // tile
+    fi = torch.finfo(fp8_dtype)
+    nope = k_bf16[:, :dim_nope].float().reshape(T, num_tiles, tile)
+    max_abs = nope.abs().amax(dim=-1, keepdim=True).clamp_min(1e-8)
+    ceil_log2 = torch.ceil(torch.log2(max_abs / fi.max))
+    scale = torch.exp2(ceil_log2)
+    x_fp8 = (nope / scale).clamp(fi.min, fi.max).to(fp8_dtype)
+    nope_rt = (x_fp8.float() * scale).reshape(T, dim_nope)  # dequant back = fp8-rounded nope
+    return torch.cat([nope_rt, k_bf16[:, dim_nope:].float()], dim=-1).to(torch.bfloat16)
+
+
 def _cpu_fused_k_norm_rope_flashmla(
     kv, kv_weight, eps, freqs_cis, positions, out_loc, kvcache, page_size
 ):
@@ -1463,9 +1487,17 @@ def _cpu_fused_k_norm_rope_flashmla(
                     fh.write(f"[KROPE] shadow failed: {_e}\n")
             except Exception:  # noqa: BLE001
                 pass
-    # Stash the exact dense bf16 keys (pre-pack) so the CPU torch MLA attention reads
-    # them directly instead of unpacking the paged fp8 layout (numerically exact).
-    _stash_kv_write(kvcache.data_ptr(), out_loc, kv_out)
+    # Stash the dense keys for the CPU torch MLA attention. QAT FIX: the authoritative reference
+    # (inference/model.py Attention.forward) does `act_quant(kv[...,:-rope], 64, ue8m0, inplace=True)`
+    # -> the NOPE dims are fp8-ROUND-TRIPPED (the model is QAT-trained for fp8 KV). Stashing the raw
+    # bf16 kv_out (the old "numerically exact" path) feeds the model KEYS MORE PRECISE than it was
+    # trained for -> systematic attention divergence from layer 0. Match the reference: fp8-round the
+    # nope dims (rope stays bf16). INTEL_CPU_DSV4_KV_BF16_EXACT=1 reverts to the old bf16 path (A/B).
+    if _os.environ.get("INTEL_CPU_DSV4_KV_BF16_EXACT") == "1":
+        kv_stash = kv_out
+    else:
+        kv_stash = _fp8_roundtrip_nope_bf16(kv_out)
+    _stash_kv_write(kvcache.data_ptr(), out_loc, kv_stash)
     _iba._set_k_and_s_torch(
         kvcache, out_loc, _cpu_quant_to_nope_fp8_rope_bf16_pack(kv_out), page_size
     )
