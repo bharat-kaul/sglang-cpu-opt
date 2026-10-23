@@ -69,5 +69,17 @@
     "KEY_UNRESOLVED": "The teacher-forced capture is PREFILL; provenance shows _batched_mla_attend (decode attention) did NOT mark sparse_attend during it -> the PREFILL attention path that produced the 0.82 divergence is NOT yet identified. _torch_flash_mla_with_kvcache is installed for all flash_mla calls (line 2486) but either returns early in prefill or prefill uses a different compute. MUST identify the exact prefill attention op before fixing.",
     "next_concrete_step": "Instrument the ACTUAL prefill attention op with per-op I/O capture (q,k,v,sink,out) at layer 0; write an INDEPENDENT fp32 MLA reference from the authoritative formula; feed it the captured GPU inputs (validate reference == GPU out) then CPU inputs (localize: if CPU-out != reference(CPU-in) the compute is wrong; if equal but CPU-in != GPU-in the bug is upstream).",
     "recommendation": "This needs careful instrumented debugging (not quick toggles); each real-weight run is ~15min load. Either (a) invest in the per-op I/O reference harness, or (b) given GPU proves the model+harness are correct and CPU runs coherently at ~0.6-0.77, decide whether to pursue the fix now vs document the known-gap and proceed."
+  },
+  "ATTENTION_SUBOP_CAPTURE_ATTEMPT": {
+    "goal": "oracle-anchored per-op localization: compare attn_in/q_final/q_lora/attn_out at layer 0, GPU-0.5.20 vs CPU-0.5.20, same frozen seq",
+    "result": "CAPTURE NOT CROSS-COMPARABLE. Output logits agree 0.813 on the SAME 1166-token seq (coherent, token-aligned) -> runs are correct. But per-op tensors show token-0 cos ~0.1-0.3 on DETERMINISTIC quantities (q_lora token0 must be identical) -> the capture grabs non-comparable tensors across configs.",
+    "confounds_identified": [
+      "TP MISMATCH: GPU runs tp=4 (149GB model needs 4x H200=376GB; won't fit 1x 94GB), so q_final is head-sharded (16=64/4 heads, rank-0 only) vs CPU tp=1 (64 heads). Need to GATHER all 4 ranks' shards to reconstruct comparable q_final.",
+      "CHUNKED PREFILL: GPU captured 256 tokens (first chunk) vs CPU 1167 (full). Comparable only on overlap, but even token 0 diverges -> not just this.",
+      "ARG/SEMANTIC heuristic: 'first 2D float tensor' + rank-0 capture resolve to DIFFERENT semantic tensors on native-GPU MQALayer vs plugin-CPU MQALayer (MHC-deferred residual, rope phase, arg order). attn_in is full-width (4096, NOT sharded) yet token0 cos=0.07 -> wrong tensor grabbed, not TP."
+    ],
+    "clean_signal_we_DO_have": "OUTPUT LOGITS (teacher-forced, token-aligned, config-robust): CPU 0.81 vs the GPU-vs-GPU 0.98 floor -> REAL attention-path bug from token 1, confirmed not MoE/kernels/rope-app/version.",
+    "to_actually_pinpoint": "Need a SEMANTICALLY-EXACT per-op capture: (1) gather ALL tp ranks' head shards to rebuild full q_final/attn core; (2) capture by EXACT kwarg name per MQALayer.forward signature (not heuristic); (3) run GPU at the SAME effective config (tp accounted for, chunked-prefill off or first-chunk aligned). This is a focused instrumentation build, ~1-2 more iterations.",
+    "honest_status": "Bug is REAL, version-controlled, localized to the attention path, from token 1; ~16 points below the correctness floor. NOT yet pinpointed to a line. Every cheap cross-config per-op capture so far is confounded by TP/chunking/arg-semantics."
   }
 }
