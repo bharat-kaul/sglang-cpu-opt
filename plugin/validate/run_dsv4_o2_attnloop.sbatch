@@ -29,9 +29,9 @@ set +x
 set -o pipefail
 python -u $WT/plugin/validate/capture_logits.py \
   --frozen $WT/plugin/validate/results/p1_frozen_tokenids.json \
-  --device cpu --tp 1 --leg cpu_attnloop --topk 5 --max-seqs 6 --mem-fraction 0.70 \
+  --device cpu --tp 1 --leg cpu_attnloop --topk 5 --max-seqs 1 --mem-fraction 0.70 \
   --out $WT/plugin/validate/results/o2_logits_cpu_attnloop.json 2>&1 \
-  | grep -iE "capture|fell back|Error|Traceback|OOM|died"
+  | stdbuf -oL grep -iE "capture|fell back|Error|Traceback|OOM|died"
 RC=${PIPESTATUS[0]}
 echo "--- dispatch-provenance (capture must be all-C: eager==0) ---"
 python $WT/plugin/validate/check_dispatch_provenance.py $WT/plugin/validate/results/o2_cpu_prov_${SLURM_JOB_ID}.json || true
