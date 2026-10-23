@@ -182,10 +182,13 @@ def _install_attn_io_capture() -> None:
         first_l0 = _is_l0(self) and not _ATTN_IO_DONE
         if first_l0:
             _patch_submods(self)
-            # attn input hidden = positional arg (x) — find the first 2D+ float tensor
-            xin = k.get("x")
+            # attn input hidden = MQALayer.forward(self, positions, hidden_states, forward_batch, ...)
+            # -> hidden_states is positional arg index 1 (exact).
+            xin = k.get("hidden_states")
             if xin is None:
-                xin = k.get("hidden_states")
+                xin = k.get("x")
+            if xin is None and len(a) >= 2 and torch.is_tensor(a[1]):
+                xin = a[1]
             if xin is None:
                 for z in a:
                     if torch.is_tensor(z) and z.is_floating_point() and z.dim() >= 2:
@@ -207,6 +210,28 @@ def _install_attn_io_capture() -> None:
 
     Attn.forward = _fwd
     logger.warning("[ATTNIO] installed (layer-0 attention sub-op I/O capture).")
+
+    # DETERMINISTIC ANCHOR: the DecoderLayer's layer-0 INPUT hidden_states = the embedding (layer 0,
+    # prev_residual=None -> no MHC combine yet). Token-identical frozen prompt -> this MUST match GPU.
+    # If layer_in matches but attn_in (post input_layernorm + MHC-pre) diverges -> the bug is in
+    # input_layernorm / MHC-pre, UPSTREAM of the attention core (which fp32-precision already ruled out).
+    Layer = getattr(_m, "DeepseekV4DecoderLayer", None)
+    if Layer is not None and not getattr(Layer, "_attnio_layer_hooked", False):
+        Layer._attnio_layer_hooked = True
+        _olfwd = Layer.forward
+
+        def _lfwd(self, *a, **k):
+            if int(getattr(self, "layer_id", -1)) == 0 and "layer_in" not in _stash:
+                # signature: forward(self, positions, hidden_states, input_ids, forward_batch, ...)
+                # -> hidden_states is positional arg index 1 (exact, not a dim heuristic).
+                hs = k.get("hidden_states")
+                if hs is None and len(a) >= 2 and torch.is_tensor(a[1]):
+                    hs = a[1]
+                _save("layer_in", hs)
+            return _olfwd(self, *a, **k)
+
+        Layer.forward = _lfwd
+        logger.warning("[ATTNIO] installed DecoderLayer-0 input (embedding anchor) tap.")
 
 
 _install_layer_capture()
