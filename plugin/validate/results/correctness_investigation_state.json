@@ -57,5 +57,17 @@
       "pathological_signature": "first_div = 1 (immediate systematic)"
     },
     "next": "Build an INDEPENDENT (non-CPU-oracle) attention reference from the authoritative model math to break the shared blindspot and localize the attention-core defect (batched MLA algorithm / QK-norm scope / fp8-KV precision)."
+  },
+  "SESSION_CONSOLIDATION": {
+    "what_is_proven": [
+      "Real bug: CPU vs GPU teacher-forced top-1 = 0.82, version-controlled (GPU-0.5.20 vs GPU-0.5.22 floor = 0.978), from position 1.",
+      "Real-world impact: gsm8k CPU ~0.58-0.77 vs GPU ~0.92 on the SAME post-trained checkpoint.",
+      "Character: CPU attention is ~2x flatter/more-diffuse (top1-top2 gap 2.875 vs 5.875); 85% of errors are near-misses (right candidate set, wrong rank).",
+      "Exonerated by hard parity: MoE (0.999997), C-kernels (eager==C vs GPU), rope (cos 1.0), projections (cos 1.0), softmax_scale (identical), sglang version (~2% only)."
+    ],
+    "GPU_reference_precision": "FlashMLA computes QK^T + softmax in FP32 (softmax_lse is fp32), bf16/fp8 operands. Our eager _batched_mla_attend (line 1709) truncates QK to bf16 (torch.matmul(bf16,bf16)->bf16 then .float() too late). The C sparse_attend_masked computes QK in fp32.",
+    "KEY_UNRESOLVED": "The teacher-forced capture is PREFILL; provenance shows _batched_mla_attend (decode attention) did NOT mark sparse_attend during it -> the PREFILL attention path that produced the 0.82 divergence is NOT yet identified. _torch_flash_mla_with_kvcache is installed for all flash_mla calls (line 2486) but either returns early in prefill or prefill uses a different compute. MUST identify the exact prefill attention op before fixing.",
+    "next_concrete_step": "Instrument the ACTUAL prefill attention op with per-op I/O capture (q,k,v,sink,out) at layer 0; write an INDEPENDENT fp32 MLA reference from the authoritative formula; feed it the captured GPU inputs (validate reference == GPU out) then CPU inputs (localize: if CPU-out != reference(CPU-in) the compute is wrong; if equal but CPU-in != GPU-in the bug is upstream).",
+    "recommendation": "This needs careful instrumented debugging (not quick toggles); each real-weight run is ~15min load. Either (a) invest in the per-op I/O reference harness, or (b) given GPU proves the model+harness are correct and CPU runs coherently at ~0.6-0.77, decide whether to pursue the fix now vs document the known-gap and proceed."
   }
 }
