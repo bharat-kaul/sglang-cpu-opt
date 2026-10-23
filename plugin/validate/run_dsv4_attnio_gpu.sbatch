@@ -1,0 +1,36 @@
+#!/bin/bash
+# P1 GPU REFERENCE leg (podman + official sglang CUDA image): run paired_eval.py on the FROZEN token-ID
+# set via NATIVE CUDA (no plugin) = the trusted reference for the GPU/CPU-eager/CPU-C equivalence. The
+# CPU venv has no CUDA, so the GPU leg must run in the CUDA container.
+#SBATCH --partition=h200
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:h200:4
+#SBATCH --cpus-per-task=32
+#SBATCH --time=01:00:00
+#SBATCH --job-name=dsv4_attnio_gpu
+#SBATCH --output=/scratch/bkaul/dsv4_p1_gpu_%j.log
+set -x
+export XDG_RUNTIME_DIR=/tmp/xdg-$(id -u); mkdir -p "$XDG_RUNTIME_DIR" /tmp/podman-runroot; chmod 700 "$XDG_RUNTIME_DIR"
+export TMPDIR=/scratch/bkaul/tmp; mkdir -p "$TMPDIR"
+PROOT=/scratch/bkaul/podman/root; PRUN=/scratch/bkaul/podman/runroot; mkdir -p "$PROOT" "$PRUN"
+PODMAN_GLOBAL="--root $PROOT --runroot $PRUN --events-backend=file --cgroup-manager=cgroupfs"
+nvidia-ctk cdi generate --format=yaml > "$HOME/.config/cdi/nvidia.yaml" 2>/dev/null
+IMG=docker.io/lmsysorg/sglang:v0.5.20-cu130
+WT=/data/nfs_home/bkaul/dsv4-tree-pilot
+RDIR=$WT/plugin/validate/results
+nvidia-smi -L
+DEVARGS=""; N=0
+for u in $(nvidia-smi --query-gpu=uuid --format=csv,noheader); do DEVARGS="$DEVARGS --device nvidia.com/gpu=$u"; N=$((N+1)); done
+echo "=== exposing $N GPUs, tp=$N ==="
+# NATIVE: no SGLANG_EXTERNAL_MODEL_PACKAGE, no INTEL_CPU_* -> pure CUDA reference. paired_eval.py adds
+# its own dir to sys.path so `from task_gsm8k import ...` resolves; frozen file + model under /scratch.
+podman $PODMAN_GLOBAL run --rm $DEVARGS --ipc=host --network=host \
+  -v /scratch:/scratch -v /data/nfs_home/bkaul:/data/nfs_home/bkaul \
+  -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e NCCL_DEBUG=WARN -e NCCL_CUMEM_ENABLE=0 \
+  -e CONTEXT_LEN=4096 -e MAX_TOTAL_TOKENS=131072 -e SWA_RATIO=0.5 -e PYTHONPATH=$WT/plugin -e SGLANG_EXTERNAL_MODEL_PACKAGE=dsv4_layer_capture -e INTEL_CPU_DSV4_ATTNIO_CAPTURE=$RDIR/attnio_gpu.pt -e INTEL_CPU_DSV4_ATTNIO_LEG=gpu \
+  "$IMG" \
+  python $WT/plugin/validate/capture_logits.py \
+    --frozen $RDIR/p1_frozen_tokenids.json \
+    --device cuda --tp $N --leg gpu0520_attnio --topk 5 --max-seqs 1 --mem-fraction 0.85 \
+    --out $RDIR/o2_logits_gpu0520_attnio.json 2>&1 | tail -25
+echo "[exit=${PIPESTATUS[0]}] p1 gpu reference leg"
