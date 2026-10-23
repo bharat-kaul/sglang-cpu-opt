@@ -81,5 +81,11 @@
     "clean_signal_we_DO_have": "OUTPUT LOGITS (teacher-forced, token-aligned, config-robust): CPU 0.81 vs the GPU-vs-GPU 0.98 floor -> REAL attention-path bug from token 1, confirmed not MoE/kernels/rope-app/version.",
     "to_actually_pinpoint": "Need a SEMANTICALLY-EXACT per-op capture: (1) gather ALL tp ranks' head shards to rebuild full q_final/attn core; (2) capture by EXACT kwarg name per MQALayer.forward signature (not heuristic); (3) run GPU at the SAME effective config (tp accounted for, chunked-prefill off or first-chunk aligned). This is a focused instrumentation build, ~1-2 more iterations.",
     "honest_status": "Bug is REAL, version-controlled, localized to the attention path, from token 1; ~16 points below the correctness floor. NOT yet pinpointed to a line. Every cheap cross-config per-op capture so far is confounded by TP/chunking/arg-semantics."
+  },
+  "STEP2_fp32_precision_RULED_OUT": {
+    "fix": "fp32 QK + fp32 PV in eager batched MLA attention",
+    "result": "CPU-fp32fix vs GPU = 0.8185 == baseline 0.8214 (no change). Provenance: sparse_attend C-kernel ran (c_kernel=86, eager=0) -> the attention core was ALREADY fp32 (C sparse_attend_masked does q.to(fp32)).",
+    "conclusion": "QK/softmax PRECISION is NOT the bug. The fp32 attention core still diverges 82%. The attention is fed DIFFERENT INPUTS (upstream) or the KV content differs -> look UPSTREAM of the attention core: MHC-pre (hc_pre runs on layers 0-2), input_layernorm, or the compressed-KV path.",
+    "sharpened_hypothesis": "attn_in (self_attn input, post-norm+MHC-pre) showed token-0 divergence with matching norm. Since token 0 is deterministic, either (a) MHC-pre/norm genuinely differs CPU-vs-GPU (REAL bug upstream of attention), or (b) capture artifact. Disambiguate by capturing the DETERMINISTIC embedding (DecoderLayer layer-0 input hidden_states, must match) vs attn_in."
   }
 }
