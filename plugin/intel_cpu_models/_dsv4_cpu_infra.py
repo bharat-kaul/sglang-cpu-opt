@@ -1573,6 +1573,9 @@ _HAD_CACHE: dict = {}
 # here; the very next MLA attention (same layer) consumes AND clears it. A non-indexer layer
 # leaves it None -> that layer's attention stays dense. Handles alternating c4/c128 layers.
 _SEL_HOLDER: dict = {"pos_kept": None}
+# Sliding-window size for the pure-SWA (indices=None) attention mask. Default 128 (DSV4
+# config.sliding_window); env-overridable. Set once from config at attention install time.
+_SLIDING_WINDOW = int(_os.environ.get("INTEL_CPU_DSV4_SLIDING_WINDOW", "128"))
 
 # One-shot attention diagnostic (gated by INTEL_CPU_DSV4_ATTN_DEBUG=1): file-based so it survives
 # the Engine scheduler subprocess whose stdout the sbatch log does not capture.
@@ -1646,8 +1649,15 @@ def _batched_mla_attend(
         _ts = time.perf_counter()
     ar = torch.arange(n)
     if indices is None or topk_length is None or force_dense:
-        clen = (n - (T - 1)) + torch.arange(T)  # dense causal
-        mask_main = ar.unsqueeze(0) < clen.clamp(min=0, max=n).unsqueeze(1)  # [T, n]
+        # SLIDING-WINDOW causal (reference get_window_topk_idxs, window_size=128): query at absolute
+        # position `base+t` attends ONLY to keys in [base+t-(W-1), base+t], NOT all prior keys. Our
+        # old dense-causal attended to ALL prior -> softmax spread over ~W/n too many keys (the "2x
+        # flatter" symptom) -> divergence. INTEL_CPU_DSV4_NO_SWA_MASK=1 reverts to dense (A/B).
+        _W = _SLIDING_WINDOW
+        hi = (n - (T - 1)) + torch.arange(T) - 1            # absolute causal upper bound per query
+        mask_main = (ar.unsqueeze(0) <= hi.clamp(min=-1, max=n - 1).unsqueeze(1))
+        if _W and _W > 0 and _os.environ.get("INTEL_CPU_DSV4_NO_SWA_MASK") != "1":
+            mask_main = mask_main & (ar.unsqueeze(0) > (hi - _W).unsqueeze(1))  # lower window bound
     else:
         inv = torch.full((int(vslots.max()) + 1,), -1, dtype=torch.long)
         inv[vslots] = torch.arange(n)
