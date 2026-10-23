@@ -1706,7 +1706,7 @@ def _batched_mla_attend(
             if _ck.strict():
                 raise
             logger.warning("[DSA] sparse_attend C kernel fell back to eager: %r", _e)
-    scores = torch.matmul(qb, Kb.t()).float().reshape(T, H, nk) * softmax_scale
+    scores = torch.matmul(qb.float(), Kb.float().t()).reshape(T, H, nk) * softmax_scale  # fp32 scores (match GPU FlashMLA)
     try:
         from . import _dsa_ckernels as _ckm
         _ckm.mark("sparse_attend", "eager")
@@ -1740,7 +1740,7 @@ def _batched_mla_attend(
     if _TIMEIT_ON:
         _tacc("mla.b.softmax", _ts, "kernel")
         _ts = time.perf_counter()
-    out = torch.matmul(p.reshape(T * H, nk).to(torch.bfloat16), Vb).float().reshape(T, H, head_dim_v)
+    out = torch.matmul(p.reshape(T * H, nk).float(), Vb.float()).reshape(T, H, head_dim_v)  # fp32 PV (no bf16 round of p; match GPU)
     if _TIMEIT_ON:
         _tacc("mla.b.pv", _ts, "kernel")
     return out
