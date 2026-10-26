@@ -626,9 +626,170 @@ def install() -> None:
     _install_fp8_proj_parity()
     _install_fp8_force_bf16()
     _install_wo_a_logical_unpack()
+    _install_real_router_injection()
     _install_full_capture()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
+
+
+def _install_real_router_injection() -> None:
+    # PERF-PROXY mode-collapse guard: under --load-format dummy the MoE router/gate weights are RANDOM,
+    # so routing is uniform-random (~135 distinct experts / 32-token batch) vs the real model's learned
+    # ~59 — a 2.3x over-count that biases decode (MoE weight-streaming-bound) tok/s. Inject the REAL
+    # (tiny) gate weights + correction bias (score layers) and tid2eid (hash layers 0-2) from the
+    # checkpoint so the dummy-weight proxy routes like the real model. Env-gated INTEL_CPU_DSV4_REAL_ROUTER=1
+    # (only meaningful with dummy expert weights; harmless with real weights since it re-copies the same).
+    import os as _o
+
+    if not current_platform.is_cpu():
+        return
+    if _o.environ.get("INTEL_CPU_DSV4_REAL_ROUTER") != "1":
+        return
+    import json as _json
+    import re as _re
+
+    import torch
+
+    ckpt = _o.environ.get("INTEL_CPU_DSV4_CKPT", "/scratch/bkaul/models/DeepSeek-V4-Flash")
+    try:
+        from safetensors import safe_open
+        _idx = _json.load(open(f"{ckpt}/model.safetensors.index.json"))["weight_map"]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[REAL_ROUTER] no checkpoint index (%r); skipping injection", e)
+        return
+
+    def _load(name):
+        shard = _idx.get(name)
+        if shard is None:
+            return None
+        try:
+            with safe_open(f"{ckpt}/{shard}", "pt") as t:
+                return t.get_tensor(name)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _layer_of(prefix):
+        m = _re.search(r"layers\.(\d+)\.", prefix or "")
+        return int(m.group(1)) if m else None
+
+    import sglang.srt.models.deepseek_v2 as _dv2
+
+    MoEGate = _dv2.MoEGate
+    if not getattr(MoEGate, "_dsv4_realrouter_tag", False):
+        _oinit = MoEGate.__init__
+
+        def _ginit(self, config, quant_config, prefix="", *a, **k):
+            _oinit(self, config, quant_config, prefix, *a, **k)
+            self._dsv4_gate_layer = _layer_of(prefix)
+
+        MoEGate.__init__ = _ginit
+        MoEGate._dsv4_realrouter_tag = True
+
+    # Score-layer gate weight + correction bias: inject AFTER the dummy fill, BEFORE the VNNI pack.
+    from sglang.srt.layers.amx_utils import PackWeightMethod
+
+    if not getattr(PackWeightMethod, "_dsv4_realrouter_patched", False):
+        _opack = PackWeightMethod.process_weights_after_loading
+
+        def _pack(self, module):
+            lid = getattr(module, "_dsv4_gate_layer", None)
+            if lid is not None and hasattr(module, "weight"):
+                real = _load(f"layers.{lid}.ffn.gate.weight")
+                if real is not None and tuple(real.shape) == tuple(module.weight.shape):
+                    module.weight.data.copy_(real.to(module.weight.dtype))
+                    logger.warning("[REAL_ROUTER] injected real gate weight L%d %s", lid, tuple(real.shape))
+                bias = getattr(module, "e_score_correction_bias", None)
+                if bias is not None:
+                    rb = _load(f"layers.{lid}.ffn.gate.bias")
+                    if rb is not None and tuple(rb.shape) == tuple(bias.shape):
+                        bias.data.copy_(rb.to(bias.dtype))
+            return _opack(self, module)
+
+        PackWeightMethod.process_weights_after_loading = _pack
+        PackWeightMethod._dsv4_realrouter_patched = True
+
+    # Hash-layer (0-2) tid2eid: inject at HashTopK construction.
+    try:
+        from sglang.srt.layers.moe.hash_topk import HashTopK
+
+        if not getattr(HashTopK, "_dsv4_realrouter_patched", False):
+            _ohinit = HashTopK.__init__
+
+            def _hinit(self, *a, **k):
+                _ohinit(self, *a, **k)
+                lid = getattr(self, "layer_id", None)
+                if lid is not None and getattr(self, "tid2eid", None) is not None:
+                    real = _load(f"layers.{lid}.ffn.gate.tid2eid")
+                    if real is not None and tuple(real.shape) == tuple(self.tid2eid.shape):
+                        self.tid2eid.data.copy_(real.to(self.tid2eid.dtype))
+                        logger.warning("[REAL_ROUTER] injected real tid2eid L%d %s", lid, tuple(real.shape))
+
+            HashTopK.__init__ = _hinit
+            HashTopK._dsv4_realrouter_patched = True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[REAL_ROUTER] HashTopK hook failed: %r", e)
+
+    logger.warning("[REAL_ROUTER] installed — real gate weights + tid2eid injected under dummy load.")
+    _install_expert_hist_diag()
+
+
+def _install_expert_hist_diag() -> None:
+    # Confirms the real-router injection worked: logs mean DISTINCT experts selected per forward call
+    # (should drop from dummy-random ~135 toward the real ~59 for B=32). Env-gated
+    # INTEL_CPU_DSV4_EXPERT_HIST=1 — OFF during timed perf runs (adds a tiny per-call reduction).
+    import os as _o
+
+    if _o.environ.get("INTEL_CPU_DSV4_EXPERT_HIST") != "1":
+        return
+    import torch
+
+    _hist = {"calls": 0, "sum_distinct": 0, "sum_tokens": 0}
+
+    def _count(out):
+        try:
+            tids = getattr(out, "topk_ids", None)
+            if tids is not None and tids.numel() > 0:
+                _hist["calls"] += 1
+                _hist["sum_distinct"] += int(torch.unique(tids[tids >= 0]).numel())
+                _hist["sum_tokens"] += int(tids.shape[0])
+                if _hist["calls"] % 20 == 0:
+                    msg = ("[EXPERT_HIST] calls=%d mean_distinct/call=%.1f mean_tokens/call=%.1f"
+                           % (_hist["calls"], _hist["sum_distinct"] / _hist["calls"],
+                              _hist["sum_tokens"] / _hist["calls"]))
+                    logger.warning(msg)
+                    try:
+                        with open(_o.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_expert_hist.txt"), "a") as f:
+                            f.write(msg + "\n")
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        from sglang.srt.layers.moe.topk import TopK
+        classes = [TopK]
+        try:
+            from sglang.srt.layers.moe.hash_topk import HashTopK
+            classes.append(HashTopK)
+        except Exception:  # noqa: BLE001
+            pass
+        for Cls in classes:
+            if getattr(Cls, "_dsv4_hist_patched", False):
+                continue
+            _ofwd = Cls.forward
+
+            def _mk(orig):
+                def _f(self, *a, **k):
+                    out = orig(self, *a, **k)
+                    _count(out)
+                    return out
+                return _f
+
+            Cls.forward = _mk(_ofwd)
+            Cls._dsv4_hist_patched = True
+        logger.warning("[EXPERT_HIST] installed (distinct-expert counter).")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[EXPERT_HIST] install failed: %r", e)
 
 
 def _install_wo_a_logical_unpack() -> None:
