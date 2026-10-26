@@ -7,6 +7,12 @@ released model and enables **performant, accurate CPU inference** in SGLang on I
 Xeon (AMX) — as an Intel-maintained **plugin, no fork** — by reusing existing
 hand-optimized kernels or creating new kernels (having distilled knowhow into skill files) and proving both correctness and performance.
 
+## TL;DR — status at a glance
+A reusable **spine-and-leaf playbook** (a phase-gated methodology **spine** + per-technique optimization **leaf** skills) drives every enablement. Two proven paths:
+- **Thesis 1 — reuse known kernels:** OLMo-2-7B (BF16 + auto-INT8) and OLMoE enabled; **accuracy parity 1.0**; peer-relative within donor-kernel efficiency (eff_rel 0.94–1.26). → [details](#thesis-1--throughput-all-known-kernels--proven)
+- **Thesis 2 — author new kernels:** **DeepSeek-V4-Flash** — novel DSA + MHC kernels authored & validated; **accuracy certified within ~1 pt of the GPU reference** (CPU gsm8k **0.9437** vs GPU **0.9535** on the identical checkpoint); **baseline→optimized 2.19× prefill / 1.59× decode**. → [details](#1--deepseek-v4-flash--flagship-novel-kernels-authored--validated)
+- **Dig deeper:** 📘 [methodology playbook](docs/methodology-playbook.md) · 📗 [kernel-optimization playbook](docs/standalone-kernel-optimization-playbook.md) · 🧩 [kernel performance journey](docs/kernel-pilot-performance.md) · ⏱️ [end-to-end wall time](docs/e2e-wall-time.md)
+
 > **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
 >
 > **Correctness & hygiene, up front:** every enablement clears a fixed gate set *before* any number is published — (1) **dtype hygiene** — each weight family's stored dtype is audited and mapped to a supported compute dtype (low-bit **moved**, bf16 **computed**), and every `stored ≠ compute` dequant bridge is **parity-checked, not assumed**; (2) **coverage-gate** — no novel op is silently dense-approximated; (3) **accuracy oracle** — per-op kernel parity → real-prompt coherence → per-layer parity → task accuracy; (4) **reference oracle (Thesis 2, wherever a GPU + the model are available)** — a GPU reference forward captures per-(layer,op) tensors/logits so CPU bring-up is diffed against ground truth; the first divergent layer localizes integration bugs that per-op checks can't; (5) **honest roofline** — target vs measured at one labeled machine config. Unproven numbers are labeled UNVALIDATED, never implied.
@@ -102,6 +108,9 @@ toward its roofline. Two pages document it in full:
 **DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) carries
 **two genuinely novel op families** — DeepSeek Sparse Attention (lightning-indexer + KV-compressor +
 top-k sparse-MLA) and MHC hash-clustering — while everything else is covered by the DeepSeek-V2 CPU donors.
+
+> **Deep dives for this model:** 🧩 **[Kernel performance journey](docs/kernel-pilot-performance.md)** (per-kernel roofline → baseline → C/C++, + GNR-vs-EMR) · ⏱️ **[End-to-end wall time](docs/e2e-wall-time.md)** (baseline→optimized tok/s + roofline calc) · ✅ **[Accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** (CPU within ~1 pt of GPU).
+
 - **Scope** — scope-discovery surfaced the *true* scope (DSA + MHC **plus** a runtime infra layer, not
   the "4 DSA kernels" a static op-scan implied) → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
 - **Novel kernels authored + parity-validated on CPU** — DSA compressor softmax-pool, lightning-indexer,
@@ -130,13 +139,6 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
   (2.19×), decode 36.2 → 57.5 tok/s (1.59×)** on EMR, at **43% / 8% of the measured-EMR roofline** (prefill
   near its compute ceiling; decode overhead-bound with headroom).
 
-**Deep dives for this model:**
-- 🧩 **[Kernel-journey performance](docs/kernel-pilot-performance.md)** — per-kernel roofline vs baseline vs
-  C/C++ for the six authored DSA kernels (streaming/cold-cache), the M-sweep, and the **GNR-vs-EMR** table.
-- ⏱️ **[End-to-end wall time](docs/e2e-wall-time.md)** — the baseline-vs-optimized tok/s ledger, the
-  **roofline calculation** (EMR + GNR constants + formulas), and the corrected decode attribution.
-- ✅ **[Accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** — the full CPU-vs-GPU chain + the port-bug hunt (below).
-
 **Key learnings (each distilled into a reusable skill — full set in the [playbook](docs/methodology-playbook.md)):**
 1. **Compute from the native precision — keep the MXFP4 nibbles, never up-convert.** Feeding packed fp4
    straight to the W4A16 kernel is both a *capacity* win (~200 GB vs ~275 GB → fits one domain → tp=1) and
@@ -155,11 +157,8 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
    method: [playbook §5](docs/methodology-playbook.md).
 
 **Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
-(O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime; then **scale Flash's donor
-kernels to the 1.6T Pro across a multi-socket EMR cluster**
-(Kimi-K3-style TP/EP/PP) — Pro is too large for one GNR node at tp=1, so its story is *distribution*,
-not new kernels. This is backend plumbing + tuning, not novel-kernel authoring — the DSA math is
-authored + proven in isolation.
+(O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime — backend plumbing + tuning,
+not novel-kernel authoring (the DSA math is authored + proven in isolation).
 
 #### DeepSeek-V4-Flash — accuracy certification (within ~1 pt of the GPU reference on the identical checkpoint)
 Two questions a technical reviewer asks — *is the implementation correct?* and *does it match a trusted
@@ -275,15 +274,6 @@ headroom (an RoI even when no new kernel was written).
   (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the attention-glue seam (~8%), not
   a torch rewrite. *(An earlier "75% of DRAM-BW roofline" figure was a MoE mode-collapse artifact — a
   dummy-random router under-counted expert bytes; the real-router `W_active`=40 GB number supersedes it.)*
-- **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
-  architecture as Flash (DSA + MHC + MLA + native-MXFP4 MoE), so Flash's authored CPU kernels are its
-  **donors** — enabling Pro is Thesis-1-style *wiring + validation*, not new kernels. It is **too large
-  for one GNR node at tp=1**: ~800 GB native MXFP4 exceeds a single 256 GB NUMA domain (and the 768 GB
-  socket), so it can only run **TP≥2** — the decode-hostile config we measured at 2.8× slower. Its
-  realistic home is a **multi-socket EMR cluster** (Kimi-K3-style TP/EP/PP across ~16 sockets) — a
-  *distribution* story, not a kernel story. The [analytical roofline](plugin/validate/results/deepseek_v4_pro_roofline.md)
-  is an earlier GNR-TP4 estimate kept for reference only; the multi-socket roofline is TBD and no
-  single-node Pro run is claimed.
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 
