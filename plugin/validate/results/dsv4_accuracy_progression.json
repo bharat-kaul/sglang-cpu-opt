@@ -1,0 +1,11 @@
+{
+  "title": "DeepSeek-V4-Flash CPU gsm8k accuracy \u2014 real port bug found & fixed",
+  "subtitle": "8-shot CoT, same post-trained Flash checkpoint + protocol as the GPU oracle. A silent wkv_gate weight-prepack permutation in the DSA compressor was localized (boundary-capture + reference-replay) and fixed in 3 steps.",
+  "ceiling": 0.9535,
+  "ceiling_label": "GPU oracle (same checkpoint, same 8-shot protocol) \u2014 0.9535",
+  "stages": [
+    {"label": "CPU baseline", "sub": "pre-fix (compressed attn broken)", "value": 0.796, "kind": "bad"},
+    {"label": "+ wkv_gate row-major", "sub": "prefill correct (layer-2 cos 0.9997)", "value": 0.865, "kind": "ok"},
+    {"label": "+ decode persist +\nrequest-aware mask", "sub": "302/320, all 8 shards PASS", "value": 0.9437, "kind": "good"}
+  ]
+}

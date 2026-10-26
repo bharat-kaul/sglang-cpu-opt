@@ -25,6 +25,61 @@ _CAPTURE_ACTIVE = False
 _CAPTURE_DONE = False
 _INSTALLED = False
 
+# MoE discrete expert-index capture (routing correctness): per-layer selected global expert ids.
+# These are integers and TP-invariant (router runs replicated, topk_ids are global), so they
+# sidestep the MHC [N,4,hidden] layout problem that makes continuous tensor captures non-comparable.
+_MOE_TOPK: "dict[int, list]" = {}
+_MOE_TOPK_INSTALLED = False
+_MOE_TOPK_DONE = False
+
+# Request-bound capture: only fire on the forward whose input_ids match the REAL frozen prompt
+# (NOT the engine warmup/dummy batch, which otherwise pollutes a one-shot "first forward" capture).
+_FROZEN_IDS = None
+_CAPTURE_SEQ_IDX = None
+_CAPTURE_INPUT_IDS = None
+
+
+def _load_frozen_ids():
+    global _FROZEN_IDS
+    if _FROZEN_IDS is not None:
+        return _FROZEN_IDS
+    _FROZEN_IDS = []
+    path = os.environ.get(
+        "INTEL_CPU_DSV4_CAPTURE_FROZEN",
+        "/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/p1_frozen_tokenids.json",
+    )
+    try:
+        d = json.load(open(path))
+        for it in d.get("items", []):
+            _FROZEN_IDS.append(tuple(int(x) for x in it["token_ids"]))
+        logger.warning("[LAYER_CAPTURE] loaded %d frozen seqs for request-bound gating", len(_FROZEN_IDS))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[LAYER_CAPTURE] frozen load failed (%r); capture will not bind to a request", e)
+    return _FROZEN_IDS
+
+
+def _target_seq_index(a, k):
+    # Return (seq_idx, ids_list) if this forward's input_ids match a frozen seq (exact, or same
+    # length + non-constant as a fallback for benign tokenization); else (None, None). This REJECTS
+    # the warmup/dummy forward so the one-shot capture binds to the real prompt on BOTH legs.
+    try:
+        import torch
+
+        ii = a[0] if a else k.get("input_ids")
+        if ii is None or not torch.is_tensor(ii):
+            return None, None
+        ids = tuple(int(x) for x in ii.reshape(-1).tolist())
+        frozen = _load_frozen_ids()
+        for idx, f in enumerate(frozen):
+            if ids == f:
+                return idx, list(ids)
+        for idx, f in enumerate(frozen):
+            if len(ids) == len(f) and len(set(ids)) > 1:
+                return idx, list(ids)
+        return None, None
+    except Exception:  # noqa: BLE001
+        return None, None
+
 
 def _install_layer_capture() -> None:
     global _INSTALLED
@@ -59,12 +114,16 @@ def _install_layer_capture() -> None:
         return out
 
     def _model_fwd(self, *a, **k):
-        global _CAPTURE_ACTIVE, _CAPTURE_DONE
+        global _CAPTURE_ACTIVE, _CAPTURE_DONE, _CAPTURE_SEQ_IDX, _CAPTURE_INPUT_IDS
         outfile = os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE")
-        activate = bool(outfile) and not _CAPTURE_DONE
+        seq_idx, ids = _target_seq_index(a, k) if (bool(outfile) and not _CAPTURE_DONE) else (None, None)
+        activate = seq_idx is not None
         if activate:
             _CAPTURE_ACTIVE = True
+            _CAPTURE_SEQ_IDX = seq_idx
+            _CAPTURE_INPUT_IDS = ids
             _LAYER_STATES.clear()
+            logger.warning("[LAYER_CAPTURE] request-bound activate on frozen seq %d (%d tokens)", seq_idx, len(ids))
         logits = _orig_model_fwd(self, *a, **k)
         if activate:
             _CAPTURE_ACTIVE = False
@@ -79,6 +138,8 @@ def _install_layer_capture() -> None:
                     final_top = None
                 payload = {"leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "unknown"),
                            "n_layers": len(_LAYER_STATES),
+                           "seq_idx": _CAPTURE_SEQ_IDX,
+                           "input_ids": _CAPTURE_INPUT_IDS,
                            "layers": {str(li): v for li, v in sorted(_LAYER_STATES.items())},
                            "final_logits_top5": final_top}
                 tmp = outfile + ".tmp"
@@ -234,5 +295,222 @@ def _install_attn_io_capture() -> None:
         logger.warning("[ATTNIO] installed DecoderLayer-0 input (embedding anchor) tap.")
 
 
+def _install_moe_topk_capture() -> None:
+    """Capture per-layer MoE selected expert ids (discrete, TP-invariant) for CPU-vs-GPU routing
+    comparison. One-shot, env-gated on INTEL_CPU_DSV4_LAYER_CAPTURE; dumps to that file + '.moetopk'.
+    """
+    global _MOE_TOPK_INSTALLED
+    if _MOE_TOPK_INSTALLED:
+        return
+    outfile = os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE")
+    if not outfile:
+        return
+    try:
+        import sglang.srt.models.deepseek_v2 as _dv2
+        from sglang.srt.layers.moe.topk import TopK
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[MOE_TOPK] import failed: %r", e)
+        return
+    try:
+        from sglang.srt.layers.moe.hash_topk import HashTopK
+    except Exception:  # noqa: BLE001
+        HashTopK = None
+    _MOE_TOPK_INSTALLED = True
+
+    # Stash each topk module's last topk_ids on the instance.
+    for Cls in [c for c in (TopK, HashTopK) if c is not None]:
+        if getattr(Cls, "_dsv4_topk_patched", False):
+            continue
+        _orig = Cls.forward
+
+        def _mk(orig):
+            def _f(self, *a, **k):
+                out = orig(self, *a, **k)
+                try:
+                    tids = getattr(out, "topk_ids", None)
+                    if tids is not None:
+                        self._dsv4_last_topk_ids = tids.detach().to("cpu")
+                except Exception:  # noqa: BLE001
+                    pass
+                return out
+            return _f
+
+        Cls.forward = _mk(_orig)
+        Cls._dsv4_topk_patched = True
+
+    MoE = _dv2.DeepseekV2MoE
+    if not getattr(MoE, "_dsv4_topkcap_patched", False):
+        _omf = MoE.forward
+
+        def _moe_fwd(self, *a, **k):
+            out = _omf(self, *a, **k)
+            if _CAPTURE_ACTIVE and not _MOE_TOPK_DONE:
+                try:
+                    tk = getattr(self, "topk", None)
+                    tids = getattr(tk, "_dsv4_last_topk_ids", None)
+                    if tids is not None:
+                        lid = int(getattr(self, "layer_id", -1))
+                        arr = tids.int().tolist()  # [num_tokens, top_k] global expert ids
+                        _MOE_TOPK[lid] = {
+                            "is_hash": bool(getattr(self, "is_hash", False)),
+                            "topk_ids": arr,
+                        }
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[MOE_TOPK] layer %s cap failed: %r", getattr(self, "layer_id", "?"), e)
+            return out
+
+        MoE.forward = _moe_fwd
+        MoE._dsv4_topkcap_patched = True
+
+    # Dump _MOE_TOPK one-shot by wrapping the model forward (composes with the layer-capture wrap).
+    ModelCls = _dv2.__dict__.get("DeepseekV2ForCausalLM")
+    try:
+        import sglang.srt.models.deepseek_v4 as _dv4
+        ModelCls = _dv4.DeepseekV4ForCausalLM
+    except Exception:  # noqa: BLE001
+        pass
+    if ModelCls is not None and not getattr(ModelCls, "_dsv4_moetopk_dump_patched", False):
+        _omodf = ModelCls.forward
+
+        def _model_fwd_dump(self, *a, **k):
+            global _MOE_TOPK_DONE
+            logits = _omodf(self, *a, **k)
+            if not _MOE_TOPK_DONE and _MOE_TOPK:
+                _MOE_TOPK_DONE = True
+                try:
+                    payload = {
+                        "leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "unknown"),
+                        "n_moe_layers": len(_MOE_TOPK),
+                        "seq_idx": _CAPTURE_SEQ_IDX,
+                        "input_ids": _CAPTURE_INPUT_IDS,
+                        "layers": {str(li): v for li, v in sorted(_MOE_TOPK.items())},
+                    }
+                    dst = outfile + ".moetopk"
+                    with open(dst + ".tmp", "w") as f:
+                        json.dump(payload, f)
+                    os.replace(dst + ".tmp", dst)
+                    logger.warning("[MOE_TOPK] wrote %d MoE layers -> %s", len(_MOE_TOPK), dst)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[MOE_TOPK] dump failed: %r", e)
+            return logits
+
+        ModelCls.forward = _model_fwd_dump
+        ModelCls._dsv4_moetopk_dump_patched = True
+    logger.warning("[MOE_TOPK] installed (per-layer expert-id capture).")
+
+
+_ATTNOUT: "dict[int, list]" = {}
+_QFINAL: "dict[int, list]" = {}
+_ATTNOUT_INSTALLED = False
+_ATTNOUT_DONE = False
+
+
+def _install_attnout_capture() -> None:
+    """Request-bound per-layer ATTENTION-MODULE output capture (last-token vector), to separate the
+    attention path from the MoE/MHC path. Reuses the request-bound _CAPTURE_ACTIVE signal; dumps to
+    INTEL_CPU_DSV4_LAYER_CAPTURE + '.attnout' in the compare_layers format. If attn_out diverges at
+    layer 0 -> attention core; if attn_out matches but the layer output (MHC) diverges -> MHC/combine.
+    """
+    global _ATTNOUT_INSTALLED
+    if _ATTNOUT_INSTALLED:
+        return
+    outfile = os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE")
+    if not outfile:
+        return
+    try:
+        import sglang.srt.models.deepseek_v4 as _m
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[ATTNOUT] import failed: %r", e)
+        return
+    Attn = getattr(_m, "MQALayer", None)
+    if Attn is None or getattr(Attn, "_attnout_hooked", False):
+        return
+    _ATTNOUT_INSTALLED = True
+    Attn._attnout_hooked = True
+    _ofwd = Attn.forward
+
+    def _fwd(self, *a, **k):
+        r = _ofwd(self, *a, **k)
+        if _CAPTURE_ACTIVE and not _ATTNOUT_DONE:
+            try:
+                o = r[0] if isinstance(r, (tuple, list)) else r
+                if hasattr(o, "detach"):
+                    v = o.detach().float().reshape(-1, o.shape[-1])[-1].cpu().tolist()
+                    lid = int(getattr(self, "layer_id", getattr(self, "layer_idx", -1)))
+                    _ATTNOUT[lid] = [round(float(x), 6) for x in v]
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[ATTNOUT] layer cap failed: %r", e)
+        return r
+
+    Attn.forward = _fwd
+
+    # q post norm+rope tap: splits compress-rope/q from the compressed-KV/indexer/sparse-attn path.
+    _oqb = getattr(Attn, "_compute_q_b", None)
+    if _oqb is not None and not getattr(Attn, "_qfinal_hooked", False):
+        Attn._qfinal_hooked = True
+
+        def _qbw(self, q, positions, q_out=None, *a, **k):
+            r = _oqb(self, q, positions, q_out, *a, **k)
+            if _CAPTURE_ACTIVE and not _ATTNOUT_DONE:
+                try:
+                    t = r if (r is not None and hasattr(r, "detach")) else q_out
+                    if t is not None and hasattr(t, "detach"):
+                        v = t.detach().float().reshape(-1, t.shape[-1])[-1].cpu().tolist()
+                        lid = int(getattr(self, "layer_id", getattr(self, "layer_idx", -1)))
+                        _QFINAL[lid] = [round(float(x), 6) for x in v]
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[QFINAL] layer cap failed: %r", e)
+            return r
+
+        Attn._compute_q_b = _qbw
+
+    ModelCls = getattr(_m, "DeepseekV4ForCausalLM", None)
+    if ModelCls is not None and not getattr(ModelCls, "_attnout_dump_patched", False):
+        ModelCls._attnout_dump_patched = True
+        _omodf = ModelCls.forward
+
+        def _dump(self, *a, **k):
+            global _ATTNOUT_DONE
+            logits = _omodf(self, *a, **k)
+            if not _ATTNOUT_DONE and _ATTNOUT:
+                _ATTNOUT_DONE = True
+                try:
+                    payload = {
+                        "leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "unknown"),
+                        "n_layers": len(_ATTNOUT),
+                        "seq_idx": _CAPTURE_SEQ_IDX,
+                        "input_ids": _CAPTURE_INPUT_IDS,
+                        "layers": {str(li): v for li, v in sorted(_ATTNOUT.items())},
+                        "final_logits_top5": None,
+                    }
+                    dst = outfile + ".attnout"
+                    with open(dst + ".tmp", "w") as f:
+                        json.dump(payload, f)
+                    os.replace(dst + ".tmp", dst)
+                    logger.warning("[ATTNOUT] wrote %d layers -> %s", len(_ATTNOUT), dst)
+                    if _QFINAL:
+                        qpayload = {
+                            "leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "unknown"),
+                            "n_layers": len(_QFINAL),
+                            "seq_idx": _CAPTURE_SEQ_IDX,
+                            "input_ids": _CAPTURE_INPUT_IDS,
+                            "layers": {str(li): v for li, v in sorted(_QFINAL.items())},
+                            "final_logits_top5": None,
+                        }
+                        qdst = outfile + ".qfinal"
+                        with open(qdst + ".tmp", "w") as f:
+                            json.dump(qpayload, f)
+                        os.replace(qdst + ".tmp", qdst)
+                        logger.warning("[QFINAL] wrote %d layers -> %s", len(_QFINAL), qdst)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[ATTNOUT] dump failed: %r", e)
+            return logits
+
+        ModelCls.forward = _dump
+    logger.warning("[ATTNOUT] installed (request-bound per-layer attn-output tap).")
+
+
 _install_layer_capture()
 _install_attn_io_capture()
+_install_moe_topk_capture()
+_install_attnout_capture()

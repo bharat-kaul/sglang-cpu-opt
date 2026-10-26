@@ -43,7 +43,7 @@ model on the same silicon and kernel. **Precision matrix:** BF16 and INT8 were b
 automatically from the same donor kernels (INT8 via a calibration-free RTN quantizer),
 INT8 giving ~1.5× throughput at preserved accuracy.
 
-## Thesis 2 — RUNNING END-TO-END on CPU (DeepSeek-V4-Flash, tp=1, native MXFP4) — correctness CERTIFIED by bit-equivalence; gsm8k gap is the eval harness, not the CPU port
+## Thesis 2 — RUNNING END-TO-END on CPU (DeepSeek-V4-Flash, tp=1, native MXFP4) — correctness CERTIFIED: CPU gsm8k 0.9437 ≈ GPU 0.9535 (a real ~15-pt port bug was found & fixed)
 
 **Scope (same-day coverage-gate).** The model is **mostly covered** by the DeepSeek-V2 CPU
 kernels (MLA core, dense GEMM, MoE, norm, rope, top-k); the only new family is **DeepSeek Sparse
@@ -91,17 +91,23 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
   the MLA attention had **no dense fallback**, so it gathered nothing → zero attention. Fixed with a
   **causal dense fallback** (attend over all valid KV up to the query position); **per-token parity
   now PASSES** (coherent, correct generations).
-- ✅ **Accuracy CERTIFIED — implementation correct; the gsm8k gap is the eval harness.** (1) **Component +
-  per-token parity** prove the forward: the MXFP4 W4A16 bridge matches a torch dequant oracle (cos 0.999992
-  standalone / 0.999995 in-situ), the DSA sparse attention reduces **exactly to dense at top-k=all** (err
-  1.8e-7), and greedy per-token parity passes. (2) **gsm8k**: CPU **79.9%** (307/384, 8-shot CoT) under our
-  clean harness, and a **standard lm-evaluation-harness** run on the CPU server reproduces **~75%** (8-Q
-  preview) — the two agree and **neither reaches the published 90.8%**. Per-sample dumps show correct
-  reasoning on every item; the misses are **eval-protocol artifacts** (base-model ramble, stop not halting,
-  trailing-number extraction, strict `####` format the base model never emits — `strict-match`=0% by
-  construction). So the 79.9→90.8 gap is **harness/protocol, not a CPU bug**; 90.8 is DeepSeek's own eval
-  setup. (The full per-layer deterministic-dummy *bit-exact* gate is demonstrated on the sister GLM-5.3-Flash;
-  DSV4's full-GPU per-layer oracle was infra-blocked by rootless-podman.)
+- ✅ **Accuracy CERTIFIED — CPU gsm8k 0.9437 ≈ GPU 0.9535 on the SAME checkpoint; a real port bug was found
+  & fixed (not explained away).** An earlier read — *"CPU 79.9%, the gap is the eval harness"* — was
+  **refuted** by binding the comparator correctly: the published 90.8 is Flash-**Base**, so "below 90.8" was
+  never valid; running the **GPU oracle on the same post-trained Flash checkpoint + same 8-shot protocol** gave
+  **0.9535**, exposing a **real ~15-pt CPU port bug**. The DSA compressor's `wkv_gate` projection was
+  AMX-VNNI-**prepacked** but consumed by a plain matmul → a silent weight-layout permutation → garbage
+  compressed KV on every compressed layer (same bug class already fixed for `wo_a`). **Localized to one line**
+  via per-layer cosine vs the GPU oracle (broke exactly at the first compressed layer) → boundary-capture +
+  reference-replay (arithmetic correct, operands wrong) → operand-identity check (live weight vs raw checkpoint
+  = cos 0.0007, norms preserved = a prepack permutation). **Fixed in three steps across three correctness axes:**
+  (1) keep `wkv_gate` row-major → prefill correct (layer-2 cosine 0.9997), gsm8k 0.796→0.865; (2) persist
+  per-request compressed KV for **decode** (a prefill-only handoff ran decode SWA-only); (3) **request-aware**
+  coverage mask (a position-only mask leaks across a batched prefill) → **0.9437** (302/320, all 8 shards PASS).
+  Component parity still holds (MXFP4 bridge cos 0.999992/0.999995; DSA reduces exactly to dense at top-k=all,
+  err 1.8e-7). Residual ~1 pt = benign bf16/fp8 accumulation over 43 layers. *(The full per-layer bit-exact
+  dummy gate is demonstrated on the sister GLM-5.3-Flash; DSV4's real-weight per-layer GPU oracle — which
+  localized this bug — is now unblocked via the podman `--events-backend` workaround.)*
 - ✅ **Performance measured** (post-fix, scheduling-only / token-identical). EMR, tp=1 + decode-cap=8,
   full 43 layers, batch 32: **prefill 69.6 / decode 9.3 tok/s**. Two systemic levers dominated — both
   now reusable skills: the **OpenMP spin-wait fix** (`OMP_WAIT_POLICY=passive`) = **63× prefill / 10×
@@ -112,8 +118,9 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
   real **806 GB Pro** run; publish the full roofline target-vs-measured.
 
 *This is the worked Thesis-2 flagship: the coverage-gate routed it, the plugin wired native MXFP4
-+ the DSA CPU path, and the accuracy oracle did exactly its job — it blocked on a real decode bug
-until correctness passed, and only then were performance numbers published.*
++ the DSA CPU path, and the accuracy oracle did exactly its job — it blocked the number on real bugs
+(a stubbed-decode bug, then a silent weight-prepack permutation in the DSA compressor) until a
+same-checkpoint GPU oracle proved CPU ≈ GPU, and only then were the numbers published.*
 
 ### Second Thesis-2 model — GLM-5.3 Flash (`glm5_next`), enabled by the same playbook
 

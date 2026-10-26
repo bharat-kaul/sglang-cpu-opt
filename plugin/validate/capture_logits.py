@@ -56,6 +56,7 @@ def main():
             extra[kw] = cast(os.environ[ev])
     engine = sgl.Engine(model_path=model, device=args.device, tp_size=args.tp, trust_remote_code=True,
                         disable_overlap_schedule=True, disable_cuda_graph=True,
+                        chunked_prefill_size=16384,
                         mem_fraction_static=args.mem_fraction, log_level="warning",
                         watchdog_timeout=100000, **extra)
 

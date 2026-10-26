@@ -667,6 +667,30 @@ def _install_wo_a_logical_unpack() -> None:
         _Attn.__init__ = _init
         _Attn._wo_a_tag_patched = True
 
+    # Same AMX-VNNI-pack-vs-plain-matmul bug for the DSA compressor's wkv_gate: it is a bf16
+    # ReplicatedLinear consumed by compute_kv_score -> linear_bf16_fp32 (a PLAIN x@wT matmul), but
+    # the CPU weight processor VNNI-packs it -> permuted weight -> scrambled kv_score -> garbage
+    # compressed KV. Tag both the main-attention and indexer compressors' wkv_gate to keep row-major.
+    try:
+        import sglang.srt.layers.attention.dsv4.compressor as _cmp
+
+        _Comp = getattr(_cmp, "Compressor", None)
+        if _Comp is not None and not getattr(_Comp, "_wkvgate_tag_patched", False):
+            _cinit = _Comp.__init__
+
+            def _cinit_tag(self, *a, **k):
+                _cinit(self, *a, **k)
+                try:
+                    if getattr(self, "wkv_gate", None) is not None:
+                        self.wkv_gate._dsv4_keep_rowmajor = True
+                except Exception:  # noqa: BLE001
+                    pass
+
+            _Comp.__init__ = _cinit_tag
+            _Comp._wkvgate_tag_patched = True
+    except Exception:  # noqa: BLE001
+        pass
+
     def _blk_dequant(w_fp8, s):
         wf = w_fp8.float()
         O, I = wf.shape
@@ -679,9 +703,11 @@ def _install_wo_a_logical_unpack() -> None:
         return wf * sf
 
     def _keep_wo_a_rowmajor(layer):
-        # Return True if we handled wo_a (skip the caller's AMX pack).
-        if not getattr(layer, "_dsv4_is_wo_a", False):
+        # Return True if we handled the layer (skip the caller's AMX pack). Covers wo_a AND the DSA
+        # compressor wkv_gate — both are plain-matmul-consumed bf16/fp8 linears the VNNI pack corrupts.
+        if not (getattr(layer, "_dsv4_is_wo_a", False) or getattr(layer, "_dsv4_keep_rowmajor", False)):
             return False
+        _tag = "wo_a" if getattr(layer, "_dsv4_is_wo_a", False) else "wkv_gate"
         w = getattr(layer, "weight", None)
         s = getattr(layer, "weight_scale_inv", getattr(layer, "weight_scale", None))
         try:
@@ -694,12 +720,12 @@ def _install_wo_a_logical_unpack() -> None:
                 layer.weight = torch.nn.Parameter(w.detach().to(torch.bfloat16).contiguous(), requires_grad=False)
             layer._dsv4_wo_a_logical_bf16 = True
             logger.info(
-                "intel_cpu_models: wo_a kept row-major bf16 %s (skipped AMX VNNI pack).",
-                tuple(layer.weight.shape),
+                "intel_cpu_models: %s kept row-major bf16 %s (skipped AMX VNNI pack).",
+                _tag, tuple(layer.weight.shape),
             )
             return True
         except Exception as _e:  # noqa: BLE001
-            logger.warning("intel_cpu_models: wo_a logical unpack failed: %s", _e)
+            logger.warning("intel_cpu_models: %s logical unpack failed: %s", _tag, _e)
             return False
 
     def _wrap(Method):
@@ -1564,6 +1590,17 @@ def _stash_kv_gather(dp: int, idx, out_dtype=None):
 # read by the CPU indexer (step 3). Avoids the paged state-pool entirely.
 _COMPRESSED_STASH: dict = {}
 
+# Route-2-DIRECT: the corrected compressor publishes the main-attention compressed KV here,
+# keyed by extra_k_cache.data_ptr() (shared buffer between compressor + attention). Value =
+# (comp_kv_bf16 [S, head_dim], block_start_abs_pos [S], ratio, query_abs_pos [T]). Consumed
+# (and cleared) by _batched_mla_attend of the SAME layer with a causal coverage mask. Bypasses
+# the CPU-disabled paged slot plan (out_loc / c4_sparse_page_indices are uninitialized).
+_COMPRESSED_HANDOFF: dict = {}
+
+# Decode persistence: prefill stores each request's compressed KV here keyed by (layer_id,
+# req_pool_index) so decode steps (which produce no new full blocks for short gens) can re-publish it.
+_COMPRESSED_PERSIST: dict = {}
+
 # Route-2 DSA step 3: per-layer indexer top-k KV indices [N_q, k], written by the CPU
 # forward_c4_indexer, read by the CPU sparse attention (step 4).
 _TOPK_STASH: dict = {}
@@ -1581,6 +1618,9 @@ _SLIDING_WINDOW = int(_os.environ.get("INTEL_CPU_DSV4_SLIDING_WINDOW", "128"))
 # the Engine scheduler subprocess whose stdout the sbatch log does not capture.
 _ATTN_DBG: dict = {"n": 0}
 _KROPE_DBG: dict = {"n": 0}
+_DSA_DIAG: dict = {"n": 0}
+_BOUNDARY_CAP: dict = {}
+_COMP_INPUT_CAP: dict = {}
 _MLA_PATH_DBG: dict = {"n": 0}
 
 # Per-layer hidden-state diagnostic (gated by INTEL_CPU_DSV4_HID_DEBUG=1): logs each decoder
@@ -1680,8 +1720,30 @@ def _batched_mla_attend(
                 pos = inv[idx]
                 mask_main[t, pos[pos >= 0]] = True
     K_parts, mask_parts = [K_main], [mask_main]
-    # extra (second-source) KV: per-token explicit indices into the extra cache.
-    if edp is not None and extra_indices is not None and extra_topk is not None:
+    # Route-2-DIRECT compressed KV: consume the corrected compressor's per-edp handoff (bypasses the
+    # CPU-disabled paged slot plan whose extra_indices/out_loc are uninitialized). Append the
+    # compressed blocks as a 2nd KV source with a causal COVERAGE mask: block j (start abs pos
+    # bpos[j]) is visible to query at abs pos p iff (j+1)*ratio <= p+1  <=>  p >= bpos[j]+ratio-1.
+    _handoff = _COMPRESSED_HANDOFF.pop(edp, None) if edp is not None else None
+    if _handoff is not None and _os.environ.get("INTEL_CPU_DSV4_COMPRESSOR_FIX", "1") == "1":
+        comp_kv = _handoff["comp_kv"]
+        block_pos = _handoff["block_pos"]
+        block_reqid = _handoff["block_reqid"]
+        query_pos = _handoff["query_pos"]
+        query_reqid = _handoff["query_reqid"]
+        cratio = _handoff["ratio"]
+        S = comp_kv.shape[0]
+        if S > 0:
+            qp = query_pos.reshape(-1)[-T:].to(torch.long)      # this call's query positions
+            qr = query_reqid.reshape(-1)[-T:].to(torch.long)    # this call's query request ids
+            bp = block_pos.reshape(1, -1).to(torch.long)
+            br = block_reqid.reshape(1, -1).to(torch.long)
+            # same-request AND causal coverage (block j visible iff (j+1)*ratio <= p+1)
+            vis = (qr.unsqueeze(1) == br) & (qp.unsqueeze(1) >= bp + int(cratio) - 1)  # [T,S]
+            K_parts.append(comp_kv[:, :K_main.shape[1]].to(torch.bfloat16))
+            mask_parts.append(vis)
+    elif edp is not None and extra_indices is not None and extra_topk is not None:
+        # Legacy paged-index path (used only when the handoff is absent, e.g. COMPRESSOR_FIX=0).
         per_tok = []
         for t in range(T):
             EL = int(extra_topk[t])
@@ -1702,6 +1764,24 @@ def _batched_mla_attend(
                         mask_e[t, pe[pe >= 0]] = True
                 K_parts.append(K_extra)
                 mask_parts.append(mask_e)
+    if _os.environ.get("INTEL_CPU_DSV4_DSA_DIAG") == "1" and _DSA_DIAG["n"] < 6:
+        _DSA_DIAG["n"] += 1
+        try:
+            _kx = K_parts[1] if len(K_parts) > 1 else None
+            _msg = (
+                "[DSA DIAG #%d] T=%d K_main(window)=%d parts=%d extra_present=%s "
+                "extra_K=%s handoff=%s edp_set=%s | K_main last-row rope[-8:]=%s"
+            ) % (
+                _DSA_DIAG["n"], T, n, len(K_parts), len(K_parts) > 1,
+                (tuple(_kx.shape) if _kx is not None else None),
+                _handoff is not None,
+                edp is not None,
+                [round(float(z), 3) for z in K_main[-1, -8:].tolist()],
+            )
+            with open(_os.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_dsa_diag.txt"), "a") as _f:
+                _f.write(_msg + "\n")
+        except Exception:  # noqa: BLE001
+            pass
     K_all = torch.cat(K_parts, 0) if len(K_parts) > 1 else K_parts[0]
     mask = torch.cat(mask_parts, 1) if len(mask_parts) > 1 else mask_parts[0]
     if _TIMEIT_ON:
@@ -1743,6 +1823,7 @@ def _batched_mla_attend(
             out = _ck.sparse_attend_masked(q_in, kv_sh, mask, attn_sink, float(softmax_scale), _oracle)
             if _TIMEIT_ON:
                 _tacc("mla.b.pv", _ts, "kernel")
+            _maybe_boundary_capture(q, K_all, mask, softmax_scale, attn_sink, out, _handoff, _KV_VALID.get(dp), n, T, H, D, head_dim_v)
             return out
         except Exception as _e:  # noqa: BLE001 — parity fail / bad shape -> eager oracle fallback
             if _ck.strict():
@@ -1785,7 +1866,45 @@ def _batched_mla_attend(
     out = torch.matmul(p.reshape(T * H, nk).float(), Vb.float()).reshape(T, H, head_dim_v)  # fp32 PV (no bf16 round of p; match GPU)
     if _TIMEIT_ON:
         _tacc("mla.b.pv", _ts, "kernel")
+    _maybe_boundary_capture(q, K_all, mask, softmax_scale, attn_sink, out, _handoff, _KV_VALID.get(dp), n, T, H, D, head_dim_v)
     return out
+
+
+def _maybe_boundary_capture(q, K_all, mask, softmax_scale, attn_sink, out, handoff, kv_valid, n, T, H, D, head_dim_v):
+    # LAYER-2 BOUNDARY CAPTURE (reviewer-recommended): on the FIRST compressed-layer attention call
+    # (handoff consumed), dump all attention operands + output so an independent reference can be
+    # replayed OFFLINE on identical operands to localize the first failing boundary. One-shot.
+    if handoff is None or not _os.environ.get("INTEL_CPU_DSV4_BOUNDARY_CAPTURE") or _BOUNDARY_CAP.get("done"):
+        return
+    _BOUNDARY_CAP["done"] = True
+    try:
+        import torch as _t
+
+        comp_kv_h = handoff["comp_kv"]
+        bpos_h = handoff["block_pos"]
+        cratio_h = handoff["ratio"]
+        qpos_h = handoff["query_pos"]
+        n_win = int(kv_valid.sum()) if kv_valid is not None else int(n)
+        snap = {
+            "q": q.detach().float().cpu(),
+            "K_all": K_all.detach().float().cpu(),
+            "mask": mask.detach().cpu(),
+            "softmax_scale": float(softmax_scale),
+            "attn_sink": (attn_sink.detach().float().cpu() if attn_sink is not None else None),
+            "out": out.detach().float().cpu(),
+            "n_window": int(n),
+            "S_compressed": int(comp_kv_h.shape[0]),
+            "comp_kv": comp_kv_h.detach().float().cpu(),
+            "bpos": bpos_h.detach().cpu(),
+            "qpos": qpos_h.detach().cpu(),
+            "ratio": int(cratio_h), "T": int(T), "H": int(H), "D": int(D), "hdv": int(head_dim_v),
+        }
+        _dst = _os.environ["INTEL_CPU_DSV4_BOUNDARY_CAPTURE"]
+        _t.save(snap, _dst)
+        logger.warning("[BOUNDARY] layer-2 attention snapshot -> %s (T=%d nk=%d S=%d)",
+                       _dst, T, K_all.shape[0], comp_kv_h.shape[0])
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("[BOUNDARY] capture failed: %r", _e)
 
 
 def _torch_flash_mla_with_kvcache(
@@ -2106,6 +2225,50 @@ def _dequant_fp4_to_bf16(w_int8, scale):
     return (wf * sf).reshape(o, i).to(torch.bfloat16)
 
 
+_SWIGLU_DIAG: dict = {}
+
+
+def _tensor_scalar(v):
+    try:
+        import torch
+        if torch.is_tensor(v):
+            return float(v.reshape(-1)[0].item()) if v.numel() else None
+    except Exception:  # noqa: BLE001
+        pass
+    return v
+
+
+def _swiglu_clamp_limit(layer):
+    # DeepSeek-V4 SwiGLU activation CLAMP (config swiglu_limit, e.g. 10.0). The reference
+    # (inference/model.py Expert.forward) does, for BOTH routed + shared experts:
+    #   up   = clamp(up,  -L, +L)
+    #   gate = clamp(gate,     +L)   # asymmetric: gate clamped on MAX only
+    #   out  = silu(gate) * up       # bias=0, alpha=1 (NOT the gpt-oss +1/alpha=1.702 variant)
+    # sglang's GPU path applies this via rc.swiglu_limit; the CPU plugin previously read
+    # rc.gemm1_clamp_limit (a DIFFERENT, unset field) -> clamp silently skipped -> every expert
+    # output wrong from token 1. Returns the active limit (>0) or None. Gate-off with
+    # INTEL_CPU_DSV4_SWIGLU_CLAMP=0 for A/B.
+    import os as _o
+
+    if _o.environ.get("INTEL_CPU_DSV4_SWIGLU_CLAMP", "1") != "1":
+        return None
+    rc = getattr(layer, "moe_runner_config", None)
+    for attr in ("swiglu_limit", "gemm1_clamp_limit"):
+        v = getattr(rc, attr, None) if rc is not None else None
+        if v is not None and float(v) > 0:
+            return float(v)
+    cfg = getattr(layer, "config", None)
+    v = getattr(cfg, "swiglu_limit", None) if cfg is not None else None
+    return float(v) if (v is not None and float(v) > 0) else None
+
+
+def _swiglu_clamp(g, u, limit):
+    # DeepSeek clamp: gate on max, up on both sides (in-place-safe copies).
+    if limit is None:
+        return g, u
+    return g.clamp(max=limit), u.clamp(-limit, limit)
+
+
 def _torch_fp4_moe_apply(layer, x, topk_weights, topk_ids):
     # BF16 showcase MoE: keep experts fp4 in RAM, dequant each ROUTED expert fp4->bf16 once,
     # then bf16 matmul (SwiGLU). Fits the node (fp4 storage); bf16 compute = accuracy-safe.
@@ -2115,6 +2278,28 @@ def _torch_fp4_moe_apply(layer, x, topk_weights, topk_ids):
     T, hidden = x.shape
     out = torch.zeros(T, hidden, dtype=torch.float32)
     xf = x.float()
+    _lim = _swiglu_clamp_limit(layer)
+    _diag = _os.environ.get("INTEL_CPU_DSV4_SWIGLU_DIAG", "0") == "1" and not _SWIGLU_DIAG.get("done")
+    if _diag:
+        rc = getattr(layer, "moe_runner_config", None)
+        _SWIGLU_DIAG["done"] = True
+        _msg = (
+            "[SWIGLU DIAG] resolved_limit=%s | rc.activation=%s rc.swiglu_limit=%s rc.gemm1_clamp_limit=%s "
+            "rc.gemm1_alpha=%s | layer.gemm1_beta=%s layer.gemm1_clamp_limit=%s layer.swiglu_limit=%s"
+        ) % (
+            _lim,
+            getattr(rc, "activation", None), getattr(rc, "swiglu_limit", None),
+            getattr(rc, "gemm1_clamp_limit", None), getattr(rc, "gemm1_alpha", None),
+            _tensor_scalar(getattr(layer, "gemm1_beta", None)),
+            _tensor_scalar(getattr(layer, "gemm1_clamp_limit", None)),
+            _tensor_scalar(getattr(layer, "swiglu_limit", None)),
+        )
+        logger.warning(_msg)
+        try:
+            with open(_os.environ.get("INTEL_CPU_DSV4_SWIGLU_DIAG_OUT", "/scratch/bkaul/dsv4_swiglu_diag.txt"), "a") as _f:
+                _f.write(_msg + "\n")
+        except Exception:  # noqa: BLE001
+            pass
     for e in topk_ids.unique().tolist():
         if e < 0 or e >= layer.w13_weight.shape[0]:
             continue
@@ -2126,6 +2311,22 @@ def _torch_fp4_moe_apply(layer, x, topk_weights, topk_ids):
         w2 = _dequant_fp4_to_bf16(layer.w2_weight[e], layer.w2_weight_scale_inv[e]).float()
         gate_up = xf[tok] @ w13.t()  # [n, 2*inter]
         g, u = gate_up.chunk(2, dim=-1)
+        if _diag and not _SWIGLU_DIAG.get("stats"):
+            _SWIGLU_DIAG["stats"] = True
+            L = _lim if _lim else 10.0
+            _msg2 = (
+                "[SWIGLU DIAG] gate: max|%.3f| frac>L=%.4f  up: max|%.3f| frac>L=%.4f  (L=%.1f)"
+            ) % (
+                g.abs().max().item(), (g.abs() > L).float().mean().item(),
+                u.abs().max().item(), (u.abs() > L).float().mean().item(), L,
+            )
+            logger.warning(_msg2)
+            try:
+                with open(_os.environ.get("INTEL_CPU_DSV4_SWIGLU_DIAG_OUT", "/scratch/bkaul/dsv4_swiglu_diag.txt"), "a") as _f:
+                    _f.write(_msg2 + "\n")
+            except Exception:  # noqa: BLE001
+                pass
+        g, u = _swiglu_clamp(g, u, _lim)
         act = F.silu(g) * u
         oe = act @ w2.t()  # [n, hidden]
         out.index_add_(0, tok, oe * topk_weights[tok, slot].float().unsqueeze(-1))
@@ -2169,12 +2370,14 @@ def _mxfp4_insitu_parity(layer, x0, topk_w0, topk_id0, out_kernel, rc):
         w13 = torch.stack([_mxfp4_dequant_raw(ref["w13"][e], ref["w13s"][e]) for e in range(E)])
         w2 = torch.stack([_mxfp4_dequant_raw(ref["w2"][e], ref["w2s"][e]) for e in range(E)])
         oracle = torch.zeros(T, hidden, dtype=torch.float32)
+        _lim = _swiglu_clamp_limit(layer)
         for e in range(E):
             mask = topk_id0 == e
             tok, slot = mask.nonzero(as_tuple=True)
             if tok.numel() == 0:
                 continue
             g, u = (xf[tok] @ w13[e].t()).chunk(2, dim=-1)
+            g, u = _swiglu_clamp(g, u, _lim)
             oe = (F.silu(g) * u) @ w2[e].t()
             oracle.index_add_(0, tok, oe * topk_w0[tok, slot].float().unsqueeze(-1))
         got = out_kernel.float()
@@ -3106,11 +3309,89 @@ def _install_mhc_cpu() -> None:
     logger.info("intel_cpu_models: routed MHC sub-ops (sinkhorn, combine) to torch on CPU.")
 
 
-def _cpu_forward_core_compressor(self, x, forward_batch, layer_id, compressor) -> None:
-    # Route-2 CPU compressor: compute compressed KV directly over the sequence (softmax-pool
-    # over windows of `ratio` tokens), RMSNorm, and stash it per (layer_id, ratio) for the CPU
-    # indexer — bypassing the paged plan/state-pool. The compression math = compressor's own
-    # softmax-pool (mirrors _compress_forward_c128_fallback): w=softmax(score+ape), out=sum(w*kv).
+def _overlap_transform(tensor, ratio, d, value):
+    # Reference Compressor.overlap_transform: [b,s,ratio,2d] -> [b,s,2*ratio,d].
+    # positions [ratio:] = current block's normal half (dims d:2d); positions [:ratio] for
+    # windows>=1 = previous block's overlap half (dims :d); window 0 [:ratio] = value.
+    import torch
+
+    b, s, _, _ = tensor.size()
+    new = tensor.new_full((b, s, 2 * ratio, d), value)
+    new[:, :, ratio:] = tensor[:, :, :, d:]
+    new[:, 1:, :ratio] = tensor[:, :-1, :, :d]
+    return new
+
+
+def _compress_prefill_core(
+    kv_all, score_all, ape, norm_weight, norm_eps, freqs_cis, positions, ext,
+    ratio, head_dim, rope_dim, overlap, do_fp8, out_dtype,
+):
+    # PURE producer compute shared by the production compressor AND the offline test, so the test
+    # certifies the REAL path (not a transcription). Inputs: kv_all/score_all [N, coff*head_dim] fp32;
+    # ape [ratio, coff*head_dim] fp32 (RAW, hotfix already undone); norm_weight [head_dim]; freqs_cis
+    # complex [max_pos, rope_dim//2]; positions [N]; ext list of extend lengths. Returns
+    # (comp_bf16 [S, head_dim], bpos [S]). Mirrors reference Compressor.forward prefill.
+    import torch
+
+    cw = (2 if overlap else 1) * head_dim
+    comp_rows, blk_pos = [], []
+    off = 0
+    for L in ext:
+        L = int(L)
+        nwin = L // ratio
+        if nwin > 0:
+            n = nwin * ratio
+            kv_w = kv_all[off : off + n].reshape(1, nwin, ratio, cw)
+            sc_w = score_all[off : off + n].reshape(1, nwin, ratio, cw) + ape
+            if overlap:
+                kv_w = _overlap_transform(kv_w, ratio, head_dim, 0.0)
+                sc_w = _overlap_transform(sc_w, ratio, head_dim, float("-inf"))
+            pooled = (kv_w * sc_w.softmax(dim=2)).sum(dim=2).squeeze(0)  # [nwin, head_dim]
+            comp_rows.append(pooled)
+            blk_pos.append(positions[off : off + n : ratio])
+        off += L
+    if not comp_rows:
+        return None, None
+
+    compressed = torch.cat(comp_rows, 0)  # [S, head_dim] fp32
+    # RMSNorm over head_dim (reference casts back to activation dtype BEFORE rope; align to out_dtype).
+    cn = compressed.to(out_dtype).float()
+    cn = cn * torch.rsqrt(cn.square().mean(-1, keepdim=True) + norm_eps) * norm_weight.float()
+    compressed = cn.to(out_dtype).float()
+    bpos = torch.cat(blk_pos, 0).long()
+
+    if freqs_cis is not None and rope_dim > 0:
+        fr = torch.view_as_real(freqs_cis[bpos]).flatten(-2)  # [S, rope_dim]
+        rp = compressed[:, head_dim - rope_dim :].reshape(-1, rope_dim // 2, 2)
+        xr, xi = rp[..., 0], rp[..., 1]
+        f = fr.reshape(-1, rope_dim // 2, 2)
+        cr, ci = f[..., 0], f[..., 1]
+        roped = torch.stack([xr * cr - xi * ci, xr * ci + xi * cr], dim=-1).reshape(-1, rope_dim)
+        compressed[:, head_dim - rope_dim :] = roped
+
+    comp_bf16 = compressed.to(torch.bfloat16)
+    if do_fp8:
+        comp_bf16 = _fp8_roundtrip_nope_bf16(comp_bf16)
+    return comp_bf16, bpos
+
+
+def _undo_ape_hotfix(ape_param, ratio, head_dim, overlap, converted):
+    # sglang _apply_ape_hotfix (overlap): raw[ratio,coff*d] -> cat([ov_halves,no_halves],0).view(ratio,-1).
+    # Undo to recover the raw [ratio, coff*head_dim] layout the reference adds pre-overlap_transform.
+    import torch
+
+    ap = ape_param.float()
+    cw = (2 if overlap else 1) * head_dim
+    if overlap and converted:
+        a = ap.reshape(2 * ratio, head_dim)
+        ap = torch.cat([a[:ratio], a[ratio:]], dim=-1)
+    return ap.reshape(ratio, cw)
+
+
+
+    # Pre-fix behavior (kept for A/B via INTEL_CPU_DSV4_COMPRESSOR_FIX=0). KNOWN-BUGGY for ratio4:
+    # slices [:D]/[D:2D] of a coff=2 projection (= both KV halves) and stashes to _COMPRESSED_STASH
+    # which NOTHING reads -> compressed branch absent from attention (SWA-only on compressed layers).
     import torch
 
     from intel_cpu_models.dsa_compressor_cpu import compress_softmax_pool
@@ -3119,18 +3400,14 @@ def _cpu_forward_core_compressor(self, x, forward_batch, layer_id, compressor) -
         return
     ratio = int(compressor.ratio)
     head_dim = int(compressor.head_dim)
-    kv_score = compressor.compute_kv_score(x, forward_batch)  # [N, 2*head_dim] (kv | score)
+    kv_score = compressor.compute_kv_score(x, forward_batch)
     kv_all = kv_score[:, :head_dim]
     score_all = kv_score[:, head_dim : 2 * head_dim]
-    ape = compressor.ape.view(-1, head_dim)[:ratio]  # [ratio, head_dim]
-
+    ape = compressor.ape.view(-1, head_dim)[:ratio]
     ext = forward_batch.extend_seq_lens_cpu
     if ext is None:
-        # Decode / no-extend: 1 new token per request; a window only completes every `ratio`
-        # steps. Online incremental compression is a later increment — stash empty for now.
         _COMPRESSED_STASH[(layer_id, ratio)] = kv_all.new_zeros(0, head_dim)
         return
-
     comp_list = []
     off = 0
     for L in ext:
@@ -3144,10 +3421,195 @@ def _cpu_forward_core_compressor(self, x, forward_batch, layer_id, compressor) -
         off += L
     if comp_list:
         compressed = torch.cat(comp_list, 0).to(x.dtype)
-        compressed = _rmsnorm_torch(compressed, compressor.norm)  # rotate=False for c4/c128 compressor
+        compressed = _rmsnorm_torch(compressed, compressor.norm)
     else:
         compressed = kv_all.new_zeros(0, head_dim)
     _COMPRESSED_STASH[(layer_id, ratio)] = compressed
+
+
+def _cpu_forward_core_compressor(self, x, forward_batch, layer_id, compressor) -> None:
+    # CORRECTED CPU compressor (reviewer P1+P2): produce the compressed KV with the FAITHFUL C4/C128
+    # pooling (coff-aware channel split + overlap_transform + compressed-key RoPE + fp8-nope-roundtrip)
+    # and WRITE it into the backend's extra-key cache (_KV_BUF[extra_k_cache.data_ptr()]) at the
+    # metadata out_loc slots, so _batched_mla_attend's extra gather actually finds the compressed keys
+    # (previously it returned None -> SWA-only attention on compressed layers -> layer-2 divergence).
+    # Validated offline vs reference model.py Compressor.forward (test_compressor_offline.py).
+    # INTEL_CPU_DSV4_COMPRESSOR_FIX=0 reverts to the (buggy) legacy stash path for A/B.
+    import os as _o
+
+    import torch
+
+    if _o.environ.get("INTEL_CPU_DSV4_COMPRESSOR_FIX", "1") != "1":
+        return _cpu_forward_core_compressor_legacy(self, x, forward_batch, layer_id, compressor)
+    if forward_batch.forward_mode.is_idle() or x.shape[0] == 0:
+        return
+
+    ratio = int(compressor.ratio)
+    head_dim = int(compressor.head_dim)
+    rope_dim = int(getattr(compressor, "rope_head_dim", 64))
+    overlap = ratio == 4
+    coff = 2 if overlap else 1
+    _diag = _o.environ.get("INTEL_CPU_DSV4_COMPRESSOR_DIAG") == "1"
+
+    kv_score = compressor.compute_kv_score(x, forward_batch)  # [N, 2*coff*head_dim]
+    cw = coff * head_dim
+    kv_all = kv_score[:, :cw].float()
+    score_all = kv_score[:, cw : 2 * cw].float()
+    # ape: undo the sglang load-time HOTFIX (overlap) to recover raw [ratio, coff*head_dim].
+    ape = _undo_ape_hotfix(compressor.ape, ratio, head_dim, overlap, getattr(compressor, "ape_converted", False))
+    positions = forward_batch.positions
+
+    ext = forward_batch.extend_seq_lens_cpu
+    if ext is None:
+        # DECODE: no new full windows for short gens; re-publish each request's PERSISTED prefill
+        # compressed KV so decode attention attends the long-range compressed context (not SWA-only).
+        _decode_republish_compressed(self, forward_batch, layer_id, ratio, head_dim, positions, _diag)
+        return
+
+    norm_eps = getattr(compressor.norm, "variance_epsilon", getattr(compressor.norm, "eps", 1e-6))
+    comp_bf16, bpos = _compress_prefill_core(
+        kv_all, score_all, ape, compressor.norm.weight, norm_eps,
+        getattr(compressor, "freqs_cis", None), positions, ext,
+        ratio, head_dim, rope_dim, overlap,
+        do_fp8=(_o.environ.get("INTEL_CPU_DSV4_KV_BF16_EXACT") != "1"),
+        out_dtype=x.dtype,
+    )
+    if comp_bf16 is None:
+        if _diag:
+            _compressor_diag_write(f"[COMPDIAG] L{layer_id} r{ratio} no full window -> no write")
+        return
+
+    # COMPRESSOR-INPUT CAPTURE (reviewer): dump the producer operands at the FIRST compressed layer so
+    # an independent reference computed from the RAW CHECKPOINT (wkv/wgate/ape/norm) on the SAME x can
+    # be compared to the production comp_kv -> isolates which operand (fused-split / ape / norm / freqs)
+    # is wrong. One-shot.
+    if (overlap and _o.environ.get("INTEL_CPU_DSV4_COMP_INPUT_CAPTURE")
+            and not _COMP_INPUT_CAP.get("done")):
+        _COMP_INPUT_CAP["done"] = True
+        try:
+            fcis = getattr(compressor, "freqs_cis", None)
+            snap = {
+                "layer_id": int(layer_id), "ratio": int(ratio), "head_dim": int(head_dim),
+                "rope_dim": int(rope_dim), "overlap": bool(overlap),
+                "x": x.detach().float().cpu(),                    # compressor INPUT
+                "kv_score": compressor.compute_kv_score(x, forward_batch).detach().float().cpu(),  # fused proj
+                "ape_prod": ape.detach().float().cpu(),           # post undo-hotfix (what production used)
+                "ape_param": compressor.ape.detach().float().cpu(),  # raw stored param (hotfixed)
+                "ape_converted": bool(getattr(compressor, "ape_converted", False)),
+                "norm_weight": compressor.norm.weight.detach().float().cpu(),
+                "norm_eps": float(norm_eps),
+                "wkv_gate_weight": compressor.wkv_gate.weight.detach().float().cpu(),  # live fused weight
+                "positions": positions.detach().cpu(),
+                "ext": [int(v) for v in ext],
+                "comp_kv": comp_bf16.detach().float().cpu(),      # production OUTPUT
+                "bpos": bpos.detach().cpu(),
+                "freqs_at_bpos": (torch.view_as_real(fcis[bpos.long()]).detach().float().cpu()
+                                  if fcis is not None else None),
+            }
+            torch.save(snap, _o.environ["INTEL_CPU_DSV4_COMP_INPUT_CAPTURE"])
+            logger.warning("[COMPIN] L%d compressor-input snapshot saved (x=%s kv_score=%s)",
+                           layer_id, tuple(x.shape), tuple(snap["kv_score"].shape))
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("[COMPIN] capture failed: %r", _e)
+
+
+    # the compressed KV + its block-start absolute positions + the query positions to a per-edp
+    # HANDOFF that _batched_mla_attend consumes directly with a causal COVERAGE mask (block j visible
+    # to query at abs pos p iff (j+1)*ratio <= p+1). Selection is effectively dense here (S<topk), so
+    # the coverage mask equals the correct sparse selection.
+    extra_k_cache = None
+    try:
+        pool = getattr(self, "token_to_kv_pool", None)
+        if pool is not None and hasattr(pool, "get_extra_key_buffer"):
+            extra_k_cache = pool.get_extra_key_buffer(layer_id)
+    except Exception as e:  # noqa: BLE001
+        if _diag:
+            _compressor_diag_write(f"[COMPDIAG] L{layer_id} r{ratio} extra_key_buffer lookup failed: {e!r}")
+
+    S = comp_bf16.shape[0]
+    if extra_k_cache is None:
+        _COMPRESSED_STASH[(layer_id, ratio)] = comp_bf16
+        if _diag:
+            _compressor_diag_write(f"[COMPDIAG] L{layer_id} r{ratio} NO extra_k_cache -> stashed only S={S}")
+        return
+
+    # Request-aware structure: which request each BLOCK and each QUERY (token) belongs to. positions
+    # are per-request, so same-request masking (below) prevents a cross-request compressed-KV LEAK.
+    ext_t = [int(v) for v in ext]
+    nreq = len(ext_t)
+    nwin = [L // ratio for L in ext_t]
+    query_reqid = torch.repeat_interleave(torch.arange(nreq), torch.tensor(ext_t))        # [N]
+    block_reqid = torch.repeat_interleave(torch.arange(nreq), torch.tensor(nwin))         # [S]
+
+    # PERSIST per request for decode (keyed by req_pool_index, stable prefill->decode).
+    rpi = getattr(forward_batch, "req_pool_indices", None)
+    if rpi is not None and block_reqid.numel() == S:
+        rpi_l = rpi.detach().cpu().tolist()
+        for r in range(nreq):
+            bsel = block_reqid == r
+            if bool(bsel.any()) and r < len(rpi_l):
+                _COMPRESSED_PERSIST[(layer_id, int(rpi_l[r]))] = (
+                    comp_bf16[bsel].clone(), bpos[bsel].clone(),
+                )
+
+    edp = extra_k_cache.data_ptr()
+    _COMPRESSED_HANDOFF[edp] = {
+        "comp_kv": comp_bf16, "block_pos": bpos.clone(), "block_reqid": block_reqid,
+        "query_pos": positions.detach().clone(), "query_reqid": query_reqid, "ratio": ratio,
+    }
+    if _diag:
+        _compressor_diag_write(
+            f"[COMPDIAG] L{layer_id} r{ratio} coff{coff} HANDOFF S={S} nreq={nreq} edp={edp} "
+            f"bpos[:4]={bpos[:4].tolist()} npos={positions.shape[0]}"
+        )
+
+
+def _decode_republish_compressed(self, forward_batch, layer_id, ratio, head_dim, positions, _diag):
+    # Rebuild a request-aware handoff for the decode batch from each request's PERSISTED prefill
+    # compressed KV. One query per request; all persisted blocks are in the past (visible).
+    import torch
+
+    pool = getattr(self, "token_to_kv_pool", None)
+    extra_k_cache = pool.get_extra_key_buffer(layer_id) if (pool is not None and hasattr(pool, "get_extra_key_buffer")) else None
+    rpi = getattr(forward_batch, "req_pool_indices", None)
+    if extra_k_cache is None or rpi is None:
+        return
+    rpi_l = rpi.detach().cpu().tolist()
+    parts, bp, br = [], [], []
+    for r, pool_idx in enumerate(rpi_l):
+        pv = _COMPRESSED_PERSIST.get((layer_id, int(pool_idx)))
+        if pv is not None and pv[0].shape[0] > 0:
+            ckv, bpk = pv
+            parts.append(ckv)
+            bp.append(bpk)
+            br.append(torch.full((ckv.shape[0],), r, dtype=torch.long))
+    if not parts:
+        return
+    comp_all = torch.cat(parts, 0)
+    bpos_all = torch.cat(bp, 0)
+    breq_all = torch.cat(br, 0)
+    query_reqid = torch.arange(len(rpi_l))               # one decode query per request
+    edp = extra_k_cache.data_ptr()
+    _COMPRESSED_HANDOFF[edp] = {
+        "comp_kv": comp_all, "block_pos": bpos_all, "block_reqid": breq_all,
+        "query_pos": positions.detach().clone(), "query_reqid": query_reqid, "ratio": ratio,
+    }
+    if _diag:
+        _compressor_diag_write(
+            f"[COMPDIAG] L{layer_id} r{ratio} DECODE republish S={comp_all.shape[0]} nreq={len(rpi_l)}"
+        )
+
+
+def _compressor_diag_write(msg: str) -> None:
+    import os as _o
+
+    try:
+        logger.warning(msg)
+        with open(_o.environ.get("ATTN_DBG_FILE", "/scratch/bkaul/dsv4_compressor_diag.txt"), "a") as f:
+            f.write(msg + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
 
 
 def _cpu_forward_c4_indexer(self, x, q_lora, forward_batch, c4_indexer, *args, **kwargs) -> None:

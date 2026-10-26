@@ -283,6 +283,14 @@ flowchart LR
   Flash-**Base** (FP8); we ran the post-trained Flash (FP4+FP8), which has no published gsm8k number. Our
   compute-path provenance (shape/dispatch/scope) could not catch it: it instruments the computation, not the
   comparator — a different axis that needs its own binding.*
+  **Resolution (the other half of the lesson — bind to the RIGHT anchor, then believe it):** removing the
+  wrong anchor is necessary but not sufficient. The decisive move was running the **GPU oracle on the SAME
+  post-trained Flash checkpoint + the SAME harness/protocol** (route B, §Phase-3 TWO-CHECKPOINTS) — GPU-Flash
+  scored **0.9535**, so the apples-to-apples target was ~0.95, not ~0.80. That **refuted** the comfortable
+  "it's the eval harness, not the port" story and proved a **real ~15-pt CPU port bug** (see §5). *Meta: a
+  checkpoint/harness mismatch and a real port bug can coexist; comparator-provenance dissolves the false panic,
+  but you must still build the correctly-bound oracle and act on what it shows — do not let "the gap is the
+  harness" become an unfalsified exoneration.*
 - **TWO CHECKPOINTS, TWO ROLES — don't fuse the model you OPTIMIZE with the model you VALIDATE accuracy
   against.** When the architecture is identical, the kernels/harness are validated on *either* variant.
   **Accuracy anchor →** the variant that has the PUBLISHED number (e.g. Base): run it so the CPU-correctness
@@ -524,3 +532,76 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
    donor forces 2 dispatches + a materialized score matrix; the lever is a fused one-pass kernel, not a faster
    GEMM. The ISA knob (AVX-512 vs AMX, rule 10) is the sibling: AMX tile-setup is pure dispatch overhead at low
    M, so the no-tile ISA wins there.*
+
+---
+
+## 5. Correctness-bug localization & serving-completeness (model-agnostic)
+
+The Phase-3 companion to §4's perf ledger: how to **localize a correctness gap to one line** and how to know a
+ported serving op is actually *done*. Distilled from the DeepSeek-V4-Flash compressed-attention bring-up, where
+a ~15-pt CPU-vs-GPU gsm8k gap was driven to ~1 pt (0.796 → 0.865 → **0.9437** vs GPU **0.9535**).
+
+**1. The two-reference correctness anchor (authors' reference FIRST, GPU oracle SECOND).** Before porting, read
+the **authors' reference implementation** (`inference/model.py`+`kernel.py`) and extract each op's **numerical
+contract** — dtype at each stage, QAT round-trips (fp8/fp4 `act_quant`), norm scope, RoPE direction/convention,
+scale factors, masking, routing kind. Port to **match** it, not to maximize precision ("numerically exact" is a
+**bug** when the model is QAT-trained for a lower precision). The **GPU oracle that reproduces the published
+accuracy on the SAME checkpoint** is the second reference, for the wired system. A self-built torch oracle is
+convenience only — it **shares your blindspot** (the DSV4 MoE parity oracle omitted the same SwiGLU clamp the
+kernel omitted, so parity passed while both were wrong). Capture the GPU oracle's **per-(layer,op) tensors +
+logits once** and reuse them for every CPU A/B.
+
+**2. Localize with BOUNDARY CAPTURE + REFERENCE REPLAY on IDENTICAL operands — never cosine-chase.** The method
+that drove "somewhere in a 43-layer model" to one weight in ~4 runs:
+   - **Per-layer OUTPUT cosine vs the version-matched GPU oracle → first divergent LAYER** (here the attention-
+     module output broke exactly at the first compressed/DSA layer; pure-SWA layers were 0.9995).
+   - **BOUNDARY capture at the suspect op:** dump **all** operands + output (q, keys, mask, sink, scale, out);
+     replay an **independent** reference on the **identical captured operands**. This splits *arithmetic bug*
+     from *wrong operands* (here: attention self-consistency cos≈1.0 + membership/mask/sink all correct → the
+     arithmetic was fine, the operand VALUES were wrong).
+   - **OPERAND-IDENTITY check (the decisive probe):** recompute the operand from the **RAW CHECKPOINT weights**
+     and compare to production. **Comparing the live weight to the raw-checkpoint weight is the single
+     highest-value probe for a silent layout/permutation bug** — the signature is **orthogonal cosine with
+     per-row norms preserved = a layout permutation (prepack), not a value error**.
+
+**3. The WEIGHT-PREPACK vs CONSUMPTION-PATH audit (a whole silent bug class).** On a CPU port that blanket
+   VNNI/AMX-prepacks every linear's weight, a weight is correct **only if its consumer uses the matching
+   packed-GEMM** (`weight_packed_linear`, is_vnni). **Any weight consumed by a plain matmul, a hand-rolled
+   einsum, or a custom kernel must be EXEMPTED from the pack (kept row-major) or un-packed first.** Make it a
+   Phase-1 checklist: for **every** weight, `(consumer path) × (pack applied?)` must match. The failure is
+   **silent** (no crash, just wrong numbers) and **invisible to op-level cosine on self-oracles** (both sides
+   share the blindspot). *Worked: the DSV4 `wkv_gate` (DSA compressor projection) was consumed by a plain
+   `compute_kv_score → linear_bf16_fp32` matmul but got VNNI-packed → scrambled projection → garbage compressed
+   KV → the whole ~15-pt gap. The plugin had already hit + fixed the identical class for `wo_a` but never
+   audited the other plain-matmul-consumed weights.*
+
+**4. "PREFILL-CORRECT" ≠ "SERVING-CORRECT" — validate a ported op on THREE axes.** A teacher-forced single-
+   sequence layer-cosine certifies only **axis 1**. A ported serving op is done only when all three pass:
+   - **(1) Prefill numerics** — per-layer cosine vs the oracle on a real prompt.
+   - **(2) DECODE** — autoregressive generation. A prefill-only handoff/stash **silently drops state across
+     steps** (DSV4: the compressed-KV handoff was consumed once in prefill and never persisted → decode ran
+     SWA-only, missing long-range context). Persist per-request state (keyed by `req_pool_index`) and
+     re-publish it each decode step.
+   - **(3) BATCHING / cross-request identity** — a mask/cache keyed only on position **leaks across requests**
+     in a batched prefill (positions are per-request 0-indexed → request A's query sees request B's blocks).
+     Masks and caches must carry **(source, request, logical-block, physical-slot) identity**, not position
+     alone.
+   **The end-to-end ACCURACY metric — not the per-layer cosine — is what surfaces axes 2 and 3; keep it in the
+   loop even after the per-layer numerics look perfect.** (DSV4: layer-cosine was 0.9997 after the axis-1 fix,
+   but gsm8k only reached 0.865 until decode-persistence + cross-request masking took it to 0.9437.)
+
+**5. Capture hygiene (so an expensive diagnostic run is trustworthy).**
+   - **Request-BIND the capture** to the forward whose `input_ids` match the frozen prompt; **reject the engine
+     WARMUP/dummy forward** (a one-shot "first forward" capture otherwise fires on 256 copies of token 0, making
+     every cross-leg tensor look orthogonal). Assert the embedding anchor before trusting downstream diffs.
+   - **The offline test must call the ACTUAL production function**, not a second transcription — a test that
+     compares two transcriptions of the same math is **circular** and certifies nothing. Refactor the producer
+     into a pure fn that **both** production and the test call.
+   - **count ≠ softmax MASS** — "291 of 419 keys" does not prove a source dominates; measure the real per-head
+     softmax mass before blaming it.
+   - **TP-layout traps** — a CPU last-global-head vector vs a GPU rank-local last-head vector are **different
+     heads**; prefer **replicated / all-reduced** boundaries (post-o_proj `[N,hidden]`, 1-KV-head MLA compressed
+     KV) that are TP-invariant, or reconstruct sharded ones in global coordinates before comparing.
+   - **Multi-hypothesis runs** — with ~15-min real-weight loads, env-gate isolation switches
+     (`FORCE_DENSE`, `COMPRESSOR_FIX`, boundary/operand captures) so one run resolves several unknowns at once
+     (weight/ape/out_loc identity **and** the output cosine), not one yes/no per run.

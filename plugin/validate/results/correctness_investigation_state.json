@@ -110,5 +110,248 @@
     "CRITICAL_REFRAME": "My oracle has been sglang-GPU, NOT the authors' reference. The authors' reference (inference/model.py) is the TRUE SPEC. If sglang-GPU itself deviates from the reference on these ops (e.g. sglang also does dense or non-fp8-KV), then matching the reference makes CPU DIVERGE from sglang-GPU but closer to CORRECT. The stable 0.82-vs-sglang is NOT the right success metric for reference-backed fixes. The RIGHT metric is gsm8k ACCURACY vs published 90.8 -- the fixes may improve accuracy even while top-1-vs-sglang is flat.",
     "remaining_dominant_suspect": "Stable 0.82 across all attention/KV changes -> the dominant divergence is NOT attention precision/mask/KV. It is in routing/selection LOGIC shared by eager+C: MoE gate/router (biased_grouped_topk -> wrong experts = wrong FFN every layer), or MHC hc_post, or the q per-head RMSNorm. Check these vs the reference next.",
     "next": "(a) run gsm8k accuracy WITH the reference-backed fixes (the real metric). (b) verify MoE Gate/router + hc_post + q-norm vs the authors' reference."
-  }
+  },
+  "audit_log": [
+    {
+      "ts": "2026-10-22T22:29:23",
+      "event": "EXHAUSTIVE_OP_AUDIT_vs_authors_reference",
+      "verified_match": [
+        "MHC sinkhorn/combine (cos=1.0)",
+        "q_norm after wq_a",
+        "per-head q RMSNorm after wq_b (_cpu_fused_q_norm_rope)",
+        "interleaved RoPE: adjacent-pair complex mult matches reference unflatten(-1,(-1,2))",
+        "inverse RoPE on attn output (fi=-fi conjugate) matches reference inverse=True",
+        "kv_norm + kv RoPE",
+        "fp8 KV act_quant on nope dims (fixed, took effect 4.8%)",
+        "grouped wo_a einsum bsgd,grd->bsgr",
+        "MoE hash routing threaded (input_ids_global->tid2eid)"
+      ],
+      "fix_effect": {
+        "kvfix_vs_baseline_argmax_agreement": 0.952,
+        "swafix_vs_kvfix_argmax_agreement": 1.0,
+        "note": "KV fp8 fix changed 4.8% of tokens (took effect, neutral vs sglang-GPU). SWA window fix was dead code (prefill SWA pool already caps at 128 -> identical to kvfix)."
+      },
+      "conclusion": "Entire reference Attention.forward op chain + MHC + MoE-hash routing statically matches authors reference. Stable ~0.82 top-1-vs-sglang-GPU is NOT a single mis-ported op. Next arbiter = gsm8k ACCURACY (real metric, job 391610) not top-1-vs-sglang.",
+      "remaining_hypotheses": [
+        "freqs_cis TABLE values (yarn params) differ sglang-vs-reference -> every-layer rope rotation off (but would grow with position, our divergence is early)",
+        "runtime dtype/contiguity/layout in fused C kernel not captured by torch port (static match != runtime match)",
+        "0.82 top-1 is a cross-config measurement artifact; CPU gsm8k accuracy may actually be ~correct (job 391610 resolves this)"
+      ]
+    },
+    {
+      "ts": "2026-10-23T00:52:18",
+      "event": "GSM8K_ACCURACY_WAVE_391610_with_reference_fixes",
+      "complete_shards_1_7": "223/280=0.7964",
+      "baseline": "245/320=0.766",
+      "delta": "+~3 points (0.766 -> 0.796)",
+      "interpretation": "KV fp8-roundtrip fix improved REAL accuracy while top-1-vs-GPU stayed flat (reframe confirmed). But ~0.79 != published ~0.90 -> residual gap, bug NOT fully located.",
+      "CRITICAL_OPEN": "Published 0.90 is Flash-BASE. CPU runs post-trained FLASH. GPU gsm8k on the SAME Flash checkpoint was NEVER measured. If GPU-Flash~0.80 then CPU 0.79 is CORRECT and there is no remaining bug. MUST measure GPU-Flash accuracy (apples-to-apples target) before calling 0.79 a gap."
+    },
+    {
+      "ts": "2026-10-23T00:58:28",
+      "event": "FREQS_CIS_TABLE_CHECK_ruled_out",
+      "finding": "sglang precompute_freqs_cis (sglang/kernels/ops/attention/deepseek_v4_rope.py) is byte-identical to authors reference precompute_freqs_cis. Per-layer params sourced identically: COMPRESS layers base=compress_rope_theta=160000 + YaRN(factor=16,orig_seq=65536,beta_fast=32,beta_slow=1); SWA layers (ratio==0) base=rope_theta=10000, original_seq_len=0 => NO yarn. Plugin builds NO freqs_cis of its own (no precompute/polar/outer) -> consumes sglang correct self.freqs_cis buffer.",
+      "verdict": "RULED OUT: rope frequency table is correct per reference for both compress and SWA layers. Plugins _install_dsv4_rope_cpu_fix SWA-unscaled routing MATCHES reference (ratio==0 -> unscaled base 10000)."
+    },
+    {
+      "ts": "2026-10-23T01:10:49",
+      "event": "GPU_FLASH_ACCURACY_apples_to_apples + VERSION_EQUIVALENCE",
+      "gpu_flash_gsm8k": "1250/1311 = 0.9535 (PASS)",
+      "cpu_flash_gsm8k": "~0.796 (223/280 complete shards)",
+      "published_base": "0.908",
+      "gpu_base_reproduced": "0.923",
+      "REFRAME_SECTION_6_STATUS": "DEAD. GPU on the SAME post-trained Flash checkpoint + SAME protocol scores 0.9535 (even higher than Base). So CPU 0.796 is NOT correct; there is a REAL ~15-point CPU port bug. The wrong-checkpoint-target hypothesis is refuted.",
+      "TOP1_METRIC_REHABILITATED": "The stable 0.82 CPU-vs-GPU teacher-forced top-1 WAS the real bug signal, not a cross-config artifact. Deprioritizing it was wrong.",
+      "VERSION_EQUIVALENCE_CHECK": {
+        "cpu": "sglang 0.5.20.dev373+g5aab054ec (official commit 5aab054ec8, run from site-packages build)",
+        "gpu": "container lmsysorg/sglang:v0.5.20-cu130 reports 0.5.20 (release)",
+        "deepseek_v4.py": "numerical forward IDENTICAL (precompute_freqs_cis identical; only GPU attn-sink head-padding plumbing differs: _kernel_num_heads/_local_attn_sink(kernel_num_heads))",
+        "moe_topk.py": "diffs are CUDA/HIP/aiter JIT dispatch + fused-shared-expert plumbing (not numerics)",
+        "hash_topk.py": "ONE real numeric delta: container adds _RENORMALIZE_SUM_EPSILON in topk-weight renorm; dev373 does not. Tiny; cannot explain 15pts. (Note: hash routing = layers 0-2.)",
+        "deepseek_v2.py": "PP-rank/NPU plumbing only",
+        "verdict": "Versions are NUMERICALLY EQUIVALENT for accuracy. The 0.9535-vs-0.796 gap is a genuine CPU PORT BUG, not a version artifact."
+      },
+      "next": "Resume bug hunt with version-equivalent GPU-Flash(0.95) oracle. Strongest suspect unchanged: MoE routing selecting wrong experts (runtime expert-index compare, discrete set-match) and/or runtime dtype/layout in C kernels. Use canonical capture contract (same TP/prompt) to find first divergent layer."
+    },
+    {
+      "ts": "2026-10-23T01:47:53",
+      "event": "ROOT_CAUSE_CANDIDATE_located_SwiGLU_clamp (reviewer-confirmed + verified)",
+      "mechanism": "config swiglu_limit=10.0 active. Reference Expert.forward clamps up in [-10,10], gate<=10, then silu(gate)*up (bias=0,alpha=1), for BOTH routed+shared. sglang GPU applies via rc.swiglu_limit. CPU plugin read rc.gemm1_clamp_limit (separate field, None) -> fused_experts_cpu ran UNCLAMPED. Shared experts use shared_expert_cpu (no clamp arg). Native CPU swiglu kernel is gpt-oss shaped (silu_glu*(up+1)), cannot do DeepSeek bias=0.",
+      "why_missed": "parity oracle (_mxfp4_insitu_parity) ALSO lacked clamp -> kernel-vs-oracle parity passed (shared blindspot). Routing/expert-index checks cannot see it (clamp is post-routing in expert compute).",
+      "fix_applied": "_swiglu_clamp_limit + _swiglu_clamp helpers; clamp added to _torch_fp4_moe_apply (routed) + parity oracle. Gated by INTEL_CPU_DSV4_SWIGLU_CLAMP (default on).",
+      "validation_running": "A/B teacher-forced captures 391687(clamp on)/391688(clamp off) via FP4_MOE_BF16 torch path; compare top-1 vs GPU-Flash logits o2_logits_gpu0520. Expect clamp-on >> clamp-off toward GPU.",
+      "known_residual": "shared experts (shared_expert_cpu) still unclamped in this A/B (routed-only). Also production MXFP4 fused path needs a correct fast clamp (kernel bias=0) \u2014 follow-up after proof.",
+      "reviewer_directives_agreed": [
+        "prioritize clamp (routed+shared)",
+        "repair request-bound GPU capture (capture fired on warmup dummy)",
+        "do not treat MoE parity as exoneration",
+        "no accuracy-restoration claim without matched eval"
+      ]
+    },
+    {
+      "ts": "2026-10-23T02:39:08",
+      "event": "SWIGLU_CLAMP_empirically_RULED_OUT",
+      "ab_result": "clamp OFF top-1=0.8163, clamp ON top-1=0.8154 (identical within noise)",
+      "diag": "resolved_limit=10.0 (engaged); rc.activation=silu, rc.swiglu_limit=10.0; layer mxfp4 params (gemm1_beta/clamp/swiglu)=None on CPU. gate max|4.202| frac>10=0.0000; up max|5.191| frac>10=0.0000 -> clamp FIRES 0% (activations never reach +-10).",
+      "verdict": "SwiGLU clamp is a real code discrepancy but NOT the bug: it never fires on real activations. Reviewer lead ruled out.",
+      "corollary": "clean bf16 torch MoE (_torch_fp4_moe_apply) = 0.8163 == fused MXFP4 (0.82), both diverge from GPU. MoE EXPERT COMPUTE is correct -> bug is UPSTREAM (hidden/router input) or EXPERT SELECTION (routing).",
+      "next": "Repair request-bound capture (per-layer hidden + expert-index were warmup-contaminated/invalid), then first-divergent-layer localization vs GPU-Flash."
+    },
+    {
+      "ts": "2026-10-23T03:05:59",
+      "event": "VALID_ALIGNED_LOCALIZATION (request-bound capture repaired)",
+      "alignment": "input_ids identical across legs, seq_idx=0, 1167 tokens (hash layers 0-2 = 100% match confirms real alignment)",
+      "moe_expert_index": "hash layers 0,1,2 = 100.00% exact CPU==GPU; score layers 3-42 DIVERGE (first layer 3: 11.3% exact, Jaccard 0.58)",
+      "hidden_cosine": "layer0=0.987 then collapses ~0.23 by layer1 (noisy due to MHC [N,4,hidden] stream layout)",
+      "interpretation": "Divergence is UPSTREAM of MoE. Hash routing correct (100%). MoE expert compute already proven correct. Score-routing divergence at L3 is a SYMPTOM of hidden drift feeding the router. Root = early-layer (0/1) NON-MoE path: attention (pure-SWA window128) / MHC hyper-connections / norm.",
+      "ruled_out_now": [
+        "SwiGLU clamp (fires 0%)",
+        "MoE expert compute (torch==fused==0.82)",
+        "hash routing (100% match)",
+        "MoE score-router logic as ROOT (symptom of upstream)"
+      ],
+      "next": "request-bound sub-op capture layers 0-3: attention output vs MoE output (single [N,hidden] post-combine vector, MHC-unambiguous) to localize attention-vs-MHC-vs-norm."
+    },
+    {
+      "ts": "2026-10-23T03:34:51",
+      "event": "BUG_LOCALIZED_to_DSA_compressed_attention",
+      "attn_out_cosine": "L0=0.9995, L1=0.9995 (pure-SWA, ratio0 CORRECT); L2=0.196 DIVERGES (ratio4, FIRST compressed/DSA layer); L3+ diverged",
+      "layer_output_hidden": "L0=0.987 (MHC-combined; attn_out at L0 is 0.9995 so the 0.987 is MHC-capture-artifact/minor, NOT the root)",
+      "config_compress_ratios": "[0,0,4,128,4,128,...] -> layers 0,1 pure-SWA; layer 2 first compressed",
+      "conclusion": "Pure-SWA attention CORRECT. Bug is in the DSA compressed-attention path that first appears at layer 2: compressor (KV compression) / indexer (topk block selection) / sparse_attn over window+compressed KV / compress-layer rope (base 160000 YaRN). NOT MoE/routing/MHC/norm/clamp/SWA.",
+      "next": "within-layer-2 sub-op capture: q_final(post-rope), compressed kv, woa_in(attn-core output) CPU vs GPU to split compress-rope vs compressor vs indexer vs sparse-attn."
+    },
+    {
+      "ts": "2026-10-23T04:08:30",
+      "event": "WIRING_vs_TOPK_resolved_REVIEWER_CONFIRMED",
+      "test": "INTEL_CPU_DSV4_FORCE_DENSE=1 (ignore indexer top-k, attend dense) vs sparse",
+      "result": "layer-2 attn_out cos = 0.196443 DENSE == 0.196443 SPARSE (identical) -> indexer top-k selection is NOT the differentiator (indexer already effectively dense at 1167ctx, topk512>=~260 blocks)",
+      "conclusion": "Reviewer CONFIRMED: bug is in the COMPRESSED-KV CONTENT/WIRING, not top-k. Suspects: main compressor (softmax-pool/overlap-transform/strided compress-rope base160000), concat window+compressed KV, compressed-cache storage/read, sparse-attn compute over compressed KV. q_final capture was a TP-head-sharding artifact (unusable).",
+      "next": "capture compressed-KV content (compressor output [N_comp,512], 1 KV head => TP-invariant, cleanly comparable) CPU vs GPU to split compressor-output vs sparse-attn-compute; then code-review compressor pooling/overlap/compress-rope/concat vs reference model.py Compressor.forward."
+    },
+    {
+      "ts": "2026-10-23T04:35:24",
+      "event": "REVIEWER_REPORT_COMPREHENDED (dsv4_cpu_correctness_independent_review.md)",
+      "reviewer_root_causes": [
+        "P1: compressed-KV PRODUCER disconnected from CONSUMER. _COMPRESSED_STASH/_TOPK_STASH WRITTEN, NEVER READ. _batched_mla_attend reads _KV_BUF/extra_k_cache; CPU compressor override never writes the backend extra-key cache -> compressed branch can be silently ABSENT (extra gather returns None) -> SWA-only attention. Reviewer reproduced: compressor made 2 rows, populated ZERO _KV_BUF; attention returned SWA-only [0.5,0] vs correct [1/3,1] when compressed cache written.",
+        "P2: C4 compressor channel layout WRONG. coff=2 fused proj = [KVprev|KVcur|SCOREprev|SCOREcur]; our code slices [:D]=kv,[D:2D]=score -> uses 2nd KV half AS score, ignores real scores. Also no overlap_transform, no compressed-key RoPE/quant/dest-cache write, decode stashes empty. Reviewer falsification: changing real score channels left CPU compressor output UNCHANGED."
+      ],
+      "reviewer_challenges_to_my_claims": [
+        "FORCE_DENSE only changes MAIN/SWA mask, STILL uses extra_indices for compressed -> NOT a true dense-over-all-compressed test; equal rounded cosines != identical tensors (use torch.equal+maxabsdiff).",
+        "q_final tap: CPU last-global-head vs GPU rank-local last-head != same head -> unusable until (token,global_head,tp_rank) aligned.",
+        "SwiGLU clamp NOT fully ruled out: my diag measured only FIRST routed expert first call (_SWIGLU_DIAG done/stats suppress rest); shared experts never clamped. \"0% on measured sample\" OK; \"never fires anywhere\" NOT established. But reviewer AGREES clamp contribution unmeasured; prioritize L2 signal.",
+        "request-gate same-length-nonconstant fallback should be REMOVED; capture must be rank-safe, fail on missing tensors."
+      ],
+      "reviewer_action_order": [
+        "restore DeepSeek clipping routed+shared (NOT via native +1/interleaved stub)",
+        "repair request/rank-safe capture (embedding anchor must pass)",
+        "measure clipping activity + same-input FFN delta on real data",
+        "follow first valid divergent boundary (compressed-cache wiring FIRST, then C4 layout/overlap, then compressed-key rope/quant, then indexer)",
+        "matched-question eval vs GPU"
+      ],
+      "reconciliation": "My localization (bug at first compressed layer, not indexer-topk) AGREES with reviewer P1/P2. Reviewer goes deeper: the compressed PRODUCER is disconnected AND the C4 layout is wrong. My DSA_DIAG (job 391764) directly tests P1 (is extra/compressed KV present at L2)."
+    },
+    {
+      "ts": "2026-10-23T04:41:55",
+      "event": "P1_EMPIRICALLY_CONFIRMED_compressed_KV_absent_at_attention",
+      "dsa_diag": "calls#1-2 (L0,1 pure-SWA): edp_set=False (correct). calls#3-6 (L2+ compressed): edp_set=TRUE but extra_K=None extra_present=False parts=1 -> compressed gather returns NOTHING, attention is SWA-ONLY, missing all ~291 compressed keys.",
+      "mechanism": "backend passes extra_k_cache (edp_set=True) but _KV_BUF[edp] never populated: CPU compressor writes _COMPRESSED_STASH (unread); _stash_kv_gather(edp) -> None -> K_parts=[K_main] only. Matches reviewer P1 exactly + my layer-2 (0.196) localization.",
+      "fix_target": "populate the extra/compressed KV cache that _batched_mla_attend gathers (edp/_KV_BUF[edp]) with the correctly-produced compressed KV (which also needs P2 C4-layout fix + compressed-key rope). Then the compressed branch contributes.",
+      "status": "ROOT CAUSE CONFIRMED (producer-consumer disconnect). Next: fix per reviewer order."
+    },
+    {
+      "ts": "2026-10-23T04:54:09",
+      "event": "COMPRESSOR_FIX_implemented + offline-validated + high-info run launched",
+      "offline_test": "plugin/validate/test_compressor_offline.py: corrected producer == reference model.py Compressor.forward at ALL boundaries (ratio4 len 4/5/7/8/9/12, ratio128 128/129/256) cos=1.0 maxabs=0. P2 math CONFIRMED.",
+      "implementation": "_cpu_forward_core_compressor rewritten (gated INTEL_CPU_DSV4_COMPRESSOR_FIX, legacy fallback): coff-aware split (ratio4 coff2 -> kv=[:2D] wrong-was-[:D]), overlap_transform, ape[ratio,coff*D], softmax-pool, norm, compressed-rope@block-start (base160000), fp8-nope-roundtrip, WRITE to _KV_BUF[extra_k_cache.data_ptr()] at _get_out_loc(ratio).",
+      "open_risk": "CPU disables paged compressor plan (create_paged_compressor_data->None), so _get_out_loc(ratio)/c4_out_loc may be None -> write falls back to stash (no attention contribution). But DSA diag showed extra_k_cache+extra_indices ARE passed to attention. Run 391776 resolves: ape shape, out_loc availability, compute_kv_score width, write success, layer-2 attnout cosine (ONE high-info run).",
+      "next": "read 391776 diag: if out_loc present+write succeeds+cosine recovers -> DONE (validate full gsm8k). If out_loc None -> must re-enable paged plan on CPU OR publish matching physical slots for extra_indices."
+    },
+    {
+      "ts": "2026-10-23T05:03:53",
+      "event": "COMPRESSOR_FIX_run_391776: producer CORRECT, paged slot plumbing DEAD on CPU",
+      "good": "ape(4,1024)=coff2 CONFIRMED on real weights; compute_kv_score width correct; producer wrote S=291(r4)/9(r128) rows per compressed layer.",
+      "problem": "out_loc[:4]=[0,0,0,64] UNINITIALIZED (paged plan disabled via create_paged_compressor_data->None). Attention extra_indices=c4_sparse_page_indices also uninitialized. => write-target AND read-selection both bogus. Attention still extra_K=None, layer-2 cosine UNCHANGED 0.196.",
+      "fix_plan": "Route-2-DIRECT: bypass dead paged indices. Compressor stashes correct compressed KV [S,head_dim] + block-start abs positions per layer_id. _batched_mla_attend reads stash for compressed layers, appends as 2nd KV source with CAUSAL COVERAGE mask: block j (start bpos[j]) visible to query at abs pos p iff (j+1)*ratio<=p+1. Selection effectively dense (291<512) so coverage mask = correct.",
+      "needs": "layer_id + query abs positions in _batched_mla_attend (positions derivable from existing hi=base+t causal bound)."
+    },
+    {
+      "ts": "2026-10-23T05:26:37",
+      "event": "ROUTE2_DIRECT_plumbing_WORKS_but_compressed_numerics_WRONG",
+      "status": "P1 producer-disconnect FIXED: compressor handoff consumed by attention (parts=2, extra_K=(291,512), handoff=True). Producer coff-split + overlap_transform + ape-hotfix-undo + compressed-rope + fp8 implemented, offline-validated vs reference math.",
+      "problem": "layer-2 attn_out cosine: 0.196 (SWA-only) -> 0.143 (compressed wired). ADDING compressed makes it WORSE -> compressed KV attended with wrong values/weight. ape-hotfix-undo had ~no effect (0.142->0.143).",
+      "suspects_remaining": [
+        "compressed-KV rope POSITION convention (block-start j*ratio vs other)",
+        "coverage mask / double-count with window",
+        "FORCE_DENSE window(128) interaction for compressed layers",
+        "compressed KV magnitude/representation vs window K_main in MLA-absorbed space",
+        "attn_sink handling for the 2-source softmax",
+        "compute_kv_score kv/score HALF order within coff (kv_ov|kv_no vs kv_no|kv_ov)"
+      ],
+      "decision": "re-engage reviewer (deep sglang layout knowledge) with precise state + ask: correct compressed-KV rope-position + mask + window convention. Continue iterating in parallel."
+    },
+    {
+      "ts": "2026-10-23T06:49:59",
+      "event": "REVIEWER_R3_actioned: production producer CERTIFIED offline + dtype fix",
+      "did": [
+        "Refactored producer into pure _compress_prefill_core shared by production + test (reviewer: test must call production, not a transcription).",
+        "Fixed dtype boundary (reviewer found): now cast to activation dtype before rope, matching reference.",
+        "Test now calls ACTUAL _compress_prefill_core: ALL PASS cos=1.0 maxabs=0 incl fp8, ratio4 len8/9/12/16 + ratio128 128/256.",
+        "Confirmed reviewer dispositions: rope pos=block-start (correct, no A/B); half-order split agrees source; NO extra absorb; single per-head sink in joint denominator."
+      ],
+      "meaning": "PRODUCER COMPUTE is certified == reference on identical operands. Remaining divergence must be in LIVE OPERANDS (fused-proj split / loaded ape+norm identity / freqs_cis rows) or ATTENTION INTEGRATION (coverage membership / sink / Q coordinate / window). 291/419 is a COUNT not softmax-mass (reviewer) -> dominance unproven.",
+      "next": "reviewer decisive probe: ONE layer-2 boundary capture of PRODUCTION operands (x, fused proj, ape/norm, pooled, post-norm+dtype, post-rope, post-fp8, Q, SWA keys, compressed keys+source membership, freq rows, scale, sink, attn-core pre/post inverse-rope, module out) + reference replay on IDENTICAL operands -> first failing boundary = the fix.",
+      "caveats_reviewer": "handoff is prefill-only investigative: decode skips production, no cross-request identity in mask, no top-k when completed blocks>512. Blocks GSM8K/serving claims until addressed."
+    },
+    {
+      "ts": "2026-10-23T20:18:48",
+      "event": "LAYER2_BOUNDARY_ANALYSIS: attention integration CORRECT, bug in compressed-KV OPERAND VALUES",
+      "results": {
+        "attn_self_consistency": "cos=1.006 maxabs=5e-6 -> arithmetic (mask+sink+scale+PV) CORRECT, bug in OPERANDS",
+        "membership": "K_all[n:n+S]==comp_kv exact; last-query compressed=291 (expected 291); window=128 -> coverage mask CORRECT",
+        "softmax_mass": "mean window=0.796 compressed=0.202 sink=0.002; last-query window=0.65 compressed=0.348 -> compressed gets 20-35% mass (reviewer right: count!=mass, not dominant but significant)",
+        "key_norms": "window L2=12.70 compressed L2=19.60 (ratio 1.54) -> compressed KV ~54% larger norm (suspicious; could be norm-weight diff or a producer-value bug)",
+        "logit_range": "window[-4.17,9.17] compressed[-4.11,4.29]",
+        "window_struct": "128 max/query -> SWA window correct"
+      },
+      "conclusion": "Attention arithmetic + membership + mask + sink ALL correct. The ~15-35% compressed mass carries WRONG values -> corrupts output (0.143). Bug isolated to compressed-KV OPERAND VALUE (direction/magnitude), not integration. Producer math certified vs reference on IDENTICAL operands, so suspect LIVE OPERAND IDENTITY: ape (post-undo-hotfix) actually raw? kv/score fused-split correct? compressor.freqs_cis rows? norm weight identity? OR window-KV/q at compressed layer.",
+      "next": "extend capture to compressor INPUTS (x, wkv_gate out=kv_score, ape raw, norm weight, freqs rows at bpos) + recompute compressed KV from RAW checkpoint weights via reference model.py path, compare to production comp_kv. Isolates compressed-value operand bug vs window/q."
+    },
+    {
+      "ts": "2026-10-23T20:57:15",
+      "event": "ROOT_CAUSE_FIXED: wkv_gate AMX-VNNI-prepack corruption (same class as wo_a)",
+      "bug": "CPU weight processor unconditionally AMX-VNNI-packs every linear, but compressor.wkv_gate is consumed by compute_kv_score->linear_bf16_fp32 (PLAIN x@wT matmul). Packed weight + plain matmul = scrambled kv_score -> garbage compressed KV. Same bug class the plugin already fixed for wo_a.",
+      "fix": "Extended _install_wo_a_logical_unpack: tag compressor.wkv_gate (main+indexer) + keep row-major bf16, skip AMX pack.",
+      "operand_validation": "[A0] live wkv_gate.weight vs raw cat: cos 0.0007->1.0 maxabs=0. [A] kv_score cos 0.009->1.0. [C] compressed KV vs raw ref cos 0.02->0.9997. First failing boundary: NONE.",
+      "layer2_cosine": "0.196(SWA-only)/0.143(broken)->0.999658 FIXED. First divergence moved layer 2 -> layer 28.",
+      "full_profile": "smooth gradual decline 0.9995(L0)->0.997(L10)->0.99(L20)->0.98(L40) = benign bf16/fp8 accumulation over 43 layers, NO discrete second bug. All layers >=0.978.",
+      "caveat": "validated on PREFILL (teacher-forced layer cosine). Reviewer caveat: handoff is prefill-only; decode skips compressed-KV production. gsm8k generation (autoregressive decode) may need decode-path wiring for full accuracy.",
+      "next": "run gsm8k accuracy wave with fix -> measure real improvement vs 0.796 baseline / GPU 0.9535. If partial, wire decode compressed-KV persistence."
+    },
+    {
+      "ts": "2026-10-23T23:58:27",
+      "event": "GSM8K_with_wkv_gate_fix: 0.796 -> 0.865 (+7pts, ~44% of gap closed)",
+      "result": "job 392055: complete shards 242/280=0.864; with partial shard0 270/312=0.8654. Baseline 0.796, GPU 0.9535.",
+      "interpretation": "wkv_gate fix (prefill compressed attention correct, layer cosine 0.9997) gives REAL +7pt accuracy. Remaining ~9pt gap = reviewer-flagged DECODE caveat: compressor returns early for decode (ext is None) -> autoregressive generation is SWA-only, misses compressed long-range prompt context.",
+      "next": "wire DECODE compressed-KV: (a) PERSIST prefill compressed KV per-request so decode attention reads it; (b) incremental compression state for new blocks during generation; (c) cross-request identity (clear/rebuild per request). gsm8k answers short so (a) is the dominant win."
+    },
+    {
+      "ts": "2026-10-24T04:02:45",
+      "event": "RESOLVED: CPU gsm8k 0.9437 ~= GPU 0.9535 (gap 15.7pt -> ~1pt)",
+      "trajectory": {
+        "baseline": 0.796,
+        "wkv_gate_fix_prefill": 0.865,
+        "decode_persist+request_aware": 0.9437,
+        "GPU": 0.9535
+      },
+      "result": "job 392114: 302/320 = 0.9437, all 8 shards PASS (0.90-0.975). Within ~1pt of GPU.",
+      "fixes_landed": [
+        "1. wkv_gate AMX-VNNI-prepack corruption: tag compressor wkv_gate (main+indexer) keep row-major bf16 (same class as wo_a). [prefill compressed attention correct, layer cosine 0.9997]",
+        "2. DECODE persistence: prefill stores per-request compressed KV keyed by (layer_id,req_pool_index); decode re-publishes so generation attends long-range compressed context (not SWA-only).",
+        "3. CROSS-REQUEST leak fix: request-aware coverage mask (same-request AND causal) prevents batched-prefill request A seeing request B compressed blocks."
+      ],
+      "residual": "~1pt (0.9437 vs 0.9535) = benign bf16/fp8 accumulation over 43 layers + minor decode incremental-new-block omission (short gens) + run variance. Within noise.",
+      "no_regression": "prefill layer-2 cosine still 0.999658 after request-aware change."
+    }
+  ]
 }

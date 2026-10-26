@@ -81,6 +81,11 @@ by both; each model then has its own section.
   4. **Full model + real weights.** Paid **only** for accuracy + a final no-regression confirm.
 - **Accuracy oracle gates before any perf claim** — real-prompt coherence → per-token parity → task
   accuracy; a failing gate blocks the number (it did here — see below).
+- **Boundary-capture + reference-replay localization** — when a per-layer cosine vs a *same-checkpoint*
+  GPU oracle flags a divergent layer, dump that op's operands and replay an **independent** reference on the
+  **identical** operands to split *arithmetic bug* from *wrong operands*, then an **operand-identity check**
+  (live weight vs raw checkpoint) names the line. This drove a ~15-pt DSV4 gap to one weight; method in
+  [playbook §5](docs/methodology-playbook.md).
 
 #### 1 · DeepSeek-V4-Flash — flagship (novel kernels authored + validated)
 **DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) carries
@@ -103,14 +108,20 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
   decode → MLA gathered nothing → zero attention); fixed with a causal **dense fallback**. Per-token
   parity now passes (coherent, correct generations); the MXFP4 bridge is parity-checked standalone
   (cos 0.999992) and in-situ on the real checkpoint (cos 0.999995).
-- **Accuracy CERTIFIED — the forward is numerically faithful and the headline gsm8k gap is the eval
-  harness, not the CPU port.** Component + per-token parity prove the implementation (MXFP4 bridge cos
-  0.999992 / 0.999995; the DSA sparse attention reduces **exactly to dense at top-k=all**, err 1.8e-7;
-  greedy per-token parity passes). On task, CPU gsm8k = **79.9%** (307/384, our clean 8-shot CoT harness)
-  and **~75%** under the **standard EleutherAI lm-evaluation-harness** on the CPU server — the two agree
-  and neither reaches the card's 90.8%, because the residual is an **eval-protocol artifact** (base-model
-  ramble + stop/extraction + strict `####` format), not a port bug. Full argument + reproducibility in
-  **Accuracy certification** below.
+- **Accuracy CERTIFIED — CPU gsm8k 0.9437 ≈ GPU 0.9535 on the SAME checkpoint (a real port bug was
+  found & fixed, not explained away).** An earlier read — *"CPU 79.9%, the gap is the eval harness"* —
+  was **refuted** by binding the comparator correctly: running the **GPU oracle on the same post-trained
+  Flash checkpoint + same 8-shot protocol** gave **0.9535**, so the apples-to-apples target was ~0.95, not
+  ~0.80. That exposed a **real ~15-pt CPU port bug** in the DSA compressed attention — the compressor's
+  `wkv_gate` projection was AMX-VNNI-**prepacked** but consumed by a plain matmul (a silent weight-layout
+  permutation, the same bug class already fixed for `wo_a`). Localized to one line via **boundary-capture +
+  reference-replay on identical operands** (per-layer cosine → first divergent layer → operand-identity check:
+  live weight vs raw checkpoint = orthogonal with per-row norms preserved = a prepack permutation). Fixed in
+  three steps — **(1)** keep `wkv_gate` row-major → prefill compressed attention correct (layer-2 cosine
+  0.9997), gsm8k 0.796 → 0.865; **(2)** persist per-request compressed KV for **decode** (a prefill-only
+  handoff ran decode SWA-only) and **(3)** make the coverage mask **request-aware** (a position-only mask leaks
+  across a batched prefill) → **0.9437** (all 8 shards PASS 0.90–0.975). Residual ~1 pt is benign bf16/fp8
+  accumulation over 43 layers. Full argument + reproducibility in **Accuracy certification** below.
 - **Performance measured** (EMR, tp=1 + decode-cap=8, full 43 layers, batch 32): **prefill 69.6 /
   decode 9.3 tok/s** → [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md).
 
@@ -127,6 +138,16 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
 4. **tp=1 + thread-cap beats TP for decode.** The model fits one socket, so TP only adds barrier/comm
    cost at decode (tp=2 = 2.8× slower) — TP is a capacity/prefill lever. Authoritative decode config:
    **tp=1 + decode-cap=8**.
+5. **Audit every weight for prepack-vs-consumption mismatch.** On a CPU port that blanket VNNI/AMX-packs
+   linears, a weight consumed by a plain matmul/einsum/custom kernel must be kept **row-major** — a packed
+   weight + plain matmul is a **silent permutation** (wrong numbers, no crash). The DSA `wkv_gate` hit this
+   (the whole ~15-pt gap); signature = *live weight vs raw checkpoint orthogonal but per-row norms preserved*.
+6. **Localize correctness bugs with boundary-capture + reference-replay on identical operands.** Per-layer
+   cosine vs a same-checkpoint GPU oracle → first divergent layer → dump the op's operands and replay an
+   independent reference on them → the operand-identity check (live weight vs raw checkpoint) names the line.
+7. **Prefill-correct ≠ serving-correct — validate three axes.** Layer cosine (prefill) certifies only axis 1;
+   **decode** (persist per-request state, don't drop it across steps) and **cross-request batching** (masks
+   keyed on identity, not position) are separate failures the **end-to-end accuracy metric** surfaces.
 
 **Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
 (O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime; then **scale Flash's donor
@@ -135,9 +156,12 @@ kernels to the 1.6T Pro across a multi-socket EMR cluster**
 not new kernels. This is backend plumbing + tuning, not novel-kernel authoring — the DSA math is
 authored + proven in isolation.
 
-#### DeepSeek-V4-Flash — accuracy certification (the CPU forward is numerically faithful; the gsm8k gap is the eval harness)
-Two questions a technical reviewer asks — *is the implementation correct?* and *why is gsm8k 79.9% vs the
-card's 90.8%?* — are answered by **two independent lines of evidence, kept deliberately separate**.
+#### DeepSeek-V4-Flash — accuracy certification (a real port bug was found & fixed; CPU gsm8k ≈ GPU)
+Two questions a technical reviewer asks — *is the implementation correct?* and *does it match a trusted
+reference on task?* — are now answered the honest way: **CPU gsm8k 0.9437 ≈ GPU 0.9535** on the **same**
+checkpoint and protocol, after finding and fixing a real ~15-pt CPU port bug. (An earlier draft of this
+section claimed the gap was "the eval harness, not the port"; that was **wrong** and is corrected below —
+the correction itself is the lesson.)
 
 **(A) Numerical faithfulness — proven at the component + token level, not asserted.**
 - **Every `stored ≠ compute` dtype bridge is parity-gated against an independent oracle.** The MXFP4 W4A16
@@ -149,33 +173,47 @@ card's 90.8%?* — are answered by **two independent lines of evidence, kept del
 - **Greedy (temperature-0) per-token parity passes** on real prompts — coherent, correct generations. This
   gate earned its keep: it caught a real decode bug (DSA selection stubbed at decode → MLA gathered nothing →
   zero attention), fixed with a causal dense fallback, *before* any number was published.
-- *Scope, stated honestly:* the methodology's gold gate — full **per-layer deterministic-dummy CPU↔GPU
-  bit-exactness** (cos 1.000001, rel-maxerr 0.0 on every layer) — is demonstrated on the **sister model
-  GLM-5.3-Flash**; DSV4's equivalent full-GPU per-layer oracle was *infrastructure*-blocked (rootless-podman
-  has no subuid range on this cluster), so DSV4 rests on the component + per-token parity above.
+- **Per-layer CPU↔GPU parity on the REAL checkpoint** — a version-matched GPU oracle (same 0.5.20 build,
+  same post-trained Flash checkpoint) captures every decoder layer's attention-module output on a frozen
+  prompt; the CPU build now matches it **cos ≥ 0.998 for layers 0–27 and ≥ 0.978 through layer 42** (a smooth
+  bf16/fp8-accumulation slope, no divergence cliff). This per-layer oracle is what localized the `wkv_gate`
+  bug to the first compressed layer — see (B). (The earlier draft said DSV4's full-GPU per-layer oracle was
+  infrastructure-blocked; the podman `--events-backend` workaround unblocked it this cycle.) The
+  deterministic-dummy *bit-exact* variant (cos 1.000001, rel-maxerr 0.0) remains demonstrated on the sister
+  model **GLM-5.3-Flash**.
 
-**(B) The gsm8k gap is the eval harness — shown per-sample, not claimed.**
+**(B) The task gap was a REAL port bug — found by binding the comparator correctly, then localized to one line.**
 
-| Harness (greedy, 8-shot CoT) | Score | n |
+![DSV4-Flash CPU gsm8k accuracy progression vs the same-checkpoint GPU oracle](docs/plots/dsv4_accuracy_progression_v1.png)
+
+| Stage | gsm8k | Note |
 |---|---|---|
-| Our clean-CoT harness (CPU) | **79.9%** (307/384) | 384 |
-| Standard EleutherAI `lm-eval` `local-completions` (same CPU server) | **75%** flexible · 0% strict | 8 (preview) |
-| DeepSeek model card (their harness) | **90.8%** | full |
+| CPU baseline (pre-fix) | **0.796** | the number the "eval harness" story tried to explain away |
+| + `wkv_gate` row-major fix (prefill) | **0.865** | compressed attention now correct in prefill (layer-2 cosine 0.9997) |
+| **+ decode persist + request-aware mask** | **0.9437** | 302/320, all 8 shards PASS (0.90–0.975) |
+| **GPU oracle — SAME post-trained Flash checkpoint, SAME 8-shot protocol** | **0.9535** | the apples-to-apples target (1250/1311) |
 
-- **Two independent harnesses agree at ~75–80% on the *same* CPU server.** A numerical bug does not produce
-  coherent, correct, *reproducible* reasoning under two unrelated harnesses — it collapses. Agreement is the
-  signature of a faithful forward scored by an imperfect protocol.
-- **The misses are mechanistic eval artifacts, auditable per-sample** (greedy → deterministic):
-  - **`strict-match` = 0% is a pure *format* artifact** — it requires the gold's literal `#### N` delimiter,
-    which a *base* model never emits (it writes “The answer is N.”). It measures formatting, not correctness.
-  - **`flexible-extract` misses are base-model continuation + last-number extraction.** With no
-    instruction-following stop, the base model answers correctly, then keeps generating into an *unrelated*
-    problem, and the regex takes the trailing number. Concrete (sample doc 5): the model computed the glasses
-    total = **$64 (correct)**, then continued *“Now I will solve… A store is offering a 20% discount…”* and the
-    extractor captured **“$12.50”** → scored 0 **despite the right answer**.
-- **The published 90.8 is DeepSeek's own eval setup** (proper answer-delimiting / stopping, or an instruct
-  checkpoint); gsm8k is well-documented as ~10–15 pts harness-sensitive for *base* models. Closing the last
-  gap is an eval-protocol change, not a kernel change.
+- **The decisive move was the correctly-bound oracle.** The published 90.8 is Flash-**Base** (FP8), a
+  *different* checkpoint; our post-trained Flash has no published gsm8k number, so "below 90.8" was never a
+  valid signal. Running the **GPU on the same checkpoint + same harness** gave **0.9535** → the real target was
+  ~0.95, and CPU at 0.80 was genuinely ~15 pts low. *Comparator-provenance dissolved the false "below published"
+  panic; the correctly-bound GPU oracle then revealed the gap was real after all.*
+- **The bug: a silent weight-layout permutation.** The DSA compressor's `wkv_gate` projection was
+  AMX-VNNI-**prepacked** (as the CPU path packs every linear) but **consumed by a plain matmul**
+  (`compute_kv_score → linear_bf16_fp32`) → scrambled projection → garbage compressed KV → wrong attention on
+  every compressed layer (37 of 43). This is the **same bug class** the plugin had already fixed for `wo_a`;
+  `wkv_gate` was simply never audited.
+- **Localized to one line via boundary-capture + reference-replay** (method now in the playbook §5): per-layer
+  attn-output cosine vs the GPU oracle broke **exactly at the first compressed layer** (pure-SWA layers 0/1 =
+  0.9995); a boundary capture + independent replay on identical operands showed the attention *arithmetic* was
+  correct (self-consistency cos≈1.0) so the compressed-KV *values* were wrong; the operand-identity check — live
+  `wkv_gate.weight` vs the raw checkpoint = **cos 0.0007 with per-row norms preserved** — named it a prepack
+  permutation.
+- **Three fixes, three correctness axes** (playbook §5.4): (1) keep `wkv_gate` row-major → **0.865**;
+  (2) persist per-request compressed KV so **decode** attends long-range context (a prefill-only handoff ran
+  decode SWA-only); (3) make the coverage mask **request-aware** (a position-only mask leaks across a batched
+  prefill) → **0.9437**. Residual ~1 pt (0.9437 vs 0.9535) is benign bf16/fp8 accumulation over 43 layers
+  (per-layer cosine declines smoothly, no cliff) + minor decode incremental-block omission on long gens.
 
 **Reproducible, not hand-waved:** generations are saved (`--gens-out`) and scored offline
 ([`score_gsm8k.py`](plugin/validate/score_gsm8k.py) grid); the full run is node-parallel + chunked

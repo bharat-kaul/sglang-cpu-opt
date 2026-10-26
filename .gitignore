@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 *.tgz
+
+# Large diagnostic capture tensors (keep out of git)
+plugin/validate/results/*.pt
+plugin/validate/results/attnio*.pt
