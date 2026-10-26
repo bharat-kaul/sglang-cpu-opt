@@ -34,6 +34,37 @@ router collapsed routing onto a few experts, so `W_active` was ~2.3× too small 
 With the real router (correct `W_active` = 40 GB/step), the decode bound is **overhead/dispatch + the not-yet-
 fused aten ops**, not raw BW.
 
+### Roofline calculation (EMR + GNR — formulas + measured constants)
+
+Both rooflines are rooted in **native-compute peak + DRAM bandwidth** (gap-ledger rule 13 — low-bit
+experts/KV cut *bytes*, they do not raise a compute ceiling the HW lacks). Constants are **measured** per node
+by the uarch-perf-probe ([tools/uarch_perf_probe](../tools/uarch_perf_probe); EMR job 392787, GNR job 372840).
+
+| measured constant | **EMR** (pcl-spr08, 2 NUMA) | **GNR** (pcl-gnrap01, 6 NUMA) |
+|---|---:|---:|
+| AMX bf16 compute peak | **12.4 TFLOPS** | **30.9 TFLOPS** |
+| DRAM BW, per-domain | 328.9 GB/s | 226.3 GB/s |
+| DRAM BW, full-node (triad) | **848 GB/s** | **2152 GB/s** |
+
+**Prefill (TTFT) — compute-bound.** `prefill_tok/s_roof = AMX_bf16_peak / FLOPs_per_token`.
+FLOPs/token (43L, linear layers only, 2 MACs/param) = **30.2 GFLOP** = MLA proj + MoE active-experts
+(top-6 + 1 shared) + router, summed over 43 layers.
+- EMR: `12.4e3 / 30.2 = ` **409 tok/s** → optimized 174.5 = **43%**.
+- GNR: `30.9e3 / 30.2 = ` **1023 tok/s** (the higher AMX peak raises the ceiling; GNR measured bars pending).
+
+**Decode (TPOT) — memory-bound (weight-streaming).** `decode_tok/s_roof = B / (W_active / BW_full-node)`,
+where **`W_active`** = bytes read per decode step = per layer `[ distinct_experts(B)·fp4_bytes_per_expert +
+shared_expert + dense/attn fp8 ]`, summed over 43 layers, **with REAL routing** (the mode-collapse guard):
+- distinct_experts(B=32) ≈ **59** (measured, not dummy-random's ~135) × **12.58 MB/expert** (fp4: 3·moe_inter·H·0.5 B) = 742 MB/layer
+- + dense/attn (fp8) ~175 MB/layer + shared ~13 MB/layer → **≈0.93 GB/layer × 43 = `W_active` ≈ 40 GB/step**
+- EMR: `32 / (40 / 848) = ` **678 tok/s** → optimized 57.5 = **8%** (large headroom; overhead/dispatch-bound).
+- GNR: `32 / (40 / 2152) = ` **1721 tok/s** full-node theoretical (a single tp=1 rank rarely saturates all 6
+  domains, so treat as an upper bound; GNR measured bars pending).
+
+*Why the old "~76% of roofline" was wrong:* it used dummy-random routing → ~135 "distinct" experts is actually
+a collapsed subset, so the proxy under-read expert bytes (`W_active` ~2.3× too small) and looked near-roof. The
+real-router `W_active` = 40 GB is the honest number.
+
 ## Decode (TPOT) — attribution (corrected, real-router phase-split, job 392782)
 
 ![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v7.png)

@@ -43,6 +43,30 @@ optimization, **compressor is DRAM-bandwidth-bound (75% of the BW roof)** and **
 of the FP32 roof)** — both near their real hardware ceiling, so their speedups are bounded by the machine, not
 by more kernel work.
 
+## 1b. GNR vs EMR — per-kernel C/C++ latency across nodes
+
+The authored kernels are **ISA-portable** (AMX bf16/int8 + AVX-512, dispatched per target); this cross-node
+table shows each kernel's streaming C/C++ latency on **EMR** (pcl-spr08) vs **GNR** (pcl-gnrap01) at the same
+M=32 operating point, so the per-node speedup and the GNR-over-EMR ratio are both visible. GNR has the higher
+AMX peak (**30.9 vs 12.4 TFLOPS bf16**) and more memory bandwidth (**2152 vs 848 GB/s full-node**), so
+compute-bound kernels (sparse, indexer-logits) should gain most; dispatch/selection-bound kernels (top-k,
+sinkhorn) should be closer. Collected by [bench_operating_point.py](../plugin/validate/bench_operating_point.py)
+on each node ([run_dsv4_gnr_collect.sbatch](../plugin/validate/run_dsv4_gnr_collect.sbatch) part 1 →
+`operating_point_gnr.json`).
+
+| kernel | EMR C/C++ µs | GNR C/C++ µs | **GNR vs EMR** |
+|---|---:|---:|---:|
+| indexer logits † | 212 | ⏳ | ⏳ |
+| indexer top-k | 40 | ⏳ | ⏳ |
+| compressor | 64 | ⏳ | ⏳ |
+| sparse attend † | 465 | ⏳ | ⏳ |
+| MHC sinkhorn | 26 | ⏳ | ⏳ |
+| MHC combine | 27 | ⏳ | ⏳ |
+
+> **⏳ GNR column pending** — the GNR node (`pcl-gnrap01`) is contended; the collection job (392789) runs the
+> per-kernel bench the moment it frees. This table and its chart fill in then; the EMR column is the measured
+> streaming median from §1.
+
 **‡ `indexer logits` — the nominal 50.1 µs floor is the *wrong ceiling*.** The byte roofline assumes the op
 streams KV from DRAM, but attribution (job 385397, M=32) shows it is **GEMM/dispatch-bound, not DRAM-bound**:
 the KV read is only **35 µs (11%) and already runs at ~483 GB/s** (≥ nominal BW, L3-assisted), while the
