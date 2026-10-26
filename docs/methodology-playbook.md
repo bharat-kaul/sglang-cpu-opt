@@ -110,6 +110,41 @@ flowchart LR
   inputs, what consumes its outputs, which operands it shares, what dimension it scales with). *A
   config-inferred shape — or a kernel scoped in isolation from its verified graph context — is flagged
   UNVERIFIED and cannot carry a perf claim.*
+- **Gate (trust): REFERENCE+ORACLE HANDSHAKE — run it BEFORE any kernel code is written.** Establish the two
+  correctness anchors *up front*, so every op is ported against an authoritative contract and a frozen
+  per-layer target from day one (not reverse-engineered after an accuracy miss). The ordered handshake:
+  1. **Authors' reference = PRIMARY provenance.** Locate the authors' reference inference code
+     (`inference/model.py`+`kernel.py` / `modeling_*.py` / released paper code), pin its path/commit, and make
+     it a **required input** to decomposition alongside the config + framework model class. Extract each op's
+     **numerical contract** (dtype at each stage, QAT round-trips, norm scope, RoPE direction/convention, scale
+     factors, mask, routing kind). Port to **match** it — *"numerically exact / higher precision" is a BUG when
+     the model is QAT-trained for a lower precision.*
+  2. **Compare the GPU oracle (the framework stack you'll run) AGAINST that reference** — op-level torch
+     transcription + the oracle reproducing published accuracy via a trusted path (the reference often needs
+     special deps and may not run end-to-end, so this is usually op-level, not a full reference run). If the GPU
+     oracle itself deviates from the reference, resolve that **first** — else "CPU matching the GPU" silently
+     inherits the GPU's deviation.
+  3. **Only if they match, RUN the GPU implementation to produce the frozen anchors:** **(a)** certify it hits
+     the **published accuracy** on the right checkpoint+protocol (this certifies the oracle *before* it judges
+     anything); **(b)** capture **per-(layer, sub-op) fingerprints** (logits/tensors) once, reused for all later
+     CPU A/Bs.
+  4. **Before porting EACH op, read the reference op and match its contract;** validate the port against the
+     reference math (a cheap op-level `cos` on random inputs, **no model load**) — not only a self-oracle (a
+     self-oracle derived from your own reading **inherits your blindspot**).
+
+  **Capture-contract + comparison rules that make the fingerprints trustworthy** (learned the hard way):
+  **(i)** a canonical capture contract — same TP degree, batch/seq, prefill chunking, **frozen token-ids**,
+  identical named sub-op taps + layout convention (define which axis is "hidden"; how clustered streams flatten),
+  greedy/teacher-forced, fixed seed; **request-BIND** the capture to the real prompt and **reject the
+  warmup/dummy forward** (assert the embedding anchor). **(ii)** Discrete artifacts (expert indices, hash
+  lookups, top-k selections) use **exact set-match, not cosine**. **(iii)** Per-layer cosine is **thresholded**
+  (≈≥0.999 at bf16) at **sub-op granularity**, with first-divergence bisection on fail. **(iv)** The pass bar is
+  the measured **noise floor** (GPU-vs-GPU run-to-run + version), on a **version-pinned** oracle — not 1.0.
+  **(v)** Success = per-op cosine/exact-match vs reference **and** end-to-end published/peer accuracy;
+  **top-1-vs-GPU is a LOCALIZER, not the success criterion** (it can stay flat as a cross-config artifact while
+  accuracy is fine, or vice-versa). *(Cost moves EARLIER, not up: the GPU time + published-accuracy repro +
+  layer-capture plumbing are paid once, up front, and reused. Had this handshake been a Phase-0 precondition,
+  the DSV4 ~15-pt bug would have surfaced at port time, not after a multi-day arc.)*
 
 ### Phase 1 — All kernels in optimized C/C++ (the hard prerequisite)
 
@@ -260,8 +295,26 @@ flowchart LR
   roofline → attribute the gap (kernel / framework / **dispatch & parallelization overhead**) → clear the
   overhead (bind-once, fewer/bigger parallel regions, one rank per NUMA domain, prepack) → re-measure, so
   **every integration step updates measured-vs-roofline** until the 70–75% target holds at every M.
+- **DISPATCH-PROVENANCE & WIRING-CHAIN audit (a kernel that EXISTS is not a kernel that RAN).** Unit parity
+  proves a kernel is *correct*, not that the serving forward *dispatches* to it — a hot-path op can silently
+  stay an **eager-torch reimplementation** (einsum / per-token Python loop) that **bypasses** an authored C/C++
+  kernel that already exists (even one with a ready wrapper). The mandatory audit: **(a)** treat the op inventory
+  as a **graph** (nodes + dtype/shape/layout edges = the seam map, so kernels are authored *fused*, not
+  isolated-then-glued); **(b)** instrument the hot forward so every op logs which impl ACTUALLY RAN —
+  `c_kernel` / `torch_op` / `eager` — and **gate: assert ZERO `eager` ops in the hot chain** (each eager op in
+  the hot path is a DEFECT ticket, not a note — promote the `overhead-attribution` kernel/torch/framework tag of
+  a hot-path non-`c_kernel` op to a FAILING gate); **(c)** registry-vs-dispatch cross-check — for every authored
+  kernel, assert the serving path CALLS it (runtime dispatch counter) — *a kernel that exists but is never
+  dispatched = a WIRING GAP, surfaced loud*; **(d)** end-to-end dispatch proof + A/B vs the eager oracle, not
+  just unit parity. *Worked miss (DSV4): decode was ~46 s/step and weeks of profiling/feasibility-gating treated
+  it as "author/wire a kernel" — the real cause was the serving forward reimplementing DSA/attention in eager
+  torch while the fused `indexer_logits.cpp`/`indexer_topk.cpp`/`sparse_attend.cpp` kernels sat un-dispatched
+  (one had a ready wrapper never called). A 1-shot dispatch-provenance trace at bring-up replaces that whole
+  arc.* **Law:** *a kernel is done when the serving forward is PROVEN to dispatch to it and no eager op remains
+  in the hot chain — not when it exists and passes unit parity.*
 - **Gate (trust):** per-toggle **dummy-weight fingerprint** stays invariant (perf transform, not a numeric
-  change); the full-depth run validates the extrapolation; the roofline+pivot report pair is emitted.
+  change); **dispatch-provenance = zero eager ops in the hot chain + every authored kernel proven dispatched**;
+  the full-depth run validates the extrapolation; the roofline+pivot report pair is emitted.
 
 ### Phase 3 — Accuracy sign-off (correctness → perf → task, in that order)
 
@@ -307,11 +360,11 @@ flowchart LR
 
 | phase | closing gate | what it guarantees |
 |---|---|---|
-| 0 Discovery | shape-provenance gate | shapes/dtypes/contract are *captured from source*, not assumed |
+| 0 Discovery | shape-provenance gate **+ reference+oracle handshake** | shapes/dtypes/contract *captured from source*, not assumed; authors' reference + published-accuracy GPU oracle bound and per-layer fingerprints frozen **before any kernel is written** |
 | 1 Author (per kernel) | feasibility → no-regression floor → fusion → precision → `f4_acceptance` → page | correct (contract/finite/deterministic/selection), never slower than torch, no wasted DRAM traffic, published roofline record |
 | 1 exit | adversarial self-audit + **human review** | falsified not just confirmed; tolerances ratified by a human, not the executor |
-| 2 E2E | kosher-baseline freeze/tag/env-gate + per-toggle fingerprint + two-depth validation | every speedup is bisectable to one op; baseline is one `git checkout` away; extrapolation is validated |
-| 3 Accuracy | golden parity + full re-diff + task sign-off (user-chosen route) | numerically faithful *and* task-accurate vs a trusted reference |
+| 2 E2E | kosher-baseline freeze/tag/env-gate + per-toggle fingerprint + **dispatch-provenance (zero eager in hot chain)** + two-depth validation | every speedup is bisectable to one op; baseline is one `git checkout` away; **the serving path is proven to dispatch to each authored kernel**; extrapolation is validated |
+| 3 Accuracy | golden parity + full re-diff + task sign-off (user-chosen route) **+ boundary-capture/reference-replay localization on any divergence** | numerically faithful *and* task-accurate vs a trusted reference; any gap localized to the first divergent op, not explained away |
 | cycle exit | roofline+pivot report pair + standalone-kernel page + certificate | "done" = runs + accurate + roofline-vs-measured, published |
 
 > **Definition of done includes publishing.** Any phase whose output changes a published fact is not complete
