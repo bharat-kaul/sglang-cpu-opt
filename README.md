@@ -260,20 +260,32 @@ whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gat
 Every published result carries the **roofline achievable target** alongside the **measured**
 number, plus a **per-op breakdown** of which kernels fall short of their roofline (measured is
 usually below target — the gap is the remaining optimization RoI). Target is published up front;
-measured fills in when the kernels run. The **same chart serves both legs**: in the **new-kernel
-leg (Thesis 2)** measured = *our authored* kernel; in the **reuse leg (Thesis 1)** measured = the
-*reused donor* kernel, so the gap shows whether the donor kernels are actually optimized or leave
-headroom (an RoI even when no new kernel was written).
+measured fills in when the kernels run. **Both legs share the same per-kernel roofline-vs-measured
+view** — in the **reuse leg (Thesis 1)** measured = the *reused donor* kernel; in the **new-kernel
+leg (Thesis 2)** measured = *our authored* kernel — and **Thesis 2 additionally carries a whole-model
+end-to-end wall-time roofline-vs-measured chart** (the full enablement, not just one op).
 - **Thesis 1 — donor-kernel optimization** (OLMo-2-7B, BF16, GNR): [report](plugin/validate/results/olmo2_7b_donor_roofline.md)
   · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.png) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom. Backend is oneDNN/LIBXSMM BRGEMM (best-in-class inner loop), so the gap is **composition/memory-traffic**, not tile-loop quality.
-- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (routed-expert MoE kernel dominates decode,
-  MXFP4 W4A16, EMR): full ledger on the **[end-to-end wall time](docs/e2e-wall-time.md)** page —
-  baseline → optimized **2.19× prefill / 1.59× decode** (43L, B=32, real-router guard), scored against the
-  **measured-EMR roofline** (AMX bf16 12.4 TF, DRAM 848 GB/s): prefill ≈ **43%** of the compute roof (near
-  ceiling), decode ≈ **8%** (overhead-bound, large headroom). Decode is **~88% C/AMX kernels, all dispatched**
-  (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the attention-glue seam (~8%), not
-  a torch rewrite. *(An earlier "75% of DRAM-BW roofline" figure was a MoE mode-collapse artifact — a
-  dummy-random router under-counted expert bytes; the real-router `W_active`=40 GB number supersedes it.)*
+- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (authored DSA kernels; MXFP4 W4A16 MoE; EMR).
+  **(a) Per-kernel roofline vs baseline vs C/C++** — the authored DSA kernels against their own roofline
+  (same view as Thesis 1):
+
+  ![DeepSeek-V4-Flash per-kernel roofline vs baseline vs C/C++ (DSA kernels, M=32 streaming)](docs/plots/operating_point_v6.png)
+
+  Full per-kernel ledger, M-sweep, and GNR-vs-EMR: **[kernel performance journey](docs/kernel-pilot-performance.md)**.
+
+  **(b) End-to-end wall time — roofline vs baseline vs optimized** (the whole-model view, unique to the full
+  enablement): baseline → optimized **2.19× prefill / 1.59× decode** (43L, B=32, real-router guard), at
+  **43% / 8%** of the **measured-EMR roofline** (AMX bf16 12.4 TF, DRAM 848 GB/s) — prefill near its compute
+  ceiling, decode overhead-bound with headroom:
+
+  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs roofline (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v2.png)
+
+  Full ledger + roofline calculation: **[end-to-end wall time](docs/e2e-wall-time.md)**. Decode is **~88% C/AMX
+  kernels, all dispatched** (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the
+  attention-glue seam (~8%), not a torch rewrite. *(An earlier "75% of DRAM-BW roofline" figure was a MoE
+  mode-collapse artifact — a dummy-random router under-counted expert bytes; the real-router `W_active`=40 GB
+  number supersedes it.)*
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 
