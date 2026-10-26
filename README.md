@@ -56,11 +56,11 @@ automatically from the same donor kernels (capability inheritance).
 
 ### Thesis 2 — new-kernel leg
 
-The new-architecture leg now has **two worked models**, each its own section below:
-**(1) DeepSeek-V4-Flash** — the flagship, where the genuinely novel kernels were authored and validated;
-**(2) GLM-5.3 Flash** — a clean, mostly-autonomous end-to-end run of the *same* playbook on a
-**structurally different** architecture, used to demonstrate **velocity**. The **approach** is shared
-by both; each model then has its own section.
+The new-architecture leg's **flagship worked model** is **DeepSeek-V4-Flash**, where the genuinely novel
+kernels (DSA + MHC) were authored and validated — its full section is below. A second, **structurally
+different** architecture (a clean, mostly-autonomous end-to-end run of the *same* playbook, used to
+demonstrate **velocity**) is being **re-run in a dedicated session** and will be added here when complete.
+The **approach** is model-independent and is what carries across both.
 
 #### The approach we built (reusable across models)
 - **Coverage-gate routing** — decompose the model, match every op to existing CPU kernels, and route
@@ -121,11 +121,16 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
   decode → MLA gathered nothing → zero attention); fixed with a causal **dense fallback**. Per-token
   parity now passes (coherent, correct generations); the MXFP4 bridge is parity-checked standalone
   (cos 0.999992) and in-situ on the real checkpoint (cos 0.999995).
-- **Accuracy CERTIFIED — CPU gsm8k 0.9437 ≈ GPU 0.9535 on the SAME checkpoint (a real port bug was
-  found & fixed, not explained away).** An earlier read — *"CPU 79.9%, the gap is the eval harness"* —
-  was **refuted** by binding the comparator correctly: running the **GPU oracle on the same post-trained
-  Flash checkpoint + same 8-shot protocol** gave **0.9535**, so the apples-to-apples target was ~0.95, not
-  ~0.80. That exposed a **real ~15-pt CPU port bug** in the DSA compressed attention — the compressor's
+- **Accuracy CERTIFIED — the CPU port lands within ~1 pt of the GPU reference on the identical
+  checkpoint.** The comparison is apples-to-apples at every link: **(i)** DeepSeek publishes gsm8k
+  **≈90.8%** for DeepSeek-V4-Flash-**Base**, which the **GPU reference code reproduces** on that checkpoint
+  (**0.923**, 1210/1311); **(ii)** the **same GPU code** on the **post-trained Flash** checkpoint we actually
+  port scores **0.9535** (1250/1311); **(iii)** our **CPU-optimized** build of that *same* Flash model reaches
+  **0.9437** (302/320) — **within ~1 pt of the GPU result** (a real port bug was found & fixed, not explained
+  away). An earlier read — *"CPU 79.9%, the gap is the eval harness"* — was **refuted** by binding the
+  comparator correctly: the **GPU oracle on the same post-trained Flash checkpoint + same 8-shot protocol**
+  gave **0.9535**, so the apples-to-apples target was ~0.95, not ~0.80. That exposed a **real ~15-pt CPU port
+  bug** in the DSA compressed attention — the compressor's
   `wkv_gate` projection was AMX-VNNI-**prepacked** but consumed by a plain matmul (a silent weight-layout
   permutation, the same bug class already fixed for `wo_a`). Localized to one line via **boundary-capture +
   reference-replay on identical operands** (per-layer cosine → first divergent layer → operand-identity check:
@@ -166,12 +171,20 @@ kernels to the 1.6T Pro across a multi-socket EMR cluster**
 not new kernels. This is backend plumbing + tuning, not novel-kernel authoring — the DSA math is
 authored + proven in isolation.
 
-#### DeepSeek-V4-Flash — accuracy certification (a real port bug was found & fixed; CPU gsm8k ≈ GPU)
+#### DeepSeek-V4-Flash — accuracy certification (within ~1 pt of the GPU reference on the identical checkpoint)
 Two questions a technical reviewer asks — *is the implementation correct?* and *does it match a trusted
-reference on task?* — are now answered the honest way: **CPU gsm8k 0.9437 ≈ GPU 0.9535** on the **same**
-checkpoint and protocol, after finding and fixing a real ~15-pt CPU port bug. (An earlier draft of this
-section claimed the gap was "the eval harness, not the port"; that was **wrong** and is corrected below —
-the correction itself is the lesson.)
+reference on task?* — are now answered the honest way, with an apples-to-apples chain at every link:
+
+1. **Reproduce the published reference on GPU.** DeepSeek publishes gsm8k **≈90.8%** for
+   DeepSeek-V4-Flash-**Base**; the **GPU reference code reproduces** it on that checkpoint — **0.923**
+   (1210/1311) — so the harness + protocol are trustworthy.
+2. **Establish the real target on the checkpoint we port.** The **same GPU code** on the **post-trained
+   Flash** checkpoint (the one the CPU plugin actually runs) scores **0.9535** (1250/1311) — Flash has *no*
+   separately-published gsm8k number, so this GPU-on-the-same-checkpoint run *is* the target.
+3. **The CPU port matches it.** Our **CPU-optimized** build of that same Flash model reaches **0.9437**
+   (302/320) — **within ~1 pt of the 0.9535 GPU result**, after finding and fixing a real ~15-pt CPU port
+   bug. (An earlier draft claimed the gap was "the eval harness, not the port"; that was **wrong** and is
+   corrected below — the correction itself is the lesson.)
 
 **(A) Numerical faithfulness — proven at the component + token level, not asserted.**
 - **Every `stored ≠ compute` dtype bridge is parity-gated against an independent oracle.** The MXFP4 W4A16
@@ -188,23 +201,27 @@ the correction itself is the lesson.)
   prompt; the CPU build now matches it **cos ≥ 0.998 for layers 0–27 and ≥ 0.978 through layer 42** (a smooth
   bf16/fp8-accumulation slope, no divergence cliff). This per-layer oracle is what localized the `wkv_gate`
   bug to the first compressed layer — see (B). (The earlier draft said DSV4's full-GPU per-layer oracle was
-  infrastructure-blocked; the podman `--events-backend` workaround unblocked it this cycle.) The
-  deterministic-dummy *bit-exact* variant (cos 1.000001, rel-maxerr 0.0) remains demonstrated on the sister
-  model **GLM-5.3-Flash**.
+  infrastructure-blocked; the podman `--events-backend` workaround unblocked it this cycle.) A
+  deterministic-dummy *bit-exact* variant of this same harness (name-seeded init → identical weights on CPU
+  and the native-GPU container, decoupling wiring/kernel correctness from the dtype bridge) is part of the
+  reusable toolkit.
 
 **(B) The task gap was a REAL port bug — found by binding the comparator correctly, then localized to one line.**
 
 ![DSV4-Flash CPU gsm8k accuracy progression vs the same-checkpoint GPU oracle](docs/plots/dsv4_accuracy_progression_v1.png)
 
-| Stage | gsm8k | Note |
+| Row | gsm8k | Note |
 |---|---|---|
+| Published Flash-**Base** (DeepSeek) | **≈0.908** | reference point — a *different* (base, FP8) checkpoint |
+| GPU reference on Flash-Base (our reproduction) | **0.923** | reproduces the published number (1210/1311, [`gpu_base_gsm8k.json`](plugin/validate/results/gpu_base_gsm8k.json)) → harness trusted |
 | CPU baseline (pre-fix) | **0.796** | the number the "eval harness" story tried to explain away |
 | + `wkv_gate` row-major fix (prefill) | **0.865** | compressed attention now correct in prefill (layer-2 cosine 0.9997) |
-| **+ decode persist + request-aware mask** | **0.9437** | 302/320, all 8 shards PASS (0.90–0.975) |
-| **GPU oracle — SAME post-trained Flash checkpoint, SAME 8-shot protocol** | **0.9535** | the apples-to-apples target (1250/1311) |
+| **+ decode persist + request-aware mask (CPU final)** | **0.9437** | 302/320, all 8 shards PASS (0.90–0.975) — **within ~1 pt of GPU** |
+| **GPU oracle — post-trained Flash (the port target), SAME 8-shot protocol** | **0.9535** | the apples-to-apples target (1250/1311, [`gpu_flash_gsm8k.json`](plugin/validate/results/gpu_flash_gsm8k.json)) |
 
 - **The decisive move was the correctly-bound oracle.** The published 90.8 is Flash-**Base** (FP8), a
-  *different* checkpoint; our post-trained Flash has no published gsm8k number, so "below 90.8" was never a
+  *different* checkpoint — which we **reproduced on GPU** (**0.923**, consistent with published); our
+  post-trained Flash has no published gsm8k number, so "below 90.8" was never a
   valid signal. Running the **GPU on the same checkpoint + same harness** gave **0.9535** → the real target was
   ~0.95, and CPU at 0.80 was genuinely ~15 pts low. *Comparator-provenance dissolved the false "below published"
   panic; the correctly-bound GPU oracle then revealed the gap was real after all.*
@@ -250,78 +267,6 @@ to stay lossless — the low precision is spent purely on movement/footprint. Ke
 **native 4-bit** (instead of up-converting fp4→fp8, which doubles the footprint) is what lets the
 whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
 
-#### 2 · GLM-5.3 Flash — autonomous playbook (velocity demonstration)
-
-**GLM-5.3 Flash** (`glm5_next`; 45 layers, hidden 4096, 288-expert MoE top-8) is a deliberate clean test
-of whether the *same* skills + plugin carry a **structurally different** architecture **with minimal human
-steering** — the metric here is **velocity**, not new kernels. It is a hybrid: **34 KDA linear-attention
-layers** (Kimi Delta / gated-delta-rule), **11 NoPE MLA + DSA** full-attention layers, an **MHC
-hash-clustering** residual, and an **fp8 e4m3 128×128 block-quant** checkpoint (one fp8→bf16 W8A16 bridge).
-Delivered as the same external plugin (`intel_cpu_models`) — no fork.
-
-**What the autonomous run has demonstrated so far:**
-- **Bring-up ladder cleared autonomously — ~18 sequential breaks** across prefill **and** decode, each
-  diagnosed → fixed-in-plugin → re-run on a tiny arch-faithful config (seconds per iteration): DSA
-  device-probe guard, mamba/KDA dual-cache + page-size, MHC `hc_post` shape, SwiGLU-clamp, the 288-expert
-  grouped-topk fallback, then the decode ladder (NoPE-MLA dispatch, DSA-indexer→dense, NoPE-MLA `w_kc`
-  keep-logical). Prefill and decode each had their **own** break ladder — decode hides behind prefill.
-- **CPU↔GPU parity-test infrastructure built** — a deterministic-dummy harness that makes
-  `load_format=dummy` **bit-identical across the CPU engine (torch-CPU) and the native-GPU sglang
-  container** (numpy name-seeded init → same weights regardless of device / RNG / torch version), plus
-  matched full-tensor per-`(pass,op,layer)` capture hooks on both sides and an offline cosine+magnitude
-  diff ([_dummy_determinism.py](plugin/_dummy_determinism.py), [diff_fullcap.py](plugin/validate/diff_fullcap.py)).
-  This **decouples wiring/kernel correctness from the fp8 bridge** so it is proven **cheaply, on one GPU,
-  without a ~300 GB real-weight load**.
-- **Per-layer correctness PROVEN on dummy weights (so far)** — GPU-reference vs CPU-build, tiny config:
-  **prefill all layers + first-decode L0–2 BIT-EXACT** (cos 1.000001, rel-max-err 0.0 on every per-layer
-  hidden + MHC residual), logits cos 0.999996. Both passes (prefill `pf` + decode `dc0`) verified from a
-  single fingerprint diff.
-- **New CPU authoring** — a reference-first **KDA linear-attention** CPU path (gated-delta recurrence +
-  dual cache, [kda_linear_attention_cpu.py](plugin/intel_cpu_models/kda_linear_attention_cpu.py)), and
-  the fix for a genuine sglang gap: **NoPE MLA on CPU** (the fused-rope kernel divides by
-  `qk_rope_head_dim=0` → SIGFPE; keep `w_kc`/`w_vc` logical + route to the generic absorb path).
-- **Real-weight parity — PROVEN, full 45 layers, prefill AND decode.** The fp8→bf16 bridge was
-  exercised on the full 306 GB checkpoint and diffed against the frozen golden: **prefill** all-layer
-  logits cos **0.999926** (no layer diverges, token ` Paris`); **decode** generates **identical tokens**
-  across steps (argmax-identical logits, residual cos ~0.998). CPU inference is **bit-deterministic across
-  thread counts** (so parity diffs hold node+bind constant). The remaining CPU-vs-GPU diff is the
-  documented **W8A16-vs-W8A8** fp8-activation-quant difference (CPU is more precise), not a bug.
-- **Performance optimization — 7.2× prefill, faithful.** Measure-first on the real per-op profile:
-
-  ![GLM-5.3 Flash CPU prefill: baseline 55.5s → optimized 7.7s (7.2×) → roofline, with the realistic fused-kernel floor](plugin/validate/results/glm5_flash_prefill_journey.png)
-
-  Two wins, both **bit-faithful** and env-gated: **(1) MoE router 27 → ~0.1 s** — the
-  288-expert torch router is `@torch.compile(dynamic=True)`, and on CPU that inductor compile is a ~50 s
-  one-time cost that landed *inside* the timed prefill; the fix **warms the compile at init** (overlapped
-  with weight load) and keeps the **compiled** path — *bit-exact* to baseline, unlike an eager bypass
-  which flips a borderline `topk` expert; **(2) KDA 24.6 → 3.7 s** — the per-token gated-delta scan
-  becomes **chunk-parallel matmuls** (WY form, batched across chunks), validated to the scan oracle
-  (real-weight fullcap: logits cos 0.999952, no layer diverges). **Honest ceiling:** the dense-GEMM
-  roofline (~0.09 s) is *not* reachable — the recurrence is dispatch/small-op bound (even the native AMX
-  kernel is only parity with torch compute), so the realistic floor is ~4 s via a fused CPU KDA kernel
-  (scoped follow-up; the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**).
-  Ledger: [glm5_perf_ledger.csv](plugin/validate/results/glm5_perf_ledger.csv).
-- **Task accuracy — gsm8k 8-shot, full test set, PASSED + CPU↔GPU cross-checked.** The optimized faithful
-  CPU build scores **91.46%** (1199/1311, **0 invalid**) on the complete gsm8k test set, real fp8 weights
-  ([glm5_flash_gsm8k.json](plugin/validate/results/glm5_flash_gsm8k.json)). Because GLM-5.3-Flash's card
-  reports only *agentic/multimodal* suites (no gsm8k) at `reasoning_effort=max` with 64–163K-token
-  generations — infeasible to reproduce on a CPU inference build — correctness is established the robust
-  way instead: run the **identical** harness on the **GPU reference** (native sglang CUDA, tp=8, H200) and
-  show **CPU ≡ GPU**. GPU scores **92.07%** (1207/1311, 0 invalid); the two agree to **0.61 pp aggregate**
-  and **93.7% per-question answer agreement**, with **symmetric** disagreements (30 CPU-only vs 38 GPU-only
-  correct — no CPU deficit) — exactly the signature of the documented **W8A16-vs-W8A8** fp8-activation
-  difference, not a bug. Together with the per-layer parity (logits cos 0.9999, identical decode tokens),
-  this is the end-to-end correctness sign-off that the 7.2× perf wins are accuracy-neutral
-  ([cpu-vs-gpu](plugin/validate/results/glm5_flash_gsm8k_cpu_vs_gpu.json)). Run node-parallel +
-  chunk-checkpointed + **straggler-tail re-sharded** across EMR, with the auto sneak-preview fail-fast
-  watcher armed at submit (`scripts/sneak_preview.sh`, `reshard_tail.py`).
-
-**Remaining (scoped):** the **fused CPU KDA AMX kernel** (the ~2× further prefill headroom; build path
-de-risked — the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**). *The point
-of this section is the **velocity**: a structurally different architecture carried to proven
-**prefill+decode real-weight parity**, **91.46% gsm8k**, and a **7.2× faithful perf win** by the same
-playbook, with only the genuinely novel op (KDA) hand-authored.*
-
 ## Roofline target vs measured (published with every result)
 Every published result carries the **roofline achievable target** alongside the **measured**
 number, plus a **per-op breakdown** of which kernels fall short of their roofline (measured is
@@ -340,19 +285,6 @@ headroom (an RoI even when no new kernel was written).
   (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the attention-glue seam (~8%), not
   a torch rewrite. *(An earlier "75% of DRAM-BW roofline" figure was a MoE mode-collapse artifact — a
   dummy-random router under-counted expert bytes; the real-router `W_active`=40 GB number supersedes it.)*
-- **GLM-5.3 Flash — recurrence-bound, so the FLOP ceiling is NOT the reachable target** (hybrid KDA +
-  MLA, fp8 W8A16, GNR): [roofline vs measured report](plugin/validate/results/glm5_flash_roofline.md)
-  · ![chart](plugin/validate/results/glm5_flash_roofline.png) — unlike DSv4's 75%-of-BW-roofline, GLM's
-  hot block `attn.kda` (**48% of prefill**) is a **gated-delta recurrence** (per-chunk/per-head small
-  matmuls, dispatch-bound), so the dense-GEMM ceiling (0.09 s) is **physically unreachable** — even a
-  native AMX kernel only ties torch compute. The honest target is the **~4 s fused-kernel floor**; the
-  cycle delivered **55.5 → 7.7 s (7.2×), faithful** (prefill+decode parity, logits cos 0.9999) via a
-  bit-exact warm-compiled router (27 → 0.1 s) + chunked-WY KDA (24.6 → 3.7 s). Per-op efficiency reads as
-  *where FLOP-throughput is lost* (small-M KDA/MoE/MLA) vs the one near-efficient block (big-M dense MLP).
-  · **Time-attribution pivot** (companion — *where the wall-clock goes*, per phase, summing to 100%):
-  [report](plugin/validate/results/glm5_flash_pivot.md) · ![pivot](plugin/validate/results/glm5_flash_pivot.png)
-  — `attn.kda` dominates both phases (**48% prefill / 55% decode**), `moe` is the #2 (30% / 19%), with an
-  explicit **6% / 5% unattributed** slice keeping the split honest (batch 1, tp=1).
 - **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
   architecture as Flash (DSA + MHC + MLA + native-MXFP4 MoE), so Flash's authored CPU kernels are its
   **donors** — enabling Pro is Thesis-1-style *wiring + validation*, not new kernels. It is **too large

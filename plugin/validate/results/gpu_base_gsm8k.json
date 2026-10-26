@@ -1,0 +1,39 @@
+{
+  "model": "/scratch/bkaul/models/DeepSeek-V4-Flash-Base",
+  "num_shots": 8,
+  "shard_index": 0,
+  "num_shards": 1,
+  "done": 1311,
+  "total": 1311,
+  "partial": false,
+  "accuracy": 0.923,
+  "correct": 1210,
+  "invalid": 0,
+  "elapsed_s": 210.4,
+  "acc_min": 0.3,
+  "verdict": "PASS",
+  "run_identity": {
+    "model": "/scratch/bkaul/models/DeepSeek-V4-Flash-Base",
+    "device": "cuda",
+    "tp": 4,
+    "dtype": "bfloat16",
+    "quantization": null,
+    "num_shots": 8,
+    "max_new_tokens": 512,
+    "chunk_size": 64,
+    "num_shards": 1,
+    "shard_index": 0,
+    "sampling_params": {
+      "temperature": 0.0,
+      "max_new_tokens": 512,
+      "stop": [
+        "Question",
+        "Assistant:"
+      ]
+    },
+    "git_sha": "8a3ef92d7dab385b98b57ff8b5a4526d63b85bbc",
+    "env_toggles": {},
+    "scorer": "extract_final_answer(task_gsm8k)",
+    "protocol_version": 2
+  }
+}

@@ -91,9 +91,14 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
   the MLA attention had **no dense fallback**, so it gathered nothing → zero attention. Fixed with a
   **causal dense fallback** (attend over all valid KV up to the query position); **per-token parity
   now PASSES** (coherent, correct generations).
-- ✅ **Accuracy CERTIFIED — CPU gsm8k 0.9437 ≈ GPU 0.9535 on the SAME checkpoint; a real port bug was found
-  & fixed (not explained away).** An earlier read — *"CPU 79.9%, the gap is the eval harness"* — was
+- ✅ **Accuracy CERTIFIED — the CPU port is within ~1 pt of the GPU reference on the identical checkpoint.**
+  Apples-to-apples at every link: **(i)** DeepSeek publishes gsm8k **≈90.8%** for Flash-**Base**, which the
+  **GPU reference code reproduces** (**0.923**, 1210/1311) → harness trusted; **(ii)** the **same GPU code**
+  on the **post-trained Flash** checkpoint we port scores **0.9535** (1250/1311) → the real target; **(iii)**
+  our **CPU-optimized** build of that same model reaches **0.9437** (302/320) → **within ~1 pt**. A real port
+  bug was found & fixed (not explained away): an earlier read — *"CPU 79.9%, the gap is the eval harness"* — was
   **refuted** by binding the comparator correctly: the published 90.8 is Flash-**Base**, so "below 90.8" was
+  never valid; running the **GPU oracle on the same post-trained Flash checkpoint + same 8-shot protocol** gave
   never valid; running the **GPU oracle on the same post-trained Flash checkpoint + same 8-shot protocol** gave
   **0.9535**, exposing a **real ~15-pt CPU port bug**. The DSA compressor's `wkv_gate` projection was
   AMX-VNNI-**prepacked** but consumed by a plain matmul → a silent weight-layout permutation → garbage
@@ -105,15 +110,17 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
   per-request compressed KV for **decode** (a prefill-only handoff ran decode SWA-only); (3) **request-aware**
   coverage mask (a position-only mask leaks across a batched prefill) → **0.9437** (302/320, all 8 shards PASS).
   Component parity still holds (MXFP4 bridge cos 0.999992/0.999995; DSA reduces exactly to dense at top-k=all,
-  err 1.8e-7). Residual ~1 pt = benign bf16/fp8 accumulation over 43 layers. *(The full per-layer bit-exact
-  dummy gate is demonstrated on the sister GLM-5.3-Flash; DSV4's real-weight per-layer GPU oracle — which
-  localized this bug — is now unblocked via the podman `--events-backend` workaround.)*
-- ✅ **Performance measured** (post-fix, scheduling-only / token-identical). EMR, tp=1 + decode-cap=8,
-  full 43 layers, batch 32: **prefill 69.6 / decode 9.3 tok/s**. Two systemic levers dominated — both
-  now reusable skills: the **OpenMP spin-wait fix** (`OMP_WAIT_POLICY=passive`) = **63× prefill / 10×
-  decode** (the whole first per-op profile was a busy-wait artifact), and **continuous batching** =
-  **10× aggregate decode** (B=1→32, amortizing weight streaming). tp=1+cap beats TP for decode
-  (tp=2 = 2.8× slower → TP is a capacity/prefill lever only).
+  err 1.8e-7). Residual ~1 pt = benign bf16/fp8 accumulation over 43 layers. *(DSV4's real-weight
+  per-layer GPU oracle — which localized this bug — is now unblocked via the podman `--events-backend`
+  workaround; a deterministic-dummy bit-exact variant of the same harness is part of the reusable toolkit.)*
+- ✅ **Performance measured — baseline → optimized** (fully-naive eager path → all-C/AMX DSA kernels,
+  dispatch-proven; 43L two-depth extrapolation, B=32, real-router guard): **prefill 79.8 → 174.5 tok/s
+  (2.19×)**, **decode 36.2 → 57.5 tok/s (1.59×)** on EMR — **43% / 8% of the measured-EMR roofline**
+  (AMX bf16 12.4 TF, DRAM 848 GB/s): prefill near its compute ceiling, decode overhead-bound with headroom.
+  Decode is **~88% C/AMX kernels, all dispatched**; the remaining levers are MHC-aten (~7%) + the
+  attention-glue seam (~8%), not a torch rewrite. *(An earlier "prefill 69.6 / decode 9.3, 75%-of-BW"
+  figure was a MoE mode-collapse artifact — a dummy-random router under-counted expert bytes; superseded.)*
+  Full ledger + per-node (EMR/GNR) comparison: `docs/e2e-wall-time.md`, `docs/kernel-pilot-performance.md`.
 - ⏭ **Next:** incremental-sparse DSA decode (O(context²)→O(context·topk) for long context), then the
   real **806 GB Pro** run; publish the full roofline target-vs-measured.
 
@@ -121,31 +128,6 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
 + the DSA CPU path, and the accuracy oracle did exactly its job — it blocked the number on real bugs
 (a stubbed-decode bug, then a silent weight-prepack permutation in the DSA compressor) until a
 same-checkpoint GPU oracle proved CPU ≈ GPU, and only then were the numbers published.*
-
-### Second Thesis-2 model — GLM-5.3 Flash (`glm5_next`), enabled by the same playbook
-
-A deliberate clean test of the playbook on a *different* architecture: a 45-layer hybrid with **34
-KDA linear-attention layers** (Kimi Delta / gated-delta-rule), **11 NoPE MLA+DSA** full-attention
-layers, **MHC hash-clustering** residual, a **288-expert MoE** (top-8, 1 shared), and an fp8 e4m3
-128×128 block-quant checkpoint (one fp8→bf16 W8A16 bridge). Delivered as the same external plugin
-(`intel_cpu_models`), no fork.
-
-- ✅ **Bring-up ladder cleared** (~18 sequential breaks across prefill + decode) on a tiny
-  arch-faithful dummy config — KDA, MHC, dense MLP, NoPE MLA, DSA indexer, 288-expert MoE all wired.
-- ✅ **Correctness PROVEN by per-layer fingerprint parity** vs the native-GPU sglang reference, using
-  a **deterministic-dummy** method (numpy name-seeded init → bit-identical weights across the CPU
-  engine and the GPU container, decoupling wiring/kernel correctness from the fp8 bridge): **prefill
-  all layers + decode (dc0 L0–2) BIT-EXACT** (cos 1.000001, rel-max-err 0.0), logits cos 0.999996.
-- ✅ **New CPU authoring:** a reference-first **KDA linear-attention** CPU path (recurrence + dual
-  cache), and the fix for a genuine sglang gap — **NoPE MLA on CPU** (the fused-rope kernel SIGFPEs on
-  `qk_rope_head_dim=0`; keep `w_kc`/`w_vc` logical + route to the generic absorb path).
-- ⏭ **Next:** real-weight finale (fp8 bridge + full 45-layer depth + gsm8k task accuracy), then the
-  roofline. Known perf TODOs documented (288-expert CPU top-k kernel, logical-`w_kc` AMX path,
-  incremental-sparse DSA decode, AMX KDA kernel).
-
-*Second data point for the thesis: a structurally different model (linear-attn + hash-clustering +
-NoPE-MLA) carried by the SAME skills + plugin to proven per-layer correctness, with only the genuinely
-novel op (KDA) hand-authored.*
 
 ---
 
