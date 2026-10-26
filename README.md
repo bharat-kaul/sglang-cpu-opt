@@ -17,19 +17,6 @@ hand-optimized kernels or creating new kernels (having distilled knowhow into sk
 
 > Interactive version: [docs/agentic-workflow-slide.html](docs/agentic-workflow-slide.html) (open in a browser).
 
-## 📚 Detailed reports (the deep-dive pages)
-
-This README is the **overview**; the full methodology, per-kernel data, and wall-time ledgers live in four
-dedicated pages (kept in sync with every result — see the [docs archive](docs/archive) for point-in-time
-snapshots):
-
-| Page | What's in it |
-|---|---|
-| **[Methodology playbook](docs/methodology-playbook.md)** | The end-to-end method — spine-leaf structure, the Phase 0→3 waterfall + gate ladder, the per-kernel **performance-gap ledger**, and §5 **correctness-bug localization & serving-completeness** (boundary-capture + reference-replay, the weight-prepack audit, the three serving axes). |
-| **[Standalone kernel-optimization playbook](docs/standalone-kernel-optimization-playbook.md)** | The staged *how* for optimizing one kernel toward roofline (establish-achievable → parallelize → tile → vectorize/AMX → prepack/BRGEMM → quantize → fuse), each gated by measurement. |
-| **[Kernel-pilot performance](docs/kernel-pilot-performance.md)** | Per-kernel roofline vs baseline vs C/C++ for the six authored DSA kernels (streaming/cold-cache), the M-sweep, deep-dives, and the **GNR-vs-EMR** cross-node table. |
-| **[End-to-end wall time](docs/e2e-wall-time.md)** | The Phase-2 North-Star ledger — baseline-vs-optimized tok/s (prefill/decode), the **roofline calculation** (EMR + GNR constants + formulas), and the corrected decode attribution. |
-
 ## Two theses, one plugin
 
 Two enablement paths through the same agentic workflow: **Thesis 1** reuses existing AMX kernels
@@ -56,13 +43,20 @@ automatically from the same donor kernels (capability inheritance).
 
 ### Thesis 2 — new-kernel leg
 
-The new-architecture leg's **flagship worked model** is **DeepSeek-V4-Flash**, where the genuinely novel
-kernels (DSA + MHC) were authored and validated — its full section is below. A second, **structurally
-different** architecture (a clean, mostly-autonomous end-to-end run of the *same* playbook, used to
-demonstrate **velocity**) is being **re-run in a dedicated session** and will be added here when complete.
-The **approach** is model-independent and is what carries across both.
+When the coverage-gate finds a genuinely new op, we **author the kernel**. The method is a
+**spine-and-leaf playbook**: a shared **spine** every model walks — *HW characterization → decompose →
+coverage-gate → roofline → reuse-or-author → validate → certify* — that calls into per-technique **leaf**
+skills (parallelize, tile, vectorize/AMX, prepack/BRGEMM, quantize, fuse) whenever a kernel must be driven
+toward its roofline. Two pages document it in full:
 
-#### The approach we built (reusable across models)
+- 📘 **[Methodology playbook](docs/methodology-playbook.md)** — *the spine*: the Phase 0→3 waterfall + gate
+  ladder, the per-kernel performance-gap ledger, and §5 correctness-bug localization & serving-completeness
+  (boundary-capture + reference-replay, the weight-prepack audit, the three serving axes).
+- 📗 **[Kernel-optimization playbook](docs/standalone-kernel-optimization-playbook.md)** — *the leaf*: the
+  staged *how* for driving one kernel to its roofline (establish-achievable → parallelize → tile →
+  vectorize/AMX → prepack/BRGEMM → quantize → fuse), each step gated by measurement.
+
+#### What the playbook enforces (reusable across models)
 - **Coverage-gate routing** — decompose the model, match every op to existing CPU kernels, and route
   *only* the genuinely novel ops to the author leg (here: DSA + MHC); never dense-approximate a gap.
 - **Up-front precision / data-type hygiene** — census each weight family's *stored* dtype from the
@@ -100,6 +94,10 @@ The **approach** is model-independent and is what carries across both.
   (live weight vs raw checkpoint) names the line. This drove a ~15-pt DSV4 gap to one weight; method in
   [playbook §5](docs/methodology-playbook.md).
 
+**We applied this playbook end-to-end to DeepSeek-V4-Flash** — the flagship below. (A second,
+**structurally different** architecture, a clean mostly-autonomous run of the *same* playbook to demonstrate
+**velocity**, is being **re-run in a dedicated session** and will be added here when complete.)
+
 #### 1 · DeepSeek-V4-Flash — flagship (novel kernels authored + validated)
 **DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) carries
 **two genuinely novel op families** — DeepSeek Sparse Attention (lightning-indexer + KV-compressor +
@@ -121,31 +119,23 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
   decode → MLA gathered nothing → zero attention); fixed with a causal **dense fallback**. Per-token
   parity now passes (coherent, correct generations); the MXFP4 bridge is parity-checked standalone
   (cos 0.999992) and in-situ on the real checkpoint (cos 0.999995).
-- **Accuracy CERTIFIED — the CPU port lands within ~1 pt of the GPU reference on the identical
-  checkpoint.** The comparison is apples-to-apples at every link: **(i)** DeepSeek publishes gsm8k
-  **≈90.8%** for DeepSeek-V4-Flash-**Base**, which the **GPU reference code reproduces** on that checkpoint
-  (**0.923**, 1210/1311); **(ii)** the **same GPU code** on the **post-trained Flash** checkpoint we actually
-  port scores **0.9535** (1250/1311); **(iii)** our **CPU-optimized** build of that *same* Flash model reaches
-  **0.9437** (302/320) — **within ~1 pt of the GPU result** (a real port bug was found & fixed, not explained
-  away). An earlier read — *"CPU 79.9%, the gap is the eval harness"* — was **refuted** by binding the
-  comparator correctly: the **GPU oracle on the same post-trained Flash checkpoint + same 8-shot protocol**
-  gave **0.9535**, so the apples-to-apples target was ~0.95, not ~0.80. That exposed a **real ~15-pt CPU port
-  bug** in the DSA compressed attention — the compressor's
-  `wkv_gate` projection was AMX-VNNI-**prepacked** but consumed by a plain matmul (a silent weight-layout
-  permutation, the same bug class already fixed for `wo_a`). Localized to one line via **boundary-capture +
-  reference-replay on identical operands** (per-layer cosine → first divergent layer → operand-identity check:
-  live weight vs raw checkpoint = orthogonal with per-row norms preserved = a prepack permutation). Fixed in
-  three steps — **(1)** keep `wkv_gate` row-major → prefill compressed attention correct (layer-2 cosine
-  0.9997), gsm8k 0.796 → 0.865; **(2)** persist per-request compressed KV for **decode** (a prefill-only
-  handoff ran decode SWA-only) and **(3)** make the coverage mask **request-aware** (a position-only mask leaks
-  across a batched prefill) → **0.9437** (all 8 shards PASS 0.90–0.975). Residual ~1 pt is benign bf16/fp8
-  accumulation over 43 layers. Full argument + reproducibility in **Accuracy certification** below.
+- **Accuracy CERTIFIED — the CPU port lands within ~1 pt of the GPU reference on the identical checkpoint.**
+  Apples-to-apples at every link: published Flash-**Base** gsm8k **≈90.8%** → **GPU reproduces** it (**0.923**)
+  → **same GPU code** on the post-trained **Flash** checkpoint we port = **0.9535** → our **CPU-optimized**
+  build of that same model = **0.9437** (within ~1 pt). Getting there meant finding & fixing a **real ~15-pt
+  CPU port bug** (a silent `wkv_gate` prepack permutation in the DSA compressor), not explaining it away. Full
+  chain, the bug hunt, and the three-axis fix: **[accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** below.
 - **Performance measured** — **baseline → optimized** (fully-naive eager path → all-C/AMX DSA kernels,
   dispatch-proven; 43L two-depth extrapolation, B=32, real-router guard): **prefill 79.8 → 174.5 tok/s
   (2.19×), decode 36.2 → 57.5 tok/s (1.59×)** on EMR, at **43% / 8% of the measured-EMR roofline** (prefill
-  near its compute ceiling; decode overhead-bound with headroom). Full ledger + roofline calculation +
-  per-node (EMR/GNR) comparison: **[end-to-end wall time](docs/e2e-wall-time.md)** and
-  **[kernel-pilot performance](docs/kernel-pilot-performance.md)**.
+  near its compute ceiling; decode overhead-bound with headroom).
+
+**Deep dives for this model:**
+- 🧩 **[Kernel-journey performance](docs/kernel-pilot-performance.md)** — per-kernel roofline vs baseline vs
+  C/C++ for the six authored DSA kernels (streaming/cold-cache), the M-sweep, and the **GNR-vs-EMR** table.
+- ⏱️ **[End-to-end wall time](docs/e2e-wall-time.md)** — the baseline-vs-optimized tok/s ledger, the
+  **roofline calculation** (EMR + GNR constants + formulas), and the corrected decode attribution.
+- ✅ **[Accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** — the full CPU-vs-GPU chain + the port-bug hunt (below).
 
 **Key learnings (each distilled into a reusable skill — full set in the [playbook](docs/methodology-playbook.md)):**
 1. **Compute from the native precision — keep the MXFP4 nibbles, never up-convert.** Feeding packed fp4
@@ -298,9 +288,10 @@ headroom (an RoI even when no new kernel was written).
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 
 ## Repository map
-- [`docs/`](docs) — the deep-dive pages (see [📚 Detailed reports](#-detailed-reports-the-deep-dive-pages)):
-  methodology + standalone playbooks, kernel-pilot + end-to-end performance, and [`docs/archive/`](docs/archive)
-  (point-in-time page snapshots; git history is the full archive).
+- [`docs/`](docs) — the deep-dive pages linked from Thesis 2 above:
+  [methodology](docs/methodology-playbook.md) + [kernel-optimization](docs/standalone-kernel-optimization-playbook.md)
+  playbooks, [kernel-journey](docs/kernel-pilot-performance.md) + [end-to-end wall-time](docs/e2e-wall-time.md)
+  performance, and [`docs/archive/`](docs/archive) (point-in-time page snapshots; git history is the full archive).
 - [`.agents/`](.agents) — the workflow: `agents/` (model-enablement, cpu-optimizer) and
   grouped `skills/` — see [`.agents/skills/README.md`](.agents/skills/README.md), which
   marks the **throughput-thesis** skills.
