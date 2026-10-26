@@ -1,0 +1,29 @@
+{
+  "title": "DeepSeek-V4-Flash CPU wall-time \u2014 baseline vs optimized vs roofline (EMR, GNR)",
+  "subtitle": "43L two-depth extrapolation (4L+8L dummy proxy, real-router guard so routing matches the real ~59 distinct experts/B=32). Baseline = fully naive (eager DSA + OMP spin + no thread-cap). Optimized = all-C/AMX kernels (dispatch-proven) + spin OMP, all cores. B=32, S=128. Accuracy of this path established separately: gsm8k 0.9437 \u2248 GPU 0.9535.",
+  "operating_point": "B=32, S=128, G=8 (two-depth extrapolated to 43 layers)",
+  "panels": [
+    {
+      "phase": "Prefill (TTFT) \u2014 compute-bound",
+      "unit": "prefill tok/s",
+      "roofline": 1022,
+      "roofline_label": "AMX bf16 compute roofline 1022 tok/s (30.9 TF / 30.2 GFLOP\u00b7tok\u207b\u00b9)",
+      "bars": [
+        {"label": "EMR baseline", "sub": "eager + spin", "value": 79.8, "kind": "bad"},
+        {"label": "EMR optimized", "sub": "C kernels, 2.19\u00d7", "value": 174.5, "kind": "good"},
+        {"label": "GNR optimized", "sub": "pending node", "value": null, "kind": "pending"}
+      ]
+    },
+    {
+      "phase": "Decode (TPOT) \u2014 memory-bound",
+      "unit": "decode tok/s",
+      "roofline": 506,
+      "roofline_label": "weight-streaming roofline 506 tok/s (W_active 40 GB real-router, BW 633 GB/s full-node)",
+      "bars": [
+        {"label": "EMR baseline", "sub": "eager + spin", "value": 36.2, "kind": "bad"},
+        {"label": "EMR optimized", "sub": "C kernels, 1.59\u00d7", "value": 57.5, "kind": "good"},
+        {"label": "GNR optimized", "sub": "pending node", "value": null, "kind": "pending"}
+      ]
+    }
+  ]
+}

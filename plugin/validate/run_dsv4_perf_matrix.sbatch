@@ -32,8 +32,11 @@ run_leg () {  # $1=mode(baseline|optimized)  $2=layers
   local mode=$1 NL=$2
   ( # subshell so per-leg env doesn't leak across legs
     if [ "$mode" = "optimized" ]; then
+      # B=32 THROUGHPUT-optimal (empirically attributed, job 392780): all C kernels + SPIN OMP + ALL cores.
+      # NB: OMP passive REGRESSES throughput here (prefill 2.18x->1.59x, decode 1.4x->0.3x) — it is an
+      # idle-thread-thrash lever, not a throughput lever; and the decode thread-cap=8 is a B=1 latency lever.
       export INTEL_CPU_DSV4_DSA_CKERNEL=1
-      export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 INTEL_CPU_DSV4_DECODE_THREADS=8
+      unset OMP_WAIT_POLICY KMP_BLOCKTIME INTEL_CPU_DSV4_DECODE_THREADS
     else
       # FULLY NAIVE: eager DSA, OMP spin-wait (default), no decode thread-cap
       export INTEL_CPU_DSV4_DSA_CKERNEL=0

@@ -5,30 +5,58 @@ kernel is integrated into the serving path. This is the **Phase 2** deliverable 
 [methodology playbook](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time); the per-kernel
 standalone results live on the [kernel-pilot performance page](kernel-pilot-performance.md).
 
-## Decode (TPOT) — prioritized work item: progression vs roofline
+## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
+
+![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v1.png)
+
+**43L two-depth extrapolation** (4L+8L dummy-weight proxy, **real-router guard ON** so routing matches the
+real ~59 distinct experts/B=32 — see the mode-collapse note below). **Baseline** = fully naive (eager DSA +
+OMP spin-wait + no thread-cap, the default first-run CPU path). **Optimized** = all authored C/AMX DSA kernels
+(**dispatch-proven**, `eager=0`) + spin-wait OMP, all 128 cores. Operating point B=32, S=128. The accuracy of
+this optimized compute path is established separately: **gsm8k 0.9437 ≈ GPU 0.9535** on the same checkpoint.
+
+| EMR, 43L (two-depth) | baseline (naive) | optimized (C/AMX) | **speedup** |
+|---|---:|---:|---:|
+| **prefill** tok/s | 79.8 | 174.5 | **2.19×** |
+| **decode** tok/s | 36.2 | 57.5 | **1.59×** |
+
+*(GNR column pending node availability — ghost bars; filled when `pcl-gnrap01` frees.)* Matched-depth ratios
+(4L and 8L, directly measured) agree with the extrapolation: prefill 2.18× at both depths, decode 1.32× (4L) /
+1.44× (8L). Harness: [run_dsv4_perf_matrix.sbatch](../plugin/validate/run_dsv4_perf_matrix.sbatch), attribution
+[run_dsv4_perf_attrib.sbatch](../plugin/validate/run_dsv4_perf_attrib.sbatch) (job 392780).
+
+**Roofline position (honest, real-router).** Both panels sit well below their ceiling — prefill ~17% of the AMX
+bf16 compute roof, decode ~11% of the weight-streaming roof. This **supersedes the earlier "~76% of roofline"
+claim**, which was a **mode-collapse artifact**: a dummy-random router collapsed routing onto a few experts, so
+`W_active` was ~2.3× too small and the proxy looked near-roofline. With the real router (correct `W_active` = 40
+GB/step), the headroom is large and the bound is **overhead/dispatch + the not-yet-fused aten ops**, not raw BW.
+
+## Decode (TPOT) — attribution (corrected, real-router phase-split, job 392782)
 
 ![Decode wall-time progression vs roofline](plots/e2e_decode_progression_v7.png)
 
-**Living chart** — perf-proxy (4-layer dummy) **B=32 decode tok/s** at the **full-node** config (all 3 SNC NUMA
-domains / 128c — the max-throughput config), scored against the decode BW roofline (MoE weight-streaming). Where
-it stands today:
-- **D0 baseline 91 tok/s ≈ 76% of the roofline** — the MoE weight-streaming core is mature (Phase-1 batching +
-  thread/affinity/spin-wait). **Config matters enormously: this is the full-node number; the single-NUMA
-  per-rank bind is only 32 tok/s (2.8× lower, BW-bound)** — see the NUMA note below. The max-throughput
-  demonstration uses the full node.
-- **D1 all-C-kernels — NEUTRAL, not a regression (corrected).** The controlled **held-fixed** A/B (job 386039/
-  390418, all kernels OFF-vs-ON, same job) measures **decode 91.2 → 94.2 (1.03×)** and **prefill 880.2 → 1002.8
-  (1.14×)** — integrating the kernels is **perf-neutral at decode and a modest win at prefill**. The earlier "22
-  tok/s regression" was a **measurement artifact of a *sequential* bisection** (toggling ops across separate runs
-  drifts the scheduler/KV-pool regime; the torch baseline alone swung 81→24 with a `mem-fraction` knob). **Lesson:
-  only a held-fixed OFF-vs-ON A/B in one job is trustworthy** ([playbook](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time)).
-- **D2–D3 pending (ghost bars) — the REAL decode levers (measured, job 390418 TIMEIT attribution):** decode is
-  **~40% unoptimized TORCH compute**, *not* framework/dispatch (which is only ~5%). The recoverable buckets are
-  **`dsa.mla.attend`** (the per-token Python-loop sparse attention, ~18%), **MHC `hc_pre`+`hc_post`** (~17%), and
-  the **`dsa.indexer` torch einsum** (~3.5%) — **port these torch decode ops to kernels** (D2) — plus the
-  **`moe.expert_apply` thread-cap** (~26%, a thread-count pathology, not a kernel) (D3). The earlier
-  "framework/dispatch ≈ 39%" lever was **wrong** (that bucket is ~5%); bf16-KV is a prefill/long-context lever,
-  not a decode one (the serving attention KV read is already bf16; the indexer is a ~3.5% torch einsum).
+**What actually runs at decode (optimized path, dispatch-provenance-verified):** the heavy compute is **C/AMX
+kernels, all dispatched** — the dispatch-provenance shows `eager=0` for `sparse_attend`, `moe`, `compressor`,
+`indexer`, `sinkhorn`, `combine`, `topk`. By the phase-split TIMEIT (8L, B=32): the **kernel bucket is ~88% of
+decode wall**; MoE core (`moe`+`expert_apply`) ~41%, dense fp8 ~10%, MLA attention core (qk/pv) ~5%.
+- **The genuinely *not-C* compute is small: MHC `hc_pre`+`hc_post` ≈ 7%** (standard bf16 **aten** matmul+RMSNorm,
+  never hand-fused to a C kernel — *optimized BLAS, not slow eager Python*), and the **attention mask/gather
+  *glue* ≈ 8%** (the inter-kernel seam). **Framework/dispatch is ~8%, not ~40%** — the earlier "~40% unoptimized
+  torch / ~39% framework" framing was **wrong on two counts**: it used a stale pre-fix profile, and it misread
+  the TIMEIT *category tag* ("torch") as *eager dispatch* — the dispatch-provenance is the authority, and it
+  shows those ops run as C kernels.
+- **Remaining decode levers (small, specific — not a 40% rewrite):** (1) author a fused C kernel for **MHC**
+  (~7%); (2) kill the **attention-glue seam** (~8%, an inter-kernel-fusion target — fuse gather/mask into the
+  attend); (3) the proxy at B=32 real-router is **overhead/dispatch-bound** (far below the BW roof), so
+  grain-size / parallel-region tuning is the lever, not more kernels. *bf16-KV is a prefill/long-context lever,
+  not a decode one.*
+
+**MoE mode-collapse guard (now ENFORCED in code, not just described).** Under `--load-format dummy` the router
+weights are random → routing collapses onto a few of the 256 experts (~135 distinct/B=32 vs the real ~59),
+under-counting expert weight-streaming and making decode look **falsely fast / falsely near-roofline**. The
+proxy now injects the **real (tiny) gate weights + `tid2eid`** from the checkpoint
+(`INTEL_CPU_DSV4_REAL_ROUTER=1`) so routing matches the real model (verified: distinct-expert count 135 → ~60).
+All node-comparison numbers above use this guard.
 
 The full segregated ledger (prefill vs decode, stage-by-stage) is below.
 
