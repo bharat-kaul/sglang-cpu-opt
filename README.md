@@ -17,6 +17,19 @@ hand-optimized kernels or creating new kernels (having distilled knowhow into sk
 
 > Interactive version: [docs/agentic-workflow-slide.html](docs/agentic-workflow-slide.html) (open in a browser).
 
+## 📚 Detailed reports (the deep-dive pages)
+
+This README is the **overview**; the full methodology, per-kernel data, and wall-time ledgers live in four
+dedicated pages (kept in sync with every result — see the [docs archive](docs/archive) for point-in-time
+snapshots):
+
+| Page | What's in it |
+|---|---|
+| **[Methodology playbook](docs/methodology-playbook.md)** | The end-to-end method — spine-leaf structure, the Phase 0→3 waterfall + gate ladder, the per-kernel **performance-gap ledger**, and §5 **correctness-bug localization & serving-completeness** (boundary-capture + reference-replay, the weight-prepack audit, the three serving axes). |
+| **[Standalone kernel-optimization playbook](docs/standalone-kernel-optimization-playbook.md)** | The staged *how* for optimizing one kernel toward roofline (establish-achievable → parallelize → tile → vectorize/AMX → prepack/BRGEMM → quantize → fuse), each gated by measurement. |
+| **[Kernel-pilot performance](docs/kernel-pilot-performance.md)** | Per-kernel roofline vs baseline vs C/C++ for the six authored DSA kernels (streaming/cold-cache), the M-sweep, deep-dives, and the **GNR-vs-EMR** cross-node table. |
+| **[End-to-end wall time](docs/e2e-wall-time.md)** | The Phase-2 North-Star ledger — baseline-vs-optimized tok/s (prefill/decode), the **roofline calculation** (EMR + GNR constants + formulas), and the corrected decode attribution. |
+
 ## Two theses, one plugin
 
 Two enablement paths through the same agentic workflow: **Thesis 1** reuses existing AMX kernels
@@ -122,32 +135,29 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
   handoff ran decode SWA-only) and **(3)** make the coverage mask **request-aware** (a position-only mask leaks
   across a batched prefill) → **0.9437** (all 8 shards PASS 0.90–0.975). Residual ~1 pt is benign bf16/fp8
   accumulation over 43 layers. Full argument + reproducibility in **Accuracy certification** below.
-- **Performance measured** (EMR, tp=1 + decode-cap=8, full 43 layers, batch 32): **prefill 69.6 /
-  decode 9.3 tok/s** → [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md).
+- **Performance measured** — **baseline → optimized** (fully-naive eager path → all-C/AMX DSA kernels,
+  dispatch-proven; 43L two-depth extrapolation, B=32, real-router guard): **prefill 79.8 → 174.5 tok/s
+  (2.19×), decode 36.2 → 57.5 tok/s (1.59×)** on EMR, at **43% / 8% of the measured-EMR roofline** (prefill
+  near its compute ceiling; decode overhead-bound with headroom). Full ledger + roofline calculation +
+  per-node (EMR/GNR) comparison: **[end-to-end wall time](docs/e2e-wall-time.md)** and
+  **[kernel-pilot performance](docs/kernel-pilot-performance.md)**.
 
-**Key learnings (each distilled into a reusable skill):**
-1. **Compute from the native precision — keep the MXFP4 nibbles, never up-convert.** Feeding packed
-   fp4 straight to the W4A16 kernel is both a *capacity* win (~200 GB vs ~275 GB → fits one domain →
-   tp=1) and *lossless* (fp4·2^k is exact in bf16). Up-converting fp4→fp8 doubled the footprint and
-   forced a tp>1 / NUMA-interleave swamp that ran M=1 decode ~330× slower.
-2. **Validate the measurement before optimizing.** The entire first per-op profile was an artifact —
-   idle OpenMP threads busy-wait by default and thrash each forward. `OMP_WAIT_POLICY=passive
-   KMP_BLOCKTIME=0` gave **63× prefill / 10× decode**, bigger than every per-op tweak combined.
-3. **Batching is the decode lever.** Continuous batching amortizes weight streaming: **10× aggregate
-   decode** (B=1→32); per-token MoE 1.39→0.32 ms (BW efficiency 26%→75%).
-4. **tp=1 + thread-cap beats TP for decode.** The model fits one socket, so TP only adds barrier/comm
-   cost at decode (tp=2 = 2.8× slower) — TP is a capacity/prefill lever. Authoritative decode config:
-   **tp=1 + decode-cap=8**.
-5. **Audit every weight for prepack-vs-consumption mismatch.** On a CPU port that blanket VNNI/AMX-packs
-   linears, a weight consumed by a plain matmul/einsum/custom kernel must be kept **row-major** — a packed
-   weight + plain matmul is a **silent permutation** (wrong numbers, no crash). The DSA `wkv_gate` hit this
-   (the whole ~15-pt gap); signature = *live weight vs raw checkpoint orthogonal but per-row norms preserved*.
-6. **Localize correctness bugs with boundary-capture + reference-replay on identical operands.** Per-layer
-   cosine vs a same-checkpoint GPU oracle → first divergent layer → dump the op's operands and replay an
-   independent reference on them → the operand-identity check (live weight vs raw checkpoint) names the line.
-7. **Prefill-correct ≠ serving-correct — validate three axes.** Layer cosine (prefill) certifies only axis 1;
-   **decode** (persist per-request state, don't drop it across steps) and **cross-request batching** (masks
-   keyed on identity, not position) are separate failures the **end-to-end accuracy metric** surfaces.
+**Key learnings (each distilled into a reusable skill — full set in the [playbook](docs/methodology-playbook.md)):**
+1. **Compute from the native precision — keep the MXFP4 nibbles, never up-convert.** Feeding packed fp4
+   straight to the W4A16 kernel is both a *capacity* win (~200 GB vs ~275 GB → fits one domain → tp=1) and
+   *lossless* (fp4·2^k is exact in bf16). Up-converting fp4→fp8 doubled the footprint and forced a tp>1 swamp
+   (~330× slower M=1 decode).
+2. **Validate the measurement before optimizing.** The first per-op profile was an artifact — idle OpenMP
+   threads busy-wait and thrash each forward; `OMP_WAIT_POLICY=passive` was worth **63× prefill / 10× decode**
+   in that regime (but is a *regime-specific* lever — it regresses B=32 throughput, where spin wins).
+3. **Audit every weight for prepack-vs-consumption mismatch (the ~15-pt correctness bug).** On a port that
+   blanket VNNI/AMX-packs linears, a weight consumed by a plain matmul must be kept **row-major** — a packed
+   weight + plain matmul is a *silent permutation*. The DSA `wkv_gate` hit this; signature = *live weight vs
+   raw checkpoint orthogonal but per-row norms preserved*.
+4. **Localize correctness bugs with boundary-capture + reference-replay, and validate three serving axes.**
+   Per-layer cosine vs a same-checkpoint GPU oracle → first divergent layer → operand-identity check names the
+   line; then prefill ≠ serving-correct (decode persistence + cross-request batching are separate gates). Full
+   method: [playbook §5](docs/methodology-playbook.md).
 
 **Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
 (O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime; then **scale Flash's donor
@@ -322,9 +332,14 @@ leg (Thesis 2)** measured = *our authored* kernel; in the **reuse leg (Thesis 1)
 headroom (an RoI even when no new kernel was written).
 - **Thesis 1 — donor-kernel optimization** (OLMo-2-7B, BF16, GNR): [report](plugin/validate/results/olmo2_7b_donor_roofline.md)
   · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.png) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom. Backend is oneDNN/LIBXSMM BRGEMM (best-in-class inner loop), so the gap is **composition/memory-traffic**, not tile-loop quality.
-- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (routed-expert MoE kernel = 68% of decode, MXFP4 W4A16, EMR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
-  · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.png) — **measured**: prefill and *batched* decode hit **75% of the DRAM-BW roofline**; unbatched M=1 decode only **26%** → batching is the decode lever. Model-level (tp=1+cap, full 43 layers, batch 32): prefill 69.6 / decode 9.3 tok/s.
-  · **Time-attribution pivot** (companion — *where the wall-clock goes*, per phase, summing to 100%): [report](plugin/validate/results/deepseek_v4_flash_pivot.md) · ![pivot](plugin/validate/results/deepseek_v4_flash_pivot.png) — the **MoE expert kernel dominates** (47% prefill / 30% decode), the **authored novel ops (DSA + MHC) are a bounded ~25–30% torch slice** (the optimization frontier), and an explicit **11%/15% unattributed** slice keeps the split honest (batch=1, tp=1).
+- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (routed-expert MoE kernel dominates decode,
+  MXFP4 W4A16, EMR): full ledger on the **[end-to-end wall time](docs/e2e-wall-time.md)** page —
+  baseline → optimized **2.19× prefill / 1.59× decode** (43L, B=32, real-router guard), scored against the
+  **measured-EMR roofline** (AMX bf16 12.4 TF, DRAM 848 GB/s): prefill ≈ **43%** of the compute roof (near
+  ceiling), decode ≈ **8%** (overhead-bound, large headroom). Decode is **~88% C/AMX kernels, all dispatched**
+  (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the attention-glue seam (~8%), not
+  a torch rewrite. *(An earlier "75% of DRAM-BW roofline" figure was a MoE mode-collapse artifact — a
+  dummy-random router under-counted expert bytes; the real-router `W_active`=40 GB number supersedes it.)*
 - **GLM-5.3 Flash — recurrence-bound, so the FLOP ceiling is NOT the reachable target** (hybrid KDA +
   MLA, fp8 W8A16, GNR): [roofline vs measured report](plugin/validate/results/glm5_flash_roofline.md)
   · ![chart](plugin/validate/results/glm5_flash_roofline.png) — unlike DSv4's 75%-of-BW-roofline, GLM's
@@ -351,6 +366,9 @@ headroom (an RoI even when no new kernel was written).
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 
 ## Repository map
+- [`docs/`](docs) — the deep-dive pages (see [📚 Detailed reports](#-detailed-reports-the-deep-dive-pages)):
+  methodology + standalone playbooks, kernel-pilot + end-to-end performance, and [`docs/archive/`](docs/archive)
+  (point-in-time page snapshots; git history is the full archive).
 - [`.agents/`](.agents) — the workflow: `agents/` (model-enablement, cpu-optimizer) and
   grouped `skills/` — see [`.agents/skills/README.md`](.agents/skills/README.md), which
   marks the **throughput-thesis** skills.

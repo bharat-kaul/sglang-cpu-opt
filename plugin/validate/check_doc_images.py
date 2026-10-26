@@ -49,6 +49,10 @@ _RASTER_MAGIC = {
 
 def _iter_md_files():
     for root, _dirs, files in os.walk(DOCS):
+        # Skip the archive: snapshots are static historical copies whose relative image paths are
+        # intentionally not resolvable from their new location (git history is the real archive).
+        if os.path.join("docs", "archive") in root or os.sep + "archive" + os.sep in root + os.sep:
+            continue
         for fn in files:
             if fn.endswith(".md"):
                 yield os.path.join(root, fn)

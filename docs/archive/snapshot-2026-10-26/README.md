@@ -1,0 +1,365 @@
+# sglang-cpu-opt — Automated CPU Model Enablement for SGLang
+
+**North Star:** Deliver an AI Systems Performance Engineering Agentic Workflow along with skill files to automate day-0 support for new AI inference models with accuracy and performance.
+
+**How:** An **agentic workflow** (parameterized skill files + agents) that takes a newly
+released model and enables **performant, accurate CPU inference** in SGLang on Intel
+Xeon (AMX) — as an Intel-maintained **plugin, no fork** — by reusing existing
+hand-optimized kernels or creating new kernels (having distilled knowhow into skill files) and proving both correctness and performance.
+
+> **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
+>
+> **Correctness & hygiene, up front:** every enablement clears a fixed gate set *before* any number is published — (1) **dtype hygiene** — each weight family's stored dtype is audited and mapped to a supported compute dtype (low-bit **moved**, bf16 **computed**), and every `stored ≠ compute` dequant bridge is **parity-checked, not assumed**; (2) **coverage-gate** — no novel op is silently dense-approximated; (3) **accuracy oracle** — per-op kernel parity → real-prompt coherence → per-layer parity → task accuracy; (4) **reference oracle (Thesis 2, wherever a GPU + the model are available)** — a GPU reference forward captures per-(layer,op) tensors/logits so CPU bring-up is diffed against ground truth; the first divergent layer localizes integration bugs that per-op checks can't; (5) **honest roofline** — target vs measured at one labeled machine config. Unproven numbers are labeled UNVALIDATED, never implied.
+>
+> **Bird's-eye view of the agentic workflow & skills** — the staged, measure-first methodology behind the North Star (HW characterization → analysis → roofline → coverage → reuse/author → validate → certify), with all **32 skills** mapped to each stage.
+
+![Staged agentic workflow for Day-0 CPU model enablement: 32 skills mapped from HW characterization through roofline, kernel reuse and authoring, validation and certification](docs/agentic-workflow-slide.png)
+
+> Interactive version: [docs/agentic-workflow-slide.html](docs/agentic-workflow-slide.html) (open in a browser).
+
+## Two theses, one plugin
+
+Two enablement paths through the same agentic workflow: **Thesis 1** reuses existing AMX kernels
+(wiring + validation only); **Thesis 2** authors the missing kernels for a genuinely new architecture.
+
+### Thesis 1 — throughput, all-known-kernels — PROVEN
+Results on Intel Xeon 6980P / Granite Rapids, **single socket**:
+
+> **Machine config is matched:** roofline **and** measured below are BOTH **single socket**
+> (TP=1, 128c NUMA 0-2, batch 8). We always compare roofline vs measured at the *same* config
+> (never single-socket roofline against dual-socket measured).
+
+| Model | Precision | Accuracy (vs HF) | gsm8k | Throughput prefill / decode (tok/s) | Roofline vs measured (1-socket) |
+|-------|-----------|------------------|-------|-------------------------------------|---------------------------------|
+| OLMo-2-7B (dense) | BF16 | next-token parity 1.0 | 0.60 | 1321 / 91 | GEMM 60.6→18.2 TF (30% of streamed ceiling) · [report](plugin/validate/results/olmo2_7b_bf16_roofline.md) |
+| OLMo-2-7B (dense) | INT8 (auto-quantized) | parity 1.0 | 0.61 | 2013 / 135 (~1.5×) | int8 ceiling ~121 TF/socket · report pending |
+| OLMoE-1B-7B (MoE) | BF16 | parity 1.0 | 0.19* | 7629 / 251 | MoE decode weight-streaming bound · report pending |
+
+*1B-active base model. Machine-checkable proof: [plugin/certificates/](plugin/certificates).
+
+**Peer-relative performance** (OLMo-2-7B dense GEMMs vs the Llama-3-8B donor on the
+identical AMX kernel): `eff_rel` 0.94–1.26 — all PASS. Both BF16 and INT8 were produced
+automatically from the same donor kernels (capability inheritance).
+
+### Thesis 2 — new-kernel leg
+
+The new-architecture leg now has **two worked models**, each its own section below:
+**(1) DeepSeek-V4-Flash** — the flagship, where the genuinely novel kernels were authored and validated;
+**(2) GLM-5.3 Flash** — a clean, mostly-autonomous end-to-end run of the *same* playbook on a
+**structurally different** architecture, used to demonstrate **velocity**. The **approach** is shared
+by both; each model then has its own section.
+
+#### The approach we built (reusable across models)
+- **Coverage-gate routing** — decompose the model, match every op to existing CPU kernels, and route
+  *only* the genuinely novel ops to the author leg (here: DSA + MHC); never dense-approximate a gap.
+- **Up-front precision / data-type hygiene** — census each weight family's *stored* dtype from the
+  **real checkpoint** and map it to a HW-supported *compute* dtype (low-bit **moved**, bf16
+  **computed**); every `stored ≠ compute` dequant bridge is **parity-checked, not assumed**.
+- **Reference-first kernel authoring** — write each novel kernel against an in-tree numeric oracle and
+  gate on parity *before* it enters the serving path. No unverified kernel ships.
+- **Autonomous debugging loop (skill-driven) — test cheaply, learn the most per run, fail fast.** The
+  agent drives bring-up and bug-localization itself through a set of workflow skills:
+  **cheap iteration** on a *tiny arch-faithful* config (seconds, not minutes on a scarce big-memory
+  node) plus a **deterministic-dummy CPU↔GPU parity** harness that localizes correctness **per-layer
+  without a real-weight load** (bit-identical dummy weights across the CPU engine and the GPU
+  container); **high-information runs** that disposition *several* hypotheses in one expensive run (a
+  pre-submit disposition matrix + multi-vector capture, never a one yes/no run); **async-heartbeat
+  auto-wake** so the loop runs *submit → wait → auto-wake → fix → resubmit* with no human polling; and
+  **sneak-preview + early-abort** on any long run — chunk-checkpoint a usable partial, read it against
+  an expected floor, and `scancel`+fix the moment it is clearly off instead of paying the full wall.
+  See [`.agents/skills`](.agents/skills) — `shared/high-information-runs`,
+  `throughput-enablement/accuracy-oracle`, `throughput-enablement/cpu-model-wiring`.
+- **Performance methodology — cheapest, highest-signal first (the order matters):**
+  1. **Rule out systemic-config pathology FIRST.** A single mis-setting (thread cliff, OpenMP
+     spin-wait, NUMA bind) inflates *every* op roughly uniformly and dwarfs any per-op tuning — sweep
+     it before ranking hotspots. (Here it was worth **63× prefill / 10× decode** on its own.)
+  2. **Truncated model + dummy weights.** A depth-reduced, full-**WIDTH** proxy reproduces every
+     per-op bottleneck queue-free in ~1/N the time; nearly all fix-iteration lives here.
+  3. **Full model + dummy weights.** The authoritative perf-vs-roofline run at full shapes/footprint on
+     the target node — *before* paying any real-weight load — catching depth-aggregate + capacity
+     effects the proxy can't.
+  4. **Full model + real weights.** Paid **only** for accuracy + a final no-regression confirm.
+- **Accuracy oracle gates before any perf claim** — real-prompt coherence → per-token parity → task
+  accuracy; a failing gate blocks the number (it did here — see below).
+- **Boundary-capture + reference-replay localization** — when a per-layer cosine vs a *same-checkpoint*
+  GPU oracle flags a divergent layer, dump that op's operands and replay an **independent** reference on the
+  **identical** operands to split *arithmetic bug* from *wrong operands*, then an **operand-identity check**
+  (live weight vs raw checkpoint) names the line. This drove a ~15-pt DSV4 gap to one weight; method in
+  [playbook §5](docs/methodology-playbook.md).
+
+#### 1 · DeepSeek-V4-Flash — flagship (novel kernels authored + validated)
+**DeepSeek-V4-Flash** (284B total / 13B active MoE; 43 layers, 64-head MLA, 256 experts top-6) carries
+**two genuinely novel op families** — DeepSeek Sparse Attention (lightning-indexer + KV-compressor +
+top-k sparse-MLA) and MHC hash-clustering — while everything else is covered by the DeepSeek-V2 CPU donors.
+- **Scope** — scope-discovery surfaced the *true* scope (DSA + MHC **plus** a runtime infra layer, not
+  the "4 DSA kernels" a static op-scan implied) → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+- **Novel kernels authored + parity-validated on CPU** — DSA compressor softmax-pool, lightning-indexer,
+  sparse-prefill attention ([compressor](plugin/intel_cpu_models/dsa_compressor_cpu.py),
+  [indexer](plugin/intel_cpu_models/dsa_indexer_cpu.py),
+  [sparse-attn](plugin/intel_cpu_models/dsa_sparse_attention_cpu.py)) + the MLA-core/MHC/infra layer
+  ([_dsv4_cpu_infra.py](plugin/intel_cpu_models/_dsv4_cpu_infra.py)); the **composed** DSA attention
+  reduces **exactly to dense at top-k=all** (err 1.8e-7), proving the sparse math
+  ([dsa_attention_cpu.py](plugin/intel_cpu_models/dsa_attention_cpu.py)). A `index_gemm(M16)`
+  feasibility gate returned a data-driven DEFER — no wrong kernel built.
+- **Runs end-to-end at tp=1 by keeping the MXFP4 nibbles** — the routed experts stay **native 4-bit**
+  on the CPU **MXFP4 W4A16** MoE kernel (fused fp4→bf16), so the model holds **~200 GB → fits ONE
+  NUMA/SNC domain → clean tp=1** (loads ~135 s) → [run](plugin/validate/run_deepseekv4_flash_mxfp4_tp1.sbatch).
+- **Correctness PASSES** — the accuracy oracle caught a real decode bug (DSA selection stubbed at
+  decode → MLA gathered nothing → zero attention); fixed with a causal **dense fallback**. Per-token
+  parity now passes (coherent, correct generations); the MXFP4 bridge is parity-checked standalone
+  (cos 0.999992) and in-situ on the real checkpoint (cos 0.999995).
+- **Accuracy CERTIFIED — CPU gsm8k 0.9437 ≈ GPU 0.9535 on the SAME checkpoint (a real port bug was
+  found & fixed, not explained away).** An earlier read — *"CPU 79.9%, the gap is the eval harness"* —
+  was **refuted** by binding the comparator correctly: running the **GPU oracle on the same post-trained
+  Flash checkpoint + same 8-shot protocol** gave **0.9535**, so the apples-to-apples target was ~0.95, not
+  ~0.80. That exposed a **real ~15-pt CPU port bug** in the DSA compressed attention — the compressor's
+  `wkv_gate` projection was AMX-VNNI-**prepacked** but consumed by a plain matmul (a silent weight-layout
+  permutation, the same bug class already fixed for `wo_a`). Localized to one line via **boundary-capture +
+  reference-replay on identical operands** (per-layer cosine → first divergent layer → operand-identity check:
+  live weight vs raw checkpoint = orthogonal with per-row norms preserved = a prepack permutation). Fixed in
+  three steps — **(1)** keep `wkv_gate` row-major → prefill compressed attention correct (layer-2 cosine
+  0.9997), gsm8k 0.796 → 0.865; **(2)** persist per-request compressed KV for **decode** (a prefill-only
+  handoff ran decode SWA-only) and **(3)** make the coverage mask **request-aware** (a position-only mask leaks
+  across a batched prefill) → **0.9437** (all 8 shards PASS 0.90–0.975). Residual ~1 pt is benign bf16/fp8
+  accumulation over 43 layers. Full argument + reproducibility in **Accuracy certification** below.
+- **Performance measured** (EMR, tp=1 + decode-cap=8, full 43 layers, batch 32): **prefill 69.6 /
+  decode 9.3 tok/s** → [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md).
+
+**Key learnings (each distilled into a reusable skill):**
+1. **Compute from the native precision — keep the MXFP4 nibbles, never up-convert.** Feeding packed
+   fp4 straight to the W4A16 kernel is both a *capacity* win (~200 GB vs ~275 GB → fits one domain →
+   tp=1) and *lossless* (fp4·2^k is exact in bf16). Up-converting fp4→fp8 doubled the footprint and
+   forced a tp>1 / NUMA-interleave swamp that ran M=1 decode ~330× slower.
+2. **Validate the measurement before optimizing.** The entire first per-op profile was an artifact —
+   idle OpenMP threads busy-wait by default and thrash each forward. `OMP_WAIT_POLICY=passive
+   KMP_BLOCKTIME=0` gave **63× prefill / 10× decode**, bigger than every per-op tweak combined.
+3. **Batching is the decode lever.** Continuous batching amortizes weight streaming: **10× aggregate
+   decode** (B=1→32); per-token MoE 1.39→0.32 ms (BW efficiency 26%→75%).
+4. **tp=1 + thread-cap beats TP for decode.** The model fits one socket, so TP only adds barrier/comm
+   cost at decode (tp=2 = 2.8× slower) — TP is a capacity/prefill lever. Authoritative decode config:
+   **tp=1 + decode-cap=8**.
+5. **Audit every weight for prepack-vs-consumption mismatch.** On a CPU port that blanket VNNI/AMX-packs
+   linears, a weight consumed by a plain matmul/einsum/custom kernel must be kept **row-major** — a packed
+   weight + plain matmul is a **silent permutation** (wrong numbers, no crash). The DSA `wkv_gate` hit this
+   (the whole ~15-pt gap); signature = *live weight vs raw checkpoint orthogonal but per-row norms preserved*.
+6. **Localize correctness bugs with boundary-capture + reference-replay on identical operands.** Per-layer
+   cosine vs a same-checkpoint GPU oracle → first divergent layer → dump the op's operands and replay an
+   independent reference on them → the operand-identity check (live weight vs raw checkpoint) names the line.
+7. **Prefill-correct ≠ serving-correct — validate three axes.** Layer cosine (prefill) certifies only axis 1;
+   **decode** (persist per-request state, don't drop it across steps) and **cross-request batching** (masks
+   keyed on identity, not position) are separate failures the **end-to-end accuracy metric** surfaces.
+
+**Remaining (scoped):** wire the authored DSA kernels into an **incremental-sparse decode**
+(O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime; then **scale Flash's donor
+kernels to the 1.6T Pro across a multi-socket EMR cluster**
+(Kimi-K3-style TP/EP/PP) — Pro is too large for one GNR node at tp=1, so its story is *distribution*,
+not new kernels. This is backend plumbing + tuning, not novel-kernel authoring — the DSA math is
+authored + proven in isolation.
+
+#### DeepSeek-V4-Flash — accuracy certification (a real port bug was found & fixed; CPU gsm8k ≈ GPU)
+Two questions a technical reviewer asks — *is the implementation correct?* and *does it match a trusted
+reference on task?* — are now answered the honest way: **CPU gsm8k 0.9437 ≈ GPU 0.9535** on the **same**
+checkpoint and protocol, after finding and fixing a real ~15-pt CPU port bug. (An earlier draft of this
+section claimed the gap was "the eval harness, not the port"; that was **wrong** and is corrected below —
+the correction itself is the lesson.)
+
+**(A) Numerical faithfulness — proven at the component + token level, not asserted.**
+- **Every `stored ≠ compute` dtype bridge is parity-gated against an independent oracle.** The MXFP4 W4A16
+  expert path (the bulk of the model) matches a torch dequant oracle built from the *same* packed nibbles to
+  **cos 0.999992 standalone / 0.999995 in-situ on the real checkpoint** — fp4·2^k is *exact* in bf16, so this
+  is near-machine-precision, not a lossy approximation.
+- **The novel sparse attention reduces *exactly* to dense at top-k = all (err 1.8e-7)** — a by-construction
+  check of the DSA math against a dense reference that shares the rest of the pipeline.
+- **Greedy (temperature-0) per-token parity passes** on real prompts — coherent, correct generations. This
+  gate earned its keep: it caught a real decode bug (DSA selection stubbed at decode → MLA gathered nothing →
+  zero attention), fixed with a causal dense fallback, *before* any number was published.
+- **Per-layer CPU↔GPU parity on the REAL checkpoint** — a version-matched GPU oracle (same 0.5.20 build,
+  same post-trained Flash checkpoint) captures every decoder layer's attention-module output on a frozen
+  prompt; the CPU build now matches it **cos ≥ 0.998 for layers 0–27 and ≥ 0.978 through layer 42** (a smooth
+  bf16/fp8-accumulation slope, no divergence cliff). This per-layer oracle is what localized the `wkv_gate`
+  bug to the first compressed layer — see (B). (The earlier draft said DSV4's full-GPU per-layer oracle was
+  infrastructure-blocked; the podman `--events-backend` workaround unblocked it this cycle.) The
+  deterministic-dummy *bit-exact* variant (cos 1.000001, rel-maxerr 0.0) remains demonstrated on the sister
+  model **GLM-5.3-Flash**.
+
+**(B) The task gap was a REAL port bug — found by binding the comparator correctly, then localized to one line.**
+
+![DSV4-Flash CPU gsm8k accuracy progression vs the same-checkpoint GPU oracle](docs/plots/dsv4_accuracy_progression_v1.png)
+
+| Stage | gsm8k | Note |
+|---|---|---|
+| CPU baseline (pre-fix) | **0.796** | the number the "eval harness" story tried to explain away |
+| + `wkv_gate` row-major fix (prefill) | **0.865** | compressed attention now correct in prefill (layer-2 cosine 0.9997) |
+| **+ decode persist + request-aware mask** | **0.9437** | 302/320, all 8 shards PASS (0.90–0.975) |
+| **GPU oracle — SAME post-trained Flash checkpoint, SAME 8-shot protocol** | **0.9535** | the apples-to-apples target (1250/1311) |
+
+- **The decisive move was the correctly-bound oracle.** The published 90.8 is Flash-**Base** (FP8), a
+  *different* checkpoint; our post-trained Flash has no published gsm8k number, so "below 90.8" was never a
+  valid signal. Running the **GPU on the same checkpoint + same harness** gave **0.9535** → the real target was
+  ~0.95, and CPU at 0.80 was genuinely ~15 pts low. *Comparator-provenance dissolved the false "below published"
+  panic; the correctly-bound GPU oracle then revealed the gap was real after all.*
+- **The bug: a silent weight-layout permutation.** The DSA compressor's `wkv_gate` projection was
+  AMX-VNNI-**prepacked** (as the CPU path packs every linear) but **consumed by a plain matmul**
+  (`compute_kv_score → linear_bf16_fp32`) → scrambled projection → garbage compressed KV → wrong attention on
+  every compressed layer (37 of 43). This is the **same bug class** the plugin had already fixed for `wo_a`;
+  `wkv_gate` was simply never audited.
+- **Localized to one line via boundary-capture + reference-replay** (method now in the playbook §5): per-layer
+  attn-output cosine vs the GPU oracle broke **exactly at the first compressed layer** (pure-SWA layers 0/1 =
+  0.9995); a boundary capture + independent replay on identical operands showed the attention *arithmetic* was
+  correct (self-consistency cos≈1.0) so the compressed-KV *values* were wrong; the operand-identity check — live
+  `wkv_gate.weight` vs the raw checkpoint = **cos 0.0007 with per-row norms preserved** — named it a prepack
+  permutation.
+- **Three fixes, three correctness axes** (playbook §5.4): (1) keep `wkv_gate` row-major → **0.865**;
+  (2) persist per-request compressed KV so **decode** attends long-range context (a prefill-only handoff ran
+  decode SWA-only); (3) make the coverage mask **request-aware** (a position-only mask leaks across a batched
+  prefill) → **0.9437**. Residual ~1 pt (0.9437 vs 0.9535) is benign bf16/fp8 accumulation over 43 layers
+  (per-layer cosine declines smoothly, no cliff) + minor decode incremental-block omission on long gens.
+
+**Reproducible, not hand-waved:** generations are saved (`--gens-out`) and scored offline
+([`score_gsm8k.py`](plugin/validate/score_gsm8k.py) grid); the full run is node-parallel + chunked
+([`run_gsm8k_dsv4_sharded.sbatch`](plugin/validate/run_gsm8k_dsv4_sharded.sbatch) +
+[`combine_gsm8k_shards.py`](plugin/validate/combine_gsm8k_shards.py)); the standard harness is
+[`run_gsm8k_lmeval.sbatch`](plugin/validate/run_gsm8k_lmeval.sbatch). Method codified in
+[`accuracy-oracle`](.agents/skills/throughput-enablement/accuracy-oracle/SKILL.md).
+
+**Precision & compute-type hygiene (checked up front, before any kernel is chosen).** GNR AMX has
+native matmul tiles for **bf16 / fp16 / int8 only — no fp8 or fp4**. So model discovery audits every
+weight family's *stored* dtype (from the real checkpoint, not just `quantization_config`) and maps it
+to a *compute* dtype the hardware actually supports: sub-16-bit weights are **moved** low-bit (a
+bandwidth/capacity win) and **computed in bf16** after a fused dequant. Every `stored ≠ compute` step
+is a dequant **bridge** verified numerically, not assumed:
+
+| Weight family (DeepSeek-V4-Flash) | Stored / moved | Compute (AMX) | Bridge | Lossless? | Correctness gate |
+|---|---|---|---|---|---|
+| MoE routed experts | **MXFP4** (e2m1 + e8m0 group-32) | **bf16** | W4A16, fused fp4→bf16 in-GEMM | ✅ fp4·2^k exact in bf16 | ✅ [parity](plugin/validate/test_mxfp4_moe_cpu.py) PASS · standalone cos 0.999992 + in-situ real-ckpt cos 0.999995 |
+| MLA / indexer / shared-expert proj | **fp8** e4m3 | **bf16** | W8A16, dequant fp8→bf16 | ✅ fp8 levels exact in bf16 | donor fp8 CPU path |
+| norms / router / embed / lm_head | bf16 | bf16 | none (native) | — | native |
+
+int8 is the only low-precision AMX *compute* tile; fp4/fp8 route through **bf16** compute (not int8)
+to stay lossless — the low precision is spent purely on movement/footprint. Keeping the experts
+**native 4-bit** (instead of up-converting fp4→fp8, which doubles the footprint) is what lets the
+whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
+
+#### 2 · GLM-5.3 Flash — autonomous playbook (velocity demonstration)
+
+**GLM-5.3 Flash** (`glm5_next`; 45 layers, hidden 4096, 288-expert MoE top-8) is a deliberate clean test
+of whether the *same* skills + plugin carry a **structurally different** architecture **with minimal human
+steering** — the metric here is **velocity**, not new kernels. It is a hybrid: **34 KDA linear-attention
+layers** (Kimi Delta / gated-delta-rule), **11 NoPE MLA + DSA** full-attention layers, an **MHC
+hash-clustering** residual, and an **fp8 e4m3 128×128 block-quant** checkpoint (one fp8→bf16 W8A16 bridge).
+Delivered as the same external plugin (`intel_cpu_models`) — no fork.
+
+**What the autonomous run has demonstrated so far:**
+- **Bring-up ladder cleared autonomously — ~18 sequential breaks** across prefill **and** decode, each
+  diagnosed → fixed-in-plugin → re-run on a tiny arch-faithful config (seconds per iteration): DSA
+  device-probe guard, mamba/KDA dual-cache + page-size, MHC `hc_post` shape, SwiGLU-clamp, the 288-expert
+  grouped-topk fallback, then the decode ladder (NoPE-MLA dispatch, DSA-indexer→dense, NoPE-MLA `w_kc`
+  keep-logical). Prefill and decode each had their **own** break ladder — decode hides behind prefill.
+- **CPU↔GPU parity-test infrastructure built** — a deterministic-dummy harness that makes
+  `load_format=dummy` **bit-identical across the CPU engine (torch-CPU) and the native-GPU sglang
+  container** (numpy name-seeded init → same weights regardless of device / RNG / torch version), plus
+  matched full-tensor per-`(pass,op,layer)` capture hooks on both sides and an offline cosine+magnitude
+  diff ([_dummy_determinism.py](plugin/_dummy_determinism.py), [diff_fullcap.py](plugin/validate/diff_fullcap.py)).
+  This **decouples wiring/kernel correctness from the fp8 bridge** so it is proven **cheaply, on one GPU,
+  without a ~300 GB real-weight load**.
+- **Per-layer correctness PROVEN on dummy weights (so far)** — GPU-reference vs CPU-build, tiny config:
+  **prefill all layers + first-decode L0–2 BIT-EXACT** (cos 1.000001, rel-max-err 0.0 on every per-layer
+  hidden + MHC residual), logits cos 0.999996. Both passes (prefill `pf` + decode `dc0`) verified from a
+  single fingerprint diff.
+- **New CPU authoring** — a reference-first **KDA linear-attention** CPU path (gated-delta recurrence +
+  dual cache, [kda_linear_attention_cpu.py](plugin/intel_cpu_models/kda_linear_attention_cpu.py)), and
+  the fix for a genuine sglang gap: **NoPE MLA on CPU** (the fused-rope kernel divides by
+  `qk_rope_head_dim=0` → SIGFPE; keep `w_kc`/`w_vc` logical + route to the generic absorb path).
+- **Real-weight parity — PROVEN, full 45 layers, prefill AND decode.** The fp8→bf16 bridge was
+  exercised on the full 306 GB checkpoint and diffed against the frozen golden: **prefill** all-layer
+  logits cos **0.999926** (no layer diverges, token ` Paris`); **decode** generates **identical tokens**
+  across steps (argmax-identical logits, residual cos ~0.998). CPU inference is **bit-deterministic across
+  thread counts** (so parity diffs hold node+bind constant). The remaining CPU-vs-GPU diff is the
+  documented **W8A16-vs-W8A8** fp8-activation-quant difference (CPU is more precise), not a bug.
+- **Performance optimization — 7.2× prefill, faithful.** Measure-first on the real per-op profile:
+
+  ![GLM-5.3 Flash CPU prefill: baseline 55.5s → optimized 7.7s (7.2×) → roofline, with the realistic fused-kernel floor](plugin/validate/results/glm5_flash_prefill_journey.png)
+
+  Two wins, both **bit-faithful** and env-gated: **(1) MoE router 27 → ~0.1 s** — the
+  288-expert torch router is `@torch.compile(dynamic=True)`, and on CPU that inductor compile is a ~50 s
+  one-time cost that landed *inside* the timed prefill; the fix **warms the compile at init** (overlapped
+  with weight load) and keeps the **compiled** path — *bit-exact* to baseline, unlike an eager bypass
+  which flips a borderline `topk` expert; **(2) KDA 24.6 → 3.7 s** — the per-token gated-delta scan
+  becomes **chunk-parallel matmuls** (WY form, batched across chunks), validated to the scan oracle
+  (real-weight fullcap: logits cos 0.999952, no layer diverges). **Honest ceiling:** the dense-GEMM
+  roofline (~0.09 s) is *not* reachable — the recurrence is dispatch/small-op bound (even the native AMX
+  kernel is only parity with torch compute), so the realistic floor is ~4 s via a fused CPU KDA kernel
+  (scoped follow-up; the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**).
+  Ledger: [glm5_perf_ledger.csv](plugin/validate/results/glm5_perf_ledger.csv).
+- **Task accuracy — gsm8k 8-shot, full test set, PASSED + CPU↔GPU cross-checked.** The optimized faithful
+  CPU build scores **91.46%** (1199/1311, **0 invalid**) on the complete gsm8k test set, real fp8 weights
+  ([glm5_flash_gsm8k.json](plugin/validate/results/glm5_flash_gsm8k.json)). Because GLM-5.3-Flash's card
+  reports only *agentic/multimodal* suites (no gsm8k) at `reasoning_effort=max` with 64–163K-token
+  generations — infeasible to reproduce on a CPU inference build — correctness is established the robust
+  way instead: run the **identical** harness on the **GPU reference** (native sglang CUDA, tp=8, H200) and
+  show **CPU ≡ GPU**. GPU scores **92.07%** (1207/1311, 0 invalid); the two agree to **0.61 pp aggregate**
+  and **93.7% per-question answer agreement**, with **symmetric** disagreements (30 CPU-only vs 38 GPU-only
+  correct — no CPU deficit) — exactly the signature of the documented **W8A16-vs-W8A8** fp8-activation
+  difference, not a bug. Together with the per-layer parity (logits cos 0.9999, identical decode tokens),
+  this is the end-to-end correctness sign-off that the 7.2× perf wins are accuracy-neutral
+  ([cpu-vs-gpu](plugin/validate/results/glm5_flash_gsm8k_cpu_vs_gpu.json)). Run node-parallel +
+  chunk-checkpointed + **straggler-tail re-sharded** across EMR, with the auto sneak-preview fail-fast
+  watcher armed at submit (`scripts/sneak_preview.sh`, `reshard_tail.py`).
+
+**Remaining (scoped):** the **fused CPU KDA AMX kernel** (the ~2× further prefill headroom; build path
+de-risked — the sgl-kernel AMX gated-delta kernel is **per-head** gate, KDA needs **per-key**). *The point
+of this section is the **velocity**: a structurally different architecture carried to proven
+**prefill+decode real-weight parity**, **91.46% gsm8k**, and a **7.2× faithful perf win** by the same
+playbook, with only the genuinely novel op (KDA) hand-authored.*
+
+## Roofline target vs measured (published with every result)
+Every published result carries the **roofline achievable target** alongside the **measured**
+number, plus a **per-op breakdown** of which kernels fall short of their roofline (measured is
+usually below target — the gap is the remaining optimization RoI). Target is published up front;
+measured fills in when the kernels run. The **same chart serves both legs**: in the **new-kernel
+leg (Thesis 2)** measured = *our authored* kernel; in the **reuse leg (Thesis 1)** measured = the
+*reused donor* kernel, so the gap shows whether the donor kernels are actually optimized or leave
+headroom (an RoI even when no new kernel was written).
+- **Thesis 1 — donor-kernel optimization** (OLMo-2-7B, BF16, GNR): [report](plugin/validate/results/olmo2_7b_donor_roofline.md)
+  · ![chart](plugin/validate/results/olmo2_7b_donor_roofline.png) — reused donor GEMMs run at 0.94–1.26× the donor's own efficiency (wiring preserved) yet only **42–60% of the AMX ceiling** → headroom. Backend is oneDNN/LIBXSMM BRGEMM (best-in-class inner loop), so the gap is **composition/memory-traffic**, not tile-loop quality.
+- **Thesis 2 — new-kernel authoring** · DeepSeek-V4-Flash (routed-expert MoE kernel = 68% of decode, MXFP4 W4A16, EMR): [roofline vs measured report](plugin/validate/results/deepseek_v4_flash_roofline.md)
+  · ![chart](plugin/validate/results/deepseek_v4_flash_roofline.png) — **measured**: prefill and *batched* decode hit **75% of the DRAM-BW roofline**; unbatched M=1 decode only **26%** → batching is the decode lever. Model-level (tp=1+cap, full 43 layers, batch 32): prefill 69.6 / decode 9.3 tok/s.
+  · **Time-attribution pivot** (companion — *where the wall-clock goes*, per phase, summing to 100%): [report](plugin/validate/results/deepseek_v4_flash_pivot.md) · ![pivot](plugin/validate/results/deepseek_v4_flash_pivot.png) — the **MoE expert kernel dominates** (47% prefill / 30% decode), the **authored novel ops (DSA + MHC) are a bounded ~25–30% torch slice** (the optimization frontier), and an explicit **11%/15% unattributed** slice keeps the split honest (batch=1, tp=1).
+- **GLM-5.3 Flash — recurrence-bound, so the FLOP ceiling is NOT the reachable target** (hybrid KDA +
+  MLA, fp8 W8A16, GNR): [roofline vs measured report](plugin/validate/results/glm5_flash_roofline.md)
+  · ![chart](plugin/validate/results/glm5_flash_roofline.png) — unlike DSv4's 75%-of-BW-roofline, GLM's
+  hot block `attn.kda` (**48% of prefill**) is a **gated-delta recurrence** (per-chunk/per-head small
+  matmuls, dispatch-bound), so the dense-GEMM ceiling (0.09 s) is **physically unreachable** — even a
+  native AMX kernel only ties torch compute. The honest target is the **~4 s fused-kernel floor**; the
+  cycle delivered **55.5 → 7.7 s (7.2×), faithful** (prefill+decode parity, logits cos 0.9999) via a
+  bit-exact warm-compiled router (27 → 0.1 s) + chunked-WY KDA (24.6 → 3.7 s). Per-op efficiency reads as
+  *where FLOP-throughput is lost* (small-M KDA/MoE/MLA) vs the one near-efficient block (big-M dense MLP).
+  · **Time-attribution pivot** (companion — *where the wall-clock goes*, per phase, summing to 100%):
+  [report](plugin/validate/results/glm5_flash_pivot.md) · ![pivot](plugin/validate/results/glm5_flash_pivot.png)
+  — `attn.kda` dominates both phases (**48% prefill / 55% decode**), `moe` is the #2 (30% / 19%), with an
+  explicit **6% / 5% unattributed** slice keeping the split honest (batch 1, tp=1).
+- **DeepSeek-V4-Pro (1.6T) — reuse + scale-out, NOT new-kernel authoring.** Pro is the *same* DSv4
+  architecture as Flash (DSA + MHC + MLA + native-MXFP4 MoE), so Flash's authored CPU kernels are its
+  **donors** — enabling Pro is Thesis-1-style *wiring + validation*, not new kernels. It is **too large
+  for one GNR node at tp=1**: ~800 GB native MXFP4 exceeds a single 256 GB NUMA domain (and the 768 GB
+  socket), so it can only run **TP≥2** — the decode-hostile config we measured at 2.8× slower. Its
+  realistic home is a **multi-socket EMR cluster** (Kimi-K3-style TP/EP/PP across ~16 sockets) — a
+  *distribution* story, not a kernel story. The [analytical roofline](plugin/validate/results/deepseek_v4_pro_roofline.md)
+  is an earlier GNR-TP4 estimate kept for reference only; the multi-socket roofline is TBD and no
+  single-node Pro run is claimed.
+- Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
+  --in <profile.json> --out-prefix plugin/validate/results/<name>`.
+
+## Repository map
+- [`.agents/`](.agents) — the workflow: `agents/` (model-enablement, cpu-optimizer) and
+  grouped `skills/` — see [`.agents/skills/README.md`](.agents/skills/README.md), which
+  marks the **throughput-thesis** skills.
+- [`plugin/`](plugin) — generated model classes (`intel_cpu_models/`), generic validators
+  (`validate/`), the auto-quantizer (`quantize/`), **certificates** (`certificates/*.yaml`),
+  and the DeepSeek coverage analysis (`coverage/*.yaml`).
+- [`tools/`](tools) — node calibration + microbenchmarks.
+
+## Reproduce
+Each certificate carries its exact `reproduce:` commands. SGLang CPU install:
+`sglang/docs/docs/hardware-platforms/cpu_server.mdx`. The validators are generic —
+point `--model` / `--config` at any model. Weights are not stored here (downloaded separately).
