@@ -109,7 +109,7 @@ def main():
     with open(svg, "w") as f:
         f.write(build_svg(d))
     print("wrote", svg)
-    png = os.path.join(args.out_dir, "dsv4_node_walltime_v1.png")  # bump _vN on any content change (camo cache)
+    png = os.path.join(args.out_dir, "dsv4_node_walltime_v2.png")  # bump _vN on any content change (camo cache)
     exe = shutil.which("rsvg-convert")
     if exe:
         subprocess.run([exe, "-z", "2", "-o", png, svg], check=True, capture_output=True)

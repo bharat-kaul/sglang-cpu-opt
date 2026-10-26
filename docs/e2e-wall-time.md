@@ -7,7 +7,7 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
 
-![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v1.png)
+![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v2.png)
 
 **43L two-depth extrapolation** (4L+8L dummy-weight proxy, **real-router guard ON** so routing matches the
 real ~59 distinct experts/B=32 — see the mode-collapse note below). **Baseline** = fully naive (eager DSA +
@@ -25,11 +25,14 @@ this optimized compute path is established separately: **gsm8k 0.9437 ≈ GPU 0.
 1.44× (8L). Harness: [run_dsv4_perf_matrix.sbatch](../plugin/validate/run_dsv4_perf_matrix.sbatch), attribution
 [run_dsv4_perf_attrib.sbatch](../plugin/validate/run_dsv4_perf_attrib.sbatch) (job 392780).
 
-**Roofline position (honest, real-router).** Both panels sit well below their ceiling — prefill ~17% of the AMX
-bf16 compute roof, decode ~11% of the weight-streaming roof. This **supersedes the earlier "~76% of roofline"
-claim**, which was a **mode-collapse artifact**: a dummy-random router collapsed routing onto a few experts, so
-`W_active` was ~2.3× too small and the proxy looked near-roofline. With the real router (correct `W_active` = 40
-GB/step), the headroom is large and the bound is **overhead/dispatch + the not-yet-fused aten ops**, not raw BW.
+**Roofline position (honest, real-router, MEASURED EMR constants).** Roofline computed from a direct
+uarch-probe of the EMR node (pcl-spr08: **AMX bf16 12.4 TFLOPS, DRAM 848 GB/s full-node**, job 392787):
+**prefill ≈ 43% of the AMX compute roof** (409 tok/s), **decode ≈ 8% of the weight-streaming roof** (678 tok/s).
+Prefill is already at a healthy fraction of its compute ceiling; **decode has large headroom** — and this
+**supersedes the earlier "~76% of roofline" claim**, which was a **mode-collapse artifact**: a dummy-random
+router collapsed routing onto a few experts, so `W_active` was ~2.3× too small and the proxy looked near-roof.
+With the real router (correct `W_active` = 40 GB/step), the decode bound is **overhead/dispatch + the not-yet-
+fused aten ops**, not raw BW.
 
 ## Decode (TPOT) — attribution (corrected, real-router phase-split, job 392782)
 
