@@ -334,6 +334,16 @@ flowchart LR
   fractions with measured floors. Complement with env-gated **boundary timers** (wall-clock, to correct
   `self_cpu` over-weighting of many-call small ops) and gate each lever on the **Amdahl bound**
   `share·(1−floor/measured)`. (overhead-attribution + kernel-feasibility-gate + inter-kernel-fusion.)
+- **ATTRIBUTE AT THE TARGET OPERATING POINT — recovery targets DIFFER by phase/batch.** The op-class whose
+  overhead dominates is **operating-point-specific**, so attribute (and ROI-gate) at the point the deployment
+  actually targets, not just the throughput point. *Worked example (DSv4, wall-clock TIMEIT):* **prefill B=32**'s
+  #1 recoverable op is the **attention mask construction** (~19%, glue → fuse into the attention kernel), but
+  **decode B=1** (the Xeon low-batch latency target)'s #1 is the **eager DSA compressor/indexer + MHC** (~30%,
+  torch → kernelize) with the mask only ~7%. Attributing only at B=32 **under-weights** the decode fixed-cost
+  levers that define the low-batch value. Also re-check the `self_cpu`-vs-wall-clock gotcha: `self_cpu` scattered
+  the mask across thousands of `copy_`/`index` calls (looked ~0%); the wall-clock region timer showed it is the
+  single biggest op. (Pairs with the model-enablement **FRAME-THE-KPI-FIRST** rule: the target S/B/G decides
+  which attribution — and thus which levers — matter.)
 - **DISPATCH-PROVENANCE & WIRING-CHAIN audit (a kernel that EXISTS is not a kernel that RAN).** Unit parity
   proves a kernel is *correct*, not that the serving forward *dispatches* to it — a hot-path op can silently
   stay an **eager-torch reimplementation** (einsum / per-token Python loop) that **bypasses** an authored C/C++

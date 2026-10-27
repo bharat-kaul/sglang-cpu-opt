@@ -105,15 +105,35 @@ The **409 tok/s prefill roofline is a loose upper bound, not a reachable target.
 **only the linear-layer dense-GEMM FLOPs** (30.2 GFLOP/token: MLA proj + MoE experts + router) at the
 **resident** AMX peak (12.4 TF), and assumes the rest of the forward — attention (DSA sparse O(S²) +
 lightning-indexer), MHC hash-clustering, softmax, norms, masking, and all layout/dtype glue — is **free**. It
-isn't. A per-op profile of a real prefill (job 390877, `torch.profiler` self-time, categorized) shows only
-**~40%** of prefill wall-time is the AMX-GEMM work the roofline models:
+isn't. A **wall-clock, category-tagged** attribution of a real prefill (job 393238, full 43L real weights, real
+routing, B=32 S=128, optimized throughput config; `INTEL_CPU_DSV4_TIMEIT` boundary timers, parent timers
+`moe`/`dsa.mla.attend` excluded to avoid double-count) confirms only **~41% of prefill wall-time is the AMX-GEMM
+work the roofline models** (self-profiler had estimated ~40% — the wall-clock measurement validates it):
 
-| op class | share of prefill self-time | nature | in the 409 roofline? |
-|---|---:|---|---|
-| **C/AMX kernels** (`fused_experts`, `fp8_scaled_mm`, `shared_expert`, `rmsnorm`) | **~40%** | dense GEMM; MoE core ~76% of its *own* roofline | ✅ yes — this is the 409 |
-| **glue** (`copy_` ×14.8k, `cat`, `index`, `masked_fill`, `nan_to_num`) | **~26%** | layout/dtype/gather/staging — pure data movement | ❌ assumed free |
-| **aten elementwise/reduction** (`softmax`, `mul`, `add`, `pow`, `sum`) | **~24%** | DSA/MHC/attention math still in eager torch | ❌ assumed free |
-| **aten dense GEMM** (`mm`, `bmm`) | **~10%** | attention/proj matmuls on the generic path, not the AMX kernel | ❌ (counts FLOPs, not this path) |
+| prefill leaf (wall-clock) | bucket | % of timed leaves | in the 409 roofline? |
+|---|---|---:|---|
+| **`mla.b.mask`** (per-token Python mask-construction loop) | **glue** | **27.6%** ← #1 target | ❌ assumed free |
+| `mla.b.pv` (attention PV GEMM) | kernel | 18.9% | ✅ |
+| `moe.expert_apply` (MXFP4 experts) | kernel | 14.2% | ✅ |
+| `mhc.hc_post` + `mhc.hc_pre` (MHC, eager) | torch | 16.7% | ❌ assumed free |
+| `dsa.indexer` + `dsa.compressor` (eager) | torch | 14.8% | ❌ assumed free |
+| `dense.fp8_linear` (MLA proj) | kernel | 7.8% | ✅ |
+
+**Compute ≈ 41% / recoverable overhead ≈ 59%** of timed leaves (and the timed leaves are only ~68% of the layer
+wall — the untimed ~32% is norms/rope/residual/dispatch, also mostly overhead). **The measured #1 recoverable
+target is the attention `mla.b.mask`** — a per-token Python loop that *materializes* the coverage/causal mask
+tensor, even though the fused DSA attention kernel already applies a mask inline. Fusing the mask construction
+into the kernel (never materialize it) is a textbook inter-kernel-fusion win worth ~19% of prefill wall. *(A
+counterfactual ablation — `INTEL_CPU_DSV4_ABLATE_MASK=1`, job 393314 — forces the cheap vectorized mask to
+upper-bound this recovery, with a `moe.expert_apply`-stability check to rule out a routing-shift confound.)*
+
+<details><summary>Earlier self_cpu-profiler estimate (superseded by the wall-clock measurement above)</summary>
+
+An earlier `torch.profiler` self-time profile (job 390877) estimated ~40% GEMM / 26% glue / 24% eager / 10%
+fallback-matmul. The wall-clock TIMEIT above supersedes it: it confirms the ~40% compute but, by timing the
+actual op *regions*, reveals the glue is concentrated in one op (`mla.b.mask`) rather than diffuse across
+thousands of `copy_`/`index` calls — a more actionable picture.
+</details>
 
 **Why 409 is structurally unreachable (Amdahl).** ~60% of prefill is non-dense-GEMM work that is
 memory-/dispatch-bound and physically cannot run at the AMX compute peak. Even an *infinitely fast* GEMM leaves
@@ -130,8 +150,35 @@ roofline, so **the headroom is not in the kernels — it is in the work the roof
 - *Not a lever:* making the AMX GEMMs faster — already near their own roof.
 
 Realistic recovery is a **fraction** of that ~60%, so prefill could plausibly move from 174.5 toward **~250–300,
-not** to 409. *Caveat:* profiler `self_cpu` over-weights many-call small ops, so the glue/eager shares are
-likely overstated in wall-clock terms and the compute share higher — a boundary-timer attribution refines it.
+not** to 409. *(The wall-clock TIMEIT above resolves the earlier `self_cpu` over-weighting caveat and localizes
+the recovery to one op — the `mla.b.mask` construction.)*
+
+## B=1 decode headroom (the Xeon low-batch operating point) — a DIFFERENT target
+
+Xeon is targeted for **low-batch latency**, so the decode recovery must be attributed at **B=1**, not B=32. The
+wall-clock TIMEIT attribution at B=1 (job 393239, full 43L real weights, latency config: OMP passive +
+decode-cap=8; parents excluded) shows a **different** picture from prefill:
+
+| B=1 decode leaf (wall-clock) | bucket | % of timed leaves |
+|---|---|---:|
+| `moe.expert_apply` (MXFP4 experts — weight-streaming) | kernel | 35.5% |
+| `dense.fp8_linear` (MLA proj) | kernel | 16.9% |
+| **`dsa.compressor` + `dsa.indexer` (eager)** | **torch** | **19.9%** |
+| **`mhc.hc_pre` + `mhc.hc_post` (eager)** | **torch** | **9.8%** |
+| `mla.b.pv` (attention PV) | kernel | 8.8% |
+| `mla.b.mask` + `mla.b.gather` (glue) | framework | 6.9% |
+
+**Compute ≈ 63% / recoverable overhead ≈ 37%.** The decode recovery target is **NOT the mask** (only ~7% here,
+vs ~28% in prefill) — it is the **~30% eager/torch DSA compressor + indexer + MHC**, i.e. the "port the torch
+decode ops to kernels" lever, now **ROI-justified by measurement at the operating point that matters for Xeon.**
+The MoE `expert_apply` dominates (35%) and is weight-streaming compute at ~50% of its floor (partially
+recoverable via the already-found MoE thread-scaling lever, not fusion). Corroborating signs this overhead is
+real and recoverable: at B=1 the DSA C-kernels-ON path (7.3 tok/s) was *slower* than OFF (8.4), and the
+overhead-attribution found `moe.expert_apply` **inverse thread scaling** (8 threads 0.1 ms → 120 threads 5175 ms).
+
+**KPI-framing lesson:** the prefill and B=1-decode recovery targets are **different** (mask-fusion vs
+eager-op-kernelization). Attributing at a single operating point (B=32) under-weighted the decode fixed-cost
+levers that define the Xeon low-batch value. **Attribute optimization decisions at the TARGET operating point.**
 
 ## A refined roofline (recommended) — an additive "achievable" ceiling, not one idealized line
 
