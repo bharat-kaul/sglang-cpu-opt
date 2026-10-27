@@ -50,17 +50,34 @@ speculative M.
    - AI = FLOPs/bytes → compute-bound (AI≥ridge) or memory-bound (AI<ridge).
    - **Batched-MoE decode (critical on CPU):** dense/attention weights stream ONCE
      and amortize over the batch, but each token routes to a DIFFERENT expert subset,
-     so the distinct-expert working set GROWS with batch. Expected distinct experts
-     per layer for B tokens, top-k of E: `E*(1 - (1 - 1/E)^(k*B))`. Per-step bytes =
+     so the distinct-expert working set GROWS with batch. The uniform estimate
+     `E*(1 - (1 - 1/E)^(k*B))` **OVER-counts** (it is the dummy-random result) — real
+     routing is concentrated, so **fit `distinct_experts(B)` to a MEASURED point from
+     the REAL router** (DSv4: measured **59** at B=32, not the uniform ~135) via
+     `distinct(B)=E*(1-(1-p)^B)`, and carry it through the roofline (sub-linear in B;
+     saturates at all-E, then linear again). Per-step bytes =
      non_expert_bytes + distinct_experts(B)*per_expert_layer_bytes*moe_layers + KV(B).
      agg_tok/s = B / (step_bytes / full_node_BW); per-user latency = step time.
      Sweep B=1,8,16,32 — a model with few experts / high top-k saturates early (B=32
      may stream ~half the whole model/step) and batching barely helps; a model with
-     many experts / low top-k scales much better. Decode stays memory-bound across
-     this range on Xeon (check compute/step ≪ memory/step).
+     many experts / low top-k scales much better. **Name the regime (compute- /
+     memory- / LATENCY-bound):** at small B the per-step **dispatch/latency** overhead
+     can dominate BOTH compute/step and memory/step, so measured decode sits far below
+     the BW roof (DSv4 B=32 = **8% of its BW roof = latency-bound, NOT BW-bound**). The
+     `bytes/BW` roofline is then a **large-batch ASYMPTOTE**; the lever to reach it is
+     **larger batch** (amortize the fixed cost), not kernels — say so before quoting a
+     %-of-roofline.
 3. **Amdahl-rank.** Each op-class's share of the phase time = its (bytes/BW) or
    (FLOPs/compute), whichever binds. Sort. Identify the top contributors and the
-   long tail.
+   long tail. **Two ceilings — report BOTH:** the single dominant-resource roofline
+   (`FLOPs/peak` or `bytes/BW`) is an **IDEALIZED upper bound** that assumes every
+   OTHER op-class is free; the **sum of per-op-class floors** (an additive **time-budget**
+   roofline, at each class's *achievable* rate — streamed-GEMM not resident peak,
+   bytes/BW for memory-bound, memcpy/irreducible for glue) is the **ACHIEVABLE** ceiling.
+   Score **measured ÷ achievable** (not ÷ idealized) and report **achievable ÷ idealized**
+   = the structural gap. *On DSv4 prefill only ~40% of wall-time is the modeled GEMM; the
+   other ~60% (glue/eager-math/fallback-matmul) is what the idealized `FLOPs/peak`
+   pretends is free — so "43% of roofline" overstates the gap and hides where it is.*
 4. **Lever per top item.** Memory-bound → **reduce operand precision** (fewer weight
    bytes — usually the #1 decode lever), prefetch, cache-block, fusion. Compute-bound
    → AMX/vectorization, tiling, prepack. (Uses the kernel-level roofline concepts
@@ -78,15 +95,19 @@ config, roi}]`. Feeds coverage/wiring for config/donor items; feeds
 
 ## Worked example (DeepSeek-V4 decode, config-grounded, FULL 2-socket GNR node)
 GNR full node ≈ 1261 GB/s aggregate (2×630.7, NUMA-local sharded; ~0.85 realistic).
-**Flash-v4.1** (~286B, 256 experts top-6, FP8) scales well: B=1 ~81 → B=32 ~260 tok/s
-aggregate (distinct experts/layer 6→135 = 53% of the model streamed at B=32),
-latency ~120 ms. **V4-Pro flash** (~1.4T, 384 experts top-8, FP8) saturates: B=1 ~22
-→ B=32 ~58 tok/s, 0.55 s/token latency (B=32 streams ~half the 1.4 TB model/step).
-Decode ranking (both): (1) weight streaming ≈ dominant → **precision (fp8/int4)** #1
-lever; (2) MLA/MoE donor paths; (3) DSA indexer nn kernel ≈ **0.5%** (M=1) → **SKIP**.
-The batch sweep, not a single B=1 number, is the decision input — it exposes that the
-1.4T model is bandwidth-saturated and batching buys little, while the 286B model
-scales to ~220–260 tok/s.
+**Flash-v4.1** (~286B, 256 experts top-6, FP8) scales well: analytical B=1 ~81 → B=32 ~260
+tok/s aggregate (distinct experts/layer 6→**59** measured real-router = ~23% of experts
+streamed at B=32 — *not* the uniform/dummy ~135 = 53%, which is a mode-collapse over-count).
+**V4-Pro flash** (~1.4T, 384 experts top-8, FP8) saturates: B=1 ~22 → B=32 ~58 tok/s,
+0.55 s/token latency (B=32 streams ~half the 1.4 TB model/step). Decode ranking (both):
+(1) weight streaming ≈ dominant → **precision (fp8/int4)** #1 lever; (2) MLA/MoE donor
+paths; (3) DSA indexer nn kernel ≈ **0.5%** (M=1) → **SKIP**. The batch sweep, not a single
+B=1 number, is the decision input. **NB — these are IDEALIZED BW ceilings:** the MEASURED
+DSv4 decode is **overhead/latency-bound** and sits far below (B=32 = 8% of the BW roof), so
+score against the achievable time-budget, and **validate recoverable headroom with a cheap
+counterfactual ablation** (no-op the suspected overhead in a timing-only proxy; the delta
+upper-bounds the ROI) BEFORE authoring any kernel — see `kernel-feasibility-gate` +
+`overhead-attribution`.
 
 ## Gate
 No kernel-level roofline or authoring begins for an op until model-roofline-analysis

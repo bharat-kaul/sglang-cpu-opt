@@ -295,6 +295,45 @@ flowchart LR
   roofline → attribute the gap (kernel / framework / **dispatch & parallelization overhead**) → clear the
   overhead (bind-once, fewer/bigger parallel regions, one rank per NUMA domain, prepack) → re-measure, so
   **every integration step updates measured-vs-roofline** until the 70–75% target holds at every M.
+- **ROOFLINE HONESTY — publish the IDEALIZED ceiling AND the ACHIEVABLE time-budget; score against the latter.**
+  A single `FLOPs/peak` (or `bytes/BW`) roofline is an **idealized upper bound**: it counts only the *modeled*
+  resource (dense-GEMM FLOPs, or weight-streaming bytes) and implicitly assumes **every other op-class is free**
+  — attention/sparse/indexer, norms/softmax, the fused-op residual (e.g. MHC), and all layout/dtype **glue**.
+  That is rarely true: profile the phase and categorize wall-time **by op-class**. *Worked example — DSv4 prefill:*
+  only **~40%** of wall-time is the AMX GEMM the 409 tok/s roofline models; **~60%** is glue (~26%), eager
+  elementwise/attention math (~24%), and fallback matmul (~10%) the roofline assumes free — so "43% of roofline"
+  **overstates the gap** and hides where it is. **Rule: publish TWO ceilings** — (1) the **idealized**
+  single-resource roofline (loose upper bound), and (2) an **ACHIEVABLE time-budget roofline**
+  = `Σ_class Work_class / AchievableRate_class` (dense GEMM at the **streamed**-achievable rate, *not* the
+  resident peak; memory-bound classes at bytes/BW; glue at memcpy-BW or an explicit irreducible floor). Score
+  efficiency as **measured ÷ achievable**, and report **achievable ÷ idealized** = the **structural** fraction of
+  the gap (unreachable without changing the op graph). The modeled GEMMs are usually already near their own roof,
+  so the headroom lives in the work the idealized roofline pretends is free — `inter-kernel-fusion` (glue) +
+  kernelizing the eager math, not faster GEMMs. Chart both as lines (idealized + achievable); label the idealized
+  one *idealized*.
+- **COMPUTE-BOUND vs LATENCY-BOUND — a memory-bound roofline is a large-batch ASYMPTOTE, not a small-M target.**
+  At small M the per-step fixed cost (dispatch, non-overlapped compute, parallel-region entry) dominates, so the
+  op is **latency-bound**, not BW-bound — measured sits far below the `bytes/BW` ceiling for a *reason*, not as
+  owed headroom (DSv4 decode at B=32 = 8% of its 678 tok/s BW roof *because* it is latency-bound). The lever to
+  approach the BW roof is **larger batch** (amortize the fixed cost), not kernel work. **Name the regime before
+  quoting a %-of-roofline.**
+- **MoE roofline is SUB-LINEAR in batch — `W_active(B)` GROWS with distinct experts.** For sparse-MoE decode,
+  `W_active` is **not constant**: more batch activates more *distinct* experts, so doubling B does **not** double
+  the ceiling (DSv4: B=32→64 roofline 678→~840 tok/s, +24% not +100%, because `W_active` 40→~63 GB). Fit
+  `distinct(B)=N·(1−(1−p)^B)` to a **measured** `distinct_experts(B0)` and carry `W_active(B)` through the
+  `tok/s_roof(M)` formula; it saturates at all-N experts (then grows linearly again). **Never assume `W_active`
+  constant for MoE**, and never read `distinct_experts` off a dummy-random router (it degenerates — see
+  perf-proxy). *(This corrects the naive "batching amortizes a fixed `W_active`" reading above — the amortization
+  is only partial for MoE.)*
+- **VALIDATE recoverable headroom BEFORE authoring (cheap counterfactual ablation).** Don't build fused kernels
+  on faith. In a **timing-only** run (dummy weights, depth-proxy — output correctness irrelevant), **no-op /
+  pass-through the suspected-recoverable op-class** (glue copies → preallocated reuse; eager math → identity
+  stand-in; fallback matmul → route to the kernel) and measure the delta: it is the **MAX** recoverable (you
+  fully removed the cost), so it **bounds the ROI before a kernel is written** (<~15% → skip; 30–40% → build).
+  This is also how the **achievable time-budget** above is firmed up — the ablation replaces assumed recoverable
+  fractions with measured floors. Complement with env-gated **boundary timers** (wall-clock, to correct
+  `self_cpu` over-weighting of many-call small ops) and gate each lever on the **Amdahl bound**
+  `share·(1−floor/measured)`. (overhead-attribution + kernel-feasibility-gate + inter-kernel-fusion.)
 - **DISPATCH-PROVENANCE & WIRING-CHAIN audit (a kernel that EXISTS is not a kernel that RAN).** Unit parity
   proves a kernel is *correct*, not that the serving forward *dispatches* to it — a hot-path op can silently
   stay an **eager-torch reimplementation** (einsum / per-token Python loop) that **bypasses** an authored C/C++
