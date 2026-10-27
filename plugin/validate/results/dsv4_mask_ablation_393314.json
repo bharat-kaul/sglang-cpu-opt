@@ -1,0 +1,11 @@
+{
+  "experiment": "prefill mask-fusion recovery, counterfactual ablation (INTEL_CPU_DSV4_ABLATE_MASK)",
+  "job": 393314, "node": "pcl-sprh03 EMR", "config": "full 43L real weights, real routing, B=32 S=128, optimized throughput (spin OMP all cores, DSA C kernels)",
+  "baseline_prefill_tok_s": 187.63, "ablate_prefill_tok_s": 201.28, "recovery_pct": 7.3,
+  "reliability": {
+    "mask_time_s": {"baseline": 8.479, "ablate": 3.436, "verdict": "dropped -> ablation took effect"},
+    "moe_expert_apply_s": {"baseline": 4.322, "ablate": 4.308, "drift_pct": 0.3, "verdict": "stable -> no routing-shift confound"},
+    "mla_b_pv_s": {"baseline": 5.523, "ablate": 7.081, "note": "cheap dense mask attends denser -> PV penalty the proxy pays but a proper sparse-inline fused kernel would not"}
+  },
+  "interpretation": "+7.3% is a LOWER bound (proxy pays a dense-PV penalty). Proper fused-mask attention (sparse mask applied inline, no materialization) ceiling = full ~19% mask cost. Verdict: worth building."
+}

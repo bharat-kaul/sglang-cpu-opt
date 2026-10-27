@@ -123,9 +123,16 @@ work the roofline models** (self-profiler had estimated ~40% — the wall-clock 
 wall — the untimed ~32% is norms/rope/residual/dispatch, also mostly overhead). **The measured #1 recoverable
 target is the attention `mla.b.mask`** — a per-token Python loop that *materializes* the coverage/causal mask
 tensor, even though the fused DSA attention kernel already applies a mask inline. Fusing the mask construction
-into the kernel (never materialize it) is a textbook inter-kernel-fusion win worth ~19% of prefill wall. *(A
-counterfactual ablation — `INTEL_CPU_DSV4_ABLATE_MASK=1`, job 393314 — forces the cheap vectorized mask to
-upper-bound this recovery, with a `moe.expert_apply`-stability check to rule out a routing-shift confound.)*
+into the kernel (never materialize it) is a textbook inter-kernel-fusion win worth ~19% of prefill wall.
+
+**Ablation result (job 393314, measured, clean):** `INTEL_CPU_DSV4_ABLATE_MASK=1` (forces the cheap vectorized
+mask instead of the per-token Python loop) lifted prefill **187.6 → 201.3 tok/s = +7.3%**, with both reliability
+checks passing: `mla.b.mask` dropped 8.48s → 3.44s (ablation took effect) and `moe.expert_apply` held at
+4.32 → 4.31s (**0% drift → no routing-shift confound**). This +7.3% is a **lower bound** on the real recovery:
+the cheap proxy also made `mla.b.pv` rise 5.5 → 7.1s (a dense-causal mask attends to more keys than the sparse
+top-k), a penalty a *proper* fused-mask kernel (apply the **sparse** mask inline, no materialization, no PV
+penalty) would not pay — its ceiling is the full ~19% mask cost. **Verdict: worth building** (measured +7.3% from
+a penalty-paying proxy; proper fused-mask attention targets ~19%).
 
 <details><summary>Earlier self_cpu-profiler estimate (superseded by the wall-clock measurement above)</summary>
 
