@@ -1849,7 +1849,14 @@ def _batched_mla_attend(
         _tacc("mla.b.gather", _ts, "framework")
         _ts = time.perf_counter()
     ar = torch.arange(n)
-    if indices is None or topk_length is None or force_dense:
+    # ABLATION (default-inert): INTEL_CPU_DSV4_ABLATE_MASK=1 forces the CHEAP vectorized dense-causal
+    # mask branch instead of the expensive per-token Python loop (and skips the compressed-KV coverage
+    # mask below). The prefill throughput delta vs baseline = the UPPER BOUND of fusing/vectorizing the
+    # mask construction (the measured ~19% `mla.b.mask` glue). Timing-only: attention output is a
+    # (valid but non-sparse) dense-causal approximation, so pair with the moe.expert_apply TIMEIT
+    # stability check to rule out a routing-shift confound.
+    _ablate_mask = _os.environ.get("INTEL_CPU_DSV4_ABLATE_MASK") == "1"
+    if indices is None or topk_length is None or force_dense or _ablate_mask:
         # SLIDING-WINDOW causal (reference get_window_topk_idxs, window_size=128): query at absolute
         # position `base+t` attends ONLY to keys in [base+t-(W-1), base+t], NOT all prior keys. Our
         # old dense-causal attended to ALL prior -> softmax spread over ~W/n too many keys (the "2x
@@ -1886,7 +1893,7 @@ def _batched_mla_attend(
     # compressed blocks as a 2nd KV source with a causal COVERAGE mask: block j (start abs pos
     # bpos[j]) is visible to query at abs pos p iff (j+1)*ratio <= p+1  <=>  p >= bpos[j]+ratio-1.
     _handoff = _COMPRESSED_HANDOFF.pop(edp, None) if edp is not None else None
-    if _handoff is not None and _os.environ.get("INTEL_CPU_DSV4_COMPRESSOR_FIX", "1") == "1":
+    if _handoff is not None and not _ablate_mask and _os.environ.get("INTEL_CPU_DSV4_COMPRESSOR_FIX", "1") == "1":
         comp_kv = _handoff["comp_kv"]
         block_pos = _handoff["block_pos"]
         block_reqid = _handoff["block_reqid"]
