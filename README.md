@@ -276,10 +276,13 @@ end-to-end wall-time roofline-vs-measured chart** (the full enablement, not just
 
   **(b) End-to-end wall time — roofline vs baseline vs optimized** (the whole-model view, unique to the full
   enablement): baseline → optimized **2.19× prefill / 1.59× decode** (43L, B=32, real-router guard), at
-  **43% / 8%** of the **measured-EMR roofline** (AMX bf16 12.4 TF, DRAM 848 GB/s) — prefill near its compute
-  ceiling, decode overhead-bound with headroom:
+  **43% / 8%** of the roofline — but note the **prefill roofline (409 tok/s) is an IDEALIZED upper bound**:
+  it counts only the **dense-GEMM (linear-layer) FLOPs at AMX peak** and assumes attention, DSA, MHC, norms,
+  softmax, and all glue are **free**. In reality only ~40% of prefill wall-time is that GEMM, so 174.5 is far
+  closer to the *achievable* mixed-op ceiling than "43%" implies (full attribution + a refined-roofline
+  proposal: **[end-to-end wall time](docs/e2e-wall-time.md)**):
 
-  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs roofline (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v2.png)
+  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs roofline, prefill roofline flagged idealized (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v3.png)
 
   Full ledger + roofline calculation: **[end-to-end wall time](docs/e2e-wall-time.md)**. Decode is **~88% C/AMX
   kernels, all dispatched** (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the

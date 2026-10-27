@@ -7,7 +7,7 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
 
-![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v2.png)
+![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v3.png)
 
 **43L two-depth extrapolation** (4L+8L dummy-weight proxy, **real-router guard ON** so routing matches the
 real ~59 distinct experts/B=32 — see the mode-collapse note below). **Baseline** = fully naive (eager DSA +
@@ -28,8 +28,11 @@ this optimized compute path is established separately: **gsm8k 0.9437 ≈ GPU 0.
 **Roofline position (honest, real-router, MEASURED EMR constants).** Roofline computed from a direct
 uarch-probe of the EMR node (pcl-spr08: **AMX bf16 12.4 TFLOPS, DRAM 848 GB/s full-node**, job 392787):
 **prefill ≈ 43% of the AMX compute roof** (409 tok/s), **decode ≈ 8% of the weight-streaming roof** (678 tok/s).
-Prefill is already at a healthy fraction of its compute ceiling; **decode has large headroom** — and this
-**supersedes the earlier "~76% of roofline" claim**, which was a **mode-collapse artifact**: a dummy-random
+**But the 409 prefill roof is an IDEALIZED upper bound** — it counts only dense-GEMM (linear-layer) FLOPs and
+assumes attention/DSA/MHC/norms/glue are free; only ~40% of real prefill wall-time is that GEMM, so 174.5 is
+far closer to the achievable mixed-op ceiling than "43%" implies (**see "Prefill headroom" below**). **Decode
+has large headroom** — and this **supersedes the earlier "~76% of roofline" claim**, which was a
+**mode-collapse artifact**: a dummy-random
 router collapsed routing onto a few experts, so `W_active` was ~2.3× too small and the proxy looked near-roof.
 With the real router (correct `W_active` = 40 GB/step), the decode bound is **overhead/dispatch + the not-yet-
 fused aten ops**, not raw BW.
@@ -52,6 +55,11 @@ FLOPs/token (43L, linear layers only, 2 MACs/param) = **30.2 GFLOP** = MLA proj 
 - EMR: `12.4e3 / 30.2 = ` **409 tok/s** → optimized 174.5 = **43%**.
 - GNR: `30.9e3 / 30.2 = ` **1023 tok/s** (the higher AMX peak raises the ceiling; GNR measured bars pending).
 
+> **⚠ This prefill roofline is IDEALIZED** — linear-layer **dense-GEMM FLOPs only**, at the **resident** AMX
+> peak. It assumes attention/DSA/MHC/norms/softmax/glue cost nothing. See **"Prefill headroom"** below for the
+> per-op attribution (only ~40% of prefill is that GEMM), why 409 is structurally unreachable, what's actually
+> recoverable, a **refined (additive) roofline**, and how to **validate the headroom cheaply before investing**.
+
 **Decode (TPOT) — memory-bound (weight-streaming).** `decode_tok/s_roof = B / (W_active / BW_full-node)`,
 where **`W_active`** = bytes read per decode step = per layer `[ distinct_experts(B)·fp4_bytes_per_expert +
 shared_expert + dense/attn fp8 ]`, summed over 43 layers, **with REAL routing** (the mode-collapse guard):
@@ -64,6 +72,79 @@ shared_expert + dense/attn fp8 ]`, summed over 43 layers, **with REAL routing** 
 *Why the old "~76% of roofline" was wrong:* it used dummy-random routing → ~135 "distinct" experts is actually
 a collapsed subset, so the proxy under-read expert bytes (`W_active` ~2.3× too small) and looked near-roof. The
 real-router `W_active` = 40 GB is the honest number.
+
+## Prefill headroom — the 409 tok/s roofline is IDEALIZED (dense-GEMM only)
+
+The **409 tok/s prefill roofline is a loose upper bound, not a reachable target.** Its denominator counts
+**only the linear-layer dense-GEMM FLOPs** (30.2 GFLOP/token: MLA proj + MoE experts + router) at the
+**resident** AMX peak (12.4 TF), and assumes the rest of the forward — attention (DSA sparse O(S²) +
+lightning-indexer), MHC hash-clustering, softmax, norms, masking, and all layout/dtype glue — is **free**. It
+isn't. A per-op profile of a real prefill (job 390877, `torch.profiler` self-time, categorized) shows only
+**~40%** of prefill wall-time is the AMX-GEMM work the roofline models:
+
+| op class | share of prefill self-time | nature | in the 409 roofline? |
+|---|---:|---|---|
+| **C/AMX kernels** (`fused_experts`, `fp8_scaled_mm`, `shared_expert`, `rmsnorm`) | **~40%** | dense GEMM; MoE core ~76% of its *own* roofline | ✅ yes — this is the 409 |
+| **glue** (`copy_` ×14.8k, `cat`, `index`, `masked_fill`, `nan_to_num`) | **~26%** | layout/dtype/gather/staging — pure data movement | ❌ assumed free |
+| **aten elementwise/reduction** (`softmax`, `mul`, `add`, `pow`, `sum`) | **~24%** | DSA/MHC/attention math still in eager torch | ❌ assumed free |
+| **aten dense GEMM** (`mm`, `bmm`) | **~10%** | attention/proj matmuls on the generic path, not the AMX kernel | ❌ (counts FLOPs, not this path) |
+
+**Why 409 is structurally unreachable (Amdahl).** ~60% of prefill is non-dense-GEMM work that is
+memory-/dispatch-bound and physically cannot run at the AMX compute peak. Even an *infinitely fast* GEMM leaves
+that 60% → the ceiling for **this op graph** is far below 409. The AMX GEMMs are already ~76% of their own
+roofline, so **the headroom is not in the kernels — it is in the work the roofline pretends is free.** Hence
+**174.5 is much closer to the achievable mixed-op ceiling than "43%" suggests.**
+
+**Recoverable vs irreducible (the real levers, each bounded):**
+- **~26% glue → inter-kernel-fusion.** The 14,790 `copy_` calls are the seam tax (dtype/layout/staging between
+  kernels); fuse layouts / emit kernel-native output. *Bounded:* some gather/unpack is irreducible for
+  sparse-MoE + MXFP4.
+- **~24% eager math → kernelize** the DSA/MHC/softmax/masking (the same "port the torch ops" lever as decode).
+- **~10% fallback `mm`/`bmm` → route to the AMX kernel** (the MLA attention bmm that missed the tuned path).
+- *Not a lever:* making the AMX GEMMs faster — already near their own roof.
+
+Realistic recovery is a **fraction** of that ~60%, so prefill could plausibly move from 174.5 toward **~250–300,
+not** to 409. *Caveat:* profiler `self_cpu` over-weights many-call small ops, so the glue/eager shares are
+likely overstated in wall-clock terms and the compute share higher — a boundary-timer attribution refines it.
+
+## A refined roofline (recommended) — an additive "achievable" ceiling, not one idealized line
+
+The single-resource AMX roofline is a weak signal precisely because it hides everything it assumes free.
+Replace it with an **additive time-budget roofline** that gives each op-class its *own* achievable rate:
+
+> `T_prefill_floor = Σ_class ( Work_class / AchievableRate_class )`,  `tok/s_achievable = tokens / T_prefill_floor`
+> - **dense GEMM** → FLOPs / **streamed**-AMX-achievable (NOT the resident 12.4 TF peak — use the
+>   establish-achievable streamed-GEMM rate, which is materially lower)
+> - **sparse attention / bmm** → bytes gathered / achievable gather-BW (O(S·topk), not O(S²) dense)
+> - **elementwise / norms / softmax** → activation bytes (read+write) / cache-or-DRAM BW
+> - **glue** → bytes copied / memcpy-BW (or an explicit irreducible-overhead floor)
+
+Report **two numbers**: the **idealized AMX ceiling** (409 — loose upper bound) **and** the **achievable mixed
+roofline** (Σ per-class floors — the real target). Then the meaningful signal is **achieved ÷ achievable-mixed**,
+and **achievable-mixed ÷ idealized** quantifies how much of the gap is *structural* (unreachable without changing
+the op graph). This is the `model-roofline-analysis` skill's per-op-class, Amdahl-ranked method applied as a time
+budget. *(The exact achievable-mixed number needs the per-class byte/FLOP floors + the streamed-GEMM rate — that
+computation is folded into the validation step below.)*
+
+## Validating recoverable headroom BEFORE investing (cheap counterfactual ablation)
+
+Don't author fused kernels on faith. The reliable, cheap "burn a few tokens to be sure" test is a
+**counterfactual ablation**: in a **timing-only** run (dummy weights, 4L/8L proxy — output correctness does not
+matter), **remove / no-op the suspected-recoverable work and measure the prefill delta**:
+
+| lever to test | ablation (timing-only, env-gated) | the delta measures |
+|---|---|---|
+| glue (~26%) | replace layout/dtype conversions + `copy_`/`cat` with pass-through / preallocated reuse | **upper bound** of inter-kernel-fusion gain |
+| eager DSA/MHC/softmax (~24%) | swap the eager math for a cheap stand-in (identity/zeros) | upper bound of kernelizing it |
+| fallback `mm`/`bmm` (~10%) | route to the AMX kernel (or no-op) | upper bound of routing it |
+
+The measured speedup is the **maximum** recoverable (you fully removed the cost), so it **bounds the ROI before a
+single kernel is written**: if ablating glue + eager-math buys <15%, don't invest; if it buys 30–40%, build the
+real fused kernels. Complement with **env-gated boundary timers** (wall-clock, to correct the `self_cpu`
+over-weighting) and the **isolation microbench vs roofline floor** already in `operating_point.json`; gate each
+lever on the **Amdahl bound** `share × (1 − floor/measured)` before committing. Method per the
+**overhead-attribution** + **kernel-feasibility-gate** skills; harness:
+[run_dsv4_perf_attrib.sbatch](../plugin/validate/run_dsv4_perf_attrib.sbatch).
 
 ## Decode (TPOT) — attribution (corrected, real-router phase-split, job 392782)
 
