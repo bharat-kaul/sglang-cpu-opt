@@ -76,6 +76,25 @@ shared_expert + dense/attn fp8 ]`, summed over 43 layers, **with REAL routing** 
 > glue; see the chart's green line and the decode attribution below). **The lever to approach 678 is larger
 > batch** (amortize the per-step overhead), **not** more kernel work.
 
+**Batch-sensitivity of the decode roofline (MoE: `W_active` GROWS with B).** Because more batch activates more
+*distinct* experts, `W_active(B)` rises with B, so the decode roofline grows **sub-linearly** — doubling B does
+**not** double the ceiling. Fitting a coverage model `distinct(B) = 256·(1−(1−p)^B)` to the measured
+`distinct_experts(32) = 59`:
+
+| B | distinct experts | `W_active` (GB) | decode roofline (tok/s) | × vs B=32 |
+|--:|--:|--:|--:|--:|
+| 16 | ~31 (est.) | ~25 | ~554 | 0.82× |
+| **32** | **59 (measured)** | **40** | **678** | 1.00× |
+| **64** | **~104 (est.)** | **~63** | **~840** | **~1.24×** |
+| 128 | ~166 (est.) | ~96 | ~1130 | ~1.67× |
+
+So the **decode roofline at M=64 ≈ ~840 tok/s (+24% vs M=32), not 2×** — the MoE expert-set growth (`W_active`
+40 → ~63 GB) eats most of the batch gain, until experts saturate (all 256 → `W_active` ~143 GB, after which the
+roofline grows linearly again). `distinct(64)` is **estimated** (coverage model fit to the single measured
+point) — measure it directly with `INTEL_CPU_DSV4_EXPERT_HIST=1` to firm it up. **More important than the
+roofline shift:** achieved decode improves *more* at M=64 by amortizing the per-step overhead (decode is
+latency-bound at B=32), which is the real reason to raise batch.
+
 *Why the old "~76% of roofline" was wrong:* it used dummy-random routing → ~135 "distinct" experts is actually
 a collapsed subset, so the proxy under-read expert bytes (`W_active` ~2.3× too small) and looked near-roof. The
 real-router `W_active` = 40 GB is the honest number.
