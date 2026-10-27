@@ -1818,6 +1818,54 @@ def _walsh_hadamard(n: int, device) -> "torch.Tensor":
     return _HAD_CACHE[key]
 
 
+def _build_coverage_mask_vectorized(T, n, vslots, indices, topk_length, pos_kept):
+    """Vectorized DSA prefill coverage mask — bit-identical to the per-token loop it replaces.
+
+    Proven equivalent over 4000 fuzzed cases (plugin/validate/test_vectorized_mask.py), so the
+    attention output (and thus accuracy) is unchanged; this removes the ~19%-of-prefill Python-loop
+    cost (`mla.b.mask`, job 393238). INTEL_CPU_DSV4_MASK_LOOP=1 reverts to the loop for A/B.
+    """
+    import torch
+
+    inv = torch.full((int(vslots.max()) + 1,), -1, dtype=torch.long)
+    inv[vslots] = torch.arange(n)
+    idxC = indices.reshape(T, -1).long()                      # [T, C] per-token candidate slots
+    C = idxC.shape[1]
+    col = torch.arange(C)
+    within_L = col.unsqueeze(0) < topk_length.reshape(T, 1).long()
+    valid = within_L & (idxC >= 0)                            # loop's idx[:L][idx>=0]
+    if pos_kept is not None:
+        cov = int(pos_kept.shape[1])
+        Tp = int(pos_kept.shape[0])
+        rank = torch.cumsum(valid.long(), dim=1) - 1          # rank among valid entries (compacted idx pos)
+        rank_cl = rank.clamp(min=0, max=cov - 1)
+        pk = pos_kept.bool()
+        pk_gather = pk[torch.arange(Tp).reshape(Tp, 1), rank_cl[:Tp]]   # pos_kept[t, rank]
+        pk_full = (rank >= cov) | torch.cat(
+            [pk_gather, torch.zeros(T - Tp, C, dtype=torch.bool)], dim=0
+        )
+        has_valid = valid.any(dim=1)
+        apply = torch.zeros(T, dtype=torch.bool)
+        apply[:Tp] = has_valid[:Tp]                           # loop guards t<Tp AND idx nonempty
+        keep = torch.where(apply.reshape(T, 1), valid & pk_full, valid)
+    else:
+        keep = valid
+    mask_main = torch.zeros(T, n, dtype=torch.bool)
+    kept_t, kept_c = keep.nonzero(as_tuple=True)
+    if kept_t.numel() > 0:
+        pos = inv[idxC[kept_t, kept_c]]
+        ok = pos >= 0
+        mask_main[kept_t[ok], pos[ok]] = True
+    # empty-fallback: tokens with no kept key get a causal prefix mask [:cl], cl=clamp(n-(T-1)+t,0,n)
+    empties = (keep.sum(dim=1) == 0).nonzero(as_tuple=True)[0]
+    if empties.numel() > 0:
+        tt = torch.arange(T)
+        cl = (n - (T - 1) + tt).clamp(min=0, max=n)
+        fill = torch.arange(n).unsqueeze(0) < cl.reshape(T, 1)
+        mask_main[empties] = fill[empties]
+    return mask_main
+
+
 def _batched_mla_attend(
     q, dp, edp, D, head_dim_v, softmax_scale, indices, topk_length,
     extra_indices, extra_topk, attn_sink, pos_kept, force_dense
@@ -1867,26 +1915,55 @@ def _batched_mla_attend(
         if _W and _W > 0 and _os.environ.get("INTEL_CPU_DSV4_NO_SWA_MASK") != "1":
             mask_main = mask_main & (ar.unsqueeze(0) > (hi - _W).unsqueeze(1))  # lower window bound
     else:
-        inv = torch.full((int(vslots.max()) + 1,), -1, dtype=torch.long)
-        inv[vslots] = torch.arange(n)
-        mask_main = torch.zeros(T, n, dtype=torch.bool)
-        for t in range(T):
-            L = int(topk_length[t])
-            idx = indices[t].reshape(-1)[:L].long()
-            idx = idx[idx >= 0]
-            if pos_kept is not None and t < pos_kept.shape[0] and idx.numel() > 0:
-                cov = int(pos_kept.shape[1])
-                m = min(cov, idx.shape[0])
-                keep = torch.ones(idx.shape[0], dtype=torch.bool)
-                if m > 0:
-                    keep[:m] = pos_kept[t, :m].bool()
-                idx = idx[keep]
-            if idx.numel() == 0:
-                cl = max(0, min(n, n - (T - 1) + t))
-                mask_main[t, :cl] = True
-            else:
-                pos = inv[idx]
-                mask_main[t, pos[pos >= 0]] = True
+        if _os.environ.get("INTEL_CPU_DSV4_MASK_LOOP") == "1":
+            # Legacy per-token Python loop (A/B escape hatch). The default below is a VECTORIZED
+            # equivalent, proven BIT-IDENTICAL over 4000 fuzzed cases (plugin/validate/test_vectorized_mask.py)
+            # so accuracy is unchanged; it removes the ~19%-of-prefill `mla.b.mask` Python-loop cost.
+            inv = torch.full((int(vslots.max()) + 1,), -1, dtype=torch.long)
+            inv[vslots] = torch.arange(n)
+            mask_main = torch.zeros(T, n, dtype=torch.bool)
+            for t in range(T):
+                L = int(topk_length[t])
+                idx = indices[t].reshape(-1)[:L].long()
+                idx = idx[idx >= 0]
+                if pos_kept is not None and t < pos_kept.shape[0] and idx.numel() > 0:
+                    cov = int(pos_kept.shape[1])
+                    m = min(cov, idx.shape[0])
+                    keep = torch.ones(idx.shape[0], dtype=torch.bool)
+                    if m > 0:
+                        keep[:m] = pos_kept[t, :m].bool()
+                    idx = idx[keep]
+                if idx.numel() == 0:
+                    cl = max(0, min(n, n - (T - 1) + t))
+                    mask_main[t, :cl] = True
+                else:
+                    pos = inv[idx]
+                    mask_main[t, pos[pos >= 0]] = True
+        else:
+            mask_main = _build_coverage_mask_vectorized(T, n, vslots, indices, topk_length, pos_kept)
+            if _os.environ.get("INTEL_CPU_DSV4_MASK_ASSERT") == "1":
+                # In-situ bit-exact guard: recompute via the loop on the REAL operands and assert
+                # equality (proves the vectorization holds for the actual indices/topk_length shapes,
+                # not just the offline fuzz). Expensive — validation runs only.
+                _m_ref = torch.zeros(T, n, dtype=torch.bool)
+                _invr = torch.full((int(vslots.max()) + 1,), -1, dtype=torch.long)
+                _invr[vslots] = torch.arange(n)
+                for _t in range(T):
+                    _L = int(topk_length[_t]); _idx = indices[_t].reshape(-1)[:_L].long(); _idx = _idx[_idx >= 0]
+                    if pos_kept is not None and _t < pos_kept.shape[0] and _idx.numel() > 0:
+                        _cov = int(pos_kept.shape[1]); _m = min(_cov, _idx.shape[0])
+                        _keep = torch.ones(_idx.shape[0], dtype=torch.bool)
+                        if _m > 0:
+                            _keep[:_m] = pos_kept[_t, :_m].bool()
+                        _idx = _idx[_keep]
+                    if _idx.numel() == 0:
+                        _cl = max(0, min(n, n - (T - 1) + _t)); _m_ref[_t, :_cl] = True
+                    else:
+                        _p = _invr[_idx]; _m_ref[_t, _p[_p >= 0]] = True
+                if not torch.equal(mask_main, _m_ref):
+                    raise AssertionError(
+                        f"[DSV4] vectorized coverage mask != loop (T={T},n={n}): "
+                        f"{int((mask_main ^ _m_ref).sum())} cells differ")
     K_parts, mask_parts = [K_main], [mask_main]
     # Route-2-DIRECT compressed KV: consume the corrected compressor's per-edp handoff (bypasses the
     # CPU-disabled paged slot plan whose extra_indices/out_loc are uninitialized). Append the
