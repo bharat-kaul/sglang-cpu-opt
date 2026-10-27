@@ -7,7 +7,7 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
 
-![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v4.png)
+![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v5.png)
 
 **43L two-depth extrapolation** (4L+8L dummy-weight proxy, **real-router guard ON** so routing matches the
 real ~59 distinct experts/B=32 — see the mode-collapse note below). **Baseline** = fully naive (eager DSA +
@@ -69,12 +69,25 @@ shared_expert + dense/attn fp8 ]`, summed over 43 layers, **with REAL routing** 
 - GNR: `32 / (40 / 2152) = ` **1721 tok/s** full-node theoretical (a single tp=1 rank rarely saturates all 6
   domains, so treat as an upper bound; GNR measured bars pending).
 
-> **⚠ The 678 decode roofline is ALSO idealized** — it assumes decode is **BW-bound** (pure weight-streaming).
-> It isn't: at B=32 decode runs at **8% of 678**, i.e. it is **overhead/latency-bound, not BW-bound**. The 678
-> is a **large-batch asymptote**, not a reachable B=32 target. The decode is already **~88% C/AMX** (near its
-> kernel floor), so the near-term achievable at B=32 is **~63 tok/s** (recover the ~15% MHC-aten + attention
-> glue; see the chart's green line and the decode attribution below). **The lever to approach 678 is larger
-> batch** (amortize the per-step overhead), **not** more kernel work.
+> **⚠ The 678 decode roofline is idealized — but decode is BW-bound BY NATURE, latency-bound BY
+> IMPLEMENTATION (a 12–62× gap that IS the opportunity).** Decode streams each weight once per step and
+> reuses it ~M times, so it *should* approach the weight-streaming roofline. It doesn't: measured decode is
+> **12× above the BW floor at M=32** (557 ms/step vs a 47 ms floor → **92% non-streaming overhead**) and
+> **62× at M=1** (654 ms vs 10.6 ms → **98% overhead**). **This is a latency/overhead problem, not a
+> physics ceiling.**
+>
+> **Correction (supersedes an earlier "~63 tok/s achievable" claim, which was WRONG).** The ~63 figure was
+> derived as *"decode is ~88% C/AMX dispatched → only ~15% recoverable → 57.5/0.91 ≈ 63"* — it conflated
+> **"dispatched to a C kernel" with "running at the kernel's roofline."** They are not the same: our own
+> data shows `moe.expert_apply` (the C kernel) runs at **8 threads = 0.1 ms but 120 threads = 5175 ms** — a
+> ~50,000× *threading* pathology; the kernel hits its floor at low threads but runs far above it otherwise.
+> So "dispatched" ≠ "efficient," and the real achievable is the **BW roofline** (94 @ M=1 → 678 @ M=32 →
+> 861 @ M=64), not 63. **The decode optimization thesis is to close the 12–62× latency gap** via (1)
+> **thread right-sizing** (parallelize across experts/layers, not within a tiny M=1 GEMM), (2)
+> **BRGEMM/grouped-expert GEMM** (one batched weight-stream instead of ~258 tiny per-expert launches/step),
+> (3) **dispatch reduction / graph-capture**, and (4) **weight prefetch/overlap** — the Kimi-K3 single-stream
+> levers. Larger batch *also* helps (amortizes fixed cost), but it is not the only lever. *(Sizing run:
+> `run_dsv4_decode_reassess.sbatch`, job 393516 — thread sweep + per-op-vs-BW-floor attribution at M=1.)*
 
 **Batch-sensitivity of the decode roofline (MoE: `W_active` GROWS with B).** Because more batch activates more
 *distinct* experts, `W_active(B)` rises with B, so the decode roofline grows **sub-linearly** — doubling B does
@@ -218,10 +231,14 @@ and apply a per-class floor:
 → `T_floor ≈ 0.64 × T_now` → **achievable ≈ 174.5 / 0.64 ≈ 275 tok/s**. So measured **174.5 = 64% of the
 achievable** (not 43% of a reachable ceiling), and the idealized 409 overstates the achievable by **~49%**.
 
-*Decode — `~63 tok/s` at B=32.* Decode is already **~88% C/AMX** (near its kernel floor); only ~15% (MHC-aten
-~7% + attention glue ~8%) is recoverable. Recovering ~60% of that → `T_floor ≈ 0.91 × T_now` → **achievable ≈
-57.5 / 0.91 ≈ 63 tok/s**. Decode is thus **near its B=32 achievable**; the 678 BW roof is a **large-batch
-asymptote**, reached by raising batch (amortizing per-step overhead), not by kernel work.
+*Decode — ~~`~63 tok/s`~~ WITHDRAWN (the estimate was wrong).* The earlier derivation (*"~88% C/AMX → only
+~15% recoverable → 57.5/0.91 ≈ 63"*) **conflated dispatch with efficiency** and is superseded. Decode is
+weight-streaming by nature, so its achievable is the **BW roofline** (678 @ M=32), and measured 57.5 is **12×
+below the BW floor** — a latency/overhead problem (per-step threading pathology + ~258 tiny per-expert GEMM
+launches), not a near-ceiling state. The true achievable is being **measured** (thread sweep + per-op-vs-BW-floor
+attribution, job 393516) rather than estimated; the lever is thread right-sizing + BRGEMM expert-grouping +
+dispatch reduction (converting latency-bound → BW-bound), *and* larger batch. See the **decode reassessment** box
+in "Node comparison" above.
 
 > These two time-budget numbers are **analytical estimates** — the softest inputs are the *recoverable fractions*
 > (prefill 60% of the non-GEMM; decode 60% of the non-kernel). The **counterfactual-ablation experiment below

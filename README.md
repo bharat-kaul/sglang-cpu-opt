@@ -284,7 +284,7 @@ end-to-end wall-time roofline-vs-measured chart** (the full enablement, not just
   achievable** prefill ceiling, not 43% of a reachable one (full attribution + refined-roofline derivation:
   **[end-to-end wall time](docs/e2e-wall-time.md)**):
 
-  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs idealized roofline vs achievable time-budget (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v4.png)
+  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs idealized roofline vs achievable time-budget (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v5.png)
 
   Full ledger + roofline calculation: **[end-to-end wall time](docs/e2e-wall-time.md)**. Decode is **~88% C/AMX
   kernels, all dispatched** (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the

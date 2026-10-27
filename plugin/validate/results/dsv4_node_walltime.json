@@ -35,7 +35,7 @@
       "phase": "Decode (TPOT) — memory-bound",
       "unit": "decode tok/s",
       "roofline": 678,
-      "roofline_label": "IDEALIZED weight-streaming roof 678 tok/s — B=32 decode is LATENCY-bound",
+      "roofline_label": "weight-streaming roof 678 tok/s — decode BW-bound by nature; 57.5 = 12x below floor (latency-bound impl = the opportunity)",
       "bars": [
         {
           "label": "EMR baseline",
@@ -56,8 +56,7 @@
           "kind": "pending"
         }
       ],
-      "achievable": 63,
-      "achievable_label": "achievable @B=32 ~63 tok/s (est.) — 678 needs larger batch"
+      "achievable_label": ""
     }
   ]
 }

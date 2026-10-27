@@ -311,12 +311,21 @@ flowchart LR
   so the headroom lives in the work the idealized roofline pretends is free — `inter-kernel-fusion` (glue) +
   kernelizing the eager math, not faster GEMMs. Chart both as lines (idealized + achievable); label the idealized
   one *idealized*.
-- **COMPUTE-BOUND vs LATENCY-BOUND — a memory-bound roofline is a large-batch ASYMPTOTE, not a small-M target.**
-  At small M the per-step fixed cost (dispatch, non-overlapped compute, parallel-region entry) dominates, so the
-  op is **latency-bound**, not BW-bound — measured sits far below the `bytes/BW` ceiling for a *reason*, not as
-  owed headroom (DSv4 decode at B=32 = 8% of its 678 tok/s BW roof *because* it is latency-bound). The lever to
-  approach the BW roof is **larger batch** (amortize the fixed cost), not kernel work. **Name the regime before
-  quoting a %-of-roofline.**
+- **COMPUTE-BOUND vs LATENCY-BOUND — and "DISPATCHED to a C kernel ≠ RUNNING at its roofline."** At small M a
+  memory-bound op can sit far below its `bytes/BW` ceiling because the per-step **fixed cost** (kernel launch,
+  parallel-region entry/barriers, non-overlapped tiny GEMMs, thread-oversubscription) dominates — it is
+  **latency-bound by IMPLEMENTATION**, not by physics. Critically, **do not read "the op dispatches to a C/AMX
+  kernel" as "the op is near its roofline"**: a C kernel at tiny M can run **1000×+ above its own floor**
+  (DSv4 `moe.expert_apply`: 8 threads = 0.1 ms vs 120 threads = 5175 ms — a ~50,000× *threading* pathology; the
+  kernel hits its floor only at the right thread count). So a decode that is "~88% dispatched-to-C" can still be
+  **12–62× above the BW floor** (DSv4: M=32 = 12×, M=1 = 62×). **The latency gap is an OPPORTUNITY, not a
+  ceiling** — and the fix is not only "bigger batch": it is **thread right-sizing** (parallelize across
+  experts/layers, not within a tiny GEMM), **BRGEMM/grouped-GEMM** (one batched weight-stream vs hundreds of
+  tiny per-expert launches), **dispatch reduction / graph-capture**, and **weight prefetch/overlap** — the
+  Kimi-K3 single-stream levers that convert a latency-bound step into a BW-bound one. **Score ops by
+  %-of-their-own-kernel-roofline (ms/step vs weight-bytes/BW), not by dispatch**; name the regime first; the
+  mistake to avoid is anchoring an "achievable" estimate on the current latency-bound implementation (it hides a
+  10×+ opportunity).
 - **MoE roofline is SUB-LINEAR in batch — `W_active(B)` GROWS with distinct experts.** For sparse-MoE decode,
   `W_active` is **not constant**: more batch activates more *distinct* experts, so doubling B does **not** double
   the ceiling (DSv4: B=32→64 roofline 678→~840 tok/s, +24% not +100%, because `W_active` 40→~63 GB). Fit
