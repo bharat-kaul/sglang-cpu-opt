@@ -1,6 +1,6 @@
 {
   "title": "DeepSeek-V4-Flash CPU wall-time — baseline vs optimized vs roofline (EMR, GNR)",
-  "subtitle": "43L two-depth extrapolation (4L+8L dummy proxy, real-router guard so routing matches the real ~59 distinct experts/B=32). Baseline = fully naive (eager DSA + OMP spin + no thread-cap). Optimized = all-C/AMX kernels (dispatch-proven) + spin OMP, all cores. B=32, S=128. Roofline from MEASURED EMR constants (pcl-spr08: AMX bf16 12.4 TFLOPS, DRAM 848 GB/s full-node, uarch-probe job 392787). Accuracy of this path: gsm8k 0.9437 ≈ GPU 0.9535. NB: the prefill roofline is an IDEALIZED upper bound (linear-layer dense-GEMM FLOPs at AMX peak) — only ~40% of real prefill wall-time is that GEMM; ~60% (glue/eager-math/fallback-matmul) is assumed free. See the wall-time page's prefill-headroom analysis.",
+  "subtitle": "43L two-depth extrapolation (4L+8L dummy proxy, real-router guard). Baseline = fully naive; optimized = all-C/AMX kernels + spin OMP, all cores. B=32, S=128. BLUE dashed = IDEALIZED roofline (prefill: dense-GEMM FLOPs at AMX peak, non-GEMM assumed free; decode: pure weight-streaming / BW-bound). GREEN dashed = ACHIEVABLE time-budget (Σ per-op-class floors; est., pending ablation) — the honest target. Accuracy of this path: gsm8k 0.9437 ≈ GPU 0.9535. See the wall-time page for the per-op attribution + refined-roofline derivation.",
   "operating_point": "B=32, S=128, G=8 (two-depth extrapolated to 43 layers)",
   "panels": [
     {
@@ -27,13 +27,15 @@
           "value": null,
           "kind": "pending"
         }
-      ]
+      ],
+      "achievable": 275,
+      "achievable_label": "achievable time-budget ~275 tok/s (Σ per-op-class floors; est., pending ablation)"
     },
     {
       "phase": "Decode (TPOT) — memory-bound",
       "unit": "decode tok/s",
       "roofline": 678,
-      "roofline_label": "weight-streaming roofline 678 tok/s (W_active 40 GB real-router, measured EMR 848 GB/s full-node)",
+      "roofline_label": "IDEALIZED weight-streaming roof 678 tok/s — B=32 decode is LATENCY-bound",
       "bars": [
         {
           "label": "EMR baseline",
@@ -53,7 +55,9 @@
           "value": null,
           "kind": "pending"
         }
-      ]
+      ],
+      "achievable": 63,
+      "achievable_label": "achievable @B=32 ~63 tok/s (est.) — 678 needs larger batch"
     }
   ]
 }

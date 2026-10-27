@@ -44,10 +44,16 @@ def panel_svg(p, x0, y0, w, h):
         s.append(f'<line x1="{x0}" y1="{yy:.1f}" x2="{x0+w}" y2="{yy:.1f}" stroke="#eef2f7"/>')
         s.append(f'<text x="{x0-6}" y="{yy+4:.1f}" font-size="10" fill="#9db0c6" text-anchor="end">{gv}</text>')
         gv += step
-    # roofline
+    # roofline (idealized)
     yr = Y(roof)
     s.append(f'<line x1="{x0}" y1="{yr:.1f}" x2="{x0+w}" y2="{yr:.1f}" stroke="#1b6ca8" stroke-width="2" stroke-dasharray="7 5"/>')
     s.append(f'<text x="{x0}" y="{yr-6:.1f}" font-size="10.5" font-weight="600" fill="#1b6ca8">{esc(p["roofline_label"])}</text>')
+    # achievable time-budget line (refined roofline — sum of per-op-class floors)
+    ach = p.get("achievable")
+    if ach:
+        ya = Y(ach)
+        s.append(f'<line x1="{x0}" y1="{ya:.1f}" x2="{x0+w}" y2="{ya:.1f}" stroke="#2e8b57" stroke-width="2" stroke-dasharray="4 3"/>')
+        s.append(f'<text x="{x0}" y="{ya-6:.1f}" font-size="10.5" font-weight="600" fill="#2e8b57">{esc(p["achievable_label"])}</text>')
     # bars
     n = len(bars)
     gap = 42
@@ -109,7 +115,7 @@ def main():
     with open(svg, "w") as f:
         f.write(build_svg(d))
     print("wrote", svg)
-    png = os.path.join(args.out_dir, "dsv4_node_walltime_v3.png")  # bump _vN on any content change (camo cache)
+    png = os.path.join(args.out_dir, "dsv4_node_walltime_v4.png")  # bump _vN on any content change (camo cache)
     exe = shutil.which("rsvg-convert")
     if exe:
         subprocess.run([exe, "-z", "2", "-o", png, svg], check=True, capture_output=True)

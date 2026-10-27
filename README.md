@@ -276,13 +276,15 @@ end-to-end wall-time roofline-vs-measured chart** (the full enablement, not just
 
   **(b) End-to-end wall time — roofline vs baseline vs optimized** (the whole-model view, unique to the full
   enablement): baseline → optimized **2.19× prefill / 1.59× decode** (43L, B=32, real-router guard), at
-  **43% / 8%** of the roofline — but note the **prefill roofline (409 tok/s) is an IDEALIZED upper bound**:
-  it counts only the **dense-GEMM (linear-layer) FLOPs at AMX peak** and assumes attention, DSA, MHC, norms,
-  softmax, and all glue are **free**. In reality only ~40% of prefill wall-time is that GEMM, so 174.5 is far
-  closer to the *achievable* mixed-op ceiling than "43%" implies (full attribution + a refined-roofline
-  proposal: **[end-to-end wall time](docs/e2e-wall-time.md)**):
+  **43% / 8%** of the roofline — but **both rooflines are IDEALIZED**: the prefill 409 counts only the
+  **dense-GEMM (linear-layer) FLOPs at AMX peak** (attention/DSA/MHC/norms/glue assumed free — only ~40% of real
+  prefill is that GEMM), and the decode 678 assumes **BW-bound** streaming when B=32 decode is actually
+  **latency-bound** (678 is a large-batch asymptote). The chart's **green lines are the *achievable* time-budget
+  rooflines** (Σ per-op-class floors; est.): **prefill ~275**, **decode ~63 at B=32** — so 174.5 is **64% of the
+  achievable** prefill ceiling, not 43% of a reachable one (full attribution + refined-roofline derivation:
+  **[end-to-end wall time](docs/e2e-wall-time.md)**):
 
-  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs roofline, prefill roofline flagged idealized (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v3.png)
+  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs idealized roofline vs achievable time-budget (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v4.png)
 
   Full ledger + roofline calculation: **[end-to-end wall time](docs/e2e-wall-time.md)**. Decode is **~88% C/AMX
   kernels, all dispatched** (dispatch-provenance verified); the remaining levers are MHC-aten (~7%) + the

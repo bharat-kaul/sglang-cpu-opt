@@ -7,7 +7,7 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
 
-![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v3.png)
+![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v4.png)
 
 **43L two-depth extrapolation** (4L+8L dummy-weight proxy, **real-router guard ON** so routing matches the
 real ~59 distinct experts/B=32 — see the mode-collapse note below). **Baseline** = fully naive (eager DSA +
@@ -69,6 +69,13 @@ shared_expert + dense/attn fp8 ]`, summed over 43 layers, **with REAL routing** 
 - GNR: `32 / (40 / 2152) = ` **1721 tok/s** full-node theoretical (a single tp=1 rank rarely saturates all 6
   domains, so treat as an upper bound; GNR measured bars pending).
 
+> **⚠ The 678 decode roofline is ALSO idealized** — it assumes decode is **BW-bound** (pure weight-streaming).
+> It isn't: at B=32 decode runs at **8% of 678**, i.e. it is **overhead/latency-bound, not BW-bound**. The 678
+> is a **large-batch asymptote**, not a reachable B=32 target. The decode is already **~88% C/AMX** (near its
+> kernel floor), so the near-term achievable at B=32 is **~63 tok/s** (recover the ~15% MHC-aten + attention
+> glue; see the chart's green line and the decode attribution below). **The lever to approach 678 is larger
+> batch** (amortize the per-step overhead), **not** more kernel work.
+
 *Why the old "~76% of roofline" was wrong:* it used dummy-random routing → ~135 "distinct" experts is actually
 a collapsed subset, so the proxy under-read expert bytes (`W_active` ~2.3× too small) and looked near-roof. The
 real-router `W_active` = 40 GB is the honest number.
@@ -123,8 +130,29 @@ Report **two numbers**: the **idealized AMX ceiling** (409 — loose upper bound
 roofline** (Σ per-class floors — the real target). Then the meaningful signal is **achieved ÷ achievable-mixed**,
 and **achievable-mixed ÷ idealized** quantifies how much of the gap is *structural* (unreachable without changing
 the op graph). This is the `model-roofline-analysis` skill's per-op-class, Amdahl-ranked method applied as a time
-budget. *(The exact achievable-mixed number needs the per-class byte/FLOP floors + the streamed-GEMM rate — that
-computation is folded into the validation step below.)*
+budget.
+
+**First-order DSv4 time-budget rooflines (analytical estimate, pending ablation — the green lines on the chart):**
+
+*Prefill — `~275 tok/s`.* Keep the measured op-class split (GEMM 40% / glue 26% / eager 24% / fallback-mm 10%)
+and apply a per-class floor:
+
+| class | share of current T | floor assumption | floor·share |
+|---|---:|---|---:|
+| C/AMX GEMM | 40% | unchanged (already ~76% of its own roof) | 0.40 |
+| glue + eager-math + fallback-mm | 60% | **~60% recoverable** via fusion/kernelize/route; ~40% irreducible (sparse gather, MXFP4 unpack, dispatch) | 0.40 × 0.60 = 0.24 |
+
+→ `T_floor ≈ 0.64 × T_now` → **achievable ≈ 174.5 / 0.64 ≈ 275 tok/s**. So measured **174.5 = 64% of the
+achievable** (not 43% of a reachable ceiling), and the idealized 409 overstates the achievable by **~49%**.
+
+*Decode — `~63 tok/s` at B=32.* Decode is already **~88% C/AMX** (near its kernel floor); only ~15% (MHC-aten
+~7% + attention glue ~8%) is recoverable. Recovering ~60% of that → `T_floor ≈ 0.91 × T_now` → **achievable ≈
+57.5 / 0.91 ≈ 63 tok/s**. Decode is thus **near its B=32 achievable**; the 678 BW roof is a **large-batch
+asymptote**, reached by raising batch (amortizing per-step overhead), not by kernel work.
+
+> These two time-budget numbers are **analytical estimates** — the softest inputs are the *recoverable fractions*
+> (prefill 60% of the non-GEMM; decode 60% of the non-kernel). The **counterfactual-ablation experiment below
+> replaces those assumptions with MEASURED floors** before any kernel is authored.
 
 ## Validating recoverable headroom BEFORE investing (cheap counterfactual ablation)
 
