@@ -7,7 +7,7 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
 
-![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v5.png)
+![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v6.png)
 
 **43L two-depth extrapolation** (4L+8L dummy-weight proxy, **real-router guard ON** so routing matches the
 real ~59 distinct experts/B=32 — see the mode-collapse note below). **Baseline** = fully naive (eager DSA +
@@ -132,20 +132,28 @@ work the roofline models** (self-profiler had estimated ~40% — the wall-clock 
 | `dsa.indexer` + `dsa.compressor` (eager) | torch | 14.8% | ❌ assumed free |
 | `dense.fp8_linear` (MLA proj) | kernel | 7.8% | ✅ |
 
-**Compute ≈ 41% / recoverable overhead ≈ 59%** of timed leaves (and the timed leaves are only ~68% of the layer
-wall — the untimed ~32% is norms/rope/residual/dispatch, also mostly overhead). **The measured #1 recoverable
-target is the attention `mla.b.mask`** — a per-token Python loop that *materializes* the coverage/causal mask
-tensor, even though the fused DSA attention kernel already applies a mask inline. Fusing the mask construction
-into the kernel (never materialize it) is a textbook inter-kernel-fusion win worth ~19% of prefill wall.
+**Compute ≈ 41% / recoverable overhead ≈ 59%** of timed leaves. **⚠ The end-to-end prefill value of attacking
+the `mla.b.mask` region is currently UNVALIDATED — both measurements that claimed to settle it are unreliable
+(see below).** The `mla.b.mask` leaf (a per-token Python loop that materializes the coverage mask) *looked* like
+the #1 recoverable target at ~28% of timed leaves, so we vectorized it (bit-exact, proven over 4000 fuzz cases +
+in-situ assert) and cut the region from 8.7s → 0.25s (35×). **Bit-exactness stands; the perf claim does not.**
 
-**Ablation result (job 393314, measured, clean):** `INTEL_CPU_DSV4_ABLATE_MASK=1` (forces the cheap vectorized
-mask instead of the per-token Python loop) lifted prefill **187.6 → 201.3 tok/s = +7.3%**, with both reliability
-checks passing: `mla.b.mask` dropped 8.48s → 3.44s (ablation took effect) and `moe.expert_apply` held at
-4.32 → 4.31s (**0% drift → no routing-shift confound**). This +7.3% is a **lower bound** on the real recovery:
-the cheap proxy also made `mla.b.pv` rise 5.5 → 7.1s (a dense-causal mask attends to more keys than the sparse
-top-k), a penalty a *proper* fused-mask kernel (apply the **sparse** mask inline, no materialization, no PV
-penalty) would not pay — its ceiling is the full ~19% mask cost. **Verdict: worth building** (measured +7.3% from
-a penalty-paying proxy; proper fused-mask attention targets ~19%).
+**⚠ UNVALIDATED — two broken measurements (do not cite either as proof):**
+- The earlier `ABLATE_MASK` **"+7.3%"** (job 393314) was a **confounded proxy** — it forced a DENSE mask that
+  changed attention semantics (more keys attended), so its delta mixed the mask-construction cost with a changed
+  PV workload. Not the mask-construction lever.
+- The follow-up **interleaved A/B** (job 393518) that reported **"−0.2% = zero gain"** is **invalid**: it toggled
+  `os.environ` *per-rep after `sgl.Engine` construction*, but the Engine runs the model in an `mp.Process` worker
+  **subprocess** that never sees the client's post-spawn `os.environ`. **Both arms ran the identical (spawn-time)
+  configuration** → the "loop vs vectorized" comparison was really the same code twice, so it proves nothing
+  about mask vectorization. (Same class of bug invalidated the increment-1 MHC A/B; the fix is a worker-side
+  control file re-read per forward — see `dsv4_decode_fusion_review_response.md`.)
+
+**What stands (methodology, not this datum):** a TIMEIT *region-timer* leaf is **not** a critical-path
+attribution — accumulated region time can overlap/hide behind concurrent AMX compute, so only a **valid**
+counterfactual (worker-side toggle, measure end-to-end wall) can decide whether removing it moves wall-clock.
+The vectorized mask is **kept** (bit-exact, cleaner); whether it is a prefill *lever* awaits a repaired,
+worker-verified A/B at a matched operating point.
 
 <details><summary>Earlier self_cpu-profiler estimate (superseded by the wall-clock measurement above)</summary>
 
@@ -170,8 +178,9 @@ roofline, so **the headroom is not in the kernels — it is in the work the roof
 - *Not a lever:* making the AMX GEMMs faster — already near their own roof.
 
 Realistic recovery is a **fraction** of that ~60%, so prefill could plausibly move from 174.5 toward **~250–300,
-not** to 409. *(The wall-clock TIMEIT above resolves the earlier `self_cpu` over-weighting caveat and localizes
-the recovery to one op — the `mla.b.mask` construction.)*
+not** to 409. *(The wall-clock TIMEIT above supersedes the earlier `self_cpu` over-weighting, but note the
+single-op `mla.b.mask` recovery it seemed to localize is UNVALIDATED — see the two-broken-measurements note
+above; the real prefill lever must be re-established by a valid, worker-verified counterfactual.)*
 
 ## B=1 decode headroom (the Xeon low-batch operating point) — a DIFFERENT target
 
@@ -218,18 +227,17 @@ and **achievable-mixed ÷ idealized** quantifies how much of the gap is *structu
 the op graph). This is the `model-roofline-analysis` skill's per-op-class, Amdahl-ranked method applied as a time
 budget.
 
-**First-order DSv4 time-budget rooflines (analytical estimate, pending ablation — the green lines on the chart):**
+**First-order DSv4 time-budget rooflines — ⚠ WITHDRAWN for prefill (the attribution they rest on was refuted).**
 
-*Prefill — `~275 tok/s`.* Keep the measured op-class split (GEMM 40% / glue 26% / eager 24% / fallback-mm 10%)
-and apply a per-class floor:
-
-| class | share of current T | floor assumption | floor·share |
-|---|---:|---|---:|
-| C/AMX GEMM | 40% | unchanged (already ~76% of its own roof) | 0.40 |
-| glue + eager-math + fallback-mm | 60% | **~60% recoverable** via fusion/kernelize/route; ~40% irreducible (sparse gather, MXFP4 unpack, dispatch) | 0.40 × 0.60 = 0.24 |
-
-→ `T_floor ≈ 0.64 × T_now` → **achievable ≈ 174.5 / 0.64 ≈ 275 tok/s**. So measured **174.5 = 64% of the
-achievable** (not 43% of a reachable ceiling), and the idealized 409 overstates the achievable by **~49%**.
+*Prefill — ~~`~275 tok/s`~~ WITHDRAWN.* This estimate applied a "~60% of the non-GEMM is recoverable" floor to
+the region-timer op-class split (GEMM 40% / glue 26% / eager 24% / fallback-mm 10%). But the mask A/B (above)
+showed the biggest "recoverable" item (mask, ~19% by region timer) gives **0% end-to-end** — its region time is
+overlapped/hidden, not critical-path. So the region-timer "60% recoverable" is **not** a reliable basis for an
+achievable roofline, and the ~275 is withdrawn. The honest statement: prefill is **~202 tok/s** (clean
+throughput_bench baseline; the earlier 174.5 is a different, lower-reading harness — see note), the idealized AMX
+roofline is 409, and the **true achievable is UNKNOWN pending counterfactual (not region-timer) attribution** of
+what actually sits on the prefill critical path. *(Harness note: bench_one_batch read ~175–187 tok/s; the
+interleaved throughput_bench reads ~202 — protocol differences, not a regression.)*
 
 *Decode — ~~`~63 tok/s`~~ WITHDRAWN (the estimate was wrong).* The earlier derivation (*"~88% C/AMX → only
 ~15% recoverable → 57.5/0.91 ≈ 63"*) **conflated dispatch with efficiency** and is superseded. Decode is
