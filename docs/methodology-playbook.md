@@ -10,6 +10,16 @@ by a **spine-leaf** set of skills, where **every phase is closed by a gate** so 
 > The **Phase-1 "how-to"** — the staged way to optimize one kernel — is the
 > [Standalone Kernel Optimization Playbook](standalone-kernel-optimization-playbook.md).
 
+> ## ⛔ NON-NEGOTIABLE — consult this playbook step-by-step BEFORE any kernel-optimization implementation.
+> Every kernel/op optimization pass **must** walk the Phase-1/Phase-2 kernel rules below *before* writing code
+> and **bear them in mind throughout**. In particular, before an implementation starts, confirm on paper:
+> (1) the op's **regime at the target M** (compute vs BW, via the resident-ridge + reuse law); (2) that the hot
+> path is an **authored C/C++ AMX/AVX-512 kernel** (BRGEMM/grouped-BRGEMM) — never a torch fallback — **tiled +
+> double-buffered + fusion-folded** so compute hides under the stream (BW-bound is the ceiling, NOT a license to
+> skip AMX); (3) the plan is **adaptive in M** (streaming layout + thread count); (4) the lever's ROI is bounded
+> by a **drift-robust interleaved counterfactual** (region-timer shares only *nominate*); (5) **dispatch-provenance**
+> will prove zero eager ops in the hot chain. Skipping this walk is a process defect, not a shortcut.
+
 ---
 
 ## 1. Spine-leaf structure
