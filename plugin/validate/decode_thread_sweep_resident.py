@@ -70,22 +70,18 @@ def main():
     for B in batches:
         for T in threads:
             set_threads(T)
-            # warm this T once (pool resize), then timed reps
-            run(B, 2)
-            pref, dec = [], []
+            run(B, 2)  # warm this T (pool resize + context)
+            t_pref = run(B, 1)                      # prefill once (tiny input_len -> cheap; cap is decode-only)
+            dec = []
             for _ in range(args.reps):
-                t_pref = run(B, 1)
                 t_full = run(B, args.output_len)
-                pref.append(t_pref)
                 dec.append(max(t_full - t_pref, 1e-6))
-            tp = statistics.median(pref)
             td = statistics.median(dec)
-            pf_toks = B * args.input_len / tp
+            pf_toks = B * args.input_len / t_pref
             dc_toks = B * args.output_len / td
             rows.append({"threads": T, "batch": B, "prefill_tok_s": round(pf_toks, 1),
                          "decode_tok_s": round(dc_toks, 2), "decode_step_ms": round(td / args.output_len * 1e3, 1)})
-            print(f"[sweep] B={B:<3} T={T:<3} decode={dc_toks:7.2f} tok/s  step={td/args.output_len*1e3:7.1f} ms  "
-                  f"(prefill@launch≈{pf_toks:.1f})", flush=True)
+            print(f"[sweep] B={B:<3} T={T:<3} decode={dc_toks:7.2f} tok/s  step={td/args.output_len*1e3:7.1f} ms", flush=True)
 
     engine.shutdown()
     # per-batch optimum

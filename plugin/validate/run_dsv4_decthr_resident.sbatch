@@ -9,7 +9,7 @@
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --mem=0
-#SBATCH --time=01:00:00
+#SBATCH --time=01:30:00
 #SBATCH --job-name=dsv4_decthr
 #SBATCH --output=/scratch/bkaul/dsv4_decthr_%j.log
 set -x
@@ -30,7 +30,7 @@ RES=$WT/plugin/validate/results/dsv4_decthr_${SLURM_JOB_ID}.json
 numactl --physcpubind=0-57 --membind=0 \
   python -u $WT/plugin/validate/decode_thread_sweep_resident.py \
     --model "$CKPT" --config "$CKPT/config.json" --ctl "$CTL" \
-    --threads 4,8,16,30,45,58 --batches 1,32 --input-len 128 --output-len 16 --reps 3 \
+    --threads 8,16,30,45,58 --batches 1,32 --input-len 8 --output-len 4 --reps 2 \
     --mem-fraction 0.80 --out "$RES" 2>&1 \
   | grep -iE "\[sweep\]|\[OPT\]|DECODE THREADCAP|Error|Traceback|OOM" | tail -60
 echo "############ RESULT ############"; cat "$RES" 2>/dev/null
