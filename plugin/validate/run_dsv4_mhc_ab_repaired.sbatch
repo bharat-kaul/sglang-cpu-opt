@@ -32,6 +32,6 @@ numactl --physcpubind=0-57 --membind=0 \
     --model "$CKPT" --config "$CKPT/config.json" --load-format auto \
     --batches 1,32 --input-len 8 --output-len 6 --reps 6 \
     --mem-fraction 0.80 --out "$RES" 2>&1 \
-  | grep -iE "\[AB\]|\[WARN\]|PARITY|operating_point|gain_pct|Error|Traceback|OOM|assert" | tail -80
+  | grep -iE "\[AB\]|\[WARM\]|\[BAD\]|\[WARN\]|PARITY|operating_point|gain_pct|Error|Traceback|OOM|assert" | tail -80
 echo "############ RESULT ############"; cat "$RES" 2>/dev/null
 echo "[done] repaired MHC A/B job=$SLURM_JOB_ID"

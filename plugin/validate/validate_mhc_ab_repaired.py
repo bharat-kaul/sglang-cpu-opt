@@ -56,7 +56,7 @@ def main():
         open(ctl, "w").write("1" if on else "0")
 
     def run_verified(B, k, expect_on):
-        """Run one generate; return (seconds, ok) where ok = provenance confirmed the expected arm."""
+        """Run one generate; return (seconds, ok, diag) where ok = provenance confirmed the expected arm."""
         c0, e0 = _read_prov(prov)
         set_arm(expect_on)
         ids = fresh(B); t0 = time.perf_counter()
@@ -67,23 +67,26 @@ def main():
             ok = (c1 > c0) and (e1 == e0)   # C advanced, NO eager fallback
         else:
             ok = (e1 > e0) and (c1 == c0)   # eager advanced, C never fired
-        return dt, ok
+        diag = f"arm={'C' if expect_on else 'eager'} c:{c0}->{c1} eager:{e0}->{e1}"
+        return dt, ok, diag
 
     results = {}
     for B in [int(x) for x in args.batches.split(",")]:
         # warm both arms (and surface any parity assertion early, fail-closed)
         for on in (False, True):
-            _, okw = run_verified(B, 2, on)
-            if not okw:
-                print(f"[WARN] B={B} warmup provenance not confirmed for arm on={on}", flush=True)
-        set_arm(False); tpref, _ = run_verified(B, 1, False)
+            _, okw, dw = run_verified(B, 2, on)
+            print(f"[WARM] B={B} {dw} {'OK' if okw else 'NOT-CONFIRMED'}", flush=True)
+        set_arm(False); tpref, _, _ = run_verified(B, 1, False)
         eager, cwin, bad = [], [], 0
         for i in range(args.reps):
             order = [False, True] if i % 2 == 0 else [True, False]
             for on in order:
-                dt, ok = run_verified(B, args.output_len, on)
+                dt, ok, diag = run_verified(B, args.output_len, on)
                 if not ok:
-                    bad += 1; continue
+                    bad += 1
+                    if bad <= 2:
+                        print(f"[BAD] B={B} rep{i} {diag}", flush=True)
+                    continue
                 (cwin if on else eager).append(dt)
         if not eager or not cwin:
             results[B] = {"error": "no provenance-confirmed reps", "bad_reps": bad}

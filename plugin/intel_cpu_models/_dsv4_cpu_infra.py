@@ -3600,25 +3600,11 @@ def _install_mhc_cpu() -> None:
 
     _mhc.hc_combine = _timed("mhc.combine", "torch")(_combine_dispatch)
 
-    # Phase-2 C/C++ kernel routing (INTEL_CPU_DSV4_DSA_CKERNEL=1): the sinkhorn/combine C kernels were
-    # authored against these exact torch references, so route the CPU MHC ops to them here (torch stays
-    # the per-call parity fallback under INTEL_CPU_DSV4_DSA_CKERNEL_CHECK=1).
-    try:
-        from . import _dsa_ckernels as _ck
-    except ImportError:  # standalone import context
-        import _dsa_ckernels as _ck
-    if _ck.enabled("sinkhorn"):
-        _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "ckernel")(
-            lambda mixes, hc_scale, hc_base, hc_mult=4, sinkhorn_iters=20, eps=1e-6: _ck.mhc_sinkhorn(
-                mixes, hc_scale, hc_base, hc_mult, sinkhorn_iters, eps,
-                lambda: _sink_torch(mixes, hc_scale, hc_base, hc_mult, sinkhorn_iters, eps)))
-    if _ck.enabled("combine"):
-        _mhc.hc_combine = _timed("mhc.combine", "ckernel")(
-            lambda x_flat, pre, hc, out_dtype: _ck.mhc_combine(
-                x_flat, pre, hc, out_dtype, lambda: _cpu_hc_combine(x_flat, pre, hc, out_dtype)))
-    if _ck.enabled("sinkhorn") or _ck.enabled("combine"):
-        logger.warning("[DSV4] MHC routed to C/C++ kernels (sinkhorn=%s combine=%s).",
-                       _ck.enabled("sinkhorn"), _ck.enabled("combine"))
+    # NOTE: C/C++ kernel routing for sinkhorn/combine is handled INSIDE _sink_dispatch/_combine_dispatch
+    # via _mhc_ck_on() (worker-side control file INTEL_CPU_DSV4_MHC_CK_FILE re-read per forward, else the
+    # INTEL_CPU_DSV4_DSA_CKERNEL master). The former always-on override here bypassed that control file
+    # (and its provenance counter), making the A/B impossible — removed so the dispatch wrappers are the
+    # single source of truth (control-file toggle -> C-kernel/eager -> parity -> provenance).
     if hasattr(_mhc, "_mhc_post_torch"):
         import torch
 
