@@ -943,20 +943,36 @@ def _install_full_capture() -> None:
         lid = getattr(self, "layer_id", getattr(self, "layer_idx", -1))
         out = _ofwd(self, *a, **k)
         try:
+            # Identity from forward_batch.forward_mode (review fix): T-heuristics missed B=32 decode
+            # (T=batch=32, never in {2..16} nor ==1). Scan args/kwargs for the ForwardBatch.
+            fb = None
+            for _v in list(a) + list(k.values()):
+                if hasattr(_v, "forward_mode"):
+                    fb = _v
+                    break
             h = out[0] if isinstance(out, (tuple, list)) else out
-            if torch.is_tensor(h):
+            if torch.is_tensor(h) and fb is not None:
+                fm = fb.forward_mode
+                is_dec = bool(getattr(fm, "is_decode", lambda: False)())
+                if is_dec:
+                    _ST["seen_pf"] = True  # decode implies prefill already happened
+                    key = f"dc{_ST['dc'] // 43}.L{lid}.r{_rk()}"
+                    if key not in _CAP and _ST["dc"] // 43 < 4:  # cap at 4 decode steps
+                        _CAP[key] = h.detach().float().cpu()
+                    _ST["dc"] += 1
+                else:
+                    _ST["seen_pf"] = True
+                    key = f"pf.L{lid}.r{_rk()}"
+                    if key not in _CAP:
+                        _CAP[key] = h.detach().float().cpu()
+            elif torch.is_tensor(h):
+                # Fallback (no forward_batch reachable): keep old T-heuristic for prefill only.
                 T = h.shape[0]
-                # real prompt prefill (T in the prompt-length range) or decode (T==1 after prefill)
                 if 2 <= T <= 16:
                     _ST["seen_pf"] = True
                     key = f"pf.L{lid}.r{_rk()}"
                     if key not in _CAP:
                         _CAP[key] = h.detach().float().cpu()
-                elif T == 1 and _ST["seen_pf"]:
-                    key = f"dc{_ST['dc']//64}.L{lid}.r{_rk()}"
-                    if key not in _CAP:
-                        _CAP[key] = h.detach().float().cpu()
-                    _ST["dc"] += 1
         except Exception:  # noqa: BLE001
             pass
         return out
@@ -3500,24 +3516,56 @@ def _install_mhc_cpu() -> None:
 
     _sink_torch = _mhc._hc_split_sinkhorn_torch
 
-    def _sink_dispatch(mixes, hc_scale, hc_base, hc_mult, iters, eps):
-        # Increment-1 (fused-layer branch): route the 20-iter sinkhorn recurrence to the
-        # parity-validated C kernel (sinkhorn.cpp, ~23x vs torch) when DSA_CKERNEL is on;
-        # the C wrapper asserts cos>=threshold vs this torch oracle, and we fall back to the
-        # torch ref on ANY exception (shape/parity) so correctness is never at risk.
-        _tf = lambda: _sink_torch(mixes, hc_scale, hc_base, hc_mult, iters, eps)
-        try:
-            from . import _dsa_ckernels as _ck
-            if _ck.enabled("sinkhorn"):
-                return _ck.mhc_sinkhorn(mixes, hc_scale, hc_base, hc_mult, iters, eps, _tf)
-        except Exception as _e:  # noqa: BLE001
+    _MHC_PROV = {"c": 0, "eager": 0}
+
+    def _mhc_ck_on():
+        # WORKER-SIDE control (review fix): a control file re-read from disk EACH call crosses the
+        # sgl.Engine subprocess boundary, unlike client os.environ (which the already-spawned worker
+        # never sees). INTEL_CPU_DSV4_MHC_CK_FILE = "0" (eager) / "1" (C). Falls back to enabled().
+        # Also records a branch counter to INTEL_CPU_DSV4_MHC_PROV_FILE so the A/B can PROVE the worker
+        # actually switched arms (reviewer requirement; reject fallback-contaminated runs).
+        on = False
+        _f = _os.environ.get("INTEL_CPU_DSV4_MHC_CK_FILE")
+        if _f:
+            try:
+                with open(_f) as _cf:
+                    on = _cf.read().strip() == "1"
+            except Exception:  # noqa: BLE001
+                on = False
+        else:
             try:
                 from . import _dsa_ckernels as _ck
-                if _ck.strict():
-                    raise
-            except Exception:
+                on = _ck.enabled("sinkhorn")
+            except Exception:  # noqa: BLE001
+                on = False
+        _MHC_PROV["c" if on else "eager"] += 1
+        _pf = _os.environ.get("INTEL_CPU_DSV4_MHC_PROV_FILE")
+        if _pf:
+            try:
+                with open(_pf, "w") as _pw:
+                    _pw.write(f"c={_MHC_PROV['c']} eager={_MHC_PROV['eager']}")
+            except Exception:  # noqa: BLE001
                 pass
-            logger.warning("[MHC] sinkhorn C kernel fell back to torch: %r", _e)
+        return on
+
+    def _sink_dispatch(mixes, hc_scale, hc_base, hc_mult, iters, eps):
+        # Increment-1 (fused-layer branch): route the 20-iter sinkhorn recurrence to the
+        # parity-validated C kernel (sinkhorn.cpp, ~23x vs torch) when MHC-CK is on; the C wrapper
+        # asserts cos>=threshold vs this torch oracle (CHECK mode), and we fall back to the torch ref
+        # on ANY exception (shape/parity) so correctness is never at risk.
+        _tf = lambda: _sink_torch(mixes, hc_scale, hc_base, hc_mult, iters, eps)
+        if _mhc_ck_on():
+            try:
+                from . import _dsa_ckernels as _ck
+                return _ck.mhc_sinkhorn(mixes, hc_scale, hc_base, hc_mult, iters, eps, _tf)
+            except Exception as _e:  # noqa: BLE001
+                try:
+                    from . import _dsa_ckernels as _ck
+                    if _ck.strict():
+                        raise
+                except Exception:
+                    pass
+                logger.warning("[MHC] sinkhorn C kernel fell back to torch: %r", _e)
         return _tf()
 
     _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "torch")(_sink_dispatch)
@@ -3533,21 +3581,21 @@ def _install_mhc_cpu() -> None:
         return torch.einsum("mk,mkh->mh", pre.float(), xr).to(out_dtype)
 
     def _combine_dispatch(x_flat, pre, hc, out_dtype):
-        # Increment-1: route the MHC weighted-combine to combine.cpp (parity-gated) when enabled,
-        # eager fallback on any exception.
+        # Increment-1: route the MHC weighted-combine to combine.cpp (parity-gated) when MHC-CK is on,
+        # eager fallback on any exception. Worker-side control file (crosses the subprocess boundary).
         _tf = lambda: _cpu_hc_combine(x_flat, pre, hc, out_dtype)
-        try:
-            from . import _dsa_ckernels as _ck
-            if _ck.enabled("combine"):
-                return _ck.mhc_combine(x_flat, pre, hc, out_dtype, _tf)
-        except Exception as _e:  # noqa: BLE001
+        if _mhc_ck_on():
             try:
                 from . import _dsa_ckernels as _ck
-                if _ck.strict():
-                    raise
-            except Exception:
-                pass
-            logger.warning("[MHC] combine C kernel fell back to torch: %r", _e)
+                return _ck.mhc_combine(x_flat, pre, hc, out_dtype, _tf)
+            except Exception as _e:  # noqa: BLE001
+                try:
+                    from . import _dsa_ckernels as _ck
+                    if _ck.strict():
+                        raise
+                except Exception:
+                    pass
+                logger.warning("[MHC] combine C kernel fell back to torch: %r", _e)
         return _tf()
 
     _mhc.hc_combine = _timed("mhc.combine", "torch")(_combine_dispatch)
