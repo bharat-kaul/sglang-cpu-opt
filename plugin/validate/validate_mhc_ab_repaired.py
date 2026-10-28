@@ -33,6 +33,8 @@ def main():
     p.add_argument("--output-len", type=int, default=6); p.add_argument("--reps", type=int, default=6)
     p.add_argument("--mem-fraction", type=float, default=0.80)
     p.add_argument("--load-format", default="auto", help="auto=real weights; dummy=random (timing-only)")
+    p.add_argument("--check", action="store_true",
+                   help="arm per-call parity assert (CHECK=1); contaminates C-arm timing, use for correctness only")
     p.add_argument("--out", default="")
     args = p.parse_args()
     cfg = json.load(open(args.config))
@@ -43,7 +45,11 @@ def main():
     open(ctl, "w").write("0"); open(prov, "w").write("c=0 eager=0")
     os.environ["INTEL_CPU_DSV4_MHC_CK_FILE"] = ctl
     os.environ["INTEL_CPU_DSV4_MHC_PROV_FILE"] = prov
-    os.environ["INTEL_CPU_DSV4_DSA_CKERNEL_CHECK"] = "1"  # per-call parity assert stays armed (fail-closed)
+    # CHECK is set at spawn (crosses the boundary). CHECK=1 makes the C arm ALSO run the torch oracle +
+    # cosine assert EVERY call -> ~2x MHC work -> contaminates the C-arm timing (seen in job 394133:
+    # B=1 -19.9% was pure check overhead). Correctness was PROVEN by job 394133 (CHECK=1, zero asserts
+    # across B=1/B=32, prefill+decode). So for the clean PERF A/B we run CHECK=0; flip --check to re-prove.
+    os.environ["INTEL_CPU_DSV4_DSA_CKERNEL_CHECK"] = "1" if args.check else "0"
 
     import sglang as sgl
     engine = sgl.Engine(model_path=args.model, device="cpu", tp_size=1, dtype="bfloat16",

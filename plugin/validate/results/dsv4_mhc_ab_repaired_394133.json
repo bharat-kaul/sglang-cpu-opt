@@ -1,0 +1,60 @@
+{
+  "operating_point": {
+    "threads": "8",
+    "socket": 1,
+    "load_format": "auto",
+    "input_len": 8,
+    "output_len": 6,
+    "reps": 6
+  },
+  "by_batch": {
+    "1": {
+      "eager_step_ms": 608.49,
+      "cwin_step_ms": 759.72,
+      "gain_pct": -19.91,
+      "n_eager": 6,
+      "n_c": 6,
+      "bad_reps": 0,
+      "eager_samples": [
+        8.6852,
+        8.7046,
+        8.781,
+        8.7657,
+        8.8324,
+        8.6862
+      ],
+      "c_samples": [
+        9.6726,
+        9.6899,
+        9.6608,
+        6.6296,
+        9.5456,
+        9.6243
+      ]
+    },
+    "32": {
+      "eager_step_ms": 6662.72,
+      "cwin_step_ms": 6617.27,
+      "gain_pct": 0.69,
+      "n_eager": 6,
+      "n_c": 6,
+      "bad_reps": 0,
+      "eager_samples": [
+        77.9748,
+        80.5017,
+        79.7653,
+        79.825,
+        79.5106,
+        77.344
+      ],
+      "c_samples": [
+        80.8092,
+        79.7146,
+        78.5503,
+        78.8381,
+        80.5641,
+        79.0158
+      ]
+    }
+  }
+}
