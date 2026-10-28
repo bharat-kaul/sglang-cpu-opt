@@ -1378,6 +1378,23 @@ def _install_layer_timeit() -> None:
         if callable(_fn):
             setattr(Layer, _m, _timed(_tag, "torch")(_fn))
     Layer._layer_timeit = True
+    # lm_head (LogitsProcessor) + the whole-model forward are PER-STEP fixed ops OUTSIDE layer.total:
+    # time them so the layer-scaling counterfactual can split per-step-fixed (lm_head/embed/sample,
+    # NOT recoverable by per-layer fusion) from per-layer (recoverable). Tagged 'fixed'.
+    try:
+        from sglang.srt.layers.logits_processor import LogitsProcessor as _LP
+        if not getattr(_LP, "_lmhead_timeit", False):
+            _LP.forward = _timed("step.lm_head", "fixed")(_LP.forward)
+            _LP._lmhead_timeit = True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        _MF = _dv4.DeepseekV4Model
+        if not getattr(_MF, "_model_timeit", False):
+            _MF.forward = _timed("step.model_total", "stepparent")(_MF.forward)
+            _MF._model_timeit = True
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _install_gemm_timeit() -> None:
