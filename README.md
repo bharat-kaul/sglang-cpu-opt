@@ -109,7 +109,7 @@ toward its roofline. Two pages document it in full:
 **two genuinely novel op families** — DeepSeek Sparse Attention (lightning-indexer + KV-compressor +
 top-k sparse-MLA) and MHC hash-clustering — while everything else is covered by the DeepSeek-V2 CPU donors.
 
-> **Deep dives for this model:** 🧩 **[Kernel performance journey](docs/kernel-pilot-performance.md)** (per-kernel roofline → baseline → C/C++, + GNR-vs-EMR) · ⏱️ **[End-to-end wall time](docs/e2e-wall-time.md)** (baseline→optimized tok/s + roofline calc) · ✅ **[Accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** (CPU within ~1 pt of GPU) · 🔎 **[Prefill/decode review brief](docs/dsv4-prefill-decode-review-brief.md)** (code map + perf data + what's been tried & ruled out).
+> **Deep dives for this model:** 🧩 **[Kernel performance journey](docs/kernel-pilot-performance.md)** (per-kernel roofline → baseline → C/C++, + GNR-vs-EMR) · ⏱️ **[End-to-end wall time](docs/e2e-wall-time.md)** (baseline→optimized tok/s + roofline calc) · ✅ **[Accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** (CPU within ~1 pt of GPU) · 🔎 **[Prefill/decode review brief](docs/dsv4-prefill-decode-review-brief.md)** (code map + perf data + tried & ruled out) · 📐 **[Per-GEMM regime analysis](docs/dsv4-gemm-regime-analysis.md)** (compute- vs BW- vs latency-bound).
 
 - **Scope** — scope-discovery surfaced the *true* scope (DSA + MHC **plus** a runtime infra layer, not
   the "4 DSA kernels" a static op-scan implied) → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).

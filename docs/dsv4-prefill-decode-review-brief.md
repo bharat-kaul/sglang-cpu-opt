@@ -113,6 +113,8 @@ dispatch** (1.15–2.09× at low batch, bit-exact); MXFP4-native experts (fits 1
 
 ## 6. The open question + the honest gaps
 
+**See the companion [per-GEMM roofline-regime analysis](dsv4-gemm-regime-analysis.md)** — each GEMM classified compute-bound (tiled, L2-reuse) vs BW-bound (no reuse) vs latency-bound (defect), by arithmetic intensity vs the resident ridge.
+
 **Decode is the headroom.** It is BW-bound by nature but runs **12–62× above the BW floor** — a per-step
 **latency/overhead** problem, NOT a physics ceiling, NOT a kernel-quality problem (the kernels are at-ceiling in
 isolation, §3). The gap is ~258 tiny per-expert/per-layer GEMM launches/step + barriers + dispatch, not weight
