@@ -3499,7 +3499,28 @@ def _install_mhc_cpu() -> None:
     import sglang.kernels.ops.layernorm.mhc as _mhc
 
     _sink_torch = _mhc._hc_split_sinkhorn_torch
-    _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "torch")(_sink_torch)
+
+    def _sink_dispatch(mixes, hc_scale, hc_base, hc_mult, iters, eps):
+        # Increment-1 (fused-layer branch): route the 20-iter sinkhorn recurrence to the
+        # parity-validated C kernel (sinkhorn.cpp, ~23x vs torch) when DSA_CKERNEL is on;
+        # the C wrapper asserts cos>=threshold vs this torch oracle, and we fall back to the
+        # torch ref on ANY exception (shape/parity) so correctness is never at risk.
+        _tf = lambda: _sink_torch(mixes, hc_scale, hc_base, hc_mult, iters, eps)
+        try:
+            from . import _dsa_ckernels as _ck
+            if _ck.enabled("sinkhorn"):
+                return _ck.mhc_sinkhorn(mixes, hc_scale, hc_base, hc_mult, iters, eps, _tf)
+        except Exception as _e:  # noqa: BLE001
+            try:
+                from . import _dsa_ckernels as _ck
+                if _ck.strict():
+                    raise
+            except Exception:
+                pass
+            logger.warning("[MHC] sinkhorn C kernel fell back to torch: %r", _e)
+        return _tf()
+
+    _mhc.hc_split_sinkhorn = _timed("mhc.sinkhorn", "torch")(_sink_dispatch)
 
     def _cpu_hc_combine(x_flat, pre, hc, out_dtype):
         # y[m, h] = sum_k pre[m, k] * x_flat[m, k*H + h]. einsum streams the contraction
@@ -3511,7 +3532,25 @@ def _install_mhc_cpu() -> None:
         xr = x_flat.reshape(m, hc, h).float()
         return torch.einsum("mk,mkh->mh", pre.float(), xr).to(out_dtype)
 
-    _mhc.hc_combine = _timed("mhc.combine", "torch")(_cpu_hc_combine)
+    def _combine_dispatch(x_flat, pre, hc, out_dtype):
+        # Increment-1: route the MHC weighted-combine to combine.cpp (parity-gated) when enabled,
+        # eager fallback on any exception.
+        _tf = lambda: _cpu_hc_combine(x_flat, pre, hc, out_dtype)
+        try:
+            from . import _dsa_ckernels as _ck
+            if _ck.enabled("combine"):
+                return _ck.mhc_combine(x_flat, pre, hc, out_dtype, _tf)
+        except Exception as _e:  # noqa: BLE001
+            try:
+                from . import _dsa_ckernels as _ck
+                if _ck.strict():
+                    raise
+            except Exception:
+                pass
+            logger.warning("[MHC] combine C kernel fell back to torch: %r", _e)
+        return _tf()
+
+    _mhc.hc_combine = _timed("mhc.combine", "torch")(_combine_dispatch)
 
     # Phase-2 C/C++ kernel routing (INTEL_CPU_DSV4_DSA_CKERNEL=1): the sinkhorn/combine C kernels were
     # authored against these exact torch references, so route the CPU MHC ops to them here (torch stays
