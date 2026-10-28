@@ -315,6 +315,21 @@ flowchart LR
   glue/dispatch bound (all recoverable).* **Fix:** measure the resident peak (amx_peak.c), use it for the ridge
   and as the compute roofline; `compute_peak_*` (resident) and `streamed_gemm_*` are DIFFERENT numbers with
   DIFFERENT uses — never substitute one for the other.
+- **REGIME IS SET BY `M` (reuse), SO IT IS OPERATING-POINT-SPECIFIC — and at the low-`M` CPU-serving range
+  EVERYTHING is usually BW-bound.** For a weight-stationary GEMM `AI = M·(2/elsize)` (AI *is* the reuse factor
+  M, scaled by pack density), so the compute/BW verdict flips at the **crossover M = ridge·elsize/2**
+  (EMR bf16 ≈ 190, fp8 ≈ 95, fp4 ≈ 48). **Compute the regime AT THE TARGET `M`, not at a convenient large M.**
+  CPU serving is low-batch (M ≤ ~64), which is **below crossover for every DSv4 GEMM → the whole model is
+  BW-bound in its real operating range** (the compute-bound, L2-tiled regime is a large-batch-only contrast).
+  Two consequences: **(1)** the optimization goal across the serving range is *stream weights once at full DRAM
+  BW + kill per-call launch/barrier/dispatch overhead*, **NOT** AMX compute-tiling; **(2)** MoE **routed**
+  experts are BW-bound at EVERY M because top-k/N routing fragments the batch to ~1–4 tokens/active-expert
+  (batching the request ≠ batching the expert), so their only ceiling is DRAM BW. **Optimize ADAPTIVELY in M:**
+  thread-count must scale with M (M=1 wants ≤4–8 threads — barrier spin-up ≫ the tiny work, the measured inverse
+  thread scaling; M=64 wants all cores to saturate BW), and the big kernel lever is a **grouped batch-reduce
+  GEMM** over active experts (one back-to-back weight stream vs hundreds of tiny per-expert launches) to turn a
+  latency-bound step into a BW-bound one. A single fixed thread count / non-grouped path is wrong at one end of
+  the range. (Worked analysis: `docs/dsv4-gemm-regime-analysis.md`.)
 - **ROOFLINE HONESTY — publish the IDEALIZED ceiling AND the ACHIEVABLE time-budget; score against the latter.**
   A single `FLOPs/peak` (or `bytes/BW`) roofline is an **idealized upper bound**: it counts only the *modeled*
   resource (dense-GEMM FLOPs, or weight-streaming bytes) and implicitly assumes **every other op-class is free**
