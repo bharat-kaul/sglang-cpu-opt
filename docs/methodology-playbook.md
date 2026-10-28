@@ -295,6 +295,26 @@ flowchart LR
   roofline → attribute the gap (kernel / framework / **dispatch & parallelization overhead**) → clear the
   overhead (bind-once, fewer/bigger parallel regions, one rank per NUMA domain, prepack) → re-measure, so
   **every integration step updates measured-vs-roofline** until the 70–75% target holds at every M.
+- **COMPUTE-BOUND IS A MACHINE-SPEC VERDICT (the ridge) — the compute ceiling is the RESIDENT (L2-fed) peak,
+  NOT a DRAM-streamed GEMM number.** Whether an op is compute- or memory-bound is decided by the **roofline
+  ridge** = `resident_compute_peak / DRAM_BW`, and the compute asymptote MUST be the **resident-tile peak**
+  (operands fed from L2/registers under cache-blocking), measured **per socket** (one rank/domain is the serving
+  unit). Derive/measure it from spec: EMR ≈ **64 cores × 1024 bf16 FLOP/cycle × ~1.9 GHz ≈ 125 TF/socket**
+  (theoretical; measure with `tools/microbench/amx_peak.c`, pinned + thread-swept). **Corollary (the rule we
+  missed): a GEMM that only reaches the DRAM-STREAMED rate is BY THAT FACT memory/latency-bound, not
+  compute-bound** — the streamed number is a *diagnosis of memory-boundedness* (the op sits on the memory slope
+  below the ridge), NEVER the compute ceiling. So the compute roofline for a **cache-blockable** op (prefill
+  large-M GEMM: the reused weight panel fits L2 and is reused across all M tokens → huge arithmetic intensity →
+  L2-fed → compute-bound) uses the **resident peak**; the **streamed-achievable** rate is the ceiling only for
+  ops you genuinely cannot block (decode M=1, each weight byte used once → DRAM-streamed → BW-bound). *Worked
+  miss (DSv4): we used the uPP **streamed** `compute_peak.bfloat16` = 12.4 TF (also measured thread-collapsed at
+  128 threads; the probe's own sweep peaks at ~30 TF @ 32 threads) AS the prefill compute ceiling → "prefill 43%
+  of a 409 tok/s roofline." But 12.4/30 TF are DRAM-streamed rates, so by the corollary that GEMM was never
+  compute-bound at that number. The real compute ceiling is the L2-fed ~125 TF/socket → prefill roofline
+  ~3000+ tok/s → 174.5 ≈ 5%: prefill is NOT near its compute ceiling, it is thread-collapse + unblocked-GEMM +
+  glue/dispatch bound (all recoverable).* **Fix:** measure the resident peak (amx_peak.c), use it for the ridge
+  and as the compute roofline; `compute_peak_*` (resident) and `streamed_gemm_*` are DIFFERENT numbers with
+  DIFFERENT uses — never substitute one for the other.
 - **ROOFLINE HONESTY — publish the IDEALIZED ceiling AND the ACHIEVABLE time-budget; score against the latter.**
   A single `FLOPs/peak` (or `bytes/BW`) roofline is an **idealized upper bound**: it counts only the *modeled*
   resource (dense-GEMM FLOPs, or weight-streaming bytes) and implicitly assumes **every other op-class is free**
@@ -304,8 +324,9 @@ flowchart LR
   elementwise/attention math (~24%), and fallback matmul (~10%) the roofline assumes free — so "43% of roofline"
   **overstates the gap** and hides where it is. **Rule: publish TWO ceilings** — (1) the **idealized**
   single-resource roofline (loose upper bound), and (2) an **ACHIEVABLE time-budget roofline**
-  = `Σ_class Work_class / AchievableRate_class` (dense GEMM at the **streamed**-achievable rate, *not* the
-  resident peak; memory-bound classes at bytes/BW; glue at memcpy-BW or an explicit irreducible floor). Score
+  = `Σ_class Work_class / AchievableRate_class` (compute-bound **cache-blockable** GEMM at the **resident
+  (L2-fed) peak** — it is fed from L2 under blocking, *not* the DRAM-streamed rate; genuinely un-blockable
+  memory-bound classes at bytes/BW; glue at memcpy-BW or an explicit irreducible floor). Score
   efficiency as **measured ÷ achievable**, and report **achievable ÷ idealized** = the **structural** fraction of
   the gap (unreachable without changing the op graph). The modeled GEMMs are usually already near their own roof,
   so the headroom lives in the work the idealized roofline pretends is free — `inter-kernel-fusion` (glue) +
@@ -343,16 +364,25 @@ flowchart LR
   fractions with measured floors. Complement with env-gated **boundary timers** (wall-clock, to correct
   `self_cpu` over-weighting of many-call small ops) and gate each lever on the **Amdahl bound**
   `share·(1−floor/measured)`. (overhead-attribution + kernel-feasibility-gate + inter-kernel-fusion.)
+- **A REGION-TIMER (or `self_cpu`) LEAF SHARE IS NOT A CRITICAL-PATH ATTRIBUTION — only a drift-robust
+  counterfactual A/B is.** An op can accumulate large wall-region time yet contribute **~0** to end-to-end wall
+  because it **overlaps/hides behind** other work (chunked-prefill pipelining, async kernels, the scheduler). The
+  ONLY trustworthy attribution is: **change the one thing and measure END-TO-END wall**, in a **drift-robust**
+  design — *one* engine load, **interleave** the A/B arms per rep (alternate order each pair), paired-median over
+  many reps — so thermal/run-order drift (which can be larger than the effect, and which inverts if you run A
+  then B sequentially) cancels. *Worked miss (DSv4 prefill mask): the `mla.b.mask` region timer read ~19% of
+  prefill; we vectorized it bit-exactly (region 8.7s→0.25s, 35×, proven correct) — and the clean interleaved A/B
+  showed **−0.2% (ZERO) end-to-end**. The region time was overlapped, not on the critical path. Two earlier
+  numbers built on the same region-timer method (a "+7.3%" ablation that also changed attention semantics, and a
+  "~275 achievable" estimate) were therefore unreliable and withdrawn.* **Law:** no lever is real until a clean
+  interleaved counterfactual moves end-to-end wall; region-timer shares only *nominate* candidates to test.
 - **ATTRIBUTE AT THE TARGET OPERATING POINT — recovery targets DIFFER by phase/batch.** The op-class whose
   overhead dominates is **operating-point-specific**, so attribute (and ROI-gate) at the point the deployment
-  actually targets, not just the throughput point. *Worked example (DSv4, wall-clock TIMEIT):* **prefill B=32**'s
-  #1 recoverable op is the **attention mask construction** (~19%, glue → fuse into the attention kernel), but
-  **decode B=1** (the Xeon low-batch latency target)'s #1 is the **eager DSA compressor/indexer + MHC** (~30%,
-  torch → kernelize) with the mask only ~7%. Attributing only at B=32 **under-weights** the decode fixed-cost
-  levers that define the low-batch value. Also re-check the `self_cpu`-vs-wall-clock gotcha: `self_cpu` scattered
-  the mask across thousands of `copy_`/`index` calls (looked ~0%); the wall-clock region timer showed it is the
-  single biggest op. (Pairs with the model-enablement **FRAME-THE-KPI-FIRST** rule: the target S/B/G decides
-  which attribution — and thus which levers — matter.)
+  actually targets, not just the throughput point. Attributing only at B=32 under-weights the B=1 decode
+  fixed-cost levers that define the Xeon low-batch value. *(But weight these nominations by the counterfactual
+  rule above — a large region-timer share at the target point is a candidate to A/B-test, not a proven lever;
+  DSv4's "mask ~19% at B=32" looked dominant and tested to 0%.)* Pairs with the model-enablement
+  **FRAME-THE-KPI-FIRST** rule: the target S/B/G decides which attribution — and thus which candidates — matter.
 - **DISPATCH-PROVENANCE & WIRING-CHAIN audit (a kernel that EXISTS is not a kernel that RAN).** Unit parity
   proves a kernel is *correct*, not that the serving forward *dispatches* to it — a hot-path op can silently
   stay an **eager-torch reimplementation** (einsum / per-token Python loop) that **bypasses** an authored C/C++

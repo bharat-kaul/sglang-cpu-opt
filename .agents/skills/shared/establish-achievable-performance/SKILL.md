@@ -58,8 +58,11 @@ using all domains ≈ socket BW; using fewer leaves the rest idle — see
    - `streamed_gemm_tflops_per_socket` (uPP `compute_peak.bfloat16`; mark estimated if projected)
    - `mem_bw_gbs_per_socket` (uPP `memory.dram_triad`; per-SNC-domain from uPP `numa.bw_matrix`
      — aggregate = domains_used × per_domain)
-3. All later skills gate against `streamed_gemm_*`, and treat `compute_peak_*` as
-   the theoretical bound.
+3. For **regime determination and the compute roofline of a cache-blockable op**, gate against
+   `compute_peak_*` (the **resident / L2-fed** peak — the ridge is `resident_peak / BW`). Gate a genuinely
+   un-blockable, memory-bound op against `streamed_gemm_*`. **Do NOT use the streamed-GEMM number as a
+   compute ceiling** — a kernel that only reaches the streamed rate is, by that fact, memory/latency-bound
+   (it sits below the ridge), not compute-bound.
 
 ## Why this is step 0
 
