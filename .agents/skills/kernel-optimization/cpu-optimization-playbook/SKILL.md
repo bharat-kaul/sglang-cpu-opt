@@ -143,6 +143,16 @@ condition is met and gating every step against the measured roofline.
 > Do NOT jump to Phase-2 wall-time optimization while any op is still on a torch fallback or any
 > kernel is below its no-regression floor — fix Phase 1 first.
 >
+> **BW-BOUND ≠ "SKIP AMX."** A low-M (CPU-serving) op being bandwidth-bound sets its *ceiling* (DRAM BW); it
+> does NOT excuse a torch fallback or an untiled path. The op only *reaches* `Bytes/BW` when AMX compute HIDES
+> under the stream (`t = max(FLOPs/P_compute, Bytes/BW)`) — a torch `P_compute` makes the compute term dominate
+> (DSv4 routed expert @M=32: 38 µs stream, AMX = 13 µs hidden, **torch = 805 µs = 21× above the BW floor**). So
+> every hot GEMM/op is an authored **C/C++ AMX/AVX-512** kernel (BRGEMM/grouped-BRGEMM), **tiled + double-buffered**
+> (AMX consumes the resident tile while the next streams) and **fusion-folded** (cut the `Bytes` term) regardless
+> of regime; the regime only changes the *streaming + thread-count* strategy, **adaptive in M** (M=1 → ≤4–8
+> threads, GEMV+prefetch; M→64 → all cores, grouped BRGEMM). See the methodology playbook "BW-bound is the ceiling,
+> not a license to skip AMX" rule + `docs/dsv4-gemm-regime-analysis.md`.
+>
 > **DONOR-FIRST (do NOT hand-roll what a library already provides).** Wherever an existing optimized
 > primitive exists — **OneDNN** (eltwise/softmax/reorder), ATen **cpublas** brgemm + VNNI `pack` (oneDNN/
 > MKL-backed), `at::bmm`, MKL, LIBXSMM/TPP — USE IT and author only the irreducible missing GLUE (fused

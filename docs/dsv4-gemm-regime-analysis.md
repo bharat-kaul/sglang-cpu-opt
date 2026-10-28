@@ -26,8 +26,23 @@ factor `M`, scaled by pack density. Compute-bound iff `AI > 380`. **Crossover `M
 The compute-bound regime needs `M ≈ 48–190`. The Xeon target is **low-batch** (prefill a short prompt / chunked;
 decode B ≤ 64), so **M is almost always below crossover → the whole model runs on the memory slope.** The
 compute-bound, L2-tiled regime only applies to large-batch prefill, which is *not* the Xeon operating point.
-**So the optimization goal across the Xeon range is: stream each weight once at full DRAM BW, and kill the
-per-call launch/barrier/dispatch overhead — not AMX compute tiling.**
+**So the optimization goal across the Xeon range is to REACH the DRAM-BW ceiling — but reaching it REQUIRES
+maximal effective AMX use, not less of it.** BW-bound sets the *ceiling*: `t = max(FLOPs/P_compute, Bytes/BW)`.
+You only *achieve* `Bytes/BW` when the compute term hides under the memory stream, which demands all of:
+- **(a) fast AMX compute (C/C++ with AMX / AVX-512 intrinsics)** so `FLOPs/P_compute ≪ Bytes/BW`. *Proof — one
+  routed expert @M=32:* the weight is a **38 µs** DRAM stream; AMX clears the math in **13 µs** (hides → BW-bound
+  holds), but **vanilla torch takes 805 µs = 21× ABOVE the BW floor** → a torch fallback turns a BW-bound op into
+  a *compute-bound-on-a-slow-path* op. "It's BW-bound anyway" is NOT a license to skip AMX.
+- **(b) tiling + double-buffering** so the streamed weight tile is consumed by AMX *while the next tile streams*
+  (overlap compute with the DRAM read) and the M activations are reused against the resident tile — without it,
+  stream-then-compute serializes to ~2× the BW floor.
+- **(c) fusion** to cut the `Bytes` term itself — keep intermediates in registers/L2, never materialize — which
+  lowers the binding memory time and raises effective AI toward the ridge.
+- **(d) kill per-call launch/barrier/dispatch overhead** (the current 12–62× gap).
+
+The failure mode is reading "BW-bound" as "don't bother tiling / fall back to torch" — that abandons the compute
+headroom that lets the op hide under the stream. **BW-bound is the ceiling; maximal AMX + tiling + fusion is how
+you reach it.**
 
 ### Prefill, low-batch (total tokens M)
 
@@ -68,20 +83,24 @@ All GEMMs use the right building blocks (dense `amx_brgemm`/VNNI; MoE `fused_exp
 
 ## Adaptive-in-M optimization strategy (the actionable output)
 
-Because the regime is **BW-bound throughout M ≤ 64**, the kernel must adapt its *streaming* strategy to M, not
-switch to AMX compute-tiling until M exits the Xeon range:
+The regime is **BW-bound throughout M ≤ 64**, but — per the headline — *reaching* the BW ceiling requires maximal
+AMX the whole way (fast compute to hide under the stream, tiling to overlap, fusion to cut traffic). Every row
+below is **C/C++ with AMX/AVX-512 intrinsics**, never a torch fallback; what *adapts* with M is the streaming
+strategy and thread count, **not** whether to use AMX:
 
-| M regime | regime | strategy | threads | precedent in repo |
+| M regime | regime | strategy (all AMX/AVX-512 C/C++) | threads | precedent in repo |
 |---|---|---|---|---|
-| **M = 1** (pure latency) | BW-bound, launch-dominated | GEMV path: stream weight once contiguously, **SW prefetch**, **minimal threads** (barrier spin-up > the work), no M-tiling | **few (≤4–8)** | sinkhorn adaptive-serial (1.15–2.09×), indexer `_m1` variant, decode-cap=8 |
-| **M = 2…32** (skinny GEMM) | BW-bound | load the weight tile once, **reuse across the M tokens** from L2/registers (M-blocking); **grouped/batch-reduce GEMM** over active experts so weights stream **back-to-back** (one stream, not 258 launches) | **scale up with M** | BRGEMM (`amx_brgemm`), grouped `fused_experts_cpu` |
-| **M = 32…64** (upper range) | BW-bound, approaching fp4 ridge | as above; for **shared-expert/dense fp4** at M→64 (AI→256) start **L2 cache-blocking** to prep for compute-bound | **all cores (saturate BW ≈ 64 cores)** | — |
+| **M = 1** (pure latency) | BW-bound, launch-dominated | AMX/AVX-512 GEMV: stream weight once contiguously + **SW prefetch**, consume with AMX as it arrives, **minimal threads** (barrier spin-up > the work) | **few (≤4–8)** | sinkhorn adaptive-serial (1.15–2.09×), indexer `_m1` variant, decode-cap=8 |
+| **M = 2…32** (skinny GEMM) | BW-bound | **BRGEMM** tile: load weight tile once, **double-buffer** (AMX consumes tile N while tile N+1 streams), **reuse across the M tokens** from registers; **grouped/batch-reduce GEMM** over active experts so weights stream **back-to-back** (one stream, not 258 launches); **fuse** the dequant/epilogue so no intermediate is materialized | **scale up with M** | BRGEMM (`amx_brgemm`), grouped `fused_experts_cpu` |
+| **M = 32…64** (upper range) | BW-bound, approaching fp4 ridge | as above + **L2 cache-blocking** of the weight panel (shared-expert/dense fp4 at M→64, AI→256) so it is reused from L2, prepping the compute-bound crossover | **all cores (saturate BW ≈ 64 cores)** | — |
 | **M ≥ 95 (fp4) / 190 (bf16)** — *outside Xeon range* | compute-bound | full AMX L2-tiling, feed TMUL from L2 (resident peak) | all cores | the large-batch-prefill path |
 
-**The one adaptive switch that matters most for Xeon:** **thread count must scale with M.** At M = 1 the work per
-op is tiny, so spawning 64–128 threads makes it *slower* (barrier/spin-up ≫ compute — the measured inverse
-scaling); at M = 64 you want all ~64 cores to saturate BW. A fixed thread count is wrong at one end or the other.
-This is a **config/kernel-dispatch lever**, not new math, and it is the cheapest first win.
+**Two things that must be adaptive — neither is "drop AMX":**
+1. **Thread count scales with M.** At M = 1 the work is tiny, so 64–128 threads is *slower* (barrier/spin-up ≫
+   compute — the measured inverse scaling); at M = 64 you want all ~64 cores to saturate BW. Cheapest first win,
+   config/dispatch only.
+2. **Streaming layout scales with M** (GEMV → double-buffered BRGEMM → L2-blocked), but the **compute primitive
+   is always AMX/AVX-512** — a vanilla-torch path at any M puts the op 20×+ above its BW floor (headline (a)).
 
 **The highest-leverage kernel change:** convert the routed-expert decode path from **~258 tiny per-expert
 launches** into **one grouped batch-reduce GEMM** over the active experts, so their fp4 weights stream

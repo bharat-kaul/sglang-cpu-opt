@@ -321,15 +321,31 @@ flowchart LR
   (EMR bf16 ≈ 190, fp8 ≈ 95, fp4 ≈ 48). **Compute the regime AT THE TARGET `M`, not at a convenient large M.**
   CPU serving is low-batch (M ≤ ~64), which is **below crossover for every DSv4 GEMM → the whole model is
   BW-bound in its real operating range** (the compute-bound, L2-tiled regime is a large-batch-only contrast).
-  Two consequences: **(1)** the optimization goal across the serving range is *stream weights once at full DRAM
-  BW + kill per-call launch/barrier/dispatch overhead*, **NOT** AMX compute-tiling; **(2)** MoE **routed**
-  experts are BW-bound at EVERY M because top-k/N routing fragments the batch to ~1–4 tokens/active-expert
-  (batching the request ≠ batching the expert), so their only ceiling is DRAM BW. **Optimize ADAPTIVELY in M:**
-  thread-count must scale with M (M=1 wants ≤4–8 threads — barrier spin-up ≫ the tiny work, the measured inverse
-  thread scaling; M=64 wants all cores to saturate BW), and the big kernel lever is a **grouped batch-reduce
-  GEMM** over active experts (one back-to-back weight stream vs hundreds of tiny per-expert launches) to turn a
-  latency-bound step into a BW-bound one. A single fixed thread count / non-grouped path is wrong at one end of
-  the range. (Worked analysis: `docs/dsv4-gemm-regime-analysis.md`.)
+  Two consequences: **(1)** the optimization goal across the serving range is *reach the DRAM-BW ceiling*
+  (see the next rule — this REQUIRES maximal AMX, not less), and MoE **routed** experts are BW-bound at EVERY M
+  because top-k/N routing fragments the batch to ~1–4 tokens/active-expert (batching the request ≠ batching the
+  expert), so their only ceiling is DRAM BW. **Optimize ADAPTIVELY in M:** thread-count must scale with M (M=1
+  wants ≤4–8 threads — barrier spin-up ≫ the tiny work, the measured inverse thread scaling; M=64 wants all cores
+  to saturate BW), and the big kernel lever is a **grouped batch-reduce GEMM** over active experts (one
+  back-to-back weight stream vs hundreds of tiny per-expert launches) to turn a latency-bound step into a
+  BW-bound one. A single fixed thread count / non-grouped path is wrong at one end of the range. (Worked analysis:
+  `docs/dsv4-gemm-regime-analysis.md`.)
+- **BW-BOUND IS THE CEILING, NOT A LICENSE TO SKIP AMX — reaching it REQUIRES maximal effective AMX (C/C++ with
+  AMX/AVX-512 intrinsics), tiling, and fusion.** "BW-bound" never means "fall back to vanilla torch / skip
+  tiling." The roofline is `t = max(FLOPs/P_compute, Bytes/BW)`; the op is only *actually* BW-bound when the
+  compute term **hides under** the memory stream, which demands: **(a)** the compute runs at the AMX peak — a
+  torch fallback drops `P_compute` so far that `FLOPs/P_compute` DOMINATES and the op becomes *compute-bound on a
+  slow path* (DSv4 one routed expert @M=32: 38 µs DRAM stream, AMX clears it in 13 µs = hidden, **vanilla torch =
+  805 µs = 21× ABOVE the BW floor**); **(b)** **tiling + double-buffering** so AMX consumes the resident weight
+  tile *while the next tile streams* (overlap compute with the DRAM read) and the M activations are reused from
+  registers — without it, stream-then-compute serializes to ~2× the floor; **(c)** **fusion** to cut the `Bytes`
+  term itself (keep intermediates in registers/L2, never materialize → lowers the binding memory time, raises
+  effective AI toward the ridge); **(d)** kill launch/barrier/dispatch overhead. **Mandate:** every hot GEMM/op
+  in the serving path is an **authored C/C++ AMX/AVX-512 kernel** (BRGEMM/grouped-BRGEMM building block), tiled,
+  double-buffered, and fusion-folded — *regardless* of whether it is compute- or BW-bound; the regime only
+  changes the *streaming/threading* strategy (adaptive in M), never the decision to use AMX maximally. A
+  vanilla-torch or untiled path in the hot loop is a DEFECT, caught by dispatch-provenance + a roofline check
+  that the op sits at its BW floor (not 20×+ above it). (Worked analysis: `docs/dsv4-gemm-regime-analysis.md`.)
 - **ROOFLINE HONESTY — publish the IDEALIZED ceiling AND the ACHIEVABLE time-budget; score against the latter.**
   A single `FLOPs/peak` (or `bytes/BW`) roofline is an **idealized upper bound**: it counts only the *modeled*
   resource (dense-GEMM FLOPs, or weight-streaming bytes) and implicitly assumes **every other op-class is free**
