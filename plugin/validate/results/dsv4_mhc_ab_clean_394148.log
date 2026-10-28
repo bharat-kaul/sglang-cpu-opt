@@ -1,0 +1,120 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ DTHR=/scratch/bkaul/dsv4_mhc_ab_dthr_394148.txt
++ echo 8
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS_FILE=/scratch/bkaul/dsv4_mhc_ab_dthr_394148.txt DECODE_THREADS=8
++ INTEL_CPU_DSV4_DECODE_THREADS_FILE=/scratch/bkaul/dsv4_mhc_ab_dthr_394148.txt
++ DECODE_THREADS=8
++ export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0
++ OMP_WAIT_POLICY=passive
++ KMP_BLOCKTIME=0
++ set +x
+[2026-10-28 11:10:29] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[WARM] B=1 arm=eager c:0->0 eager:0->344 OK
+[WARM] B=1 arm=C c:0->344 eager:344->344 OK
+[AB] B=1: eager 539.41 -> C 516.77 ms/step = +4.38%  (n=6/6 confirmed, 0 discarded)
+[WARM] B=32 arm=eager c:5848->5848 eager:6708->7052 OK
+[WARM] B=32 arm=C c:5848->6192 eager:7052->7052 OK
+[AB] B=32: eager 2726.34 -> C 2666.11 ms/step = +2.26%  (n=6/6 confirmed, 0 discarded)
+  "operating_point": {
+      "gain_pct": 4.38,
+      "gain_pct": 2.26,
+############ RESULT ############
+{
+  "operating_point": {
+    "threads": "8",
+    "socket": 1,
+    "load_format": "auto",
+    "input_len": 8,
+    "output_len": 6,
+    "reps": 6
+  },
+  "by_batch": {
+    "1": {
+      "eager_step_ms": 539.41,
+      "cwin_step_ms": 516.77,
+      "gain_pct": 4.38,
+      "n_eager": 6,
+      "n_c": 6,
+      "bad_reps": 0,
+      "eager_samples": [
+        8.2106,
+        8.2262,
+        8.2528,
+        8.3014,
+        8.3419,
+        8.1549
+      ],
+      "c_samples": [
+        8.1571,
+        8.2038,
+        8.1066,
+        5.5467,
+        8.0763,
+        8.1008
+      ]
+    },
+    "32": {
+      "eager_step_ms": 2726.34,
+      "cwin_step_ms": 2666.11,
+      "gain_pct": 2.26,
+      "n_eager": 6,
+      "n_c": 6,
+      "bad_reps": 0,
+      "eager_samples": [
+        45.317,
+        46.0122,
+        45.5808,
+        45.4785,
+        45.5048,
+        45.1624
+      ],
+      "c_samples": [
+        45.3673,
+        45.1575,
+        44.784,
+        44.8693,
+        45.2597,
+        45.103
+      ]
+    }
+  }
+}[done] repaired MHC A/B job=394148
