@@ -1,3 +1,12 @@
+> **⚠ CORRECTED after independent review (see [review](dsv4_decode_warmpool_moe_independent_review.md) +
+> [response](dsv4_decode_warmpool_moe_review_response.md)).** Three fixes applied below: (1) decode-step rates
+> were under-normalized (divided by `output_len` not `output_len−1`) — corrected rates are ~20% higher, the
+> **relative 2.2× is unchanged**; (2) the MoE decode runs the **non-BRGEMM vector path, NOT AMX** (`avg_M =
+> B·6/256 ≤ 1.5 < 5` for all B≤64) — the "underfilled AMX tiles / 6–10× above floor" explanation is WITHDRAWN
+> pending a proper rebuild; (3) warm has a real **prefill regression** (~5×, sticky residue + spin) so it is NOT
+> "strictly better" — promote only after phase-separated measurement. The pivot (MoE first, defer monolith)
+> stands.
+
 # DSv4 decode — warm-pool config win, re-attribution, and the pivot from monolith to MoE
 
 **Status:** for independent review. **Branch:** `dsv4-fused-layer-decode`. **Node:** EMR single socket (pcl-sprXX),

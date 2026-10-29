@@ -36,10 +36,13 @@ def main():
     results = {}
     for B in [int(x) for x in args.batches.split(",")]:
         run(B, 2)  # warm (compile/alloc + first sticky set) at this shape
-        tpref = run(B, 1)
+        tpref = run(B, 1)  # prefill/extend emits token 1 -> 0 decode steps
         dec = [run(B, args.output_len) for _ in range(args.reps)]
         td = statistics.median(dec)
-        step_ms = (td - tpref) / args.output_len * 1e3
+        # (total_k - total_1) spans (output_len - 1) DECODE steps (token 1 came from prefill), so
+        # normalize by (output_len - 1), not output_len. [review fix: divisor was output_len.]
+        nsteps = max(1, args.output_len - 1)
+        step_ms = (td - tpref) / nsteps * 1e3
         results[B] = {"decode_step_ms": round(step_ms, 2),
                       "decode_tok_s": round(B / (step_ms / 1e3), 3),
                       "tpref_s": round(tpref, 3),

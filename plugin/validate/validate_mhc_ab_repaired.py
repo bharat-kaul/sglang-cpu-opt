@@ -99,7 +99,9 @@ def main():
             print(f"[AB] B={B}: FAILED — no provenance-confirmed reps (bad={bad})", flush=True)
             continue
         em, cm = statistics.median(eager), statistics.median(cwin)
-        de = (em - tpref) / args.output_len * 1e3; dc = (cm - tpref) / args.output_len * 1e3
+        # token 1 comes from prefill/extend, so (total_k - total_1) spans (output_len-1) decode steps.
+        _nsteps = max(1, args.output_len - 1)
+        de = (em - tpref) / _nsteps * 1e3; dc = (cm - tpref) / _nsteps * 1e3
         results[B] = {"eager_step_ms": round(de, 2), "cwin_step_ms": round(dc, 2),
                       "gain_pct": round(100 * (de / dc - 1), 2), "n_eager": len(eager),
                       "n_c": len(cwin), "bad_reps": bad,
