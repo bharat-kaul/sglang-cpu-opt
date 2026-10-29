@@ -1,0 +1,12 @@
+{
+  "model": "/scratch/bkaul/models/DeepSeek-V4-Flash",
+  "num_questions": 200,
+  "num_shots": 8,
+  "accuracy": 0.75,
+  "correct": 150,
+  "invalid": 41,
+  "latency_s": 1718.1,
+  "gen_tok_s_est": null,
+  "acc_min": 0.0,
+  "verdict": "PASS"
+}

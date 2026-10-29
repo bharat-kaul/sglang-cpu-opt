@@ -1,0 +1,21 @@
+{
+  "cores": "cold/DTHR32/sticky1",
+  "decode_threads_env": "32",
+  "sticky": "1",
+  "torch_threads_launch": 58,
+  "input_len": 8,
+  "output_len": 8,
+  "reps": 3,
+  "by_batch": {
+    "1": {
+      "decode_step_ms": 593.56,
+      "decode_tok_s": 1.685,
+      "tpref_s": 1.816,
+      "samples_s": [
+        5.958,
+        5.9723,
+        5.9709
+      ]
+    }
+  }
+}

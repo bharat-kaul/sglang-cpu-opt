@@ -1,0 +1,42 @@
+{
+  "8": {
+    "M": 8,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 6945,
+    "rows_min": 1,
+    "rows_max": 8,
+    "rows_sum": 10320,
+    "rows_n": 6945,
+    "hist": {
+      "1": 5160,
+      "2": 974,
+      "3-4": 594,
+      "5-8": 217,
+      "9+": 0
+    }
+  },
+  "1": {
+    "M": 1,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 946,
+    "active_sum": 5676,
+    "rows_min": 1,
+    "rows_max": 1,
+    "rows_sum": 5676,
+    "rows_n": 5676,
+    "hist": {
+      "1": 5676,
+      "2": 0,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  }
+}
