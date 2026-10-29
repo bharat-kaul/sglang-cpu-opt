@@ -1,0 +1,402 @@
+{
+  "8": {
+    "M": 8,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 946,
+    "active_sum": 29959,
+    "rows_min": 1,
+    "rows_max": 8,
+    "rows_sum": 45408,
+    "rows_n": 29959,
+    "hist": {
+      "1": 21918,
+      "2": 4455,
+      "3-4": 2523,
+      "5-8": 1063,
+      "9+": 0
+    }
+  },
+  "1": {
+    "M": 1,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 1204,
+    "active_sum": 7224,
+    "rows_min": 1,
+    "rows_max": 1,
+    "rows_sum": 7224,
+    "rows_n": 7224,
+    "hist": {
+      "1": 7224,
+      "2": 0,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "16": {
+    "M": 16,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 1118,
+    "active_sum": 59959,
+    "rows_min": 1,
+    "rows_max": 16,
+    "rows_sum": 107328,
+    "rows_n": 59959,
+    "hist": {
+      "1": 39586,
+      "2": 10817,
+      "3-4": 5929,
+      "5-8": 2685,
+      "9+": 942
+    }
+  },
+  "2": {
+    "M": 2,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 688,
+    "active_sum": 7274,
+    "rows_min": 1,
+    "rows_max": 2,
+    "rows_sum": 8256,
+    "rows_n": 7274,
+    "hist": {
+      "1": 6292,
+      "2": 982,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "32": {
+    "M": 32,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 430,
+    "active_sum": 33258,
+    "rows_min": 1,
+    "rows_max": 32,
+    "rows_sum": 82560,
+    "rows_n": 33258,
+    "hist": {
+      "1": 18625,
+      "2": 6278,
+      "3-4": 4730,
+      "5-8": 2075,
+      "9+": 1550
+    }
+  },
+  "4": {
+    "M": 4,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 688,
+    "active_sum": 13553,
+    "rows_min": 1,
+    "rows_max": 4,
+    "rows_sum": 16512,
+    "rows_n": 13553,
+    "hist": {
+      "1": 11393,
+      "2": 1495,
+      "3-4": 665,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "3": {
+    "M": 3,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 258,
+    "active_sum": 4139,
+    "rows_min": 1,
+    "rows_max": 3,
+    "rows_sum": 4644,
+    "rows_n": 4139,
+    "hist": {
+      "1": 3689,
+      "2": 395,
+      "3-4": 55,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "64": {
+    "M": 64,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 301,
+    "active_sum": 33960,
+    "rows_min": 1,
+    "rows_max": 60,
+    "rows_sum": 115584,
+    "rows_n": 33960,
+    "hist": {
+      "1": 14955,
+      "2": 7126,
+      "3-4": 5945,
+      "5-8": 3496,
+      "9+": 2438
+    }
+  },
+  "7": {
+    "M": 7,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 6921,
+    "rows_min": 1,
+    "rows_max": 7,
+    "rows_sum": 9030,
+    "rows_n": 6921,
+    "hist": {
+      "1": 5479,
+      "2": 1028,
+      "3-4": 351,
+      "5-8": 63,
+      "9+": 0
+    }
+  },
+  "128": {
+    "M": 128,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 3,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 33660,
+    "rows_min": 1,
+    "rows_max": 108,
+    "rows_sum": 165120,
+    "rows_n": 33660,
+    "hist": {
+      "1": 9777,
+      "2": 6532,
+      "3-4": 7704,
+      "5-8": 5511,
+      "9+": 4136
+    }
+  },
+  "15": {
+    "M": 15,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 43,
+    "active_sum": 1763,
+    "rows_min": 1,
+    "rows_max": 15,
+    "rows_sum": 3870,
+    "rows_n": 1763,
+    "hist": {
+      "1": 1174,
+      "2": 228,
+      "3-4": 153,
+      "5-8": 124,
+      "9+": 84
+    }
+  },
+  "256": {
+    "M": 256,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 6,
+    "use_brgemm": true,
+    "calls": 215,
+    "active_sum": 40493,
+    "rows_min": 1,
+    "rows_max": 215,
+    "rows_sum": 330240,
+    "rows_n": 40493,
+    "hist": {
+      "1": 7620,
+      "2": 5644,
+      "3-4": 8201,
+      "5-8": 9566,
+      "9+": 9462
+    }
+  },
+  "31": {
+    "M": 31,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 559,
+    "active_sum": 45535,
+    "rows_min": 1,
+    "rows_max": 29,
+    "rows_sum": 103974,
+    "rows_n": 45535,
+    "hist": {
+      "1": 26782,
+      "2": 8681,
+      "3-4": 5369,
+      "5-8": 2906,
+      "9+": 1797
+    }
+  },
+  "30": {
+    "M": 30,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 172,
+    "active_sum": 14104,
+    "rows_min": 1,
+    "rows_max": 28,
+    "rows_sum": 30960,
+    "rows_n": 14104,
+    "hist": {
+      "1": 8257,
+      "2": 2722,
+      "3-4": 1766,
+      "5-8": 924,
+      "9+": 435
+    }
+  },
+  "512": {
+    "M": 512,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 12,
+    "use_brgemm": true,
+    "calls": 215,
+    "active_sum": 45273,
+    "rows_min": 1,
+    "rows_max": 422,
+    "rows_sum": 660480,
+    "rows_n": 45273,
+    "hist": {
+      "1": 5404,
+      "2": 4279,
+      "3-4": 6729,
+      "5-8": 8891,
+      "9+": 19970
+    }
+  },
+  "61": {
+    "M": 61,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 43,
+    "active_sum": 4478,
+    "rows_min": 1,
+    "rows_max": 58,
+    "rows_sum": 15738,
+    "rows_n": 4478,
+    "hist": {
+      "1": 2299,
+      "2": 871,
+      "3-4": 638,
+      "5-8": 287,
+      "9+": 383
+    }
+  },
+  "60": {
+    "M": 60,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 24265,
+    "rows_min": 1,
+    "rows_max": 53,
+    "rows_sum": 77400,
+    "rows_n": 24265,
+    "hist": {
+      "1": 11978,
+      "2": 4875,
+      "3-4": 3508,
+      "5-8": 2055,
+      "9+": 1849
+    }
+  },
+  "59": {
+    "M": 59,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 516,
+    "active_sum": 55504,
+    "rows_min": 1,
+    "rows_max": 56,
+    "rows_sum": 182664,
+    "rows_n": 55504,
+    "hist": {
+      "1": 27459,
+      "2": 10701,
+      "3-4": 8004,
+      "5-8": 4806,
+      "9+": 4534
+    }
+  },
+  "62": {
+    "M": 62,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 43,
+    "active_sum": 4474,
+    "rows_min": 1,
+    "rows_max": 56,
+    "rows_sum": 15996,
+    "rows_n": 4474,
+    "hist": {
+      "1": 2192,
+      "2": 863,
+      "3-4": 648,
+      "5-8": 343,
+      "9+": 428
+    }
+  },
+  "63": {
+    "M": 63,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 43,
+    "active_sum": 4330,
+    "rows_min": 1,
+    "rows_max": 61,
+    "rows_sum": 16254,
+    "rows_n": 4330,
+    "hist": {
+      "1": 2249,
+      "2": 815,
+      "3-4": 569,
+      "5-8": 318,
+      "9+": 379
+    }
+  }
+}

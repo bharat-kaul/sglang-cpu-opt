@@ -1,0 +1,562 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ WARM=1
++ DTHR=8
++ STICKY=1
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS=8 INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ INTEL_CPU_DSV4_DECODE_THREADS=8
++ INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ export INTEL_CPU_DSV4_MOE_OCC=1 INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moec_occ_394567.json
++ INTEL_CPU_DSV4_MOE_OCC=1
++ INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moec_occ_394567.json
++ '[' 1 = 1 ']'
++ export OMP_WAIT_POLICY=active KMP_BLOCKTIME=infinite GOMP_SPINCOUNT=infinite
++ OMP_WAIT_POLICY=active
++ KMP_BLOCKTIME=infinite
++ GOMP_SPINCOUNT=infinite
++ TAG=warm
++ export CLEAN_CORES=warm/DTHR8/sticky1
++ CLEAN_CORES=warm/DTHR8/sticky1
++ set +x
+[2026-10-28 23:40:28] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[2026-10-28 23:50:54] [DECODE THREADCAP] M=1 threads 58 -> 8 (sticky)
+[CLEAN] B=1: decode_step=251.7 ms  (3.974 tok/s)  n=3 fresh
+[2026-10-28 23:51:03] [DECODE THREADCAP] M=2 threads 8 -> 8 (sticky)
+[CLEAN] B=2: decode_step=312.3 ms  (6.404 tok/s)  n=3 fresh
+[2026-10-28 23:51:15] [DECODE THREADCAP] M=4 threads 8 -> 8 (sticky)
+[2026-10-28 23:51:24] [DECODE THREADCAP] M=3 threads 8 -> 8 (sticky)
+[2026-10-28 23:51:27] [DECODE THREADCAP] M=4 threads 8 -> 8 (sticky)
+[CLEAN] B=4: decode_step=416.8 ms  (9.597 tok/s)  n=3 fresh
+[2026-10-28 23:51:33] [DECODE THREADCAP] M=8 threads 8 -> 8 (sticky)
+[2026-10-28 23:51:45] [DECODE THREADCAP] M=7 threads 8 -> 8 (sticky)
+[2026-10-28 23:51:51] [DECODE THREADCAP] M=8 threads 8 -> 8 (sticky)
+[2026-10-28 23:51:53] [DECODE THREADCAP] M=7 threads 8 -> 8 (sticky)
+[CLEAN] B=8: decode_step=583.7 ms  (13.706 tok/s)  n=3 fresh
+[2026-10-28 23:52:00] [DECODE THREADCAP] M=15 threads 8 -> 8 (sticky)
+[2026-10-28 23:52:11] [DECODE THREADCAP] M=16 threads 8 -> 8 (sticky)
+[CLEAN] B=16: decode_step=919.0 ms  (17.411 tok/s)  n=3 fresh
+[2026-10-28 23:52:44] [DECODE THREADCAP] M=32 threads 8 -> 8 (sticky)
+[2026-10-28 23:52:56] [DECODE THREADCAP] M=31 threads 8 -> 8 (sticky)
+[2026-10-28 23:52:59] [DECODE THREADCAP] M=30 threads 8 -> 8 (sticky)
+[2026-10-28 23:53:08] [DECODE THREADCAP] M=32 threads 8 -> 8 (sticky)
+[2026-10-28 23:53:22] [DECODE THREADCAP] M=31 threads 8 -> 8 (sticky)
+[CLEAN] B=32: decode_step=1443.9 ms  (22.162 tok/s)  n=3 fresh
+[2026-10-28 23:53:38] [DECODE THREADCAP] M=64 threads 8 -> 8 (sticky)
+[2026-10-28 23:53:54] [DECODE THREADCAP] M=61 threads 8 -> 8 (sticky)
+[2026-10-28 23:53:58] [DECODE THREADCAP] M=60 threads 8 -> 8 (sticky)
+[2026-10-28 23:54:03] [DECODE THREADCAP] M=58 threads 8 -> 8 (sticky)
+[2026-10-28 23:54:17] [DECODE THREADCAP] M=64 threads 8 -> 8 (sticky)
+[2026-10-28 23:54:19] [DECODE THREADCAP] M=60 threads 8 -> 8 (sticky)
+[2026-10-28 23:54:21] [DECODE THREADCAP] M=58 threads 8 -> 8 (sticky)
+[2026-10-28 23:54:39] [DECODE THREADCAP] M=64 threads 8 -> 8 (sticky)
+[2026-10-28 23:54:42] [DECODE THREADCAP] M=62 threads 8 -> 8 (sticky)
+[CLEAN] B=64: decode_step=2417.9 ms  (26.469 tok/s)  n=3 fresh
+      "decode_step_ms": 251.66,
+      "decode_step_ms": 312.28,
+      "decode_step_ms": 416.8,
+      "decode_step_ms": 583.68,
+      "decode_step_ms": 918.98,
+      "decode_step_ms": 1443.92,
+      "decode_step_ms": 2417.94,
+############ RESULT (warm/DTHR8/sticky1) ############
+{
+  "cores": "warm/DTHR8/sticky1",
+  "decode_threads_env": "8",
+  "sticky": "1",
+  "torch_threads_launch": 58,
+  "input_len": 8,
+  "output_len": 8,
+  "reps": 3,
+  "by_batch": {
+    "1": {
+      "decode_step_ms": 251.66,
+      "decode_tok_s": 3.974,
+      "tpref_s": 0.612,
+      "samples_s": [
+        2.3735,
+        2.3732,
+        2.3565
+      ]
+    },
+    "2": {
+      "decode_step_ms": 312.28,
+      "decode_tok_s": 6.404,
+      "tpref_s": 0.916,
+      "samples_s": [
+        3.128,
+        3.1016,
+        3.0851
+      ]
+    },
+    "4": {
+      "decode_step_ms": 416.8,
+      "decode_tok_s": 9.597,
+      "tpref_s": 1.434,
+      "samples_s": [
+        4.493,
+        4.1178,
+        4.3521
+      ]
+    },
+    "8": {
+      "decode_step_ms": 583.68,
+      "decode_tok_s": 13.706,
+      "tpref_s": 2.463,
+      "samples_s": [
+        6.6691,
+        6.5372,
+        6.5485
+      ]
+    },
+    "16": {
+      "decode_step_ms": 918.98,
+      "decode_tok_s": 17.411,
+      "tpref_s": 4.807,
+      "samples_s": [
+        11.2397,
+        11.33,
+        11.2044
+      ]
+    },
+    "32": {
+      "decode_step_ms": 1443.92,
+      "decode_tok_s": 22.162,
+      "tpref_s": 4.135,
+      "samples_s": [
+        14.2421,
+        14.2747,
+        14.0602
+      ]
+    },
+    "64": {
+      "decode_step_ms": 2417.94,
+      "decode_tok_s": 26.469,
+      "tpref_s": 6.317,
+      "samples_s": [
+        23.2427,
+        22.7853,
+        23.5587
+      ]
+    }
+  }
+}############ OCC ############
+{
+  "8": {
+    "M": 8,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 688,
+    "active_sum": 22019,
+    "rows_min": 1,
+    "rows_max": 8,
+    "rows_sum": 33024,
+    "rows_n": 22019,
+    "hist": {
+      "1": 16358,
+      "2": 3136,
+      "3-4": 1765,
+      "5-8": 760,
+      "9+": 0
+    }
+  },
+  "1": {
+    "M": 1,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 946,
+    "active_sum": 5676,
+    "rows_min": 1,
+    "rows_max": 1,
+    "rows_sum": 5676,
+    "rows_n": 5676,
+    "hist": {
+      "1": 5676,
+      "2": 0,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "16": {
+    "M": 16,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 1118,
+    "active_sum": 60752,
+    "rows_min": 1,
+    "rows_max": 16,
+    "rows_sum": 107328,
+    "rows_n": 60752,
+    "hist": {
+      "1": 40625,
+      "2": 10716,
+      "3-4": 5835,
+      "5-8": 2650,
+      "9+": 926
+    }
+  },
+  "2": {
+    "M": 2,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 946,
+    "active_sum": 9836,
+    "rows_min": 1,
+    "rows_max": 2,
+    "rows_sum": 11352,
+    "rows_n": 9836,
+    "hist": {
+      "1": 8320,
+      "2": 1516,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "32": {
+    "M": 32,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 645,
+    "active_sum": 50565,
+    "rows_min": 1,
+    "rows_max": 32,
+    "rows_sum": 123840,
+    "rows_n": 50565,
+    "hist": {
+      "1": 28246,
+      "2": 9593,
+      "3-4": 7107,
+      "5-8": 3396,
+      "9+": 2223
+    }
+  },
+  "4": {
+    "M": 4,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 688,
+    "active_sum": 12669,
+    "rows_min": 1,
+    "rows_max": 4,
+    "rows_sum": 16512,
+    "rows_n": 12669,
+    "hist": {
+      "1": 10026,
+      "2": 1598,
+      "3-4": 1045,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "3": {
+    "M": 3,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 258,
+    "active_sum": 3964,
+    "rows_min": 1,
+    "rows_max": 3,
+    "rows_sum": 4644,
+    "rows_n": 3964,
+    "hist": {
+      "1": 3377,
+      "2": 494,
+      "3-4": 93,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "64": {
+    "M": 64,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 344,
+    "active_sum": 38072,
+    "rows_min": 1,
+    "rows_max": 62,
+    "rows_sum": 132096,
+    "rows_n": 38072,
+    "hist": {
+      "1": 17016,
+      "2": 7868,
+      "3-4": 6532,
+      "5-8": 3780,
+      "9+": 2876
+    }
+  },
+  "7": {
+    "M": 7,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 473,
+    "active_sum": 14238,
+    "rows_min": 1,
+    "rows_max": 7,
+    "rows_sum": 19866,
+    "rows_n": 14238,
+    "hist": {
+      "1": 10786,
+      "2": 2227,
+      "3-4": 968,
+      "5-8": 257,
+      "9+": 0
+    }
+  },
+  "128": {
+    "M": 128,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 3,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 33664,
+    "rows_min": 1,
+    "rows_max": 109,
+    "rows_sum": 165120,
+    "rows_n": 33664,
+    "hist": {
+      "1": 9721,
+      "2": 6640,
+      "3-4": 7654,
+      "5-8": 5505,
+      "9+": 4144
+    }
+  },
+  "15": {
+    "M": 15,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 43,
+    "active_sum": 1761,
+    "rows_min": 1,
+    "rows_max": 15,
+    "rows_sum": 3870,
+    "rows_n": 1761,
+    "hist": {
+      "1": 1182,
+      "2": 217,
+      "3-4": 154,
+      "5-8": 128,
+      "9+": 80
+    }
+  },
+  "256": {
+    "M": 256,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 6,
+    "use_brgemm": true,
+    "calls": 215,
+    "active_sum": 40484,
+    "rows_min": 1,
+    "rows_max": 213,
+    "rows_sum": 330240,
+    "rows_n": 40484,
+    "hist": {
+      "1": 7623,
+      "2": 5546,
+      "3-4": 8268,
+      "5-8": 9581,
+      "9+": 9466
+    }
+  },
+  "31": {
+    "M": 31,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 387,
+    "active_sum": 29470,
+    "rows_min": 1,
+    "rows_max": 30,
+    "rows_sum": 71982,
+    "rows_n": 29470,
+    "hist": {
+      "1": 17124,
+      "2": 5314,
+      "3-4": 3475,
+      "5-8": 2131,
+      "9+": 1426
+    }
+  },
+  "30": {
+    "M": 30,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 129,
+    "active_sum": 11609,
+    "rows_min": 1,
+    "rows_max": 25,
+    "rows_sum": 23220,
+    "rows_n": 11609,
+    "hist": {
+      "1": 7022,
+      "2": 2338,
+      "3-4": 1355,
+      "5-8": 639,
+      "9+": 255
+    }
+  },
+  "512": {
+    "M": 512,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 12,
+    "use_brgemm": true,
+    "calls": 215,
+    "active_sum": 45316,
+    "rows_min": 1,
+    "rows_max": 424,
+    "rows_sum": 660480,
+    "rows_n": 45316,
+    "hist": {
+      "1": 5468,
+      "2": 4263,
+      "3-4": 6749,
+      "5-8": 8886,
+      "9+": 19950
+    }
+  },
+  "61": {
+    "M": 61,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 86,
+    "active_sum": 9255,
+    "rows_min": 1,
+    "rows_max": 57,
+    "rows_sum": 31476,
+    "rows_n": 9255,
+    "hist": {
+      "1": 4656,
+      "2": 1833,
+      "3-4": 1332,
+      "5-8": 711,
+      "9+": 723
+    }
+  },
+  "60": {
+    "M": 60,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 129,
+    "active_sum": 14085,
+    "rows_min": 1,
+    "rows_max": 56,
+    "rows_sum": 46440,
+    "rows_n": 14085,
+    "hist": {
+      "1": 6769,
+      "2": 2935,
+      "3-4": 2066,
+      "5-8": 1216,
+      "9+": 1099
+    }
+  },
+  "58": {
+    "M": 58,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 344,
+    "active_sum": 40045,
+    "rows_min": 1,
+    "rows_max": 50,
+    "rows_sum": 119712,
+    "rows_n": 40045,
+    "hist": {
+      "1": 19982,
+      "2": 8222,
+      "3-4": 5939,
+      "5-8": 3263,
+      "9+": 2639
+    }
+  },
+  "62": {
+    "M": 62,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 258,
+    "active_sum": 28667,
+    "rows_min": 1,
+    "rows_max": 57,
+    "rows_sum": 95976,
+    "rows_n": 28667,
+    "hist": {
+      "1": 14030,
+      "2": 5824,
+      "3-4": 4148,
+      "5-8": 2339,
+      "9+": 2326
+    }
+  }
+}[done] moe campaign warm/DTHR8/sticky1 job=394567
