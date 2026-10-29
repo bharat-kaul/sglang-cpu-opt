@@ -2868,9 +2868,14 @@ def _install_fp4_expert_cpu_dequant() -> None:
                 _tw, ti, _ = dispatch_output.topk_output
                 w13 = getattr(layer, "w13_weight", None)
                 w2 = getattr(layer, "w2_weight", None)
+                # active-group stats: distinct experts hit + rows/expert distribution (the MoE regime).
+                _ne = int(w13.shape[0]) if w13 is not None else -1
+                _flat = ti.reshape(-1)
+                _uniq, _cnts = _t.unique(_flat, return_counts=True)
+                _rows = _cnts.float()
                 logger.warning(
                     "[MOE DIAG] tokens=%s xdtype=%s topk_ids=%s w13=%s/%s w2=%s/%s "
-                    "threads=%d amx=%s",
+                    "threads=%d amx=%s | experts_total=%d active=%d rows/expert[min/mean/max]=%d/%.1f/%d",
                     tuple(x.shape),
                     x.dtype,
                     tuple(ti.shape),
@@ -2880,11 +2885,21 @@ def _install_fp4_expert_cpu_dequant() -> None:
                     getattr(w2, "dtype", None),
                     _t.get_num_threads(),
                     use_intel_amx_backend(layer) if "use_intel_amx_backend" in globals() else "?",
+                    _ne, int(_uniq.numel()),
+                    int(_rows.min()), float(_rows.mean()), int(_rows.max()),
                 )
             except Exception as _e:  # noqa: BLE001
                 logger.warning("[MOE DIAG] failed: %s", _e)
-        if _os.environ.get("INTEL_CPU_DSV4_MOE_ISO", "0") == "1" and not _MOE_DIAG.get("iso"):
-            _MOE_DIAG["iso"] = True
+        # [MOE ISO]: isolation thread-sweep, run ONCE PER DISTINCT token-count M (so one job covers
+        # B=1 AND B=32). Physical-core-only candidates (no SMT per the single-socket-no-HT operating point).
+        _iso_m = None
+        if _os.environ.get("INTEL_CPU_DSV4_MOE_ISO", "0") == "1":
+            try:
+                _iso_m = int(dispatch_output.hidden_states.shape[0])
+            except Exception:  # noqa: BLE001
+                _iso_m = None
+        if _iso_m is not None and _iso_m not in _MOE_DIAG.setdefault("iso_m", set()):
+            _MOE_DIAG["iso_m"].add(_iso_m)
             # In-situ isolation with the REAL packed weights: re-time the real expert apply
             # across thread counts. Flat -> kernel/shape bound (e.g. all-256-expert stream);
             # scaling -> thread/binding bound. Decides the runtime-config vs kernel question.
@@ -2894,7 +2909,8 @@ def _install_fp4_expert_cpu_dequant() -> None:
                 import torch as _tt
 
                 _orig_nt = _tt.get_num_threads()
-                for _nth in sorted({_orig_nt, _orig_nt * 2, 16, 8}):
+                _cands = sorted({c for c in (4, 8, 16, 32, 58) if 1 <= c <= max(_orig_nt, 58)})
+                for _nth in _cands:
                     if _nth < 1:
                         continue
                     _tt.set_num_threads(_nth)
@@ -2903,7 +2919,8 @@ def _install_fp4_expert_cpu_dequant() -> None:
                     for _ in range(3):
                         _r = _orig_apply(self, layer, dispatch_output)
                     logger.warning(
-                        "[MOE ISO] threads=%d apply=%.1fms", _nth, (_t.perf_counter() - _t0) / 3 * 1e3
+                        "[MOE ISO] M=%d threads=%d apply=%.2fms", _iso_m, _nth,
+                        (_t.perf_counter() - _t0) / 3 * 1e3
                     )
                 _tt.set_num_threads(_orig_nt)
             except Exception as _e:  # noqa: BLE001
