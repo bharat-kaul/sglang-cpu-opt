@@ -1,0 +1,81 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_TIMEIT=1 INTEL_CPU_DSV4_MOE_ISO=1
++ INTEL_CPU_DSV4_TIMEIT=1
++ INTEL_CPU_DSV4_MOE_ISO=1
++ export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0
++ OMP_WAIT_POLICY=passive
++ KMP_BLOCKTIME=0
++ set +x
+[2026-10-28 21:03:20] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[2026-10-28 21:09:17] [MOE DIAG] tokens=(8, 4096) xdtype=torch.bfloat16 topk_ids=(8, 6) w13=(256, 4096, 2048)/torch.uint8 w2=(256, 4096, 1024)/torch.uint8 threads=58 | experts_total=256 active=42 rows/expert[min/mean/max]=1/1.1/2
+[2026-10-28 21:09:17] [MOE ISO] M=8 threads=4 apply=17.57ms
+[2026-10-28 21:09:17] [MOE ISO] M=8 threads=8 apply=39.61ms
+[2026-10-28 21:09:18] [MOE ISO] M=8 threads=16 apply=51.30ms
+[2026-10-28 21:09:18] [MOE ISO] M=8 threads=32 apply=57.82ms
+[2026-10-28 21:09:18] [MOE ISO] M=8 threads=58 apply=61.87ms
+[2026-10-28 21:09:23] [MOE DIAG] tokens=(1, 4096) xdtype=torch.bfloat16 topk_ids=(1, 6) w13=(256, 4096, 2048)/torch.uint8 w2=(256, 4096, 1024)/torch.uint8 threads=58 | experts_total=256 active=6 rows/expert[min/mean/max]=1/1.0/1
+[2026-10-28 21:09:23] [MOE ISO] M=1 threads=4 apply=2.17ms
+[2026-10-28 21:09:23] [MOE ISO] M=1 threads=8 apply=7.06ms
+[2026-10-28 21:09:23] [MOE ISO] M=1 threads=16 apply=8.71ms
+[2026-10-28 21:09:23] [MOE ISO] M=1 threads=32 apply=9.67ms
+[2026-10-28 21:09:23] [MOE ISO] M=1 threads=58 apply=11.02ms
+[DIAG] B=1 generate wall=11.26s (see [MOE DIAG]/[MOE ISO] above for shapes/active-experts/thread-scaling)
+[2026-10-28 21:09:28] [MOE DIAG] tokens=(256, 4096) xdtype=torch.bfloat16 topk_ids=(256, 6) w13=(256, 4096, 2048)/torch.uint8 w2=(256, 4096, 1024)/torch.uint8 threads=58 | experts_total=256 active=255 rows/expert[min/mean/max]=1/6.0/13
+[2026-10-28 21:09:29] [MOE ISO] M=256 threads=4 apply=119.79ms
+[2026-10-28 21:09:30] [MOE ISO] M=256 threads=8 apply=289.42ms
+[2026-10-28 21:09:31] [MOE ISO] M=256 threads=16 apply=372.28ms
+[2026-10-28 21:09:33] [MOE ISO] M=256 threads=32 apply=421.88ms
+[2026-10-28 21:09:35] [MOE ISO] M=256 threads=58 apply=451.99ms
+[2026-10-28 21:10:05] [MOE DIAG] tokens=(32, 4096) xdtype=torch.bfloat16 topk_ids=(32, 6) w13=(256, 4096, 2048)/torch.uint8 w2=(256, 4096, 1024)/torch.uint8 threads=58 | experts_total=256 active=90 rows/expert[min/mean/max]=1/2.1/10
+[2026-10-28 21:10:06] [MOE ISO] M=32 threads=4 apply=50.97ms
+[2026-10-28 21:10:06] [MOE ISO] M=32 threads=8 apply=114.54ms
+[2026-10-28 21:10:07] [MOE ISO] M=32 threads=16 apply=143.76ms
+[2026-10-28 21:10:07] [MOE ISO] M=32 threads=32 apply=166.52ms
+[2026-10-28 21:10:08] [MOE ISO] M=32 threads=58 apply=176.55ms
+[2026-10-28 21:10:25] [MOE DIAG] tokens=(30, 4096) xdtype=torch.bfloat16 topk_ids=(30, 6) w13=(256, 4096, 2048)/torch.uint8 w2=(256, 4096, 1024)/torch.uint8 threads=58 | experts_total=256 active=103 rows/expert[min/mean/max]=1/1.7/6
+[2026-10-28 21:10:25] [MOE ISO] M=30 threads=4 apply=51.84ms
+[2026-10-28 21:10:26] [MOE ISO] M=30 threads=8 apply=122.43ms
+[2026-10-28 21:10:26] [MOE ISO] M=30 threads=16 apply=153.55ms
+[2026-10-28 21:10:27] [MOE ISO] M=30 threads=32 apply=170.65ms
+[2026-10-28 21:10:28] [MOE ISO] M=30 threads=58 apply=177.60ms
+[DIAG] B=32 generate wall=93.10s (see [MOE DIAG]/[MOE ISO] above for shapes/active-experts/thread-scaling)
+[done] moe decode diagnostic job=394490
