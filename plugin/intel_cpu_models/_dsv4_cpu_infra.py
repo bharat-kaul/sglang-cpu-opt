@@ -2858,36 +2858,72 @@ def _install_fp4_expert_cpu_dequant() -> None:
         _release_freed_memory()
         return out
 
+    def _mxfp4_apply_raw(layer, dispatch_output, with_parity=True):
+        # The raw native MXFP4 W4A16 CPU AMX kernel call (mirrors sglang Mxfp4MoEMethod CPU apply),
+        # returning the output tensor. Shared by the live path and the [MOE ISO] thread sweep so the
+        # sweep times the ACTUAL packed-MXFP4 kernel (not _orig_apply, which rejects the packed layout).
+        import torch as _tt
+
+        from sglang.srt.layers.amx_utils import CPUQuantMethod
+        from sglang.srt.layers.moe.topk import apply_topk_weights_cpu
+
+        x = dispatch_output.hidden_states
+        topk_weights, topk_ids, _ = dispatch_output.topk_output
+        rc = layer.moe_runner_config
+        _ref = getattr(layer, "_mxfp4_ref", None) if with_parity else None
+        _x0 = x if _ref is None else x.detach().clone()
+        _tw0 = None if _ref is None else topk_weights.detach().clone()
+        _ti0 = None if _ref is None else topk_ids.detach().clone()
+        x, topk_weights = apply_topk_weights_cpu(rc.apply_router_weight_on_input, topk_weights, x)
+        if with_parity:
+            try:
+                from . import _dsa_ckernels as _ckmoe
+                _ckmoe.mark("moe", "c_kernel")
+            except Exception:  # noqa: BLE001
+                pass
+        out = _tt.ops.sgl_kernel.fused_experts_cpu(
+            x, layer.w13_weight, layer.w2_weight, topk_weights, topk_ids, False,
+            CPUQuantMethod.MXFP4, layer.w13_weight_scale, layer.w2_weight_scale,
+            None, None, None,
+            getattr(layer, "w13_weight_bias", None), getattr(layer, "w2_weight_bias", None),
+            getattr(rc, "gemm1_alpha", None), getattr(rc, "gemm1_clamp_limit", None),
+            True, rc.activation,
+        )
+        if _ref is not None:
+            _mxfp4_insitu_parity(layer, _x0, _tw0, _ti0, out, rc)
+        return out
+
     def _patched_apply(self, layer, dispatch_output):
-        if _TIMEIT_ON and not _MOE_DIAG.get("done"):
-            _MOE_DIAG["done"] = True
+        if _TIMEIT_ON:
             try:
                 import torch as _t
 
                 x = dispatch_output.hidden_states
-                _tw, ti, _ = dispatch_output.topk_output
-                w13 = getattr(layer, "w13_weight", None)
-                w2 = getattr(layer, "w2_weight", None)
-                # active-group stats: distinct experts hit + rows/expert distribution (the MoE regime).
-                _ne = int(w13.shape[0]) if w13 is not None else -1
-                _flat = ti.reshape(-1)
-                _uniq, _cnts = _t.unique(_flat, return_counts=True)
-                _rows = _cnts.float()
-                logger.warning(
-                    "[MOE DIAG] tokens=%s xdtype=%s topk_ids=%s w13=%s/%s w2=%s/%s "
-                    "threads=%d amx=%s | experts_total=%d active=%d rows/expert[min/mean/max]=%d/%.1f/%d",
-                    tuple(x.shape),
-                    x.dtype,
-                    tuple(ti.shape),
-                    tuple(w13.shape) if w13 is not None else None,
-                    getattr(w13, "dtype", None),
-                    tuple(w2.shape) if w2 is not None else None,
-                    getattr(w2, "dtype", None),
-                    _t.get_num_threads(),
-                    use_intel_amx_backend(layer) if "use_intel_amx_backend" in globals() else "?",
-                    _ne, int(_uniq.numel()),
-                    int(_rows.min()), float(_rows.mean()), int(_rows.max()),
-                )
+                _dm = int(x.shape[0])
+                if _dm not in _MOE_DIAG.setdefault("diag_m", set()):
+                    _MOE_DIAG["diag_m"].add(_dm)
+                    _tw, ti, _ = dispatch_output.topk_output
+                    w13 = getattr(layer, "w13_weight", None)
+                    w2 = getattr(layer, "w2_weight", None)
+                    # active-group stats: distinct experts hit + rows/expert distribution (MoE regime).
+                    _ne = int(w13.shape[0]) if w13 is not None else -1
+                    _flat = ti.reshape(-1)
+                    _uniq, _cnts = _t.unique(_flat, return_counts=True)
+                    _rows = _cnts.float()
+                    logger.warning(
+                        "[MOE DIAG] tokens=%s xdtype=%s topk_ids=%s w13=%s/%s w2=%s/%s "
+                        "threads=%d | experts_total=%d active=%d rows/expert[min/mean/max]=%d/%.1f/%d",
+                        tuple(x.shape),
+                        x.dtype,
+                        tuple(ti.shape),
+                        tuple(w13.shape) if w13 is not None else None,
+                        getattr(w13, "dtype", None),
+                        tuple(w2.shape) if w2 is not None else None,
+                        getattr(w2, "dtype", None),
+                        _t.get_num_threads(),
+                        _ne, int(_uniq.numel()),
+                        int(_rows.min()), float(_rows.mean()), int(_rows.max()),
+                    )
             except Exception as _e:  # noqa: BLE001
                 logger.warning("[MOE DIAG] failed: %s", _e)
         # [MOE ISO]: isolation thread-sweep, run ONCE PER DISTINCT token-count M (so one job covers
@@ -2908,16 +2944,21 @@ def _install_fp4_expert_cpu_dequant() -> None:
 
                 import torch as _tt
 
+                # Call the SAME kernel the live path uses (MXFP4 raw call, else _orig_apply).
+                if getattr(layer, "_mxfp4_moe", False):
+                    _iso_call = lambda: _mxfp4_apply_raw(layer, dispatch_output, with_parity=False)
+                else:
+                    _iso_call = lambda: _orig_apply(self, layer, dispatch_output)
                 _orig_nt = _tt.get_num_threads()
                 _cands = sorted({c for c in (4, 8, 16, 32, 58) if 1 <= c <= max(_orig_nt, 58)})
                 for _nth in _cands:
                     if _nth < 1:
                         continue
                     _tt.set_num_threads(_nth)
-                    _r = _orig_apply(self, layer, dispatch_output)  # warm
+                    _iso_call()  # warm
                     _t0 = _t.perf_counter()
                     for _ in range(3):
-                        _r = _orig_apply(self, layer, dispatch_output)
+                        _iso_call()
                     logger.warning(
                         "[MOE ISO] M=%d threads=%d apply=%.2fms", _iso_m, _nth,
                         (_t.perf_counter() - _t0) / 3 * 1e3
@@ -2935,49 +2976,8 @@ def _install_fp4_expert_cpu_dequant() -> None:
             return StandardCombineInput(hidden_states=out)
         if getattr(layer, "_mxfp4_moe", False):
             # Native MXFP4 W4A16 CPU AMX kernel (mirrors sglang Mxfp4MoEMethod CPU apply).
-            import torch as _tt
-
-            from sglang.srt.layers.amx_utils import CPUQuantMethod
             from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
-            from sglang.srt.layers.moe.topk import apply_topk_weights_cpu
-
-            x = dispatch_output.hidden_states
-            topk_weights, topk_ids, _ = dispatch_output.topk_output
-            rc = layer.moe_runner_config
-            _ref = getattr(layer, "_mxfp4_ref", None)
-            _x0 = x if _ref is None else x.detach().clone()
-            _tw0 = None if _ref is None else topk_weights.detach().clone()
-            _ti0 = None if _ref is None else topk_ids.detach().clone()
-            x, topk_weights = apply_topk_weights_cpu(
-                rc.apply_router_weight_on_input, topk_weights, x
-            )
-            try:
-                from . import _dsa_ckernels as _ckmoe
-                _ckmoe.mark("moe", "c_kernel")
-            except Exception:  # noqa: BLE001
-                pass
-            out = _tt.ops.sgl_kernel.fused_experts_cpu(
-                x,
-                layer.w13_weight,
-                layer.w2_weight,
-                topk_weights,
-                topk_ids,
-                False,
-                CPUQuantMethod.MXFP4,
-                layer.w13_weight_scale,
-                layer.w2_weight_scale,
-                None,
-                None,
-                None,
-                getattr(layer, "w13_weight_bias", None),
-                getattr(layer, "w2_weight_bias", None),
-                getattr(rc, "gemm1_alpha", None),
-                getattr(rc, "gemm1_clamp_limit", None),
-                True,
-                rc.activation,
-            )
-            if _ref is not None:
-                _mxfp4_insitu_parity(layer, _x0, _tw0, _ti0, out, rc)
+            out = _mxfp4_apply_raw(layer, dispatch_output, with_parity=True)
             return StandardCombineInput(hidden_states=out)
         # runtime-config fix: cap threads around the native MoE apply (fused_experts scales
         # inversely with threads on this shape); explicit N or self-tuned via =auto.
