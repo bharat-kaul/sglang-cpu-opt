@@ -1,0 +1,82 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS=8 INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ INTEL_CPU_DSV4_DECODE_THREADS=8
++ INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ export INTEL_CPU_DSV4_TIMEIT=1 INTEL_CPU_DSV4_TIMEIT_PHASE=1
++ INTEL_CPU_DSV4_TIMEIT=1
++ INTEL_CPU_DSV4_TIMEIT_PHASE=1
++ set +x
+############ ATTRIBUTION ARM: cold (OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0) ############
+[2026-10-28 23:05:20 TP0] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[2026-10-28 23:11:44 TP0] [DECODE THREADCAP] M=32 threads 58 -> 8 (sticky)
+Decode.  median latency: 3.26032 s, median throughput:      9.81 token/s
+Decode.  median latency: 3.24915 s, median throughput:      9.85 token/s
+[cold] decode wall(layer.total)=71.024s  Σtimed=51.171s  inter-op residual=19.852s (28% of wall)
+  [cold] kernel      31.343s  44.1%
+  [cold] torch       18.699s  26.3%
+  [cold] framework    1.129s   1.6%
+  [cold] leaf moe.expert_apply       kernel     26.572s
+  [cold] leaf dsa.indexer            torch       5.355s
+  [cold] leaf mhc.hc_post            torch       4.986s
+  [cold] leaf mhc.hc_pre             torch       4.791s
+  [cold] leaf dense.fp8_linear       kernel      2.638s
+  [cold] leaf dsa.compressor         torch       2.095s
+  [cold] leaf mla.b.pv               kernel      1.931s
+  [cold] leaf mhc.combine            torch       1.344s
+############ ATTRIBUTION ARM: warm (OMP_WAIT_POLICY=active KMP_BLOCKTIME=infinite) ############
+[2026-10-28 23:13:40 TP0] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[2026-10-28 23:20:26 TP0] [DECODE THREADCAP] M=32 threads 58 -> 8 (sticky)
+Decode.  median latency: 1.47021 s, median throughput:     21.77 token/s
+Decode.  median latency: 1.46893 s, median throughput:     21.78 token/s
+[warm] decode wall(layer.total)=31.968s  Σtimed=28.044s  inter-op residual=3.924s (12% of wall)
+  [warm] kernel      24.889s  77.9%
+  [warm] torch        2.722s   8.5%
+  [warm] framework    0.433s   1.4%
+  [warm] leaf moe.expert_apply       kernel     22.931s
+  [warm] leaf dense.fp8_linear       kernel      1.467s
+  [warm] leaf dsa.compressor         torch       1.016s
+  [warm] leaf dsa.indexer            torch       0.615s
+  [warm] leaf mhc.hc_pre             torch       0.553s
+  [warm] leaf mla.b.pv               kernel      0.471s
+  [warm] leaf mla.b.mask             framework   0.340s
+  [warm] leaf mhc.hc_post            torch       0.332s
+[done] warm-vs-cold attribution job=394565
