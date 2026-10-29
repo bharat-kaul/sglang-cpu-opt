@@ -29,7 +29,7 @@ export TORCH_EXTENSIONS_DIR=/scratch/$USER/torch_ext_dsv4_stable
 export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
 export INTEL_CPU_DSV4_DECODE_THREADS=$DTHR INTEL_CPU_DSV4_DECODE_THREADS_STICKY=$STICKY
 export INTEL_CPU_DSV4_MOE_OCC=1 INTEL_CPU_DSV4_MOE_OCC_FILE=$WT/plugin/validate/results/moec_occ_${SLURM_JOB_ID}.json
-if [ "$WARM" = "1" ]; then export OMP_WAIT_POLICY=active KMP_BLOCKTIME=infinite GOMP_SPINCOUNT=infinite; TAG=warm; else export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 GOMP_SPINCOUNT=0; TAG=cold; fi
+if [ "$WARM" = "1" ]; then export OMP_WAIT_POLICY=active KMP_BLOCKTIME=infinite GOMP_SPINCOUNT=${SPIN:-infinite}; TAG=warm${SPIN:+_sc$SPIN}; else export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0 GOMP_SPINCOUNT=0; TAG=cold; fi
 export CLEAN_CORES="${TAG}/DTHR${DTHR}/sticky${STICKY}"
 set +x
 RES=$WT/plugin/validate/results/moec_${TAG}_T${DTHR}_s${STICKY}_${SLURM_JOB_ID}.json
