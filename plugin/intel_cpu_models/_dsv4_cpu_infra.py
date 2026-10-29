@@ -2899,6 +2899,42 @@ def _install_fp4_expert_cpu_dequant() -> None:
         return out
 
     def _patched_apply(self, layer, dispatch_output):
+        # MoE occupancy + branch probe (review §3/§6): record, per token-count M, the EXECUTED path
+        # (use_brgemm = avg_M>4, avg_M=M*topk//E -> source-verified gate in moe.cpp) and the real per-expert
+        # row-count distribution across ALL layers/steps. Confirms the vector-vs-BRGEMM branch + occupancy.
+        if _os.environ.get("INTEL_CPU_DSV4_MOE_OCC", "0") == "1":
+            try:
+                import json as _json
+
+                import torch as _t
+
+                x = dispatch_output.hidden_states
+                _tw, ti, _ = dispatch_output.topk_output
+                M = int(x.shape[0]); topk = int(ti.shape[1])
+                w13 = getattr(layer, "w13_weight", None)
+                E = int(w13.shape[0]) if w13 is not None else 256
+                avg_M = max(1, (M * topk) // E)
+                use_brgemm = avg_M > 4
+                _uniq, _cnts = _t.unique(ti.reshape(-1), return_counts=True)
+                occ = _MOE_DIAG.setdefault("occ", {})
+                k = str(M)
+                e = occ.setdefault(k, {"M": M, "topk": topk, "E": E, "avg_M": avg_M,
+                                       "use_brgemm": use_brgemm, "calls": 0, "active_sum": 0,
+                                       "rows_min": 1 << 30, "rows_max": 0, "rows_sum": 0, "rows_n": 0,
+                                       "hist": {"1": 0, "2": 0, "3-4": 0, "5-8": 0, "9+": 0}})
+                e["calls"] += 1
+                e["active_sum"] += int(_uniq.numel())
+                for c in _cnts.tolist():
+                    e["rows_min"] = min(e["rows_min"], c); e["rows_max"] = max(e["rows_max"], c)
+                    e["rows_sum"] += c; e["rows_n"] += 1
+                    b = "1" if c == 1 else "2" if c == 2 else "3-4" if c <= 4 else "5-8" if c <= 8 else "9+"
+                    e["hist"][b] += 1
+                _f = _os.environ.get("INTEL_CPU_DSV4_MOE_OCC_FILE")
+                if _f and e["calls"] % 43 == 0:  # ~once per decode step (43 layers); cheap
+                    with open(_f, "w") as _w:
+                        _json.dump(occ, _w, indent=2)
+            except Exception as _e:  # noqa: BLE001
+                logger.warning("[MOE OCC] failed: %r", _e)
         if _TIMEIT_ON:
             try:
                 import torch as _t
