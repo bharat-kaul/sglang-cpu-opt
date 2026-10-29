@@ -1,0 +1,142 @@
+{
+  "8": {
+    "M": 8,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 6945,
+    "rows_min": 1,
+    "rows_max": 8,
+    "rows_sum": 10320,
+    "rows_n": 6945,
+    "hist": {
+      "1": 5160,
+      "2": 974,
+      "3-4": 594,
+      "5-8": 217,
+      "9+": 0
+    }
+  },
+  "1": {
+    "M": 1,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 1204,
+    "active_sum": 7224,
+    "rows_min": 1,
+    "rows_max": 1,
+    "rows_sum": 7224,
+    "rows_n": 7224,
+    "hist": {
+      "1": 7224,
+      "2": 0,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "16": {
+    "M": 16,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 11302,
+    "rows_min": 1,
+    "rows_max": 14,
+    "rows_sum": 20640,
+    "rows_n": 11302,
+    "hist": {
+      "1": 6931,
+      "2": 2546,
+      "3-4": 1178,
+      "5-8": 475,
+      "9+": 172
+    }
+  },
+  "2": {
+    "M": 2,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 688,
+    "active_sum": 7031,
+    "rows_min": 1,
+    "rows_max": 2,
+    "rows_sum": 8256,
+    "rows_n": 7031,
+    "hist": {
+      "1": 5806,
+      "2": 1225,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "32": {
+    "M": 32,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 17422,
+    "rows_min": 1,
+    "rows_max": 28,
+    "rows_sum": 41280,
+    "rows_n": 17422,
+    "hist": {
+      "1": 9149,
+      "2": 3647,
+      "3-4": 2963,
+      "5-8": 1058,
+      "9+": 605
+    }
+  },
+  "4": {
+    "M": 4,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 387,
+    "active_sum": 7754,
+    "rows_min": 1,
+    "rows_max": 4,
+    "rows_sum": 9288,
+    "rows_n": 7754,
+    "hist": {
+      "1": 6676,
+      "2": 698,
+      "3-4": 380,
+      "5-8": 0,
+      "9+": 0
+    }
+  },
+  "3": {
+    "M": 3,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 301,
+    "active_sum": 4632,
+    "rows_min": 1,
+    "rows_max": 3,
+    "rows_sum": 5418,
+    "rows_n": 4632,
+    "hist": {
+      "1": 3952,
+      "2": 574,
+      "3-4": 106,
+      "5-8": 0,
+      "9+": 0
+    }
+  }
+}
