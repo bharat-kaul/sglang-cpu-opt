@@ -1273,6 +1273,7 @@ def _install_decode_thread_cap() -> None:
     _orig_fwd = cls.forward
     fixed = int(spec) if spec.isdigit() else None
     headroom = int(_os.environ.get("INTEL_CPU_DSV4_DECODE_HEADROOM", "2"))
+    _sticky = _os.environ.get("INTEL_CPU_DSV4_DECODE_THREADS_STICKY", "0") == "1"
     adaptive = None
     if is_adaptive:
         try:
@@ -1338,7 +1339,8 @@ def _install_decode_thread_cap() -> None:
         cap = min(max(1, want), prev)
         if st.get("last_cap") != cap or st.get("last_M") != M:
             st["last_cap"], st["last_M"] = cap, M
-            logger.warning("[DECODE THREADCAP] M=%d threads %d -> %d", M, prev, cap)
+            logger.warning("[DECODE THREADCAP] M=%d threads %d -> %d%s", M, prev, cap,
+                           " (sticky)" if _sticky else "")
         _tt.set_num_threads(cap)
         try:
             _prof_out = _os.environ.get("INTEL_CPU_DSV4_PROFILE_OUT")
@@ -1364,7 +1366,10 @@ def _install_decode_thread_cap() -> None:
                 return _r
             return _orig_fwd(self, input_ids, positions, forward_batch, *a, **k)
         finally:
-            _tt.set_num_threads(prev)
+            # STICKY (measurement): leave threads at `cap` so there is NO per-forward 58->T->58 resize
+            # churn (a confound in the resident sweep). Default stays restore-prev (prefill gets full cores).
+            if not _sticky:
+                _tt.set_num_threads(prev)
 
     cls.forward = _fwd
     cls._decode_thread_capped = True
