@@ -36,7 +36,7 @@ RES=$WT/plugin/validate/results/moec_${TAG}_T${DTHR}_s${STICKY}_${SLURM_JOB_ID}.
 numactl --physcpubind=0-57 --membind=0 \
   python -u $WT/plugin/validate/validate_decode_threads_clean.py \
     --model "$CKPT" --config "$CKPT/config.json" \
-    --batches 1,2,4,8,16,32,64 --input-len 8 --output-len 8 --reps 3 --mem-fraction 0.80 --out "$RES" 2>&1 \
+    --batches ${BATCHES:-1,2,4,8,16,32,64} --input-len 8 --output-len ${OUTLEN:-8} --reps ${REPS:-3} --mem-fraction 0.80 --out "$RES" 2>&1 \
   | grep -iE "\[CLEAN\]|\[DECODE THREADCAP\]|decode_step|Error|Traceback|OOM" | tail -40
 echo "############ RESULT ($CLEAN_CORES) ############"; cat "$RES" 2>/dev/null
 echo "############ OCC ############"; cat $WT/plugin/validate/results/moec_occ_${SLURM_JOB_ID}.json 2>/dev/null
