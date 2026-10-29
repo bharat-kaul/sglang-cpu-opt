@@ -1,0 +1,61 @@
+{
+  "rows": [
+    {
+      "threads": 2,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.64,
+      "decode_step_ms": 608.4
+    },
+    {
+      "threads": 4,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.2,
+      "decode_step_ms": 830.9
+    },
+    {
+      "threads": 6,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.08,
+      "decode_step_ms": 922.5
+    },
+    {
+      "threads": 8,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.04,
+      "decode_step_ms": 965.7
+    },
+    {
+      "threads": 2,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 7.57,
+      "decode_step_ms": 4229.9
+    },
+    {
+      "threads": 4,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 5.24,
+      "decode_step_ms": 6103.8
+    },
+    {
+      "threads": 6,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 4.71,
+      "decode_step_ms": 6787.8
+    },
+    {
+      "threads": 8,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 4.37,
+      "decode_step_ms": 7317.6
+    }
+  ],
+  "node": "pcl-sprh05"
+}

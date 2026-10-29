@@ -1,0 +1,159 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ CTL=/scratch/bkaul/dsv4_decthr_sub8_ctl_394491.txt
++ echo 58
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS_FILE=/scratch/bkaul/dsv4_decthr_sub8_ctl_394491.txt
++ INTEL_CPU_DSV4_DECODE_THREADS_FILE=/scratch/bkaul/dsv4_decthr_sub8_ctl_394491.txt
++ export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0
++ OMP_WAIT_POLICY=passive
++ KMP_BLOCKTIME=0
++ set +x
+[2026-10-28 21:14:51] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[sweep] launch torch.get_num_threads()=58
+[2026-10-28 21:20:48] [DECODE THREADCAP] M=1 threads 58 -> 8
+[2026-10-28 21:20:53] [DECODE THREADCAP] M=1 threads 58 -> 2
+[sweep] B=1   T=2   decode=   1.64 tok/s  step=  608.4 ms
+[2026-10-28 21:21:37] [DECODE THREADCAP] M=1 threads 58 -> 4
+[sweep] B=1   T=4   decode=   1.20 tok/s  step=  830.9 ms
+[2026-10-28 21:22:23] [DECODE THREADCAP] M=1 threads 58 -> 6
+[sweep] B=1   T=6   decode=   1.08 tok/s  step=  922.5 ms
+[2026-10-28 21:23:14] [DECODE THREADCAP] M=1 threads 58 -> 8
+[sweep] B=1   T=8   decode=   1.04 tok/s  step=  965.7 ms
+[2026-10-28 21:24:34] [DECODE THREADCAP] M=31 threads 58 -> 2
+[2026-10-28 21:25:41] [DECODE THREADCAP] M=32 threads 58 -> 2
+[2026-10-28 21:25:46] [DECODE THREADCAP] M=31 threads 58 -> 2
+[2026-10-28 21:26:01] [DECODE THREADCAP] M=30 threads 58 -> 2
+[2026-10-28 21:26:37] [DECODE THREADCAP] M=32 threads 58 -> 2
+[2026-10-28 21:27:44] [DECODE THREADCAP] M=30 threads 58 -> 2
+[2026-10-28 21:28:30] [DECODE THREADCAP] M=32 threads 58 -> 2
+[sweep] B=32  T=2   decode=   7.57 tok/s  step= 4229.9 ms
+[2026-10-28 21:29:27] [DECODE THREADCAP] M=31 threads 58 -> 4
+[2026-10-28 21:30:44] [DECODE THREADCAP] M=29 threads 58 -> 4
+[2026-10-28 21:31:44] [DECODE THREADCAP] M=31 threads 58 -> 4
+[2026-10-28 21:31:51] [DECODE THREADCAP] M=28 threads 58 -> 4
+[2026-10-28 21:31:57] [DECODE THREADCAP] M=27 threads 58 -> 4
+[2026-10-28 21:32:49] [DECODE THREADCAP] M=32 threads 58 -> 4
+[sweep] B=32  T=4   decode=   5.24 tok/s  step= 6103.8 ms
+[2026-10-28 21:35:07] [DECODE THREADCAP] M=32 threads 58 -> 6
+[2026-10-28 21:36:17] [DECODE THREADCAP] M=30 threads 58 -> 6
+[2026-10-28 21:36:33] [DECODE THREADCAP] M=29 threads 58 -> 6
+[2026-10-28 21:36:41] [DECODE THREADCAP] M=27 threads 58 -> 6
+[2026-10-28 21:37:27] [DECODE THREADCAP] M=32 threads 58 -> 6
+[2026-10-28 21:37:35] [DECODE THREADCAP] M=30 threads 58 -> 6
+[2026-10-28 21:37:43] [DECODE THREADCAP] M=29 threads 58 -> 6
+[2026-10-28 21:38:38] [DECODE THREADCAP] M=32 threads 58 -> 6
+[2026-10-28 21:38:47] [DECODE THREADCAP] M=31 threads 58 -> 6
+[2026-10-28 21:38:55] [DECODE THREADCAP] M=30 threads 58 -> 6
+[2026-10-28 21:39:51] [DECODE THREADCAP] M=32 threads 58 -> 6
+[2026-10-28 21:40:00] [DECODE THREADCAP] M=31 threads 58 -> 6
+[sweep] B=32  T=6   decode=   4.71 tok/s  step= 6787.8 ms
+[2026-10-28 21:41:04] [DECODE THREADCAP] M=32 threads 58 -> 8
+[2026-10-28 21:42:15] [DECODE THREADCAP] M=31 threads 58 -> 8
+[2026-10-28 21:42:24] [DECODE THREADCAP] M=29 threads 58 -> 8
+[2026-10-28 21:43:30] [DECODE THREADCAP] M=30 threads 58 -> 8
+[2026-10-28 21:43:56] [DECODE THREADCAP] M=29 threads 58 -> 8
+[2026-10-28 21:44:44] [DECODE THREADCAP] M=32 threads 58 -> 8
+[2026-10-28 21:46:18] [DECODE THREADCAP] M=30 threads 58 -> 8
+[sweep] B=32  T=8   decode=   4.37 tok/s  step= 7317.6 ms
+[OPT] B=1: best decode = 1.64 tok/s @ 2 threads (single socket, physical only)
+[OPT] B=32: best decode = 7.57 tok/s @ 2 threads (single socket, physical only)
+############ RESULT ############
+{
+  "rows": [
+    {
+      "threads": 2,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.64,
+      "decode_step_ms": 608.4
+    },
+    {
+      "threads": 4,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.2,
+      "decode_step_ms": 830.9
+    },
+    {
+      "threads": 6,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.08,
+      "decode_step_ms": 922.5
+    },
+    {
+      "threads": 8,
+      "batch": 1,
+      "prefill_tok_s": 1.7,
+      "decode_tok_s": 1.04,
+      "decode_step_ms": 965.7
+    },
+    {
+      "threads": 2,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 7.57,
+      "decode_step_ms": 4229.9
+    },
+    {
+      "threads": 4,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 5.24,
+      "decode_step_ms": 6103.8
+    },
+    {
+      "threads": 6,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 4.71,
+      "decode_step_ms": 6787.8
+    },
+    {
+      "threads": 8,
+      "batch": 32,
+      "prefill_tok_s": 8.2,
+      "decode_tok_s": 4.37,
+      "decode_step_ms": 7317.6
+    }
+  ],
+  "node": "pcl-sprh05"
+}[done] resident decode thread sweep job=394491
