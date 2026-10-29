@@ -1,0 +1,41 @@
+{
+  "cores": "warm_sc1000000/DTHR32/sticky1",
+  "decode_threads_env": "32",
+  "sticky": "1",
+  "torch_threads_launch": 58,
+  "input_len": 8,
+  "output_len": 8,
+  "reps": 3,
+  "by_batch": {
+    "1": {
+      "decode_step_ms": 189.23,
+      "decode_tok_s": 5.285,
+      "tpref_s": 0.389,
+      "samples_s": [
+        1.7235,
+        1.7139,
+        1.7068
+      ]
+    },
+    "8": {
+      "decode_step_ms": 410.41,
+      "decode_tok_s": 19.493,
+      "tpref_s": 1.174,
+      "samples_s": [
+        4.3042,
+        4.0472,
+        3.91
+      ]
+    },
+    "32": {
+      "decode_step_ms": 769.88,
+      "decode_tok_s": 41.565,
+      "tpref_s": 1.955,
+      "samples_s": [
+        7.3501,
+        7.3313,
+        7.3441
+      ]
+    }
+  }
+}
