@@ -53,18 +53,24 @@ already hits 235 GB/s and these did not raise it (HW prefetcher saturates). The 
 - NOT levers (ruled out): prefetch/interleave (gate-refuted), force BRGEMM/AMX tiles (underfilled at ~2 rows),
   more threads (plateaus past 32), the monolith (unrelated).
 
-## 4. Feasibility-gate preconditions (MUST pass before authoring — per `kernel-feasibility-gate`)
+## 4. Feasibility-gate verdict (jobs 394934/394935) — HEADROOM CONFIRMED; achievable ~1.6× apply
 
-1. **Counterfactual ROI bound (already estimated, confirm):** the MAX recoverable is B=32 reaching B=64's
-   efficiency (~160 GB/s): apply 7.05 → ~4.4 ms = **~1.6× on the apply = ~1.4× on decode@B=32** (MoE = 72% of the
-   warm step). Confirm with a counterfactual (e.g. a prefetch-only prototype) that the bound is reachable before
-   committing to the full change.
-2. **Microbench the closest path:** isolate `fused_experts_cpu` at the B=32 shape with real packed weights +
-   perf counters (LLC-miss, mem-stall, BW); confirm the bottleneck is memory-level-parallelism / BW-saturation
-   (not compute, not the `copy_stub` gather). If the counters say compute/gather, re-aim.
-3. **Amdahl check at the TARGET operating point(s):** B=32 is ONE point. Confirm B=32 (and nearby mid-batch) is a
-   priority operating point for the KPI before spending on a shape-specific win; B=1 and B=64 are already near
-   their ceilings and would not benefit.
+**Established (valid evidence):**
+- Pure AVX-512 stream of B=32's exact 56-expert bytes = **235–261 GB/s** (T32/T48). The kernel reaches **100–104**.
+  → memory/access-pattern is NOT the limit; **~2.3× to the stream ceiling exists**.
+- Prefetch + multi-expert interleave do NOT raise the pure stream (HW prefetcher saturates) → those levers OUT.
+- **The SAME kernel already achieves 160 GB/s at B=64** (203 experts) vs 100 at B=32 (56 experts) → the realistic
+  bankable target for B=32 is ~B=64's efficiency (**~160 GB/s = ~1.6× on the apply = ~1.4× on decode@B=32**); the
+  full 235 is unlikely (the per-expert dequant/GEMV compute won't fully hide).
+**Discarded (invalid evidence, self-audit):** the scalar fp4-dequant probe measured 30–35 GB/s — SLOWER than the
+kernel's 100, so it is a naive-scalar artifact, not a dequant ceiling. It cannot bound anything; discarded (same
+as the earlier gather/reduction floor probes). Pinning the exact mechanism (dequant-compute vs pipeline vs
+low-expert-count amortization) needs perf-counters on the REAL kernel or a properly AVX-512-vectorized dequant
+microbench — a step to take at authoring time, not a blocker for the go/no-go.
+**Verdict:** headroom is REAL and bounded (~1.6× apply / ~1.4× decode at B=32, converging B=32 toward the kernel's
+own B=64 efficiency). The lever is the kernel's compute/pipeline at low active-expert counts, not memory/prefetch/
+threads. **Banking it REQUIRES upstream work: rebuild + modify the installed `sglang .../cpu/moe.cpp`** (the fused
+MXFP4 experts path), not the plugin. That is a real kernel-authoring + native-build effort.
 
 ## 5. Cost / risk
 
