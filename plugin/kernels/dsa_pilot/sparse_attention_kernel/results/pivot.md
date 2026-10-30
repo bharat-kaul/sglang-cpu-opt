@@ -4,13 +4,13 @@
 
 ## decode
 
-| op | bucket | time (s) | % of phase |
+| op | bucket | time (us) | % of phase |
 |----|--------|----------|------------|
-| gather / packing / initialization | kernel | 0.000 | 67.1 |
-| AMX QK | kernel | 0.000 | 8.6 |
-| AMX PV | kernel | 0.000 | 7.7 |
-| softmax / rescale / output | kernel | 0.000 | 7.4 |
-| other / unattributed | other | 0.000 | 9.1 |
+| gather / packing / initialization | kernel | 199.626 | 67.1 |
+| AMX QK | kernel | 25.622 | 8.6 |
+| AMX PV | kernel | 22.960 | 7.7 |
+| softmax / rescale / output | kernel | 22.159 | 7.4 |
+| other / unattributed | other | 27.119 | 9.1 |
 
 ![time attribution](./pivot.png)
 

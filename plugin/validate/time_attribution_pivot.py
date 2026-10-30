@@ -6,6 +6,8 @@ Companion to roofline_vs_measured.py: that shows "how efficient is each kernel v
 100%-stacked horizontal bar PER PHASE (prefill, decode) + a markdown table, coloured by bucket
 (kernel / torch / framework / other). An explicit OTHER/unattributed slice (phase wall − sum of
 wrapped ops) keeps it honest at 100% — never normalise only the measured ops.
+Input durations remain seconds. Markdown tables choose s/ms/us/ns per phase
+from the smallest positive row so short kernel timings remain visible.
 
 Input JSON:
 {
@@ -48,11 +50,20 @@ def build_markdown(d: dict) -> str:
         if phase not in d.get("phases", {}):
             continue
         rows, tot = _rows(d["phases"][phase])
+        smallest = min((s for _, s, _ in rows if s > 0), default=1.0)
+        time_unit, scale = "ns", 1e9
+        for candidate, factor in (("s", 1.0), ("ms", 1e3), ("us", 1e6), ("ns", 1e9)):
+            if smallest * factor >= 1:
+                time_unit, scale = candidate, factor
+                break
         out += [f"## {phase}", "",
-                "| op | bucket | time (s) | % of phase |",
+                f"| op | bucket | time ({time_unit}) | % of phase |",
                 "|----|--------|----------|------------|"]
         for op, s, b in rows:
-            out.append(f"| {op} | {b} | {s:.3f} | {100*s/tot:.1f} |")
+            duration = f"{s * scale:.3f}"
+            if s > 0 and duration == "0.000":
+                duration = f"{s * scale:.3g}"
+            out.append(f"| {op} | {b} | {duration} | {100*s/tot:.1f} |")
         out.append("")
     out += [f"![time attribution](./{d.get('_img_name','time_attribution.png')})", "",
             "> Each bar is one phase, segments = share of that phase's wall-time (sum = 100%). "

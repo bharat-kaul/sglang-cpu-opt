@@ -62,8 +62,9 @@ The reports concern **this standalone operator**, not whole-model throughput.
 The attribution uses the slowest worker's phase times from one actual median-wall
 streaming profile; synchronization, imbalance and instrumentation remain explicitly
 unattributed. In that profile, gather/packing/init costs 199.63 us of 297.49 us.
-The generic pivot renderer rounds seconds to three decimals; raw microsecond
-values are in [native-3.json](results/native-3.json).
+The pivot table displays these durations in microseconds (`us`); the generator
+selects a unit per phase without changing the raw seconds or percentage calculations.
+Raw microsecond values are in [native-3.json](results/native-3.json).
 
 ## Numerical contract
 
