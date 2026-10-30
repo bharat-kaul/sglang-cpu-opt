@@ -1,0 +1,33 @@
+{
+  "baseline_commit": "7305559f0eb6ac9c2be127b8efb2e5bff34712ca",
+  "flags": [
+    "-O3",
+    "-fopenmp",
+    "-march=sapphirerapids",
+    "-mprefer-vector-width=512",
+    "-DCPU_CAPABILITY_AVX512"
+  ],
+  "core_flags": [
+    "-O3",
+    "-fopenmp",
+    "-march=sapphirerapids",
+    "-mprefer-vector-width=512",
+    "-std=c++17",
+    "-fno-math-errno",
+    "-ffp-contract=off"
+  ],
+  "torch": "2.14.1+cpu",
+  "compiler": "g++ (GCC) 14.3.1 20251022 (Red Hat 14.3.1-4)",
+  "sources": {
+    "sparse_attn.cpp": "013ac2b16a665ec2eb510bf71ba14864dd8cef2e225ccfc85aabb854dcbe0b39",
+    "sparse_attn.h": "22349a94e5ffc8e0fec21016b238725e4cd26da49c47122b94678f7a57c6ee13",
+    "matched_allocations.cpp": "fc7140af38520a8a9148200ab6bdbb496cd77ced9c7aa94dc764b0faffe59909",
+    "bench_matched_allocations.py": "5b7de8cd72f94d037114d322c011f999c3c0c44254810a6ebe8065f4671fd436",
+    "bench.py": "c8e073c3374f244e8392db3e40544ca88c5f84aaf785631b5da741708484801c",
+    "run_matched_allocations.sh": "198517958b16c1dae0f63e8424e0e831d679931b14d760c75cc09b16ed75f8e4"
+  },
+  "donor_sha256": "d4da7084e97cb86d4de5ebe8413214b1fafb341969d5021ff1d8f3c489d3d812",
+  "donor_header_sha256": "90ec9675de96aab6b187ff973ad895d2d9f6a6032d257954b8c29af904fad936",
+  "binary_sha256": "f9adbfb81f0fad8873b5bd09869cb4f56dd3fd6768e002bd05f0f564bb4a081d",
+  "core_binary_sha256": "d50bdb37337adc3d60052b674a8aeb26208eea9489a81f871b0c4dd2ad8e8955"
+}

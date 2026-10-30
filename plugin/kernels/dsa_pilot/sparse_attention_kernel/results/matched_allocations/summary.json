@@ -1,0 +1,302 @@
+{
+  "node": "pcl-sprh02.sc.intel.com",
+  "job": "394982",
+  "shape": {
+    "B": 32,
+    "M": 1,
+    "H": 64,
+    "D": 512,
+    "source_S": 1024,
+    "selected_K": 512
+  },
+  "build": {
+    "baseline_commit": "7305559f0eb6ac9c2be127b8efb2e5bff34712ca",
+    "flags": [
+      "-O3",
+      "-fopenmp",
+      "-march=sapphirerapids",
+      "-mprefer-vector-width=512",
+      "-DCPU_CAPABILITY_AVX512"
+    ],
+    "core_flags": [
+      "-O3",
+      "-fopenmp",
+      "-march=sapphirerapids",
+      "-mprefer-vector-width=512",
+      "-std=c++17",
+      "-fno-math-errno",
+      "-ffp-contract=off"
+    ],
+    "torch": "2.14.1+cpu",
+    "compiler": "g++ (GCC) 14.3.1 20251022 (Red Hat 14.3.1-4)",
+    "sources": {
+      "sparse_attn.cpp": "013ac2b16a665ec2eb510bf71ba14864dd8cef2e225ccfc85aabb854dcbe0b39",
+      "sparse_attn.h": "22349a94e5ffc8e0fec21016b238725e4cd26da49c47122b94678f7a57c6ee13",
+      "matched_allocations.cpp": "fc7140af38520a8a9148200ab6bdbb496cd77ced9c7aa94dc764b0faffe59909",
+      "bench_matched_allocations.py": "5b7de8cd72f94d037114d322c011f999c3c0c44254810a6ebe8065f4671fd436",
+      "bench.py": "c8e073c3374f244e8392db3e40544ca88c5f84aaf785631b5da741708484801c",
+      "run_matched_allocations.sh": "198517958b16c1dae0f63e8424e0e831d679931b14d760c75cc09b16ed75f8e4"
+    },
+    "donor_sha256": "d4da7084e97cb86d4de5ebe8413214b1fafb341969d5021ff1d8f3c489d3d812",
+    "donor_header_sha256": "90ec9675de96aab6b187ff973ad895d2d9f6a6032d257954b8c29af904fad936",
+    "binary_sha256": "f9adbfb81f0fad8873b5bd09869cb4f56dd3fd6768e002bd05f0f564bb4a081d",
+    "core_binary_sha256": "d50bdb37337adc3d60052b674a8aeb26208eea9489a81f871b0c4dd2ad8e8955"
+  },
+  "contract": {
+    "inputs": "Allocated, gathered, made contiguous, and converted to each native dtype BEFORE timing",
+    "outputs": "Both allocate a fresh tensor through PyTorch INSIDE every timed call; both released before timer stops",
+    "input_normalization": "Both call to(native_dtype).contiguous() inside the function; no copy for prepared inputs",
+    "intermediates": "Natural algorithm workspace remains inside each function; no artificial buffer equalization",
+    "bf16_indices": "Identity indices allocated BEFORE timing for existing C ABI; no source-cache gather timed",
+    "cold": "768 MiB eviction BEFORE EACH call, outside timer",
+    "allocator": "Same warmed PyTorch CPU allocator; allocations may reuse pages"
+  },
+  "processes": [
+    891843,
+    892057,
+    892271
+  ],
+  "accuracy": [
+    {
+      "case": "normal",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 1048556,
+        "bf16_bit_mismatches": 374663,
+        "elements": 1048576,
+        "cosine": 0.9999978614446736,
+        "max_abs": 0.001310110092163086,
+        "relative_l2": 0.0020681204118387438,
+        "relative_linf": 0.0026295225275190658
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 1534,
+        "bf16_bit_mismatches": 1534,
+        "elements": 1048576,
+        "cosine": 0.9999999954670347,
+        "max_abs": 0.001953125,
+        "relative_l2": 9.521519800816642e-05,
+        "relative_linf": 0.00392156862745098
+      }
+    },
+    {
+      "case": "seed7",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 1048561,
+        "bf16_bit_mismatches": 374242,
+        "elements": 1048576,
+        "cosine": 0.9999978661472791,
+        "max_abs": 0.0013124942779541016,
+        "relative_l2": 0.002065847297265243,
+        "relative_linf": 0.0026716693128568444
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 1890,
+        "bf16_bit_mismatches": 1890,
+        "elements": 1048576,
+        "cosine": 0.9999999925282632,
+        "max_abs": 0.001953125,
+        "relative_l2": 0.00012224368176782152,
+        "relative_linf": 0.00398406374501992
+      }
+    },
+    {
+      "case": "sharp",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 1024381,
+        "bf16_bit_mismatches": 55942,
+        "elements": 1048576,
+        "cosine": 0.9999989519321576,
+        "max_abs": 0.058658599853515625,
+        "relative_l2": 0.0014504381988147512,
+        "relative_linf": 0.0028713685879708387
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 618,
+        "bf16_bit_mismatches": 618,
+        "elements": 1048576,
+        "cosine": 0.9999999982425479,
+        "max_abs": 0.0625,
+        "relative_l2": 5.928665412292758e-05,
+        "relative_linf": 0.003067484662576687
+      }
+    },
+    {
+      "case": "tail",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 98302,
+        "bf16_bit_mismatches": 35058,
+        "elements": 98304,
+        "cosine": 0.9999978658249103,
+        "max_abs": 0.0037227869033813477,
+        "relative_l2": 0.002065997601250468,
+        "relative_linf": 0.0032691633489824808
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 8,
+        "bf16_bit_mismatches": 8,
+        "elements": 98304,
+        "cosine": 0.9999999991503882,
+        "max_abs": 0.001953125,
+        "relative_l2": 4.122228391881178e-05,
+        "relative_linf": 0.0017123287671232876
+      }
+    },
+    {
+      "case": "three_groups",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 196607,
+        "bf16_bit_mismatches": 72417,
+        "elements": 196608,
+        "cosine": 0.9999977629230361,
+        "max_abs": 0.0038824081420898438,
+        "relative_l2": 0.0021152576413989844,
+        "relative_linf": 0.003837528597647711
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 70,
+        "bf16_bit_mismatches": 70,
+        "elements": 196608,
+        "cosine": 0.999999999081407,
+        "max_abs": 0.0009765625,
+        "relative_l2": 4.2862492525412196e-05,
+        "relative_linf": 0.0009689922480620155
+      }
+    },
+    {
+      "case": "one_key",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 32768,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 0.9999986572365632,
+        "max_abs": 0.007460117340087891,
+        "relative_l2": 0.0016392817836056832,
+        "relative_linf": 0.002842175080528294
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 0,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "relative_linf": 0.0
+      }
+    }
+  ],
+  "allocation_audit": {
+    "fp32": {
+      "output_bytes": 4194304,
+      "dtype_conversion_copies": 0,
+      "positive_self_allocations": [
+        {
+          "op": "aten::bmm",
+          "bytes": 4194304
+        },
+        {
+          "op": "aten::bmm",
+          "bytes": 4194304
+        }
+      ]
+    },
+    "bf16": {
+      "output_bytes": 2097152,
+      "dtype_conversion_copies": 0,
+      "positive_self_allocations": [
+        {
+          "op": "aten::empty",
+          "bytes": 2097152
+        }
+      ]
+    }
+  },
+  "estimator": "median of three process medians, each over 51 calls",
+  "cold": {
+    "fp32": {
+      "median_us": 710.949,
+      "process_medians_us": [
+        693.743,
+        732.31,
+        710.949
+      ],
+      "range_us": [
+        693.743,
+        732.31
+      ]
+    },
+    "bf16": {
+      "median_us": 330.163,
+      "process_medians_us": [
+        330.163,
+        337.515,
+        307.083
+      ],
+      "range_us": [
+        307.083,
+        337.515
+      ]
+    },
+    "speedup": 2.153327295911413,
+    "per_process_speedups": [
+      2.101213642958175,
+      2.1697109758084827,
+      2.3151688631412353
+    ]
+  },
+  "hot": {
+    "fp32": {
+      "median_us": 349.466,
+      "process_medians_us": [
+        349.466,
+        347.98,
+        364.226
+      ],
+      "range_us": [
+        347.98,
+        364.226
+      ]
+    },
+    "bf16": {
+      "median_us": 133.616,
+      "process_medians_us": [
+        133.616,
+        132.166,
+        138.294
+      ],
+      "range_us": [
+        132.166,
+        138.294
+      ]
+    },
+    "speedup": 2.615450245479583,
+    "per_process_speedups": [
+      2.615450245479583,
+      2.6329010486812043,
+      2.6337078976672883
+    ]
+  }
+}

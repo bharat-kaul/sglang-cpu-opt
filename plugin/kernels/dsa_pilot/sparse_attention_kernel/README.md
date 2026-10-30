@@ -5,7 +5,71 @@ Standalone C ABI / C++ implementation, not enabled in the serving model.
 saturation has NOT been achieved.** The remaining cost is mostly gathered data
 movement / packing, not AMX arithmetic.
 
-## Measured result
+## Latest comparison: matched input/output allocation policy
+
+**Both implementations follow the original FP32 allocation and timing policy.**
+Inputs are allocated, gathered and converted to their native dtype **before**
+timing. Both allocate a fresh output tensor through the **same PyTorch allocator
+inside every timed call**, and release it before the timer stops. Neither gets
+preallocated output buffers. Both perform their native `.to(...).contiguous()`
+normalization inside the function; the prepared inputs require no copies.
+
+The BF16 C++ entry point is `sparse_attn_bf16_matched` in
+[matched_allocations.cpp](matched_allocations.cpp). It wraps the unchanged
+blockwise BF16 core. The FP32 comparator is the **original allocating function,
+unchanged**: no `bmm_out` substitutions and no preallocated score tensor.
+
+2026-10-30, **pcl-sprh02**, Slurm job **394982**, one EMR 8592+ socket,
+**64 physical cores / CPU 0-63 / NUMA memory 0 / no SMT**:
+
+| Paired comparison | Original FP32 | BF16, matched policy | Speedup |
+|---|---:|---:|---:|
+| **Cold cache (headline)** | **710.949 us** | **330.163 us** | **2.15x** |
+| Hot cache | 349.466 us | 133.616 us | 2.62x |
+
+These are medians of three independent process medians, each containing 51 calls.
+Order is randomized within each paired round; cold tests evict 768 MiB before
+each call. BF16 wins in all three processes. This measures the complete
+implementations with matching allocation/timing boundaries, not the isolated
+contribution from precision or AMX.
+
+**Algorithmic workspaces are not artificially equalized.** FP32 allocates its
+full 4 MiB score tensor during the first batched GEMM; BF16 uses worker-local
+packing and online softmax scratch instead. Both allocate output inside the call:
+4 MiB for FP32 and 2 MiB for BF16, following their native dtypes. A memory-profiler
+audit observed those allocations and **zero input dtype-conversion copies** for
+both. A warmed allocator may reuse pages; opaque BLAS workspace is not controlled.
+BF16 receives identity indices prepared outside timing to call its existing C ABI;
+both already receive the selected KV rows, with internal staging/packing still timed.
+
+**Accuracy follows the agreed mixed-precision contract.** The allocating BF16
+wrapper matches the indexed BF16 core bit-for-bit on the tested inputs. Both paths
+produce distinct, fresh, repeatable outputs. Two normal seeds, sharper inputs,
+partial blocks, multi-query/96-head cases, and a single key pass in each process.
+BF16 is not bit-identical to FP32: normal-input relative L2 error **0.207%**,
+cosine **0.9999978614**.
+
+[Detailed comparison, allocation audit and spread](results/matched_allocations/README.md) |
+[Machine-readable results](results/matched_allocations/summary.json)
+
+The earlier deliberately FP32-favored experiment has been superseded and removed
+from this directory. No new bandwidth-saturation or full-model claim is made.
+
+Build on the login node and execute on EMR:
+
+```bash
+PYTHON=/scratch/savancha/emr-roofline-venv-20261008/bin/python
+KERNEL=plugin/kernels/dsa_pilot/sparse_attention_kernel
+BUILD="$HOME/.cache/sparse-attention-matched-build"
+MAX_JOBS=2 "$PYTHON" "$KERNEL/bench_matched_allocations.py" --build "$BUILD" --build-only
+srun -p emr --constraint=ddr5600 -N 1 -n 1 -c 64 \
+  --hint=nomultithread --exclusive -t 00:10:00 \
+  bash "$KERNEL/run_matched_allocations.sh" "$BUILD" \
+  "$PWD/$KERNEL/results/matched_allocations" "$PYTHON"
+python "$KERNEL/report_matched_allocations.py"
+```
+
+## Historical comparison: different allocation boundaries
 
 2026-10-29, Slurm `emr`, constraint `ddr5600`, node `pcl-sprh05`,
 Xeon Platinum 8592+, **one socket, physical CPUs 0-63, memory node 0, no SMT**.
@@ -18,11 +82,12 @@ Medians of three independent process medians:
 | Hot inputs | 371.966 us | 124.188 us | 3.00x |
 | Cold inputs and scratch | 578.224 us | 289.082 us | 2.00x |
 
-The baseline already receives gathered FP32 KV; the AMX timing **includes gather
-and packing** from the BF16 source cache. Thus this comparison favors the baseline.
-Outputs are allocated by the baseline but preallocated for the C ABI. Allocation
-is therefore not identical; the standalone numbers below also exclude allocations.
-No dtype conversion is charged to either pre-gathered comparison.
+These older timings have **mixed advantages**: FP32 skips gathering, but BF16
+skips output allocation. They do not establish an allocation-matched comparison.
+Use the latest comparison above for that conclusion. Input dtype
+conversion is excluded from both historical timings; the standalone numbers
+below also exclude allocation. Historical roofline and attribution charts below
+describe that earlier standalone kernel measurement, not the new allocating API.
 The PyTorch comparison process has 127 OS threads from its runtime pools, all
 restricted to physical CPUs 0-63; these are not SMT siblings. The pure C++ driver
 uses only its 64-thread OpenMP team and avoids those extra framework pools.

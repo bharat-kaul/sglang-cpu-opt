@@ -1,0 +1,1079 @@
+{
+  "node": "pcl-sprh02.sc.intel.com",
+  "job": "394982",
+  "pid": 892271,
+  "replicate": 3,
+  "build": {
+    "baseline_commit": "7305559f0eb6ac9c2be127b8efb2e5bff34712ca",
+    "flags": [
+      "-O3",
+      "-fopenmp",
+      "-march=sapphirerapids",
+      "-mprefer-vector-width=512",
+      "-DCPU_CAPABILITY_AVX512"
+    ],
+    "core_flags": [
+      "-O3",
+      "-fopenmp",
+      "-march=sapphirerapids",
+      "-mprefer-vector-width=512",
+      "-std=c++17",
+      "-fno-math-errno",
+      "-ffp-contract=off"
+    ],
+    "torch": "2.14.1+cpu",
+    "compiler": "g++ (GCC) 14.3.1 20251022 (Red Hat 14.3.1-4)",
+    "sources": {
+      "sparse_attn.cpp": "013ac2b16a665ec2eb510bf71ba14864dd8cef2e225ccfc85aabb854dcbe0b39",
+      "sparse_attn.h": "22349a94e5ffc8e0fec21016b238725e4cd26da49c47122b94678f7a57c6ee13",
+      "matched_allocations.cpp": "fc7140af38520a8a9148200ab6bdbb496cd77ced9c7aa94dc764b0faffe59909",
+      "bench_matched_allocations.py": "5b7de8cd72f94d037114d322c011f999c3c0c44254810a6ebe8065f4671fd436",
+      "bench.py": "c8e073c3374f244e8392db3e40544ca88c5f84aaf785631b5da741708484801c",
+      "run_matched_allocations.sh": "198517958b16c1dae0f63e8424e0e831d679931b14d760c75cc09b16ed75f8e4"
+    },
+    "donor_sha256": "d4da7084e97cb86d4de5ebe8413214b1fafb341969d5021ff1d8f3c489d3d812",
+    "donor_header_sha256": "90ec9675de96aab6b187ff973ad895d2d9f6a6032d257954b8c29af904fad936",
+    "binary_sha256": "f9adbfb81f0fad8873b5bd09869cb4f56dd3fd6768e002bd05f0f564bb4a081d",
+    "core_binary_sha256": "d50bdb37337adc3d60052b674a8aeb26208eea9489a81f871b0c4dd2ad8e8955"
+  },
+  "threads": 64,
+  "shape": {
+    "B": 32,
+    "M": 1,
+    "H": 64,
+    "D": 512,
+    "source_S": 1024,
+    "selected_K": 512
+  },
+  "contract": {
+    "inputs": "Allocated, gathered, made contiguous, and converted to each native dtype BEFORE timing",
+    "outputs": "Both allocate a fresh tensor through PyTorch INSIDE every timed call; both released before timer stops",
+    "input_normalization": "Both call to(native_dtype).contiguous() inside the function; no copy for prepared inputs",
+    "intermediates": "Natural algorithm workspace remains inside each function; no artificial buffer equalization",
+    "bf16_indices": "Identity indices allocated BEFORE timing for existing C ABI; no source-cache gather timed",
+    "cold": "768 MiB eviction BEFORE EACH call, outside timer",
+    "allocator": "Same warmed PyTorch CPU allocator; allocations may reuse pages"
+  },
+  "input_sha256": {
+    "q_bf16": "e7a06074800a0e0461fe33f8f43d90cb30994d1e30d10588d6544bdb751eb69c",
+    "kv_bf16": "56d50552f0ecb4a7edd65ae0d8fcb4503e68849bf2394fd0d31aa340c8a461b0",
+    "sink": "910564d6067be6cfcb5ca5d9d5d6dc8e4233167ea3859ebfab77f8c60a72c120",
+    "identity": "39a5f7b11ab344bd729e79b5002a6117e56bed893409ef23fde1f9488b70cbe1"
+  },
+  "accuracy": [
+    {
+      "case": "normal",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 1048556,
+        "bf16_bit_mismatches": 374663,
+        "elements": 1048576,
+        "cosine": 0.9999978614446736,
+        "max_abs": 0.001310110092163086,
+        "relative_l2": 0.0020681204118387438,
+        "relative_linf": 0.0026295225275190658
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 1534,
+        "bf16_bit_mismatches": 1534,
+        "elements": 1048576,
+        "cosine": 0.9999999954670347,
+        "max_abs": 0.001953125,
+        "relative_l2": 9.521519800816642e-05,
+        "relative_linf": 0.00392156862745098
+      }
+    },
+    {
+      "case": "seed7",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 1048561,
+        "bf16_bit_mismatches": 374242,
+        "elements": 1048576,
+        "cosine": 0.9999978661472791,
+        "max_abs": 0.0013124942779541016,
+        "relative_l2": 0.002065847297265243,
+        "relative_linf": 0.0026716693128568444
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 1890,
+        "bf16_bit_mismatches": 1890,
+        "elements": 1048576,
+        "cosine": 0.9999999925282632,
+        "max_abs": 0.001953125,
+        "relative_l2": 0.00012224368176782152,
+        "relative_linf": 0.00398406374501992
+      }
+    },
+    {
+      "case": "sharp",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 1024381,
+        "bf16_bit_mismatches": 55942,
+        "elements": 1048576,
+        "cosine": 0.9999989519321576,
+        "max_abs": 0.058658599853515625,
+        "relative_l2": 0.0014504381988147512,
+        "relative_linf": 0.0028713685879708387
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 618,
+        "bf16_bit_mismatches": 618,
+        "elements": 1048576,
+        "cosine": 0.9999999982425479,
+        "max_abs": 0.0625,
+        "relative_l2": 5.928665412292758e-05,
+        "relative_linf": 0.003067484662576687
+      }
+    },
+    {
+      "case": "tail",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 98302,
+        "bf16_bit_mismatches": 35058,
+        "elements": 98304,
+        "cosine": 0.9999978658249103,
+        "max_abs": 0.0037227869033813477,
+        "relative_l2": 0.002065997601250468,
+        "relative_linf": 0.0032691633489824808
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 8,
+        "bf16_bit_mismatches": 8,
+        "elements": 98304,
+        "cosine": 0.9999999991503882,
+        "max_abs": 0.001953125,
+        "relative_l2": 4.122228391881178e-05,
+        "relative_linf": 0.0017123287671232876
+      }
+    },
+    {
+      "case": "three_groups",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 196607,
+        "bf16_bit_mismatches": 72417,
+        "elements": 196608,
+        "cosine": 0.9999977629230361,
+        "max_abs": 0.0038824081420898438,
+        "relative_l2": 0.0021152576413989844,
+        "relative_linf": 0.003837528597647711
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 70,
+        "bf16_bit_mismatches": 70,
+        "elements": 196608,
+        "cosine": 0.999999999081407,
+        "max_abs": 0.0009765625,
+        "relative_l2": 4.2862492525412196e-05,
+        "relative_linf": 0.0009689922480620155
+      }
+    },
+    {
+      "case": "one_key",
+      "matches_indexed_core_bitwise": true,
+      "both_outputs_fresh_and_repeatable": true,
+      "fp32": {
+        "finite": true,
+        "fp32_bit_mismatches": 32768,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 0.9999986572365632,
+        "max_abs": 0.007460117340087891,
+        "relative_l2": 0.0016392817836056832,
+        "relative_linf": 0.002842175080528294
+      },
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 0,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "relative_linf": 0.0
+      }
+    }
+  ],
+  "allocation_audit": {
+    "fp32": {
+      "output_bytes": 4194304,
+      "dtype_conversion_copies": 0,
+      "positive_self_allocations": [
+        {
+          "op": "aten::bmm",
+          "bytes": 4194304
+        },
+        {
+          "op": "aten::bmm",
+          "bytes": 4194304
+        }
+      ]
+    },
+    "bf16": {
+      "output_bytes": 2097152,
+      "dtype_conversion_copies": 0,
+      "positive_self_allocations": [
+        {
+          "op": "aten::empty",
+          "bytes": 2097152
+        }
+      ]
+    }
+  },
+  "cold": {
+    "order": [
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ]
+    ],
+    "timings": {
+      "fp32": {
+        "median_us": 710.949,
+        "samples_us": [
+          628.716,
+          627.579,
+          607.919,
+          632.078,
+          707.941,
+          700.662,
+          646.0,
+          669.964,
+          739.662,
+          707.747,
+          657.916,
+          687.182,
+          680.648,
+          753.266,
+          730.885,
+          728.614,
+          655.805,
+          765.036,
+          741.795,
+          710.949,
+          740.498,
+          685.173,
+          771.975,
+          664.348,
+          694.791,
+          694.252,
+          724.42,
+          712.944,
+          703.571,
+          773.284,
+          671.627,
+          757.965,
+          735.05,
+          735.178,
+          659.363,
+          757.696,
+          674.716,
+          697.177,
+          719.241,
+          716.635,
+          713.096,
+          716.673,
+          722.691,
+          781.81,
+          671.801,
+          769.856,
+          668.742,
+          779.717,
+          676.193,
+          783.778,
+          743.944
+        ]
+      },
+      "bf16": {
+        "median_us": 307.083,
+        "samples_us": [
+          244.795,
+          253.75,
+          287.277,
+          303.334,
+          271.817,
+          276.092,
+          316.226,
+          311.206,
+          293.608,
+          301.854,
+          312.298,
+          316.065,
+          305.89,
+          278.774,
+          292.437,
+          296.398,
+          309.743,
+          286.094,
+          304.395,
+          304.1,
+          312.859,
+          323.982,
+          284.743,
+          311.18,
+          312.255,
+          312.224,
+          308.922,
+          315.243,
+          307.083,
+          295.966,
+          310.945,
+          287.895,
+          301.695,
+          303.742,
+          317.529,
+          299.646,
+          318.7,
+          310.365,
+          310.534,
+          318.594,
+          309.541,
+          311.067,
+          316.221,
+          285.089,
+          314.429,
+          288.873,
+          326.104,
+          298.219,
+          328.14,
+          300.166,
+          309.48
+        ]
+      }
+    }
+  },
+  "hot": {
+    "order": [
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "bf16",
+        "fp32"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ],
+      [
+        "fp32",
+        "bf16"
+      ]
+    ],
+    "timings": {
+      "fp32": {
+        "median_us": 364.226,
+        "samples_us": [
+          389.385,
+          349.873,
+          342.234,
+          338.069,
+          365.737,
+          365.659,
+          362.478,
+          340.626,
+          352.403,
+          343.704,
+          351.882,
+          350.345,
+          345.962,
+          356.303,
+          351.831,
+          394.722,
+          366.177,
+          364.226,
+          358.706,
+          362.707,
+          366.767,
+          376.18,
+          366.631,
+          354.355,
+          366.849,
+          365.893,
+          370.179,
+          362.39,
+          371.289,
+          353.177,
+          366.097,
+          363.943,
+          374.736,
+          367.713,
+          358.543,
+          362.548,
+          362.939,
+          375.34,
+          407.658,
+          363.474,
+          370.878,
+          363.257,
+          368.716,
+          348.493,
+          358.062,
+          371.114,
+          368.036,
+          366.755,
+          372.888,
+          384.329,
+          367.169
+        ]
+      },
+      "bf16": {
+        "median_us": 138.294,
+        "samples_us": [
+          142.065,
+          146.318,
+          135.178,
+          129.309,
+          136.894,
+          134.648,
+          116.659,
+          137.531,
+          121.563,
+          136.6,
+          119.402,
+          132.208,
+          137.672,
+          134.395,
+          136.096,
+          119.216,
+          138.588,
+          143.251,
+          143.89,
+          141.181,
+          142.003,
+          124.776,
+          139.841,
+          144.317,
+          124.039,
+          140.066,
+          141.486,
+          141.068,
+          139.87,
+          144.286,
+          140.817,
+          140.305,
+          123.592,
+          141.31,
+          143.75,
+          141.132,
+          141.232,
+          122.552,
+          138.294,
+          137.426,
+          137.21,
+          136.294,
+          131.778,
+          136.209,
+          140.288,
+          178.84,
+          140.498,
+          137.852,
+          160.984,
+          139.831,
+          137.255
+        ]
+      }
+    }
+  },
+  "worker_affinity": [
+    [
+      0
+    ],
+    [
+      1
+    ],
+    [
+      2
+    ],
+    [
+      3
+    ],
+    [
+      4
+    ],
+    [
+      5
+    ],
+    [
+      6
+    ],
+    [
+      7
+    ],
+    [
+      8
+    ],
+    [
+      9
+    ],
+    [
+      10
+    ],
+    [
+      11
+    ],
+    [
+      12
+    ],
+    [
+      13
+    ],
+    [
+      14
+    ],
+    [
+      15
+    ],
+    [
+      16
+    ],
+    [
+      17
+    ],
+    [
+      18
+    ],
+    [
+      19
+    ],
+    [
+      20
+    ],
+    [
+      21
+    ],
+    [
+      22
+    ],
+    [
+      23
+    ],
+    [
+      24
+    ],
+    [
+      25
+    ],
+    [
+      26
+    ],
+    [
+      27
+    ],
+    [
+      28
+    ],
+    [
+      29
+    ],
+    [
+      30
+    ],
+    [
+      31
+    ],
+    [
+      32
+    ],
+    [
+      33
+    ],
+    [
+      34
+    ],
+    [
+      35
+    ],
+    [
+      36
+    ],
+    [
+      37
+    ],
+    [
+      38
+    ],
+    [
+      39
+    ],
+    [
+      40
+    ],
+    [
+      41
+    ],
+    [
+      42
+    ],
+    [
+      43
+    ],
+    [
+      44
+    ],
+    [
+      45
+    ],
+    [
+      46
+    ],
+    [
+      47
+    ],
+    [
+      48
+    ],
+    [
+      49
+    ],
+    [
+      50
+    ],
+    [
+      51
+    ],
+    [
+      52
+    ],
+    [
+      53
+    ],
+    [
+      54
+    ],
+    [
+      55
+    ],
+    [
+      56
+    ],
+    [
+      57
+    ],
+    [
+      58
+    ],
+    [
+      59
+    ],
+    [
+      60
+    ],
+    [
+      61
+    ],
+    [
+      62
+    ],
+    [
+      63
+    ]
+  ]
+}
