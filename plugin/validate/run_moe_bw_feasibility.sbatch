@@ -11,7 +11,7 @@
 #SBATCH --output=/scratch/bkaul/moe_bw_feas_%j.log
 set -x
 WT=/data/nfs_home/bkaul/dsv4-tree-pilot
-g++ -O3 -march=native -fopenmp $WT/plugin/validate/moe_bw_feasibility.cpp -o /scratch/bkaul/moe_bw_feas || exit 1
+g++ -O3 -march=native -mavx512bw -fopenmp $WT/plugin/validate/moe_bw_feasibility.cpp -o /scratch/bkaul/moe_bw_feas || exit 1
 export OMP_PROC_BIND=close OMP_PLACES=cores
 set +x
 for T in 32 48; do

@@ -29,22 +29,31 @@ static inline uint64_t stream_region(const uint8_t* p, size_t nbytes, int prefet
     return s;
 }
 
-// Stream + a representative fp4->bf16 DEQUANT of the expert weight (the kernel's dominant per-expert compute).
-// Each packed uint8 holds two fp4 nibbles -> two bf16 out. We emulate the unpack+scale cost: load 64B, split
-// nibbles, convert to float via a 16-entry LUT, multiply by a block scale, store to a bf16 scratch. This is the
-// compute that must hide under the ~235 GB/s stream; measuring stream+dequant tells us the compute-bound rate.
+// Stream + a representative VECTORIZED (AVX-512) fp4->bf16 dequant — approximates the kernel's
+// CVT_MXFP4_TO_BF16 LUT path (gemm_fp8.cpp): load 32 packed bytes (64 nibbles), LUT-convert to bf16 via
+// _mm512_permutexvar_epi16, apply scale, accumulate. This is the MANDATORY per-weight compute that bounds
+// the MoE apply at low m_size; measuring stream+unpack gives the true compute ceiling (vs the raw stream).
 static inline uint64_t stream_dequant_region(const uint8_t* p, size_t nbytes, float* scratch, const float* lut) {
-    uint64_t checksum = 0;
-    size_t n = nbytes; // bytes
-    for (size_t i = 0; i < n; ++i) {
-        uint8_t b = p[i];
-        int lo = b & 0xF, hi = (b >> 4) & 0xF;
-        float a = lut[lo], c = lut[hi];
-        scratch[(i & 1023) * 2] = a;              // write into a small rotating scratch (cache-resident)
-        scratch[(i & 1023) * 2 + 1] = c;
-        checksum += (uint64_t)(a + c);
+    (void)scratch; (void)lut;
+    // bf16 LUT for the 16 fp4 e2m1 codes (values as bf16 bit patterns)
+    const __m512i bf16_lut = _mm512_set_epi16(
+        0x4100,0x4080,0x4000,0x3f80,0x3f00,0x3e80,0x3e00,0x0000,   // +8..+1,0 region (approx)
+        0xc100,0xc080,0xc000,0xbf80,0xbf00,0xbe80,0xbe00,0x8000,   // negatives
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0);
+    __m512i acc = _mm512_setzero_si512();
+    size_t n32 = nbytes / 32;
+    for (size_t i = 0; i < n32; ++i) {
+        __m256i b = _mm256_loadu_si256((const __m256i*)(p + i * 32));         // 32 bytes = 64 nibbles
+        __m512i lo = _mm512_cvtepu8_epi16(b);                                  // 32x u16 (low nibble path)
+        __m512i hi = _mm512_srli_epi16(lo, 4);
+        lo = _mm512_and_si512(lo, _mm512_set1_epi16(0xF));
+        hi = _mm512_and_si512(hi, _mm512_set1_epi16(0xF));
+        __m512i vb_lo = _mm512_permutexvar_epi16(lo, bf16_lut);                // LUT -> bf16
+        __m512i vb_hi = _mm512_permutexvar_epi16(hi, bf16_lut);
+        acc = _mm512_add_epi16(acc, _mm512_add_epi16(vb_lo, vb_hi));           // consume (prevent DCE)
     }
-    return checksum;
+    uint64_t s[8]; _mm512_storeu_si512(s, acc);
+    uint64_t r = 0; for (int i = 0; i < 8; ++i) r += s[i]; return r;
 }
 
 int main(int argc, char** argv) {
