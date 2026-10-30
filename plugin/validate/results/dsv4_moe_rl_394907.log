@@ -1,0 +1,69 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2c33b50b16c472efe58357d1d2a8a5414bc23fbf/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64:/sbin:/bin
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2c33b50b16c472efe58357d1d2a8a5414bc23fbf/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64:/sbin:/bin
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ DTHR=24
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS=24 INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ INTEL_CPU_DSV4_DECODE_THREADS=24
++ INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ export OMP_WAIT_POLICY=active GOMP_SPINCOUNT=1000000
++ OMP_WAIT_POLICY=active
++ GOMP_SPINCOUNT=1000000
++ export INTEL_CPU_DSV4_MOE_ROOFLINE=1 INTEL_CPU_DSV4_MOE_OCC=1 INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moe_rl_occ_394907.json
++ INTEL_CPU_DSV4_MOE_ROOFLINE=1
++ INTEL_CPU_DSV4_MOE_OCC=1
++ INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moe_rl_occ_394907.json
++ set +x
+[2026-10-29 21:17:46] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[2026-10-29 21:27:27] [MOE ROOFLINE] M=8 threads=58 active=42/256 | stream=0.528GB  apply=80.28ms (7 GB/s) floor=111.38ms (5 GB/s)  apply/floor=0.7x
+[2026-10-29 21:27:52] [MOE ROOFLINE] M=1 threads=24 active=6/256 | stream=0.075GB  apply=0.50ms (152 GB/s) floor=15.91ms (5 GB/s)  apply/floor=0.0x
+[CLEAN] B=1: decode_step=178.6 ms  (5.598 tok/s)  n=2 fresh
+[2026-10-29 21:27:55] [MOE ROOFLINE] M=64 threads=24 active=203/256 | stream=2.554GB  apply=17.52ms (146 GB/s) floor=538.32ms (5 GB/s)  apply/floor=0.0x
+[2026-10-29 21:28:03] [MOE ROOFLINE] M=7 threads=24 active=28/256 | stream=0.352GB  apply=2.02ms (174 GB/s) floor=74.25ms (5 GB/s)  apply/floor=0.0x
+[CLEAN] B=8: decode_step=359.7 ms  (22.239 tok/s)  n=2 fresh
+[2026-10-29 21:28:04] [MOE ROOFLINE] M=256 threads=24 active=256/256 | stream=3.221GB  apply=23.75ms (136 GB/s) floor=678.87ms (5 GB/s)  apply/floor=0.0x
+[2026-10-29 21:28:07] [MOE ROOFLINE] M=31 threads=24 active=92/256 | stream=1.158GB  apply=11.31ms (102 GB/s) floor=243.97ms (5 GB/s)  apply/floor=0.0x
+[2026-10-29 21:28:12] [MOE ROOFLINE] M=32 threads=24 active=58/256 | stream=0.730GB  apply=9.75ms (75 GB/s) floor=153.81ms (5 GB/s)  apply/floor=0.1x
+[CLEAN] B=32: decode_step=738.6 ms  (43.322 tok/s)  n=2 fresh
+[2026-10-29 21:28:21] [MOE ROOFLINE] M=512 threads=24 active=256/256 | stream=3.221GB  apply=26.85ms (120 GB/s) floor=678.87ms (5 GB/s)  apply/floor=0.0x
+[2026-10-29 21:28:34] [MOE ROOFLINE] M=60 threads=24 active=135/256 | stream=1.699GB  apply=16.37ms (104 GB/s) floor=358.00ms (5 GB/s)  apply/floor=0.0x
+[2026-10-29 21:28:36] [MOE ROOFLINE] M=59 threads=24 active=143/256 | stream=1.799GB  apply=17.24ms (104 GB/s) floor=379.21ms (5 GB/s)  apply/floor=0.0x
+[2026-10-29 21:28:45] [MOE ROOFLINE] M=62 threads=24 active=123/256 | stream=1.548GB  apply=16.47ms (94 GB/s) floor=326.17ms (5 GB/s)  apply/floor=0.1x
+[CLEAN] B=64: decode_step=1208.1 ms  (52.975 tok/s)  n=2 fresh
+[done] moe roofline DTHR=24 job=394907
