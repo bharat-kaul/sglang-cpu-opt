@@ -1,0 +1,93 @@
+{
+  "flags": [
+    "-O3",
+    "-fopenmp",
+    "-march=sapphirerapids",
+    "-mprefer-vector-width=512",
+    "-std=c++17",
+    "-fno-math-errno",
+    "-ffp-contract=off",
+    "-Werror=aggressive-loop-optimizations"
+  ],
+  "baseline_sha256": "013ac2b16a665ec2eb510bf71ba14864dd8cef2e225ccfc85aabb854dcbe0b39",
+  "experiment_sha256": "b7bf2cdbe3afae2857fd19c42e2a374ddea85a5a78179e8aab4c38ec9f19a7e2",
+  "helpers": {
+    "bench.py": "c8e073c3374f244e8392db3e40544ca88c5f84aaf785631b5da741708484801c",
+    "bench_matched_allocations.py": "5b7de8cd72f94d037114d322c011f999c3c0c44254810a6ebe8065f4671fd436",
+    "run_gather_exploration.sh": "913ec741f45f209f6531ffd0b15e3bda0b0e4b6ee5d1d6d7a43055b240fd0171",
+    "sparse_attn.h": "22349a94e5ffc8e0fec21016b238725e4cd26da49c47122b94678f7a57c6ee13"
+  },
+  "compiler": "g++ (GCC) 14.3.1 20251022 (Red Hat 14.3.1-4)",
+  "variants": {
+    "baseline": {
+      "source_sha256": "fae3d19213ba65b1614ed156e75e1a9efa7dc9935788000302a1fbbef54cb334",
+      "binary_sha256": "3a3fc2779175a54f240e4b9dd79bb5679295a219f7f50583b0d01fbe43fe9dd2",
+      "instructions": {
+        "vpgatherdd": 0,
+        "vpermt2w": 10,
+        "vpermi2w": 0,
+        "vpunpcklwd": 0,
+        "vpermt2q": 0,
+        "vpmovsxdq": 16,
+        "prefetcht0": 320,
+        "tdpbf16ps": 136
+      }
+    },
+    "vector_pointers": {
+      "source_sha256": "3201f7f3b81f32f46d33bb9b2a003df9833fe9365364521799bcca5c3b8b5890",
+      "binary_sha256": "6163beb0d4ea55ca8ad6df8bf9a4adfe23a7a89bfe704850d105b1c671ca2dab",
+      "instructions": {
+        "vpgatherdd": 0,
+        "vpermt2w": 8,
+        "vpermi2w": 0,
+        "vpunpcklwd": 0,
+        "vpermt2q": 0,
+        "vpmovsxdq": 16,
+        "prefetcht0": 320,
+        "tdpbf16ps": 136
+      }
+    },
+    "unpack_shuffle": {
+      "source_sha256": "e7fd9f1258b940a68dcb9e45395a34794ff8534316119732d26f96ee7c5847b4",
+      "binary_sha256": "246043ec933f258a1d5d4ad8706e4f04535731c0408f97d1d5e425c5e00834ad",
+      "instructions": {
+        "vpgatherdd": 0,
+        "vpermt2w": 2,
+        "vpermi2w": 0,
+        "vpunpcklwd": 4,
+        "vpermt2q": 8,
+        "vpmovsxdq": 16,
+        "prefetcht0": 320,
+        "tdpbf16ps": 136
+      }
+    },
+    "hardware_gather": {
+      "source_sha256": "cc48b4831e681153c48af74a0beacdecfed0672ffd79a01ba76cef345791998b",
+      "binary_sha256": "c77af9a9878a398eef10db07510dbadff7b84b0bdd237eef9b68a7f37aadcc92",
+      "instructions": {
+        "vpgatherdd": 32,
+        "vpermt2w": 66,
+        "vpermi2w": 0,
+        "vpunpcklwd": 0,
+        "vpermt2q": 0,
+        "vpmovsxdq": 0,
+        "prefetcht0": 0,
+        "tdpbf16ps": 136
+      }
+    },
+    "no_prefetch": {
+      "source_sha256": "fc83074192eac41337b562ca78adb3db5e4ec180b4d023dc1e5fac8b61ef2a85",
+      "binary_sha256": "c4ea63ab27874056c4bb2fbc0c53ff815fbc34d19766c1ff3676201e7b55b64b",
+      "instructions": {
+        "vpgatherdd": 0,
+        "vpermt2w": 6,
+        "vpermi2w": 0,
+        "vpunpcklwd": 0,
+        "vpermt2q": 0,
+        "vpmovsxdq": 16,
+        "prefetcht0": 0,
+        "tdpbf16ps": 136
+      }
+    }
+  }
+}

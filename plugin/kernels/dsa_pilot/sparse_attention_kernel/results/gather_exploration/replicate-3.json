@@ -1,0 +1,3974 @@
+{
+  "node": "pcl-sprh16.sc.intel.com",
+  "job": "395103",
+  "pid": 1002710,
+  "replicate": 3,
+  "build": {
+    "flags": [
+      "-O3",
+      "-fopenmp",
+      "-march=sapphirerapids",
+      "-mprefer-vector-width=512",
+      "-std=c++17",
+      "-fno-math-errno",
+      "-ffp-contract=off",
+      "-Werror=aggressive-loop-optimizations"
+    ],
+    "baseline_sha256": "013ac2b16a665ec2eb510bf71ba14864dd8cef2e225ccfc85aabb854dcbe0b39",
+    "experiment_sha256": "b7bf2cdbe3afae2857fd19c42e2a374ddea85a5a78179e8aab4c38ec9f19a7e2",
+    "helpers": {
+      "bench.py": "c8e073c3374f244e8392db3e40544ca88c5f84aaf785631b5da741708484801c",
+      "bench_matched_allocations.py": "5b7de8cd72f94d037114d322c011f999c3c0c44254810a6ebe8065f4671fd436",
+      "run_gather_exploration.sh": "913ec741f45f209f6531ffd0b15e3bda0b0e4b6ee5d1d6d7a43055b240fd0171",
+      "sparse_attn.h": "22349a94e5ffc8e0fec21016b238725e4cd26da49c47122b94678f7a57c6ee13"
+    },
+    "compiler": "g++ (GCC) 14.3.1 20251022 (Red Hat 14.3.1-4)",
+    "variants": {
+      "baseline": {
+        "source_sha256": "fae3d19213ba65b1614ed156e75e1a9efa7dc9935788000302a1fbbef54cb334",
+        "binary_sha256": "3a3fc2779175a54f240e4b9dd79bb5679295a219f7f50583b0d01fbe43fe9dd2",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 10,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 16,
+          "prefetcht0": 320,
+          "tdpbf16ps": 136
+        }
+      },
+      "vector_pointers": {
+        "source_sha256": "3201f7f3b81f32f46d33bb9b2a003df9833fe9365364521799bcca5c3b8b5890",
+        "binary_sha256": "6163beb0d4ea55ca8ad6df8bf9a4adfe23a7a89bfe704850d105b1c671ca2dab",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 8,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 16,
+          "prefetcht0": 320,
+          "tdpbf16ps": 136
+        }
+      },
+      "unpack_shuffle": {
+        "source_sha256": "e7fd9f1258b940a68dcb9e45395a34794ff8534316119732d26f96ee7c5847b4",
+        "binary_sha256": "246043ec933f258a1d5d4ad8706e4f04535731c0408f97d1d5e425c5e00834ad",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 2,
+          "vpermi2w": 0,
+          "vpunpcklwd": 4,
+          "vpermt2q": 8,
+          "vpmovsxdq": 16,
+          "prefetcht0": 320,
+          "tdpbf16ps": 136
+        }
+      },
+      "hardware_gather": {
+        "source_sha256": "cc48b4831e681153c48af74a0beacdecfed0672ffd79a01ba76cef345791998b",
+        "binary_sha256": "c77af9a9878a398eef10db07510dbadff7b84b0bdd237eef9b68a7f37aadcc92",
+        "instructions": {
+          "vpgatherdd": 32,
+          "vpermt2w": 66,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 0,
+          "prefetcht0": 0,
+          "tdpbf16ps": 136
+        }
+      },
+      "no_prefetch": {
+        "source_sha256": "fc83074192eac41337b562ca78adb3db5e4ec180b4d023dc1e5fac8b61ef2a85",
+        "binary_sha256": "c4ea63ab27874056c4bb2fbc0c53ff815fbc34d19766c1ff3676201e7b55b64b",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 6,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 16,
+          "prefetcht0": 0,
+          "tdpbf16ps": 136
+        }
+      }
+    }
+  },
+  "torch": "2.14.1+cpu",
+  "shape": {
+    "B": 32,
+    "M": 1,
+    "H": 64,
+    "D": 512,
+    "S": 1024,
+    "K": 512
+  },
+  "stage_bitwise_cases": [
+    [
+      0,
+      "random",
+      0
+    ],
+    [
+      0,
+      "masked",
+      0
+    ],
+    [
+      0,
+      "duplicate",
+      0
+    ],
+    [
+      1,
+      "random",
+      0
+    ],
+    [
+      1,
+      "masked",
+      0
+    ],
+    [
+      1,
+      "duplicate",
+      0
+    ],
+    [
+      7,
+      "random",
+      0
+    ],
+    [
+      7,
+      "masked",
+      0
+    ],
+    [
+      7,
+      "duplicate",
+      0
+    ],
+    [
+      8,
+      "random",
+      0
+    ],
+    [
+      8,
+      "masked",
+      0
+    ],
+    [
+      8,
+      "duplicate",
+      0
+    ],
+    [
+      15,
+      "random",
+      0
+    ],
+    [
+      15,
+      "masked",
+      0
+    ],
+    [
+      15,
+      "duplicate",
+      0
+    ],
+    [
+      16,
+      "random",
+      0
+    ],
+    [
+      16,
+      "masked",
+      0
+    ],
+    [
+      16,
+      "duplicate",
+      0
+    ],
+    [
+      63,
+      "random",
+      0
+    ],
+    [
+      63,
+      "masked",
+      0
+    ],
+    [
+      63,
+      "duplicate",
+      0
+    ],
+    [
+      64,
+      "random",
+      0
+    ],
+    [
+      64,
+      "masked",
+      0
+    ],
+    [
+      64,
+      "duplicate",
+      0
+    ],
+    [
+      65,
+      "random",
+      0
+    ],
+    [
+      65,
+      "random",
+      64
+    ],
+    [
+      65,
+      "masked",
+      0
+    ],
+    [
+      65,
+      "masked",
+      64
+    ],
+    [
+      65,
+      "duplicate",
+      0
+    ],
+    [
+      65,
+      "duplicate",
+      64
+    ],
+    [
+      73,
+      "random",
+      0
+    ],
+    [
+      73,
+      "random",
+      64
+    ],
+    [
+      73,
+      "masked",
+      0
+    ],
+    [
+      73,
+      "masked",
+      64
+    ],
+    [
+      73,
+      "duplicate",
+      0
+    ],
+    [
+      73,
+      "duplicate",
+      64
+    ]
+  ],
+  "attention_bitwise_cases": [
+    "normal",
+    "seed7",
+    "sharp",
+    "tail",
+    "masked",
+    "all_masked",
+    "one",
+    "empty"
+  ],
+  "contract": "All inputs prepared before timing; each variant allocates and releases output inside same Python/ctypes call. No FP32 timing comparison.",
+  "cold": "768 MiB eviction before every candidate call, outside timer",
+  "indexed_input_sha256": {
+    "q": "e7a06074800a0e0461fe33f8f43d90cb30994d1e30d10588d6544bdb751eb69c",
+    "kv": "febd37afcec015fc1441b20d2644b8c9a2e38bd5def0486b3e8e7c8d42fef0de",
+    "indices": "e3b8525e16dbbfd942d56a5295c1ba6eaa1735d54e7df640389e6fa72bfa508e",
+    "sink": "910564d6067be6cfcb5ca5d9d5d6dc8e4233167ea3859ebfab77f8c60a72c120"
+  },
+  "indexed_cold": {
+    "order": [
+      [
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline",
+        "no_prefetch"
+      ],
+      [
+        "vector_pointers",
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather",
+        "vector_pointers"
+      ],
+      [
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers",
+        "hardware_gather"
+      ],
+      [
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline"
+      ],
+      [
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline",
+        "no_prefetch",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers",
+        "unpack_shuffle"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "no_prefetch",
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "hardware_gather"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers"
+      ],
+      [
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle"
+      ],
+      [
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather"
+      ],
+      [
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "baseline",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "baseline",
+        "hardware_gather",
+        "unpack_shuffle"
+      ]
+    ],
+    "timings": {
+      "baseline": {
+        "median_us": 277.911,
+        "samples_us": [
+          299.631,
+          280.426,
+          285.341,
+          273.878,
+          286.227,
+          272.688,
+          284.933,
+          273.522,
+          278.501,
+          282.332,
+          272.388,
+          283.613,
+          274.282,
+          281.004,
+          271.945,
+          287.954,
+          267.239,
+          275.989,
+          277.911,
+          278.485,
+          271.151,
+          347.09,
+          278.467,
+          284.602,
+          276.319,
+          288.245,
+          277.38,
+          286.192,
+          275.866,
+          371.184,
+          272.609,
+          269.832,
+          283.01,
+          274.048,
+          276.938,
+          283.152,
+          285.297,
+          275.443,
+          276.769,
+          277.155,
+          275.198
+        ]
+      },
+      "vector_pointers": {
+        "median_us": 274.992,
+        "samples_us": [
+          284.305,
+          273.889,
+          267.63,
+          269.602,
+          276.208,
+          275.782,
+          271.678,
+          284.031,
+          278.539,
+          281.191,
+          285.666,
+          279.1,
+          272.653,
+          278.318,
+          274.176,
+          270.737,
+          280.849,
+          273.172,
+          278.2,
+          273.221,
+          281.661,
+          280.41,
+          268.002,
+          270.839,
+          276.494,
+          285.641,
+          274.992,
+          273.059,
+          278.873,
+          276.442,
+          292.462,
+          271.752,
+          277.306,
+          274.088,
+          273.539,
+          272.716,
+          279.705,
+          274.295,
+          274.886,
+          274.312,
+          268.365
+        ]
+      },
+      "unpack_shuffle": {
+        "median_us": 276.368,
+        "samples_us": [
+          290.958,
+          275.911,
+          276.368,
+          280.161,
+          274.047,
+          275.489,
+          276.333,
+          274.476,
+          271.774,
+          282.547,
+          273.251,
+          276.352,
+          279.747,
+          276.967,
+          276.549,
+          278.249,
+          275.839,
+          279.837,
+          281.928,
+          275.979,
+          276.511,
+          280.589,
+          272.951,
+          287.384,
+          279.299,
+          273.813,
+          279.506,
+          274.838,
+          273.181,
+          272.313,
+          275.482,
+          271.236,
+          280.924,
+          281.053,
+          282.848,
+          273.947,
+          279.844,
+          266.736,
+          283.588,
+          272.128,
+          287.574
+        ]
+      },
+      "hardware_gather": {
+        "median_us": 339.25,
+        "samples_us": [
+          336.92,
+          335.026,
+          358.785,
+          339.25,
+          336.821,
+          349.691,
+          362.652,
+          333.714,
+          341.202,
+          340.376,
+          339.615,
+          342.353,
+          344.025,
+          338.049,
+          339.212,
+          342.322,
+          331.998,
+          340.8,
+          338.393,
+          344.038,
+          331.56,
+          337.871,
+          341.851,
+          339.736,
+          336.651,
+          329.656,
+          333.974,
+          343.219,
+          338.93,
+          345.842,
+          344.087,
+          336.863,
+          339.791,
+          333.868,
+          349.28,
+          332.551,
+          336.366,
+          346.632,
+          332.297,
+          338.823,
+          348.153
+        ]
+      },
+      "no_prefetch": {
+        "median_us": 303.23,
+        "samples_us": [
+          303.267,
+          306.293,
+          310.683,
+          303.23,
+          313.773,
+          310.991,
+          302.546,
+          308.419,
+          306.513,
+          312.007,
+          300.972,
+          300.192,
+          302.49,
+          303.504,
+          308.71,
+          298.063,
+          316.793,
+          302.207,
+          299.507,
+          299.022,
+          301.211,
+          309.978,
+          301.177,
+          302.85,
+          302.162,
+          303.637,
+          306.925,
+          310.959,
+          303.1,
+          301.022,
+          301.792,
+          302.52,
+          301.538,
+          299.579,
+          301.557,
+          309.613,
+          314.33,
+          304.339,
+          310.441,
+          300.788,
+          306.107
+        ]
+      }
+    }
+  },
+  "indexed_hot": {
+    "order": [
+      [
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "no_prefetch",
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "no_prefetch",
+        "baseline",
+        "hardware_gather"
+      ],
+      [
+        "no_prefetch",
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "no_prefetch",
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "vector_pointers",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "no_prefetch",
+        "hardware_gather",
+        "baseline",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "no_prefetch",
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "unpack_shuffle"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "vector_pointers",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "vector_pointers",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "vector_pointers",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "hardware_gather",
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "hardware_gather"
+      ]
+    ],
+    "timings": {
+      "baseline": {
+        "median_us": 117.469,
+        "samples_us": [
+          117.62,
+          117.93,
+          116.847,
+          117.327,
+          117.297,
+          117.925,
+          117.585,
+          118.442,
+          116.688,
+          117.388,
+          117.628,
+          117.633,
+          116.573,
+          149.438,
+          131.653,
+          126.037,
+          123.081,
+          120.836,
+          121.276,
+          120.075,
+          116.415,
+          117.176,
+          117.243,
+          118.072,
+          118.903,
+          117.316,
+          117.802,
+          117.483,
+          117.418,
+          120.585,
+          117.209,
+          116.864,
+          117.469,
+          117.697,
+          117.292,
+          116.31,
+          116.887,
+          117.09,
+          116.713,
+          116.973,
+          117.325
+        ]
+      },
+      "vector_pointers": {
+        "median_us": 116.7,
+        "samples_us": [
+          116.88,
+          115.882,
+          116.331,
+          116.224,
+          116.123,
+          116.79,
+          118.218,
+          116.345,
+          117.38,
+          118.182,
+          116.922,
+          116.301,
+          115.818,
+          200.412,
+          118.437,
+          120.637,
+          121.679,
+          121.355,
+          117.393,
+          117.313,
+          116.606,
+          116.819,
+          116.024,
+          117.396,
+          116.658,
+          116.354,
+          116.123,
+          116.098,
+          117.165,
+          115.67,
+          116.162,
+          116.194,
+          116.7,
+          116.735,
+          119.118,
+          116.189,
+          119.692,
+          116.155,
+          118.859,
+          115.942,
+          116.547
+        ]
+      },
+      "unpack_shuffle": {
+        "median_us": 117.196,
+        "samples_us": [
+          120.987,
+          117.835,
+          117.16,
+          116.104,
+          116.782,
+          117.988,
+          118.097,
+          117.198,
+          117.446,
+          116.959,
+          117.101,
+          116.917,
+          117.348,
+          158.403,
+          150.262,
+          120.936,
+          123.976,
+          121.014,
+          118.5,
+          118.388,
+          117.016,
+          117.004,
+          117.307,
+          116.428,
+          116.957,
+          117.02,
+          117.59,
+          116.955,
+          116.855,
+          117.414,
+          117.157,
+          117.704,
+          116.582,
+          117.196,
+          117.439,
+          117.43,
+          116.702,
+          116.892,
+          116.753,
+          116.872,
+          116.658
+        ]
+      },
+      "hardware_gather": {
+        "median_us": 130.318,
+        "samples_us": [
+          132.545,
+          130.526,
+          129.72,
+          129.92,
+          130.569,
+          129.8,
+          129.535,
+          131.556,
+          129.989,
+          130.003,
+          132.198,
+          130.055,
+          130.318,
+          176.581,
+          173.661,
+          172.21,
+          143.736,
+          133.233,
+          131.639,
+          130.708,
+          129.87,
+          133.084,
+          130.323,
+          136.873,
+          129.858,
+          129.714,
+          133.197,
+          129.868,
+          130.56,
+          129.744,
+          130.301,
+          132.397,
+          130.002,
+          130.022,
+          130.813,
+          130.271,
+          129.706,
+          129.722,
+          129.603,
+          141.819,
+          130.062
+        ]
+      },
+      "no_prefetch": {
+        "median_us": 115.012,
+        "samples_us": [
+          118.768,
+          114.627,
+          117.393,
+          114.829,
+          116.449,
+          118.788,
+          115.28,
+          114.583,
+          115.108,
+          114.147,
+          114.738,
+          114.958,
+          117.566,
+          1263.3,
+          118.701,
+          118.434,
+          116.078,
+          117.857,
+          116.685,
+          116.15,
+          115.012,
+          114.206,
+          114.289,
+          114.65,
+          114.469,
+          114.376,
+          114.978,
+          114.118,
+          115.635,
+          114.557,
+          115.253,
+          114.398,
+          114.706,
+          116.788,
+          115.155,
+          115.123,
+          113.96,
+          114.321,
+          114.458,
+          114.365,
+          116.117
+        ]
+      }
+    }
+  },
+  "indexed_cold_profile": {
+    "baseline": [
+      {
+        "wall_us": 287.309,
+        "worker_mean_us": [
+          132.34572543296963,
+          45.62552203424275,
+          27.774134650826454,
+          26.13929973449558
+        ],
+        "critical_us": [
+          141.6550949215889,
+          45.07414996623993,
+          24.46398138999939,
+          31.018629670143127
+        ]
+      },
+      {
+        "wall_us": 437.031,
+        "worker_mean_us": [
+          135.08422125596553,
+          46.6185447294265,
+          158.4896381245926,
+          26.121764676645398
+        ],
+        "critical_us": [
+          140.5235379934311,
+          45.958906412124634,
+          181.1375841498375,
+          28.381124138832092
+        ]
+      },
+      {
+        "wall_us": 436.962,
+        "worker_mean_us": [
+          137.74623221252114,
+          46.35582445189357,
+          156.54470189474523,
+          25.806453777477145
+        ],
+        "critical_us": [
+          149.77436512708664,
+          45.13375461101532,
+          177.05652862787247,
+          30.17764538526535
+        ]
+      },
+      {
+        "wall_us": 281.14,
+        "worker_mean_us": [
+          134.71364218275994,
+          46.49284528568387,
+          27.720845537260175,
+          26.00144944153726
+        ],
+        "critical_us": [
+          147.86142855882645,
+          46.39569669961929,
+          23.468397557735443,
+          26.190653443336487
+        ]
+      },
+      {
+        "wall_us": 277.351,
+        "worker_mean_us": [
+          128.9004721911624,
+          46.87430919148028,
+          27.913119993172586,
+          26.213470846414566
+        ],
+        "critical_us": [
+          136.36797666549683,
+          47.21246659755707,
+          23.896805942058563,
+          34.40212458372116
+        ]
+      },
+      {
+        "wall_us": 278.623,
+        "worker_mean_us": [
+          130.8480859734118,
+          46.42408748622984,
+          28.67553848773241,
+          26.073481421917677
+        ],
+        "critical_us": [
+          140.8783718943596,
+          47.71910607814789,
+          23.922882974147797,
+          28.760172426700592
+        ]
+      },
+      {
+        "wall_us": 285.929,
+        "worker_mean_us": [
+          136.81582640856504,
+          48.69460826739669,
+          28.062277124263346,
+          26.11221862025559
+        ],
+        "critical_us": [
+          146.94221317768097,
+          50.74217915534973,
+          23.191794753074646,
+          28.13618630170822
+        ]
+      },
+      {
+        "wall_us": 278.912,
+        "worker_mean_us": [
+          133.0729282926768,
+          46.52349161915481,
+          27.932168450206518,
+          26.278605218976736
+        ],
+        "critical_us": [
+          139.69093561172485,
+          45.90768367052078,
+          24.910084903240204,
+          31.008385121822357
+        ]
+      },
+      {
+        "wall_us": 274.959,
+        "worker_mean_us": [
+          128.8783532800153,
+          46.81352584157139,
+          27.73951564449817,
+          25.974790332838893
+        ],
+        "critical_us": [
+          134.20823961496353,
+          47.655776143074036,
+          32.08871930837631,
+          24.44721758365631
+        ]
+      }
+    ],
+    "vector_pointers": [
+      {
+        "wall_us": 293.285,
+        "worker_mean_us": [
+          142.09166693035513,
+          46.475252020172775,
+          30.383249395526946,
+          27.758971555158496
+        ],
+        "critical_us": [
+          150.19159764051437,
+          44.34213042259216,
+          22.98317849636078,
+          42.53629595041275
+        ]
+      },
+      {
+        "wall_us": 297.754,
+        "worker_mean_us": [
+          142.4658839823678,
+          51.792856538668275,
+          28.506139642558992,
+          28.215697966516018
+        ],
+        "critical_us": [
+          148.4481617808342,
+          58.13967436552048,
+          23.33521842956543,
+          28.91942858695984
+        ]
+      },
+      {
+        "wall_us": 272.81,
+        "worker_mean_us": [
+          126.50042481254786,
+          46.967281377874315,
+          29.032351449131966,
+          25.876492145471275
+        ],
+        "critical_us": [
+          139.3873244524002,
+          47.68557846546173,
+          23.458153009414673,
+          27.65841782093048
+        ]
+      },
+      {
+        "wall_us": 271.279,
+        "worker_mean_us": [
+          125.03568723332137,
+          46.87115142587572,
+          27.493369998410344,
+          25.82519664429128
+        ],
+        "critical_us": [
+          132.65013694763184,
+          47.111883759498596,
+          24.675391614437103,
+          29.364600777626038
+        ]
+      },
+      {
+        "wall_us": 273.567,
+        "worker_mean_us": [
+          129.0382060687989,
+          46.75571108236909,
+          27.58715709205717,
+          26.030000299215317
+        ],
+        "critical_us": [
+          138.20361346006393,
+          44.43805664777756,
+          24.54407513141632,
+          31.40326589345932
+        ]
+      },
+      {
+        "wall_us": 283.025,
+        "worker_mean_us": [
+          137.57459237240255,
+          46.367262257263064,
+          28.002948965877295,
+          25.63810267020017
+        ],
+        "critical_us": [
+          147.52615243196487,
+          46.030618250370026,
+          23.827888071537018,
+          28.913840651512146
+        ]
+      },
+      {
+        "wall_us": 272.503,
+        "worker_mean_us": [
+          127.76831863448024,
+          46.419372665695846,
+          27.427537133917212,
+          26.261128368787467
+        ],
+        "critical_us": [
+          136.13887131214142,
+          46.06321454048157,
+          23.42183142900467,
+          31.816773116588593
+        ]
+      },
+      {
+        "wall_us": 277.752,
+        "worker_mean_us": [
+          130.1215379498899,
+          46.22868436854333,
+          28.137845220044255,
+          26.193098165094852
+        ],
+        "critical_us": [
+          145.5489546060562,
+          46.10978066921234,
+          24.221837520599365,
+          25.07120370864868
+        ]
+      },
+      {
+        "wall_us": 272.444,
+        "worker_mean_us": [
+          126.43099762499332,
+          46.82724829763174,
+          28.772192308679223,
+          25.709407054819167
+        ],
+        "critical_us": [
+          139.67696577310562,
+          47.10350185632706,
+          25.54524689912796,
+          24.402514100074768
+        ]
+      }
+    ],
+    "unpack_shuffle": [
+      {
+        "wall_us": 285.055,
+        "worker_mean_us": [
+          138.8522650813684,
+          45.63912807498127,
+          27.878530090674758,
+          26.43102197907865
+        ],
+        "critical_us": [
+          145.97177505493164,
+          43.56075078248978,
+          25.66445618867874,
+          33.630989491939545
+        ]
+      },
+      {
+        "wall_us": 278.47,
+        "worker_mean_us": [
+          129.46603237651289,
+          46.46164597943425,
+          28.347421903163195,
+          26.12824027892202
+        ],
+        "critical_us": [
+          142.51191169023514,
+          45.17287015914917,
+          24.949200451374054,
+          26.27447247505188
+        ]
+      },
+      {
+        "wall_us": 273.637,
+        "worker_mean_us": [
+          126.15384184755385,
+          46.55691736843437,
+          27.748348657041788,
+          26.271474780514836
+        ],
+        "critical_us": [
+          132.5570046901703,
+          45.56216299533844,
+          30.492432415485382,
+          27.499161660671234
+        ]
+      },
+      {
+        "wall_us": 281.188,
+        "worker_mean_us": [
+          128.18758841603994,
+          49.42543455399573,
+          27.64738746918738,
+          27.865346055477858
+        ],
+        "critical_us": [
+          133.405439555645,
+          46.38358950614929,
+          27.243979275226593,
+          34.18419510126114
+        ]
+      },
+      {
+        "wall_us": 291.66,
+        "worker_mean_us": [
+          144.2401553504169,
+          46.97346594184637,
+          25.615707272663713,
+          25.778324925340712
+        ],
+        "critical_us": [
+          159.92578119039536,
+          46.52421921491623,
+          22.841617465019226,
+          26.159919798374176
+        ]
+      },
+      {
+        "wall_us": 278.881,
+        "worker_mean_us": [
+          132.74811499286443,
+          46.284738346002996,
+          28.30273297149688,
+          26.134905056096613
+        ],
+        "critical_us": [
+          140.42295515537262,
+          46.654604375362396,
+          26.45794302225113,
+          27.74316817522049
+        ]
+      },
+      {
+        "wall_us": 275.997,
+        "worker_mean_us": [
+          126.92385644186288,
+          46.64510197471827,
+          28.232549084350467,
+          26.159686967730522
+        ],
+        "critical_us": [
+          136.43968850374222,
+          45.78847438097,
+          25.869347155094147,
+          27.781352400779724
+        ]
+      },
+      {
+        "wall_us": 279.971,
+        "worker_mean_us": [
+          128.68549674749374,
+          46.4214535895735,
+          28.89036841224879,
+          26.377936592325568
+        ],
+        "critical_us": [
+          137.21920549869537,
+          44.85156387090683,
+          26.073306798934937,
+          30.689872801303864
+        ]
+      },
+      {
+        "wall_us": 278.709,
+        "worker_mean_us": [
+          129.1194639634341,
+          46.22715641744435,
+          28.92939664889127,
+          26.333844289183617
+        ],
+        "critical_us": [
+          137.09161430597305,
+          46.83900624513626,
+          26.32569521665573,
+          28.16133201122284
+        ]
+      }
+    ],
+    "hardware_gather": [
+      {
+        "wall_us": 342.453,
+        "worker_mean_us": [
+          191.49213039781898,
+          44.65844540391117,
+          26.278983568772674,
+          26.859503122977912
+        ],
+        "critical_us": [
+          207.62626081705093,
+          43.73490810394287,
+          22.788532078266144,
+          29.77810800075531
+        ]
+      },
+      {
+        "wall_us": 338.622,
+        "worker_mean_us": [
+          187.18365754466504,
+          45.67374708130956,
+          26.207359042018652,
+          26.048932340927422
+        ],
+        "critical_us": [
+          206.54406398534775,
+          44.51628774404526,
+          22.52962440252304,
+          28.207898139953613
+        ]
+      },
+      {
+        "wall_us": 338.402,
+        "worker_mean_us": [
+          186.19727052282542,
+          45.81836401484907,
+          26.53214323800057,
+          26.44241612870246
+        ],
+        "critical_us": [
+          206.14732056856155,
+          45.83969712257385,
+          22.095628082752228,
+          28.502196073532104
+        ]
+      },
+      {
+        "wall_us": 340.351,
+        "worker_mean_us": [
+          188.4207595139742,
+          46.656830818392336,
+          26.74768620636314,
+          27.131260139867663
+        ],
+        "critical_us": [
+          202.37639546394348,
+          46.154484152793884,
+          25.801360607147217,
+          27.82139927148819
+        ]
+      },
+      {
+        "wall_us": 336.295,
+        "worker_mean_us": [
+          185.00575970392674,
+          46.37851088773459,
+          26.15585981402546,
+          26.790352421812713
+        ],
+        "critical_us": [
+          204.87327128648758,
+          45.890919864177704,
+          22.226013243198395,
+          25.74082463979721
+        ]
+      },
+      {
+        "wall_us": 331.357,
+        "worker_mean_us": [
+          179.3963456293568,
+          46.04048444889486,
+          26.45037602633238,
+          26.343142963014543
+        ],
+        "critical_us": [
+          198.97893071174622,
+          46.3360920548439,
+          24.981796741485596,
+          24.72102642059326
+        ]
+      },
+      {
+        "wall_us": 330.388,
+        "worker_mean_us": [
+          179.07304572872818,
+          45.6898269476369,
+          26.294321287423372,
+          26.553432689979672
+        ],
+        "critical_us": [
+          202.3950219154358,
+          44.191256165504456,
+          22.2744420170784,
+          24.407170712947845
+        ]
+      },
+      {
+        "wall_us": 337.078,
+        "worker_mean_us": [
+          186.64977687876672,
+          45.77156505547464,
+          25.802117306739092,
+          26.210691430605948
+        ],
+        "critical_us": [
+          203.41947674751282,
+          45.944005250930786,
+          23.468397557735443,
+          27.935020625591278
+        ]
+      },
+      {
+        "wall_us": 342.245,
+        "worker_mean_us": [
+          189.97197912540287,
+          45.9195434814319,
+          26.371897547505796,
+          26.522495318204165
+        ],
+        "critical_us": [
+          203.67838442325592,
+          46.426430344581604,
+          22.535212337970734,
+          32.05426037311554
+        ]
+      }
+    ],
+    "no_prefetch": [
+      {
+        "wall_us": 304.811,
+        "worker_mean_us": [
+          154.9491280457005,
+          46.038825530558825,
+          27.434361982159317,
+          26.565510779619217
+        ],
+        "critical_us": [
+          170.3612506389618,
+          45.483000576496124,
+          22.887252271175385,
+          28.645619750022888
+        ]
+      },
+      {
+        "wall_us": 309.899,
+        "worker_mean_us": [
+          154.22076103277504,
+          46.09811003319919,
+          27.619360480457544,
+          27.007918106392026
+        ],
+        "critical_us": [
+          170.3314483165741,
+          46.12375050783157,
+          30.188821256160736,
+          28.497539460659027
+        ]
+      },
+      {
+        "wall_us": 307.113,
+        "worker_mean_us": [
+          154.36040121130645,
+          47.58252180181444,
+          27.672256692312658,
+          28.538386686705053
+        ],
+        "critical_us": [
+          172.1065491437912,
+          47.58499562740326,
+          22.837892174720764,
+          27.822330594062805
+        ]
+      },
+      {
+        "wall_us": 304.915,
+        "worker_mean_us": [
+          152.90910960175097,
+          46.375265810638666,
+          27.90114376693964,
+          27.095491532236338
+        ],
+        "critical_us": [
+          175.4816621541977,
+          44.531188905239105,
+          22.821128368377686,
+          25.74082463979721
+        ]
+      },
+      {
+        "wall_us": 299.806,
+        "worker_mean_us": [
+          150.52508388180286,
+          46.32722993846983,
+          27.071175281889737,
+          26.39110607560724
+        ],
+        "critical_us": [
+          164.62430357933044,
+          46.1796298623085,
+          23.778527975082397,
+          28.495676815509796
+        ]
+      },
+      {
+        "wall_us": 301.022,
+        "worker_mean_us": [
+          152.74889301508665,
+          46.05292633641511,
+          27.81374496407807,
+          26.549139874987304
+        ],
+        "critical_us": [
+          166.54189676046371,
+          46.525150537490845,
+          23.633241653442383,
+          28.201378881931305
+        ]
+      },
+      {
+        "wall_us": 303.932,
+        "worker_mean_us": [
+          155.48456576652825,
+          46.307206503115594,
+          27.160305762663484,
+          26.249050279147923
+        ],
+        "critical_us": [
+          165.86389392614365,
+          45.950524508953094,
+          22.911466658115387,
+          32.96416252851486
+        ]
+      },
+      {
+        "wall_us": 303.837,
+        "worker_mean_us": [
+          155.1396562717855,
+          45.98039959091693,
+          27.602509362623096,
+          26.656605768948793
+        ],
+        "critical_us": [
+          166.21220856904984,
+          46.844594180583954,
+          24.460256099700928,
+          28.794631361961365
+        ]
+      },
+      {
+        "wall_us": 304.256,
+        "worker_mean_us": [
+          153.90993212349713,
+          46.02049011737108,
+          27.87807898130268,
+          26.952766347676516
+        ],
+        "critical_us": [
+          170.96195369958878,
+          46.15355283021927,
+          22.853724658489227,
+          28.15481275320053
+        ]
+      }
+    ]
+  },
+  "pregathered_input_sha256": {
+    "q": "e7a06074800a0e0461fe33f8f43d90cb30994d1e30d10588d6544bdb751eb69c",
+    "kv": "56d50552f0ecb4a7edd65ae0d8fcb4503e68849bf2394fd0d31aa340c8a461b0",
+    "indices": "39a5f7b11ab344bd729e79b5002a6117e56bed893409ef23fde1f9488b70cbe1",
+    "sink": "910564d6067be6cfcb5ca5d9d5d6dc8e4233167ea3859ebfab77f8c60a72c120"
+  },
+  "pregathered_cold": {
+    "order": [
+      [
+        "vector_pointers",
+        "baseline",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "no_prefetch",
+        "vector_pointers",
+        "hardware_gather"
+      ],
+      [
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline",
+        "unpack_shuffle"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "vector_pointers",
+        "hardware_gather"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "vector_pointers",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle",
+        "baseline",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "no_prefetch",
+        "vector_pointers",
+        "baseline",
+        "hardware_gather",
+        "unpack_shuffle"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline",
+        "no_prefetch",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline",
+        "no_prefetch",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather"
+      ],
+      [
+        "no_prefetch",
+        "hardware_gather",
+        "baseline",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "no_prefetch",
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "vector_pointers"
+      ],
+      [
+        "hardware_gather",
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "vector_pointers",
+        "baseline",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "vector_pointers",
+        "baseline",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "no_prefetch",
+        "baseline",
+        "hardware_gather"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers",
+        "hardware_gather"
+      ],
+      [
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline"
+      ]
+    ],
+    "timings": {
+      "baseline": {
+        "median_us": 268.805,
+        "samples_us": [
+          279.516,
+          285.702,
+          280.225,
+          274.886,
+          262.92,
+          261.749,
+          268.55,
+          270.71,
+          280.592,
+          275.602,
+          273.784,
+          275.424,
+          270.248,
+          258.872,
+          261.496,
+          269.674,
+          271.403,
+          263.403,
+          274.272,
+          275.872,
+          258.403,
+          279.688,
+          269.497,
+          275.766,
+          268.436,
+          266.887,
+          269.402,
+          270.003,
+          268.069,
+          267.308,
+          264.622,
+          268.525,
+          268.805,
+          268.518,
+          270.886,
+          263.192,
+          264.268,
+          263.917,
+          265.258,
+          260.338,
+          266.214
+        ]
+      },
+      "vector_pointers": {
+        "median_us": 266.968,
+        "samples_us": [
+          299.871,
+          269.896,
+          271.706,
+          276.092,
+          260.107,
+          271.966,
+          272.521,
+          273.251,
+          281.385,
+          264.286,
+          285.708,
+          260.514,
+          288.356,
+          258.904,
+          262.977,
+          272.099,
+          261.157,
+          274.462,
+          261.338,
+          263.158,
+          264.249,
+          262.14,
+          271.012,
+          265.995,
+          257.0,
+          255.582,
+          275.437,
+          278.788,
+          282.065,
+          254.743,
+          277.469,
+          253.691,
+          254.566,
+          266.968,
+          270.562,
+          272.388,
+          258.103,
+          255.591,
+          263.485,
+          268.748,
+          262.376
+        ]
+      },
+      "unpack_shuffle": {
+        "median_us": 264.005,
+        "samples_us": [
+          269.468,
+          262.651,
+          274.231,
+          271.234,
+          259.778,
+          269.428,
+          259.179,
+          269.238,
+          263.496,
+          264.549,
+          278.894,
+          262.04,
+          274.136,
+          273.075,
+          269.771,
+          285.145,
+          257.76,
+          270.936,
+          256.855,
+          263.52,
+          265.41,
+          279.703,
+          261.497,
+          274.038,
+          260.886,
+          259.381,
+          262.526,
+          253.87,
+          261.507,
+          258.882,
+          264.005,
+          272.95,
+          266.556,
+          260.726,
+          270.278,
+          264.716,
+          282.253,
+          257.03,
+          257.68,
+          255.257,
+          257.645
+        ]
+      },
+      "hardware_gather": {
+        "median_us": 316.588,
+        "samples_us": [
+          318.293,
+          323.482,
+          323.558,
+          319.359,
+          327.94,
+          314.943,
+          327.138,
+          315.375,
+          318.714,
+          317.471,
+          324.735,
+          313.165,
+          327.449,
+          315.725,
+          315.89,
+          318.063,
+          312.751,
+          320.772,
+          307.067,
+          329.225,
+          320.042,
+          318.96,
+          311.089,
+          316.588,
+          316.013,
+          329.178,
+          313.004,
+          308.322,
+          305.691,
+          311.803,
+          317.83,
+          308.87,
+          310.597,
+          308.367,
+          322.955,
+          317.023,
+          314.423,
+          313.036,
+          312.657,
+          313.25,
+          324.706
+        ]
+      },
+      "no_prefetch": {
+        "median_us": 287.817,
+        "samples_us": [
+          292.115,
+          300.341,
+          282.864,
+          284.463,
+          283.688,
+          294.524,
+          294.799,
+          291.549,
+          293.662,
+          292.182,
+          280.653,
+          301.558,
+          291.72,
+          302.548,
+          287.837,
+          291.132,
+          303.501,
+          295.53,
+          281.781,
+          284.163,
+          280.751,
+          288.264,
+          284.652,
+          285.076,
+          280.338,
+          286.057,
+          287.261,
+          281.45,
+          283.579,
+          282.476,
+          281.989,
+          274.733,
+          288.188,
+          290.988,
+          292.709,
+          279.355,
+          279.286,
+          285.36,
+          289.113,
+          290.034,
+          287.817
+        ]
+      }
+    }
+  },
+  "pregathered_hot": {
+    "order": [
+      [
+        "no_prefetch",
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "no_prefetch",
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "no_prefetch",
+        "vector_pointers",
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "hardware_gather",
+        "baseline",
+        "unpack_shuffle",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle"
+      ],
+      [
+        "baseline",
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers"
+      ],
+      [
+        "no_prefetch",
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "baseline",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "unpack_shuffle",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "no_prefetch",
+        "vector_pointers"
+      ],
+      [
+        "hardware_gather",
+        "baseline",
+        "unpack_shuffle",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers"
+      ],
+      [
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers",
+        "hardware_gather",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "baseline",
+        "vector_pointers",
+        "hardware_gather",
+        "unpack_shuffle",
+        "no_prefetch"
+      ],
+      [
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "no_prefetch",
+        "hardware_gather",
+        "vector_pointers",
+        "baseline"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "no_prefetch"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline",
+        "hardware_gather",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "unpack_shuffle",
+        "hardware_gather",
+        "vector_pointers",
+        "baseline",
+        "no_prefetch"
+      ],
+      [
+        "baseline",
+        "hardware_gather",
+        "vector_pointers",
+        "no_prefetch",
+        "unpack_shuffle"
+      ],
+      [
+        "no_prefetch",
+        "hardware_gather",
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "hardware_gather",
+        "no_prefetch",
+        "unpack_shuffle",
+        "baseline"
+      ],
+      [
+        "no_prefetch",
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather",
+        "vector_pointers"
+      ],
+      [
+        "vector_pointers",
+        "no_prefetch",
+        "baseline",
+        "unpack_shuffle",
+        "hardware_gather"
+      ],
+      [
+        "vector_pointers",
+        "unpack_shuffle",
+        "no_prefetch",
+        "baseline",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "baseline",
+        "vector_pointers",
+        "no_prefetch",
+        "hardware_gather"
+      ],
+      [
+        "unpack_shuffle",
+        "vector_pointers",
+        "baseline",
+        "hardware_gather",
+        "no_prefetch"
+      ]
+    ],
+    "timings": {
+      "baseline": {
+        "median_us": 117.251,
+        "samples_us": [
+          117.448,
+          117.631,
+          117.076,
+          117.159,
+          120.084,
+          117.494,
+          118.991,
+          117.741,
+          119.07,
+          117.316,
+          117.301,
+          117.513,
+          116.879,
+          116.966,
+          117.128,
+          116.657,
+          117.063,
+          116.938,
+          117.206,
+          116.721,
+          116.809,
+          120.3,
+          116.629,
+          117.246,
+          117.251,
+          116.912,
+          117.254,
+          117.097,
+          117.003,
+          116.284,
+          117.564,
+          117.858,
+          120.59,
+          116.804,
+          117.325,
+          116.543,
+          117.909,
+          117.294,
+          116.608,
+          117.42,
+          118.053
+        ]
+      },
+      "vector_pointers": {
+        "median_us": 116.358,
+        "samples_us": [
+          118.426,
+          116.53,
+          116.022,
+          116.813,
+          115.936,
+          116.239,
+          116.562,
+          117.036,
+          116.954,
+          117.109,
+          116.037,
+          117.052,
+          116.273,
+          115.889,
+          117.043,
+          115.908,
+          115.915,
+          116.093,
+          117.202,
+          116.288,
+          117.309,
+          116.307,
+          116.066,
+          116.436,
+          116.085,
+          116.752,
+          116.358,
+          116.213,
+          115.758,
+          116.355,
+          116.011,
+          118.111,
+          116.839,
+          115.472,
+          116.446,
+          116.333,
+          116.534,
+          116.905,
+          116.161,
+          119.546,
+          117.027
+        ]
+      },
+      "unpack_shuffle": {
+        "median_us": 117.374,
+        "samples_us": [
+          117.948,
+          117.965,
+          117.417,
+          117.325,
+          118.661,
+          117.8,
+          117.388,
+          117.396,
+          123.848,
+          116.788,
+          116.644,
+          123.662,
+          117.273,
+          117.65,
+          117.704,
+          116.2,
+          118.902,
+          117.083,
+          116.957,
+          116.992,
+          117.715,
+          117.374,
+          116.462,
+          117.213,
+          117.074,
+          117.432,
+          119.277,
+          116.926,
+          117.066,
+          117.096,
+          117.491,
+          116.661,
+          116.391,
+          116.983,
+          118.738,
+          116.839,
+          117.95,
+          119.706,
+          116.795,
+          137.328,
+          116.994
+        ]
+      },
+      "hardware_gather": {
+        "median_us": 130.298,
+        "samples_us": [
+          131.794,
+          130.828,
+          133.773,
+          130.418,
+          130.985,
+          130.708,
+          130.664,
+          129.67,
+          130.012,
+          130.31,
+          129.444,
+          130.097,
+          129.972,
+          130.331,
+          131.451,
+          129.973,
+          129.724,
+          129.904,
+          129.676,
+          132.684,
+          129.69,
+          130.67,
+          132.352,
+          130.186,
+          132.672,
+          129.99,
+          130.312,
+          136.741,
+          129.71,
+          133.008,
+          129.457,
+          130.035,
+          129.798,
+          129.894,
+          130.747,
+          131.273,
+          129.846,
+          129.837,
+          129.915,
+          130.298,
+          130.298
+        ]
+      },
+      "no_prefetch": {
+        "median_us": 114.613,
+        "samples_us": [
+          117.198,
+          117.504,
+          114.57,
+          114.49,
+          114.931,
+          113.966,
+          114.613,
+          119.128,
+          114.291,
+          116.637,
+          113.769,
+          114.425,
+          117.042,
+          114.743,
+          118.598,
+          114.723,
+          114.438,
+          115.849,
+          113.74,
+          114.7,
+          114.278,
+          114.679,
+          114.648,
+          114.355,
+          114.143,
+          114.832,
+          115.056,
+          115.022,
+          114.229,
+          114.107,
+          114.303,
+          113.819,
+          115.014,
+          114.149,
+          114.537,
+          114.273,
+          117.39,
+          114.663,
+          114.589,
+          115.149,
+          114.246
+        ]
+      }
+    }
+  },
+  "pregathered_cold_profile": {
+    "baseline": [
+      {
+        "wall_us": 296.557,
+        "worker_mean_us": [
+          137.2091646771878,
+          46.4615150121972,
+          26.211608201265335,
+          28.171154554001987
+        ],
+        "critical_us": [
+          152.95203775167465,
+          45.71676254272461,
+          23.46280962228775,
+          25.131739675998688
+        ]
+      },
+      {
+        "wall_us": 282.8,
+        "worker_mean_us": [
+          133.14808893483132,
+          43.95813448354602,
+          27.247180696576834,
+          25.71016375441104
+        ],
+        "critical_us": [
+          145.9512859582901,
+          47.38569259643555,
+          23.601576685905457,
+          25.26119351387024
+        ]
+      },
+      {
+        "wall_us": 270.332,
+        "worker_mean_us": [
+          125.73078856803477,
+          45.94225902110338,
+          27.68737613223493,
+          25.591158191673458
+        ],
+        "critical_us": [
+          135.08833944797516,
+          45.84155976772308,
+          26.316381990909576,
+          25.44466406106949
+        ]
+      },
+      {
+        "wall_us": 264.205,
+        "worker_mean_us": [
+          119.6205266751349,
+          45.15203181654215,
+          26.522582629695535,
+          25.585308321751654
+        ],
+        "critical_us": [
+          132.60357081890106,
+          45.96170037984848,
+          23.487955331802368,
+          25.073997676372528
+        ]
+      },
+      {
+        "wall_us": 265.157,
+        "worker_mean_us": [
+          117.61728092096746,
+          46.298649976961315,
+          27.10697299335152,
+          25.670116883702576
+        ],
+        "critical_us": [
+          130.45407831668854,
+          46.066008508205414,
+          23.04278314113617,
+          25.86841583251953
+        ]
+      },
+      {
+        "wall_us": 260.978,
+        "worker_mean_us": [
+          114.01211668271571,
+          45.873079216107726,
+          27.53877197392285,
+          26.017965865321457
+        ],
+        "critical_us": [
+          128.917396068573,
+          45.8965077996254,
+          23.531727492809296,
+          25.48564225435257
+        ]
+      },
+      {
+        "wall_us": 259.11,
+        "worker_mean_us": [
+          113.70009451638907,
+          45.96698272507638,
+          27.142988983541727,
+          25.649467715993524
+        ],
+        "critical_us": [
+          125.71830302476883,
+          45.822933316230774,
+          23.405998945236206,
+          26.12639218568802
+        ]
+      },
+      {
+        "wall_us": 272.43,
+        "worker_mean_us": [
+          126.3635786017403,
+          46.073037083260715,
+          26.997702661901712,
+          25.968198315240443
+        ],
+        "critical_us": [
+          138.0639150738716,
+          45.457854866981506,
+          23.01391214132309,
+          29.350630939006805
+        ]
+      },
+      {
+        "wall_us": 272.387,
+        "worker_mean_us": [
+          125.08225336205214,
+          45.87872535921633,
+          28.41625246219337,
+          25.67793126218021
+        ],
+        "critical_us": [
+          140.2953639626503,
+          45.74377089738846,
+          22.757798433303833,
+          25.426968932151794
+        ]
+      }
+    ],
+    "vector_pointers": [
+      {
+        "wall_us": 272.675,
+        "worker_mean_us": [
+          118.90742462128401,
+          47.168388846330345,
+          28.977738111279905,
+          28.294249204918742
+        ],
+        "critical_us": [
+          117.55898594856262,
+          61.456114053726196,
+          29.44003790616989,
+          24.390406906604767
+        ]
+      },
+      {
+        "wall_us": 274.352,
+        "worker_mean_us": [
+          119.70351624768227,
+          50.8254743181169,
+          28.78460509236902,
+          29.113973141647875
+        ],
+        "critical_us": [
+          129.4882968068123,
+          55.480748414993286,
+          22.972002625465393,
+          29.35156226158142
+        ]
+      },
+      {
+        "wall_us": 283.631,
+        "worker_mean_us": [
+          133.37910058908165,
+          45.63943366520107,
+          27.040267013944685,
+          25.74562677182257
+        ],
+        "critical_us": [
+          145.75570821762085,
+          46.40873521566391,
+          22.982247173786163,
+          25.892630219459534
+        ]
+      },
+      {
+        "wall_us": 282.73,
+        "worker_mean_us": [
+          135.52150630857795,
+          45.72515899781138,
+          26.72836126293987,
+          27.79894566629082
+        ],
+        "critical_us": [
+          147.48238027095795,
+          45.952387154102325,
+          23.38271588087082,
+          26.294030249118805
+        ]
+      },
+      {
+        "wall_us": 261.439,
+        "worker_mean_us": [
+          116.48368672467768,
+          46.367640607059,
+          26.96868614293635,
+          25.752364308573306
+        ],
+        "critical_us": [
+          125.77418237924576,
+          45.78102380037308,
+          25.42603760957718,
+          26.23908221721649
+        ]
+      },
+      {
+        "wall_us": 257.988,
+        "worker_mean_us": [
+          112.78010788373649,
+          46.10186442732811,
+          27.492627850733697,
+          25.564731913618743
+        ],
+        "critical_us": [
+          121.57391756772995,
+          45.41222006082535,
+          27.73664891719818,
+          25.6439670920372
+        ]
+      },
+      {
+        "wall_us": 261.006,
+        "worker_mean_us": [
+          115.85319589357823,
+          46.228960854932666,
+          26.90781548153609,
+          25.77745181042701
+        ],
+        "critical_us": [
+          123.15157800912857,
+          45.83224654197693,
+          26.94409340620041,
+          27.618370950222015
+        ]
+      },
+      {
+        "wall_us": 275.442,
+        "worker_mean_us": [
+          130.2559394389391,
+          46.061642933636904,
+          27.286383556202054,
+          25.985194952227175
+        ],
+        "critical_us": [
+          141.92424714565277,
+          45.272521674633026,
+          22.911466658115387,
+          28.060749173164368
+        ]
+      },
+      {
+        "wall_us": 268.873,
+        "worker_mean_us": [
+          124.03946311678737,
+          46.01148248184472,
+          26.85167419258505,
+          26.18732105474919
+        ],
+        "critical_us": [
+          133.41475278139114,
+          46.71327769756317,
+          25.344081223011017,
+          25.743618607521057
+        ]
+      }
+    ],
+    "unpack_shuffle": [
+      {
+        "wall_us": 264.893,
+        "worker_mean_us": [
+          117.65703675337136,
+          45.015010982751846,
+          26.824549422599375,
+          26.003312086686492
+        ],
+        "critical_us": [
+          124.45077300071716,
+          44.82641816139221,
+          23.41344952583313,
+          32.72201865911484
+        ]
+      },
+      {
+        "wall_us": 284.09,
+        "worker_mean_us": [
+          128.442989080213,
+          51.167444325983524,
+          27.944828616455197,
+          28.114794986322522
+        ],
+        "critical_us": [
+          137.8823071718216,
+          54.69750612974167,
+          24.615786969661713,
+          28.794631361961365
+        ]
+      },
+      {
+        "wall_us": 269.773,
+        "worker_mean_us": [
+          113.3749756263569,
+          51.13129736855626,
+          30.35737609025091,
+          26.41731407493353
+        ],
+        "critical_us": [
+          119.81558054685593,
+          57.34153091907501,
+          26.232562959194183,
+          25.209970772266388
+        ]
+      },
+      {
+        "wall_us": 283.879,
+        "worker_mean_us": [
+          124.56349213607609,
+          46.01478576660156,
+          26.949943276122212,
+          26.146997697651386
+        ],
+        "critical_us": [
+          139.58103954792023,
+          45.612454414367676,
+          22.652558982372284,
+          28.624199330806732
+        ]
+      },
+      {
+        "wall_us": 273.754,
+        "worker_mean_us": [
+          120.99572631996125,
+          45.811597374267876,
+          26.43201150931418,
+          25.912595447152853
+        ],
+        "critical_us": [
+          119.88822370767593,
+          49.260444939136505,
+          24.762004613876343,
+          37.1299684047699
+        ]
+      },
+      {
+        "wall_us": 262.637,
+        "worker_mean_us": [
+          116.47703649941832,
+          45.99585372488946,
+          27.73031883407384,
+          25.929839466698468
+        ],
+        "critical_us": [
+          129.31972742080688,
+          46.00081592798233,
+          23.216940462589264,
+          25.68308264017105
+        ]
+      },
+      {
+        "wall_us": 262.943,
+        "worker_mean_us": [
+          117.58512118831277,
+          46.06239963322878,
+          26.62179758772254,
+          26.218098355457187
+        ],
+        "critical_us": [
+          119.80347335338593,
+          46.52421921491623,
+          27.553178369998932,
+          31.52713179588318
+        ]
+      },
+      {
+        "wall_us": 273.336,
+        "worker_mean_us": [
+          126.95502664428204,
+          45.99406383931637,
+          26.987792807631195,
+          25.974863092415035
+        ],
+        "critical_us": [
+          139.34168964624405,
+          46.17869853973389,
+          23.52241426706314,
+          25.698915123939514
+        ]
+      },
+      {
+        "wall_us": 260.682,
+        "worker_mean_us": [
+          116.60266318358481,
+          46.234228648245335,
+          26.94684371817857,
+          26.060399250127375
+        ],
+        "critical_us": [
+          127.02774256467819,
+          46.27835005521774,
+          25.760382413864136,
+          25.00321716070175
+        ]
+      }
+    ],
+    "hardware_gather": [
+      {
+        "wall_us": 308.944,
+        "worker_mean_us": [
+          160.7682934263721,
+          45.101449359208345,
+          25.35831299610436,
+          26.046662242151797
+        ],
+        "critical_us": [
+          179.169699549675,
+          44.1279262304306,
+          22.266991436481476,
+          25.602057576179504
+        ]
+      },
+      {
+        "wall_us": 321.624,
+        "worker_mean_us": [
+          165.13072478119284,
+          48.276167945005,
+          28.824928449466825,
+          28.989568818360567
+        ],
+        "critical_us": [
+          179.53477799892426,
+          56.438148021698,
+          23.71426671743393,
+          25.129877030849457
+        ]
+      },
+      {
+        "wall_us": 312.699,
+        "worker_mean_us": [
+          161.60988889168948,
+          45.08938582148403,
+          29.997594538144767,
+          25.8950749412179
+        ],
+        "critical_us": [
+          176.26862972974777,
+          46.440400183200836,
+          23.273751139640808,
+          28.287991881370544
+        ]
+      },
+      {
+        "wall_us": 312.765,
+        "worker_mean_us": [
+          165.1806669542566,
+          45.62402318697423,
+          25.870249373838305,
+          25.773915695026517
+        ],
+        "critical_us": [
+          184.11409109830856,
+          43.87553781270981,
+          23.048371076583862,
+          25.218352675437927
+        ]
+      },
+      {
+        "wall_us": 302.328,
+        "worker_mean_us": [
+          156.56249888706952,
+          45.68191070575267,
+          25.34815575927496,
+          25.850749807432294
+        ],
+        "critical_us": [
+          169.05181109905243,
+          44.656917452812195,
+          23.964792490005493,
+          25.539658963680267
+        ]
+      },
+      {
+        "wall_us": 303.615,
+        "worker_mean_us": [
+          156.7046856507659,
+          45.797452912665904,
+          25.447108782827854,
+          25.730783818289638
+        ],
+        "critical_us": [
+          169.8918640613556,
+          45.77450454235077,
+          22.86955714225769,
+          28.49288284778595
+        ]
+      },
+      {
+        "wall_us": 320.568,
+        "worker_mean_us": [
+          168.6956820776686,
+          45.730601414106786,
+          25.266417651437223,
+          26.13422111608088
+        ],
+        "critical_us": [
+          183.5683360695839,
+          46.49534821510315,
+          22.411346435546875,
+          28.81232649087906
+        ]
+      },
+      {
+        "wall_us": 311.178,
+        "worker_mean_us": [
+          162.20366524066776,
+          45.74783088173717,
+          25.261746486648917,
+          26.192705263383687
+        ],
+        "critical_us": [
+          180.04979938268661,
+          45.90209573507309,
+          22.57898449897766,
+          25.19320696592331
+        ]
+      },
+      {
+        "wall_us": 320.823,
+        "worker_mean_us": [
+          165.29540880583227,
+          46.17306694854051,
+          27.08093961700797,
+          30.522161978296936
+        ],
+        "critical_us": [
+          176.73149704933167,
+          44.704414904117584,
+          30.85564821958542,
+          31.105242669582367
+        ]
+      }
+    ],
+    "no_prefetch": [
+      {
+        "wall_us": 299.891,
+        "worker_mean_us": [
+          149.04863201081753,
+          46.08315066434443,
+          27.1978642558679,
+          25.947170797735453
+        ],
+        "critical_us": [
+          169.12724822759628,
+          45.91792821884155,
+          22.72985875606537,
+          24.750828742980957
+        ]
+      },
+      {
+        "wall_us": 287.201,
+        "worker_mean_us": [
+          136.21817925013602,
+          45.990615035407245,
+          26.249283109791577,
+          26.192210498265922
+        ],
+        "critical_us": [
+          150.99532902240753,
+          46.518631279468536,
+          22.431835532188416,
+          28.538517653942108
+        ]
+      },
+      {
+        "wall_us": 277.889,
+        "worker_mean_us": [
+          128.71975195594132,
+          46.218003262765706,
+          26.783003704622388,
+          26.538167730905116
+        ],
+        "critical_us": [
+          147.00088649988174,
+          44.51721906661987,
+          23.37247133255005,
+          24.92126077413559
+        ]
+      },
+      {
+        "wall_us": 277.902,
+        "worker_mean_us": [
+          131.81462418287992,
+          45.85896385833621,
+          26.60389873199165,
+          26.202760636806488
+        ],
+        "critical_us": [
+          144.43602412939072,
+          46.42177373170853,
+          22.483989596366882,
+          28.331764042377472
+        ]
+      },
+      {
+        "wall_us": 284.87,
+        "worker_mean_us": [
+          136.4583586109802,
+          46.158660552464426,
+          26.912952307611704,
+          26.531692128628492
+        ],
+        "critical_us": [
+          147.21136540174484,
+          46.173110604286194,
+          23.06513488292694,
+          29.38695251941681
+        ]
+      },
+      {
+        "wall_us": 286.392,
+        "worker_mean_us": [
+          136.9983801851049,
+          45.95785867422819,
+          26.744251954369247,
+          26.731242542155087
+        ],
+        "critical_us": [
+          147.71241694688797,
+          46.570785343647,
+          22.47001975774765,
+          32.02911466360092
+        ]
+      },
+      {
+        "wall_us": 297.379,
+        "worker_mean_us": [
+          145.42503049597144,
+          46.07209120877087,
+          26.286885258741677,
+          26.33228723425418
+        ],
+        "critical_us": [
+          164.88507390022278,
+          46.17031663656235,
+          22.54452556371689,
+          25.50799399614334
+        ]
+      },
+      {
+        "wall_us": 293.353,
+        "worker_mean_us": [
+          138.1358742946759,
+          48.77148603554815,
+          27.974136173725128,
+          28.360766009427607
+        ],
+        "critical_us": [
+          158.32297503948212,
+          46.01292312145233,
+          22.940337657928467,
+          28.975307941436768
+        ]
+      },
+      {
+        "wall_us": 291.394,
+        "worker_mean_us": [
+          138.9528624713421,
+          46.078203013166785,
+          26.524649001657963,
+          26.231573428958654
+        ],
+        "critical_us": [
+          159.26361083984375,
+          44.72024738788605,
+          22.04999327659607,
+          28.273090720176697
+        ]
+      }
+    ]
+  },
+  "affinity": [
+    [
+      0
+    ],
+    [
+      1
+    ],
+    [
+      2
+    ],
+    [
+      3
+    ],
+    [
+      4
+    ],
+    [
+      5
+    ],
+    [
+      6
+    ],
+    [
+      7
+    ],
+    [
+      8
+    ],
+    [
+      9
+    ],
+    [
+      10
+    ],
+    [
+      11
+    ],
+    [
+      12
+    ],
+    [
+      13
+    ],
+    [
+      14
+    ],
+    [
+      15
+    ],
+    [
+      16
+    ],
+    [
+      17
+    ],
+    [
+      18
+    ],
+    [
+      19
+    ],
+    [
+      20
+    ],
+    [
+      21
+    ],
+    [
+      22
+    ],
+    [
+      23
+    ],
+    [
+      24
+    ],
+    [
+      25
+    ],
+    [
+      26
+    ],
+    [
+      27
+    ],
+    [
+      28
+    ],
+    [
+      29
+    ],
+    [
+      30
+    ],
+    [
+      31
+    ],
+    [
+      32
+    ],
+    [
+      33
+    ],
+    [
+      34
+    ],
+    [
+      35
+    ],
+    [
+      36
+    ],
+    [
+      37
+    ],
+    [
+      38
+    ],
+    [
+      39
+    ],
+    [
+      40
+    ],
+    [
+      41
+    ],
+    [
+      42
+    ],
+    [
+      43
+    ],
+    [
+      44
+    ],
+    [
+      45
+    ],
+    [
+      46
+    ],
+    [
+      47
+    ],
+    [
+      48
+    ],
+    [
+      49
+    ],
+    [
+      50
+    ],
+    [
+      51
+    ],
+    [
+      52
+    ],
+    [
+      53
+    ],
+    [
+      54
+    ],
+    [
+      55
+    ],
+    [
+      56
+    ],
+    [
+      57
+    ],
+    [
+      58
+    ],
+    [
+      59
+    ],
+    [
+      60
+    ],
+    [
+      61
+    ],
+    [
+      62
+    ],
+    [
+      63
+    ]
+  ]
+}

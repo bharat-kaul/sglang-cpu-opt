@@ -5,6 +5,19 @@ Standalone C ABI / C++ implementation, not enabled in the serving model.
 saturation has NOT been achieved.** The remaining cost is mostly gathered data
 movement / packing, not AMX arithmetic.
 
+## Gather / shuffle exploration
+
+An EMR experiment compared explicit AVX-512 pointer setup, unpack/shuffle packing,
+hardware gather plus transpose, and removal of prefetch against the current core.
+**The production kernel remains unchanged.** The pointer loop already compiles
+to AVX-512; explicit intrinsics changed cold latency by less than 1%. Alternative
+packing was effectively tied. Hardware gather was **15-19% slower**, and removing
+prefetch was **6-7% slower** on cold inputs.
+
+[Experiment, methodology, bitwise tests and per-process results](results/gather_exploration/README.md).
+These are BF16-versus-BF16 comparisons with identical allocation/timing policy
+across candidates, not updated measurements against FP32.
+
 ## Latest comparison: matched input/output allocation policy
 
 **Both implementations follow the original FP32 allocation and timing policy.**

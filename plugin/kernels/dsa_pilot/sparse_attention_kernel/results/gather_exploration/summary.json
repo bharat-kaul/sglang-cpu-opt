@@ -1,0 +1,403 @@
+{
+  "node": "pcl-sprh16.sc.intel.com",
+  "job": "395103",
+  "build": {
+    "flags": [
+      "-O3",
+      "-fopenmp",
+      "-march=sapphirerapids",
+      "-mprefer-vector-width=512",
+      "-std=c++17",
+      "-fno-math-errno",
+      "-ffp-contract=off",
+      "-Werror=aggressive-loop-optimizations"
+    ],
+    "baseline_sha256": "013ac2b16a665ec2eb510bf71ba14864dd8cef2e225ccfc85aabb854dcbe0b39",
+    "experiment_sha256": "b7bf2cdbe3afae2857fd19c42e2a374ddea85a5a78179e8aab4c38ec9f19a7e2",
+    "helpers": {
+      "bench.py": "c8e073c3374f244e8392db3e40544ca88c5f84aaf785631b5da741708484801c",
+      "bench_matched_allocations.py": "5b7de8cd72f94d037114d322c011f999c3c0c44254810a6ebe8065f4671fd436",
+      "run_gather_exploration.sh": "913ec741f45f209f6531ffd0b15e3bda0b0e4b6ee5d1d6d7a43055b240fd0171",
+      "sparse_attn.h": "22349a94e5ffc8e0fec21016b238725e4cd26da49c47122b94678f7a57c6ee13"
+    },
+    "compiler": "g++ (GCC) 14.3.1 20251022 (Red Hat 14.3.1-4)",
+    "variants": {
+      "baseline": {
+        "source_sha256": "fae3d19213ba65b1614ed156e75e1a9efa7dc9935788000302a1fbbef54cb334",
+        "binary_sha256": "3a3fc2779175a54f240e4b9dd79bb5679295a219f7f50583b0d01fbe43fe9dd2",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 10,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 16,
+          "prefetcht0": 320,
+          "tdpbf16ps": 136
+        }
+      },
+      "vector_pointers": {
+        "source_sha256": "3201f7f3b81f32f46d33bb9b2a003df9833fe9365364521799bcca5c3b8b5890",
+        "binary_sha256": "6163beb0d4ea55ca8ad6df8bf9a4adfe23a7a89bfe704850d105b1c671ca2dab",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 8,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 16,
+          "prefetcht0": 320,
+          "tdpbf16ps": 136
+        }
+      },
+      "unpack_shuffle": {
+        "source_sha256": "e7fd9f1258b940a68dcb9e45395a34794ff8534316119732d26f96ee7c5847b4",
+        "binary_sha256": "246043ec933f258a1d5d4ad8706e4f04535731c0408f97d1d5e425c5e00834ad",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 2,
+          "vpermi2w": 0,
+          "vpunpcklwd": 4,
+          "vpermt2q": 8,
+          "vpmovsxdq": 16,
+          "prefetcht0": 320,
+          "tdpbf16ps": 136
+        }
+      },
+      "hardware_gather": {
+        "source_sha256": "cc48b4831e681153c48af74a0beacdecfed0672ffd79a01ba76cef345791998b",
+        "binary_sha256": "c77af9a9878a398eef10db07510dbadff7b84b0bdd237eef9b68a7f37aadcc92",
+        "instructions": {
+          "vpgatherdd": 32,
+          "vpermt2w": 66,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 0,
+          "prefetcht0": 0,
+          "tdpbf16ps": 136
+        }
+      },
+      "no_prefetch": {
+        "source_sha256": "fc83074192eac41337b562ca78adb3db5e4ec180b4d023dc1e5fac8b61ef2a85",
+        "binary_sha256": "c4ea63ab27874056c4bb2fbc0c53ff815fbc34d19766c1ff3676201e7b55b64b",
+        "instructions": {
+          "vpgatherdd": 0,
+          "vpermt2w": 6,
+          "vpermi2w": 0,
+          "vpunpcklwd": 0,
+          "vpermt2q": 0,
+          "vpmovsxdq": 16,
+          "prefetcht0": 0,
+          "tdpbf16ps": 136
+        }
+      }
+    }
+  },
+  "shape": {
+    "B": 32,
+    "M": 1,
+    "H": 64,
+    "D": 512,
+    "S": 1024,
+    "K": 512
+  },
+  "contract": "All inputs prepared before timing; each variant allocates and releases output inside same Python/ctypes call. No FP32 timing comparison.",
+  "processes": [
+    1002449,
+    1002576,
+    1002710
+  ],
+  "estimator": "median of three process medians, each over 41 randomized paired calls",
+  "stage_cases_per_variant_per_process": 36,
+  "attention_cases_per_variant_per_process": 8,
+  "decision": "Keep production unchanged; small pointer/packing changes do not establish a substantial win.",
+  "indexed_cold": {
+    "baseline": {
+      "median_us": 292.106,
+      "process_medians_us": [
+        292.106,
+        298.035,
+        277.911
+      ],
+      "latency_change_pct": 0.0,
+      "per_process_change_pct": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "vector_pointers": {
+      "median_us": 290.224,
+      "process_medians_us": [
+        290.224,
+        295.973,
+        274.992
+      ],
+      "latency_change_pct": -0.644286663060667,
+      "per_process_change_pct": [
+        -0.644286663060667,
+        -0.6918650494069478,
+        -1.0503362587303111
+      ]
+    },
+    "unpack_shuffle": {
+      "median_us": 289.132,
+      "process_medians_us": [
+        289.132,
+        296.9,
+        276.368
+      ],
+      "latency_change_pct": -1.0181235578865189,
+      "per_process_change_pct": [
+        -1.0181235578865189,
+        -0.38082775512944256,
+        -0.555213719500125
+      ]
+    },
+    "hardware_gather": {
+      "median_us": 347.058,
+      "process_medians_us": [
+        347.058,
+        362.435,
+        339.25
+      ],
+      "latency_change_pct": 18.81234894182249,
+      "per_process_change_pct": [
+        18.81234894182249,
+        21.608200379150098,
+        22.07145453040722
+      ]
+    },
+    "no_prefetch": {
+      "median_us": 311.364,
+      "process_medians_us": [
+        311.364,
+        325.113,
+        303.23
+      ],
+      "latency_change_pct": 6.5928121983115595,
+      "per_process_change_pct": [
+        6.5928121983115595,
+        9.085510091096683,
+        9.110470618291465
+      ]
+    }
+  },
+  "indexed_hot": {
+    "baseline": {
+      "median_us": 127.699,
+      "process_medians_us": [
+        128.419,
+        127.699,
+        117.469
+      ],
+      "latency_change_pct": 0.0,
+      "per_process_change_pct": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "vector_pointers": {
+      "median_us": 126.791,
+      "process_medians_us": [
+        127.726,
+        126.791,
+        116.7
+      ],
+      "latency_change_pct": -0.7110470716293782,
+      "per_process_change_pct": [
+        -0.5396397729308111,
+        -0.7110470716293782,
+        -0.6546407988490488
+      ]
+    },
+    "unpack_shuffle": {
+      "median_us": 127.069,
+      "process_medians_us": [
+        128.345,
+        127.069,
+        117.196
+      ],
+      "latency_change_pct": -0.49334763780451985,
+      "per_process_change_pct": [
+        -0.057623871856982145,
+        -0.49334763780451985,
+        -0.23240174003353875
+      ]
+    },
+    "hardware_gather": {
+      "median_us": 139.025,
+      "process_medians_us": [
+        139.444,
+        139.025,
+        130.318
+      ],
+      "latency_change_pct": 8.869294199641352,
+      "per_process_change_pct": [
+        8.585178205717202,
+        8.869294199641352,
+        10.938204973226995
+      ]
+    },
+    "no_prefetch": {
+      "median_us": 125.469,
+      "process_medians_us": [
+        125.469,
+        125.673,
+        115.012
+      ],
+      "latency_change_pct": -1.7462940195303034,
+      "per_process_change_pct": [
+        -2.297167864568339,
+        -1.5865433558602593,
+        -2.09161566030186
+      ]
+    }
+  },
+  "pregathered_cold": {
+    "baseline": {
+      "median_us": 282.13,
+      "process_medians_us": [
+        284.353,
+        282.13,
+        268.805
+      ],
+      "latency_change_pct": 0.0,
+      "per_process_change_pct": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "vector_pointers": {
+      "median_us": 280.652,
+      "process_medians_us": [
+        280.652,
+        281.709,
+        266.968
+      ],
+      "latency_change_pct": -0.5238719739127373,
+      "per_process_change_pct": [
+        -1.301551240887211,
+        -0.14922198986282442,
+        -0.6833950261341815
+      ]
+    },
+    "unpack_shuffle": {
+      "median_us": 282.304,
+      "process_medians_us": [
+        282.304,
+        284.442,
+        264.005
+      ],
+      "latency_change_pct": 0.06167369652287924,
+      "per_process_change_pct": [
+        -0.7205832187457295,
+        0.8194803813844631,
+        -1.785681069920575
+      ]
+    },
+    "hardware_gather": {
+      "median_us": 323.666,
+      "process_medians_us": [
+        323.666,
+        331.544,
+        316.588
+      ],
+      "latency_change_pct": 14.722291142381172,
+      "per_process_change_pct": [
+        13.825421219399825,
+        17.5146209194343,
+        17.776083034169755
+      ]
+    },
+    "no_prefetch": {
+      "median_us": 298.141,
+      "process_medians_us": [
+        298.141,
+        304.687,
+        287.817
+      ],
+      "latency_change_pct": 5.675043419700154,
+      "per_process_change_pct": [
+        4.848902596420657,
+        7.995250416474686,
+        7.072785104443735
+      ]
+    }
+  },
+  "pregathered_hot": {
+    "baseline": {
+      "median_us": 127.36,
+      "process_medians_us": [
+        128.174,
+        127.36,
+        117.251
+      ],
+      "latency_change_pct": 0.0,
+      "per_process_change_pct": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "vector_pointers": {
+      "median_us": 126.173,
+      "process_medians_us": [
+        127.496,
+        126.173,
+        116.358
+      ],
+      "latency_change_pct": -0.932003768844214,
+      "per_process_change_pct": [
+        -0.5289684335356704,
+        -0.932003768844214,
+        -0.7616139734415883
+      ]
+    },
+    "unpack_shuffle": {
+      "median_us": 127.008,
+      "process_medians_us": [
+        128.45,
+        127.008,
+        117.374
+      ],
+      "latency_change_pct": -0.27638190954774045,
+      "per_process_change_pct": [
+        0.21533228267822668,
+        -0.27638190954774045,
+        0.10490315647626591
+      ]
+    },
+    "hardware_gather": {
+      "median_us": 140.205,
+      "process_medians_us": [
+        140.205,
+        140.565,
+        130.298
+      ],
+      "latency_change_pct": 10.085584170854279,
+      "per_process_change_pct": [
+        9.386459032253036,
+        10.368247487437188,
+        11.127410427203177
+      ]
+    },
+    "no_prefetch": {
+      "median_us": 124.42,
+      "process_medians_us": [
+        125.271,
+        124.42,
+        114.613
+      ],
+      "latency_change_pct": -2.308417085427139,
+      "per_process_change_pct": [
+        -2.2648899152714286,
+        -2.308417085427139,
+        -2.2498742014993467
+      ]
+    }
+  }
+}
