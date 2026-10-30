@@ -132,3 +132,18 @@ Every increment below passes this gate before any perf number is quoted, and shi
   shared team; (2) the C++ per-layer DRIVER that opens one coop_region and sequences the (now-cooperative)
   kernels; (3) wire into the forward + per-layer parity gate + e2e A/B. No e2e movement until a contiguous
   critical mass is in one region (L.11). The hard de-risking (does the mechanism work + stay bit-exact) is DONE.
+
+## First POSITIVE in-model e2e signal (job 395074) — vectorized MHC coop kernels wired (both boundary ops)
+With coop_hc_post + coop_hc_combine_rmsnorm (now AVX-512, 8x/56x faster than the torch glue) wired under
+COOP_MHC=1, decode A/B (within-job, back-to-back, 4 reps median, warm 32thr):
+  B=1 : 184.9 -> 184.7 ms  (flat; MHC a smaller fraction at B=1)
+  B=32: 704.5 -> **685.6 ms = +2.7% faster**
+This FLIPS the inc-4 scalar result (-6.6%) -> vectorization was the fix, as predicted. Mechanism: the ~60%
+barrier spin is workers waiting on the MAIN-THREAD serial glue; replacing slow torch glue (hc_post 1696us,
+combine+norm 251us) with fast kernels shortens that serial stretch -> less barrier wait, even WITHOUT the
+region-collapse driver. No fallbacks (coop kernels ran in-model). CAVEATS: +2.7% is modest and near the ~5%
+cross-job noise floor (the WITHIN-job back-to-back delta is the trustworthy part; baseline reproduced 704.9
+across jobs); only 2 of ~24 ops wired; the CHECK-leg in-model parity log was inconclusive (harness, not a
+fallback) — isolated parity is bit-exact (cos>=0.9999) + inc-4 in-model CHECK passed on identical math; re-confirm
+cleanly before default-on. COOP_MHC stays OFF by default. Signal: faster-glue + region-collapse are ADDITIVE
+levers on the same barrier; this banks the faster-glue portion.
