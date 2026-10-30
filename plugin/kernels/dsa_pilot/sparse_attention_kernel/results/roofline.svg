@@ -1,0 +1,9 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1120' height='172' font-family='sans-serif'>
+<rect width='1120' height='172' fill='white'/>
+<text x='210' y='26' font-size='18' font-weight='bold'>DSv4 sparse_attn ONLY (standalone kernel) — roofline vs measured (TF/s)</text>
+<text x='210' y='48' font-size='13' fill='#444'>Machine: pcl-sprh05.sc.intel.com; one socket, CPU 0-63, NUMA 0, no SMT  ·  BF16 operands/output, FP32 accumulation/softmax  ·  batch 32  ·  decode / rotating inputs larger than LLC  ·  M=1 H=64 D=512 S=1024 K=512; optimistic useful-byte lower bound</text>
+<rect x='210' y='62' width='14' height='14' fill='#9db4d0'/><text x='230' y='74' font-size='12'>roofline target</text><rect x='350' y='62' width='14' height='14' fill='#2f6f4f'/><text x='370' y='74' font-size='12'>measured</text>
+<text x='202' y='109.0' font-size='12' text-anchor='end'>sparse_attn (gather + packing + QK + softmax + PV) (100%)</text>
+<rect x='210' y='92' width='710.0' height='17.0' fill='#9db4d0'/>
+<rect x='210' y='109.0' width='162.5' height='17.0' fill='#2f6f4f'/><text x='926.0' y='113.0' font-size='11'>23% of achievable</text>
+</svg>

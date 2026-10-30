@@ -1,0 +1,251 @@
+{
+  "node": "pcl-sprh05.sc.intel.com",
+  "job": "394622",
+  "kernel_sha256": "013ac2b16a665ec2eb510bf71ba14864dd8cef2e225ccfc85aabb854dcbe0b39",
+  "paired_median_us": {
+    "amx_hot": 124.188,
+    "amx_cold": 289.082,
+    "fp32_pregathered_hot": 371.966,
+    "fp32_pregathered_cold": 578.224,
+    "fp32_with_gather_hot": 2301.12,
+    "fp32_with_gather_cold": 2749.415
+  },
+  "native_median_us": {
+    "hot": 118.086,
+    "cold": 261.612,
+    "stream": 312.244
+  },
+  "paired_speedup_hot": 2.995184719940735,
+  "paired_speedup_cold": 2.0002075535661166,
+  "useful_flops": 2147483648,
+  "useful_bytes": 21037312,
+  "ideal_memory_floor_us": 71.482541624193,
+  "resident_compute_floor_us": 15.09124137737175,
+  "streamed_useful_byte_roofline_efficiency": 0.22893167402477868,
+  "streamed_imc_gbs": 87.72360718349778,
+  "streamed_imc_bytes_per_call": 26748272.64,
+  "accuracy": [
+    {
+      "case": "normal",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 1534,
+        "bf16_bit_mismatches": 1534,
+        "elements": 1048576,
+        "cosine": 0.9999999954670347,
+        "max_abs": 0.001953125,
+        "relative_l2": 9.521519800816642e-05,
+        "relative_linf": 0.00392156862745098
+      },
+      "output_sha256": "c481c6273fead5a70c907c8047831f2dd8874059083fd3a149fe76fea811b03c",
+      "fp32_baseline": {
+        "finite": true,
+        "fp32_bit_mismatches": 1048556,
+        "bf16_bit_mismatches": 374663,
+        "elements": 1048576,
+        "cosine": 0.9999978614446736,
+        "max_abs": 0.001310110092163086,
+        "relative_l2": 0.0020681204118387438,
+        "relative_linf": 0.0026295225275190658
+      }
+    },
+    {
+      "case": "seed7",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 1890,
+        "bf16_bit_mismatches": 1890,
+        "elements": 1048576,
+        "cosine": 0.9999999925282632,
+        "max_abs": 0.001953125,
+        "relative_l2": 0.00012224368176782152,
+        "relative_linf": 0.00398406374501992
+      },
+      "fp32_baseline": {
+        "finite": true,
+        "fp32_bit_mismatches": 1048561,
+        "bf16_bit_mismatches": 374242,
+        "elements": 1048576,
+        "cosine": 0.9999978661472791,
+        "max_abs": 0.0013124942779541016,
+        "relative_l2": 0.002065847297265243,
+        "relative_linf": 0.0026716693128568444
+      }
+    },
+    {
+      "case": "sharp",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 618,
+        "bf16_bit_mismatches": 618,
+        "elements": 1048576,
+        "cosine": 0.9999999982425479,
+        "max_abs": 0.0625,
+        "relative_l2": 5.928665412292758e-05,
+        "relative_linf": 0.003067484662576687
+      },
+      "fp32_baseline": {
+        "finite": true,
+        "fp32_bit_mismatches": 1024381,
+        "bf16_bit_mismatches": 55942,
+        "elements": 1048576,
+        "cosine": 0.9999989519321576,
+        "max_abs": 0.058658599853515625,
+        "relative_l2": 0.0014504381988147512,
+        "relative_linf": 0.0028713685879708387
+      }
+    },
+    {
+      "case": "tail",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 8,
+        "bf16_bit_mismatches": 8,
+        "elements": 98304,
+        "cosine": 0.9999999991503882,
+        "max_abs": 0.001953125,
+        "relative_l2": 4.122228391881178e-05,
+        "relative_linf": 0.0017123287671232876
+      },
+      "fp32_baseline": {
+        "finite": true,
+        "fp32_bit_mismatches": 98302,
+        "bf16_bit_mismatches": 35058,
+        "elements": 98304,
+        "cosine": 0.9999978658249103,
+        "max_abs": 0.0037227869033813477,
+        "relative_l2": 0.002065997601250468,
+        "relative_linf": 0.0032691633489824808
+      }
+    },
+    {
+      "case": "masked_first_block",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 5,
+        "bf16_bit_mismatches": 5,
+        "elements": 65536,
+        "cosine": 0.9999999993928185,
+        "max_abs": 0.0009765625,
+        "relative_l2": 3.484777699307265e-05,
+        "relative_linf": 0.0009191176470588235
+      }
+    },
+    {
+      "case": "all_masked",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 0,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "relative_linf": 0.0
+      }
+    },
+    {
+      "case": "duplicate",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 0,
+        "bf16_bit_mismatches": 0,
+        "elements": 65536,
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "relative_linf": 0.0
+      },
+      "fp32_baseline": {
+        "finite": true,
+        "fp32_bit_mismatches": 65536,
+        "bf16_bit_mismatches": 0,
+        "elements": 65536,
+        "cosine": 0.9999985301317493,
+        "max_abs": 0.00780487060546875,
+        "relative_l2": 0.0017161799920326459,
+        "relative_linf": 0.0022532496807965118
+      }
+    },
+    {
+      "case": "empty",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 0,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "relative_linf": 0.0
+      }
+    },
+    {
+      "case": "large_sink",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 0,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 1.0,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "relative_linf": 0.0
+      }
+    },
+    {
+      "case": "one_key",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 0,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 1.0000000000000002,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "relative_linf": 0.0
+      },
+      "fp32_baseline": {
+        "finite": true,
+        "fp32_bit_mismatches": 32768,
+        "bf16_bit_mismatches": 0,
+        "elements": 32768,
+        "cosine": 0.9999986572365632,
+        "max_abs": 0.007460117340087891,
+        "relative_l2": 0.0016392817836056832,
+        "relative_linf": 0.002842175080528294
+      }
+    },
+    {
+      "case": "three_groups",
+      "block_reference": {
+        "finite": true,
+        "fp32_bit_mismatches": 70,
+        "bf16_bit_mismatches": 70,
+        "elements": 196608,
+        "cosine": 0.999999999081407,
+        "max_abs": 0.0009765625,
+        "relative_l2": 4.2862492525412196e-05,
+        "relative_linf": 0.0009689922480620155
+      },
+      "fp32_baseline": {
+        "finite": true,
+        "fp32_bit_mismatches": 196607,
+        "bf16_bit_mismatches": 72417,
+        "elements": 196608,
+        "cosine": 0.9999977629230361,
+        "max_abs": 0.0038824081420898438,
+        "relative_l2": 0.0021152576413989844,
+        "relative_linf": 0.003837528597647711
+      }
+    }
+  ],
+  "thread_count_bitwise_determinism": true,
+  "ubsan_trap_mode": "PASS",
+  "verdict": {
+    "faster_than_465us": true,
+    "mixed_precision_accuracy": "PASS (not bit-identical to FP32)",
+    "bandwidth_saturation": "NOT ACHIEVED",
+    "scope": "standalone kernel only; no end-to-end model validation"
+  }
+}

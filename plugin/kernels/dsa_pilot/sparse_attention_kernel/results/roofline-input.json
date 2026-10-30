@@ -1,0 +1,20 @@
+{
+  "model": "DSv4 sparse_attn ONLY (standalone kernel)",
+  "node": "pcl-sprh05.sc.intel.com; one socket, CPU 0-63, NUMA 0, no SMT",
+  "precision": "BF16 operands/output, FP32 accumulation/softmax",
+  "batch": 32,
+  "phase": "decode / rotating inputs larger than LLC",
+  "unit": "TF/s",
+  "params": "M=1 H=64 D=512 S=1024 K=512; optimistic useful-byte lower bound",
+  "model_roofline_target": 30.042071801112233,
+  "model_measured": 6.877581788601222,
+  "ops": [
+    {
+      "op": "sparse_attn (gather + packing + QK + softmax + PV)",
+      "roofline_target": 30.042071801112233,
+      "measured": 6.877581788601222,
+      "share_pct": 100,
+      "regime": "memory"
+    }
+  ]
+}

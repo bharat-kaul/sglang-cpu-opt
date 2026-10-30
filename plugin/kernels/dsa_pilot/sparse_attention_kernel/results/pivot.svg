@@ -1,0 +1,26 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1180' height='272' font-family='sans-serif'>
+<rect width='1180' height='272' fill='white'/>
+<text x='90' y='30' font-size='18' font-weight='bold'>DSv4 sparse_attn ONLY (standalone kernel) — time attribution (share of wall-time, per phase)</text>
+<text x='90' y='52' font-size='13' fill='#444'>pcl-sprh05.sc.intel.com; one socket, CPU 0-63, NUMA 0, no SMT · BF16 operands/output, FP32 accumulation/softmax · batch 32 · each bar = 100%</text>
+<rect x='90' y='62' width='13' height='13' fill='#2f6f4f'/><text x='107' y='73' font-size='11'>kernel</text>
+<rect x='185' y='62' width='13' height='13' fill='#9db4d0'/><text x='202' y='73' font-size='11'>torch</text>
+<rect x='280' y='62' width='13' height='13' fill='#d08c3c'/><text x='297' y='73' font-size='11'>framework</text>
+<rect x='375' y='62' width='13' height='13' fill='#b9b9b9'/><text x='392' y='73' font-size='11'>other</text>
+<text x='90' y='86' font-size='14' font-weight='bold'>decode</text>
+<rect x='90.0' y='92' width='577.1' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='378.5' y='116.0' font-size='11' fill='white' text-anchor='middle'>67%</text>
+<rect x='964' y='94' width='10' height='10' fill='#2f6f4f'/><text x='978' y='103' font-size='10'>gather / packing / initialization (67%)</text>
+<rect x='667.1' y='92' width='74.1' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='704.1' y='116.0' font-size='11' fill='white' text-anchor='middle'>9%</text>
+<rect x='964' y='107' width='10' height='10' fill='#2f6f4f'/><text x='978' y='116' font-size='10'>AMX QK (9%)</text>
+<rect x='741.2' y='92' width='66.4' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='774.4' y='116.0' font-size='11' fill='white' text-anchor='middle'>8%</text>
+<rect x='964' y='120' width='10' height='10' fill='#2f6f4f'/><text x='978' y='129' font-size='10'>AMX PV (8%)</text>
+<rect x='807.5' y='92' width='64.1' height='40' fill='#2f6f4f' stroke='white'/>
+<text x='839.6' y='116.0' font-size='11' fill='white' text-anchor='middle'>7%</text>
+<rect x='964' y='133' width='10' height='10' fill='#2f6f4f'/><text x='978' y='142' font-size='10'>softmax / rescale / output (7%)</text>
+<rect x='871.6' y='92' width='78.4' height='40' fill='#b9b9b9' stroke='white'/>
+<text x='910.8' y='116.0' font-size='11' fill='white' text-anchor='middle'>9%</text>
+<rect x='964' y='146' width='10' height='10' fill='#b9b9b9'/><text x='978' y='155' font-size='10'>other / unattributed (9%)</text>
+<rect x='90' y='92' width='860' height='40' fill='none' stroke='#333'/>
+</svg>

@@ -1,0 +1,33 @@
+{
+  "model": "DSv4 sparse_attn ONLY (standalone kernel)",
+  "node": "pcl-sprh05.sc.intel.com; one socket, CPU 0-63, NUMA 0, no SMT",
+  "precision": "BF16 operands/output, FP32 accumulation/softmax",
+  "batch": 32,
+  "phases": {
+    "decode": {
+      "wall_s": 0.00029748599999999996,
+      "ops": [
+        {
+          "op": "gather / packing / initialization",
+          "s": 0.000199626,
+          "bucket": "kernel"
+        },
+        {
+          "op": "AMX QK",
+          "s": 2.5622e-05,
+          "bucket": "kernel"
+        },
+        {
+          "op": "softmax / rescale / output",
+          "s": 2.2159e-05,
+          "bucket": "kernel"
+        },
+        {
+          "op": "AMX PV",
+          "s": 2.296e-05,
+          "bucket": "kernel"
+        }
+      ]
+    }
+  }
+}

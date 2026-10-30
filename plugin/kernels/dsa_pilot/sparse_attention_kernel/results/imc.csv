@@ -1,0 +1,18 @@
+# started on Thu Oct 29 02:17:59 2026
+
+1515.02,MiB,uncore_imc_0/cas_count_read/,313457674,100.00,,
+1513.90,MiB,uncore_imc_1/cas_count_read/,313413970,100.00,,
+1517.20,MiB,uncore_imc_2/cas_count_read/,313409857,100.00,,
+1513.93,MiB,uncore_imc_3/cas_count_read/,313407063,100.00,,
+1515.14,MiB,uncore_imc_4/cas_count_read/,313404113,100.00,,
+1515.98,MiB,uncore_imc_5/cas_count_read/,313401344,100.00,,
+1514.20,MiB,uncore_imc_6/cas_count_read/,313399427,100.00,,
+1516.22,MiB,uncore_imc_7/cas_count_read/,313397869,100.00,,
+118.46,MiB,uncore_imc_0/cas_count_write/,313395647,100.00,,
+118.23,MiB,uncore_imc_1/cas_count_write/,313389805,100.00,,
+117.26,MiB,uncore_imc_2/cas_count_write/,313384352,100.00,,
+116.83,MiB,uncore_imc_3/cas_count_write/,313376859,100.00,,
+117.39,MiB,uncore_imc_4/cas_count_write/,313369109,100.00,,
+117.52,MiB,uncore_imc_5/cas_count_write/,313361721,100.00,,
+116.75,MiB,uncore_imc_6/cas_count_write/,313349537,100.00,,
+116.65,MiB,uncore_imc_7/cas_count_write/,313338878,100.00,,

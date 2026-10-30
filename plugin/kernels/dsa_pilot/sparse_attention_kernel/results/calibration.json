@@ -1,0 +1,17 @@
+{
+  "cpu": "Intel Xeon Platinum 8592+ (Emerald Rapids)",
+  "configuration": "one socket, CPU 0-63, NUMA memory 0, 64 physical cores, no SMT",
+  "partition": "emr",
+  "constraint": "ddr5600",
+  "slurm_job": "394601",
+  "dram_triad_gbs": 294.3,
+  "dram_command": "tools/microbench/stream_triad.c: 134217728 doubles per array, 10 repetitions, GCC 14.3.1 -O3 -fopenmp -march=sapphirerapids",
+  "resident_amx_tflops": 142.3,
+  "amx_command": "tools/microbench/amx_peak.c: 2000000 iterations, 64 threads, same compiler flags",
+  "caveats": [
+    "STREAM is useful-byte triad bandwidth, not measured memory-controller bandwidth.",
+    "Resident AMX is an upper bound, not a streamed GEMM ceiling.",
+    "Frequency was not fixed; reported timings use three independent processes.",
+    "The 276 us historical floor is the FP32 compute floor, not the BF16 bandwidth floor."
+  ]
+}
