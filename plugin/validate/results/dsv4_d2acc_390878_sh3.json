@@ -1,0 +1,15 @@
+{
+  "model": "/scratch/bkaul/models/DeepSeek-V4-Flash",
+  "num_shots": 8,
+  "shard_index": 3,
+  "num_shards": 8,
+  "done": 40,
+  "total": 40,
+  "partial": false,
+  "accuracy": 0.85,
+  "correct": 34,
+  "invalid": 0,
+  "elapsed_s": 2568.2,
+  "acc_min": 0.3,
+  "verdict": "PASS"
+}

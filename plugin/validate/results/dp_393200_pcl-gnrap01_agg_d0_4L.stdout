@@ -1,0 +1,50 @@
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/awq/awq.py:53: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+[2026-10-26 21:16:28] Setting KV cache dtype to fp8_e4m3 for DeepseekV4ForCausalLM.
+[2026-10-26 21:16:28] Setting max_running_requests to 256 for DeepseekV4ForCausalLM.
+[2026-10-26 21:16:31] Tokenizer for /scratch/bkaul/models/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-26 21:16:32] No HuggingFace chat template found
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/awq/awq.py:53: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/awq/awq.py:53: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+[2026-10-26 21:16:45] Tokenizer for /scratch/bkaul/models/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-26 21:16:46] Tokenizer for /scratch/bkaul/models/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-26 21:16:46] Detected the current machine has 6 numa nodes available, but the total number of ranks (dp_size * tp_size * pp_size) is 1, so only 1 numa nodes are used.
+[2026-10-26 21:16:47] Cannot detect CUDA architecture.
+[2026-10-26 21:16:48] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/kernels/ops/attention/fla/utils.py:223: UserWarning: Triton is not supported on current platform, roll back to CPU.
+  warnings.warn(
+[2026-10-26 21:16:48] [DSV4 PERF] OMP_WAIT_POLICY='<unset>' (expected 'passive'): OpenMP idle threads will SPIN and thrash each forward after the first (~63x prefill / ~10x decode slowdown, measured). libgomp reads this at load so it CANNOT be set in-process -- export it in the LAUNCH env BEFORE starting the server/engine:  export OMP_WAIT_POLICY=passive KMP_BLOCKTIME=0
+[2026-10-26 21:16:49] [DSV4] MHC routed to C/C++ kernels (sinkhorn=True combine=True).
+[2026-10-26 21:16:49] intel_cpu_models: DSA CPU wire (route 2) scaffold active (INTEL_CPU_DSV4_DSA_CPU=1) — paged compressor plan disabled; sparse chain wiring in progress.
+[2026-10-26 21:16:49] [REAL_ROUTER] installed — real gate weights + tid2eid injected under dummy load.
+[2026-10-26 21:16:50] [REAL_ROUTER] injected real tid2eid L0 (129280, 6)
+[2026-10-26 21:16:51] [REAL_ROUTER] injected real tid2eid L1 (129280, 6)
+[2026-10-26 21:16:51] [REAL_ROUTER] injected real tid2eid L2 (129280, 6)
+[2026-10-26 21:16:59] [REAL_ROUTER] injected real gate weight L0 (256, 4096)
+[2026-10-26 21:16:59] [MXFP4 SHAPE] w13=(256, 4096, 2048)/torch.int8 w2=(256, 4096, 1024)/torch.int8 w13_scale_inv=(256, 4096, 128)/torch.float32 w2_scale_inv=(256, 4096, 64)/torch.float32
+[2026-10-26 21:17:01] [REAL_ROUTER] injected real gate weight L1 (256, 4096)
+[2026-10-26 21:17:04] [REAL_ROUTER] injected real gate weight L2 (256, 4096)
+[2026-10-26 21:17:07] [REAL_ROUTER] injected real gate weight L3 (256, 4096)
+[2026-10-26 21:17:10] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-26 21:17:12] Tokenizer for /scratch/bkaul/models/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+{
+  "model": "/scratch/bkaul/models/DeepSeek-V4-Flash",
+  "tp": 1,
+  "batch": 32,
+  "input_len": 128,
+  "output_len": 8,
+  "linear_gflops_per_token": 0.0,
+  "prefill_tok_s": 142.2,
+  "decode_tok_s": 29.6,
+  "prefill_achieved_tflops": 0.0,
+  "streamed_ceiling_tflops": null,
+  "prefill_eff_abs": null
+}

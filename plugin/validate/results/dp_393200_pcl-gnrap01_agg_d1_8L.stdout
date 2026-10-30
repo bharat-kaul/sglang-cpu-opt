@@ -1,0 +1,50 @@
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/awq/awq.py:53: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+[2026-10-26 21:24:00] Setting KV cache dtype to fp8_e4m3 for DeepseekV4ForCausalLM.
+[2026-10-26 21:24:00] Setting max_running_requests to 256 for DeepseekV4ForCausalLM.
+[2026-10-26 21:24:03] Tokenizer for /scratch/bkaul/models/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-26 21:24:03] No HuggingFace chat template found
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/awq/awq.py:53: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/awq/awq.py:53: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+[2026-10-26 21:24:15] Tokenizer for /scratch/bkaul/models/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-26 21:24:16] Tokenizer for /scratch/bkaul/models/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-26 21:24:16] Detected the current machine has 6 numa nodes available, but the total number of ranks (dp_size * tp_size * pp_size) is 1, so only 1 numa nodes are used.
+[2026-10-26 21:24:16] Scheduler hit an exception: Traceback (most recent call last):
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 5785, in run_scheduler_process
+    scheduler = Scheduler(
+                ^^^^^^^^^^
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 571, in __init__
+    self.init_model_worker()
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 1094, in init_model_worker
+    self.init_tp_model_worker()
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 1016, in init_tp_model_worker
+    self.tp_worker = TpModelWorker(**worker_kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/managers/tp_worker.py", line 351, in __init__
+    self._init_model_runner()
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/managers/tp_worker.py", line 483, in _init_model_runner
+    self._model_runner = ModelRunner(
+                         ^^^^^^^^^^^^
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/model_executor/model_runner.py", line 434, in __init__
+    self.init_torch_distributed()
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/model_executor/model_runner.py", line 1130, in init_torch_distributed
+    result = bootstrap.init_torch_distributed(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/distributed/bootstrap.py", line 94, in init_torch_distributed
+    _init_cpu_threads_env(
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/sglang/srt/distributed/bootstrap.py", line 231, in _init_cpu_threads_env
+    torch.ops.sgl_kernel.init_cpu_threads_env(local_omp_cpuid)
+  File "/scratch/bkaul/venvs/sglang-cpu/lib64/python3.12/site-packages/torch/_ops.py", line 1275, in __call__
+    return self._op(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Cannot bind memory, no CPUs specified.
+
+[2026-10-26 21:24:16] Received sigquit from a child process. It usually means the child failed.

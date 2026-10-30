@@ -1,0 +1,18 @@
+{
+  "sparse_attend": {
+    "c_kernel": 0,
+    "eager": 524
+  },
+  "moe": {
+    "c_kernel": 523,
+    "eager": 0
+  },
+  "indexer": {
+    "c_kernel": 0,
+    "eager": 255
+  },
+  "topk": {
+    "c_kernel": 0,
+    "eager": 255
+  }
+}

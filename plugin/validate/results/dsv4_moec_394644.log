@@ -1,0 +1,126 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-e646868227c3e3a9e3f24277c8c7220be42c0be7/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ WARM=1
++ DTHR=32
++ STICKY=1
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS=32 INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ INTEL_CPU_DSV4_DECODE_THREADS=32
++ INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ export INTEL_CPU_DSV4_MOE_OCC=1 INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moec_occ_394644.json
++ INTEL_CPU_DSV4_MOE_OCC=1
++ INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moec_occ_394644.json
++ '[' 1 = 1 ']'
++ export OMP_WAIT_POLICY=active KMP_BLOCKTIME=infinite GOMP_SPINCOUNT=1000000
++ OMP_WAIT_POLICY=active
++ KMP_BLOCKTIME=infinite
++ GOMP_SPINCOUNT=1000000
++ TAG=warm_sc1000000
++ export CLEAN_CORES=warm_sc1000000/DTHR32/sticky1
++ CLEAN_CORES=warm_sc1000000/DTHR32/sticky1
++ set +x
+[2026-10-29 03:58:32] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[2026-10-29 04:09:30] [DECODE THREADCAP] M=1 threads 58 -> 32 (sticky)
+[CLEAN] B=1: decode_step=186.5 ms  (5.361 tok/s)  n=3 fresh
+      "decode_step_ms": 186.54,
+############ RESULT (warm_sc1000000/DTHR32/sticky1) ############
+{
+  "cores": "warm_sc1000000/DTHR32/sticky1",
+  "decode_threads_env": "32",
+  "sticky": "1",
+  "torch_threads_launch": 58,
+  "input_len": 8,
+  "output_len": 8,
+  "reps": 3,
+  "by_batch": {
+    "1": {
+      "decode_step_ms": 186.54,
+      "decode_tok_s": 5.361,
+      "tpref_s": 0.374,
+      "samples_s": [
+        1.6869,
+        1.68,
+        1.6789
+      ]
+    }
+  }
+}############ OCC ############
+{
+  "8": {
+    "M": 8,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 215,
+    "active_sum": 6945,
+    "rows_min": 1,
+    "rows_max": 8,
+    "rows_sum": 10320,
+    "rows_n": 6945,
+    "hist": {
+      "1": 5160,
+      "2": 974,
+      "3-4": 594,
+      "5-8": 217,
+      "9+": 0
+    }
+  },
+  "1": {
+    "M": 1,
+    "topk": 6,
+    "E": 256,
+    "avg_M": 1,
+    "use_brgemm": false,
+    "calls": 946,
+    "active_sum": 5676,
+    "rows_min": 1,
+    "rows_max": 1,
+    "rows_sum": 5676,
+    "rows_n": 5676,
+    "hist": {
+      "1": 5676,
+      "2": 0,
+      "3-4": 0,
+      "5-8": 0,
+      "9+": 0
+    }
+  }
+}[done] moe campaign warm_sc1000000/DTHR32/sticky1 job=394644

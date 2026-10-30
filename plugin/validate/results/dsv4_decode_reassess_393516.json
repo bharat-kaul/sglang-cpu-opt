@@ -1,0 +1,7 @@
+{
+  "experiment": "decode thread sweep + regime check (job 393516, EMR, latency config passive)",
+  "M1_decode_tok_s": {"threads_4": 1.54, "threads_8": 1.52, "threads_32": 1.50, "threads_all": 1.16},
+  "M32_decode_tok_s_cap8": 8.78,
+  "note_M32": "cap-8 (latency config) gives 8.78 vs 57.5 at throughput config (spin, all cores) = 6.5x CONFIG lever at M=32; cap-8 is an M=1-only latency lever.",
+  "findings": "M=1 decode ~1.5 tok/s flat across 4-32 threads, WORSE at all-threads (threading pathology). 62x below BW floor = latency-bound. Per-op leaf attribution (moe ~30%) is from region timers = UNRELIABLE for wall (see mask A/B). Reliable levers need counterfactual."
+}

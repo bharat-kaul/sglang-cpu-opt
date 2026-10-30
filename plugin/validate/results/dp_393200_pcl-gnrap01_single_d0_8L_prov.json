@@ -1,0 +1,30 @@
+{
+  "sinkhorn": {
+    "c_kernel": 160,
+    "eager": 0
+  },
+  "combine": {
+    "c_kernel": 160,
+    "eager": 0
+  },
+  "sparse_attend": {
+    "c_kernel": 80,
+    "eager": 0
+  },
+  "moe": {
+    "c_kernel": 80,
+    "eager": 0
+  },
+  "compressor": {
+    "c_kernel": 309,
+    "eager": 0
+  },
+  "indexer": {
+    "c_kernel": 30,
+    "eager": 0
+  },
+  "topk": {
+    "c_kernel": 30,
+    "eager": 0
+  }
+}

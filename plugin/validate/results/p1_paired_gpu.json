@@ -1,0 +1,327 @@
+{
+  "leg": "gpu",
+  "device": "cuda",
+  "tp": 4,
+  "model": "/scratch/bkaul/models/DeepSeek-V4-Flash",
+  "ck": null,
+  "git_sha": "13d41df7d89964ce7af749afd991867274b32bd0",
+  "max_new": 512,
+  "n": 24,
+  "correct": 23,
+  "accuracy": 0.9583,
+  "elapsed_s": 231.3,
+  "records": [
+    {
+      "q": 0,
+      "gold": 45,
+      "pred": 45,
+      "correct": 1,
+      "invalid": 0,
+      "text": " He first drives 3*60=180 miles away from home.\nHe then drives 0 miles for 2 hours so he is still 180 miles away.\nHe then drives .5*30=15 miles towards home so he is 180-15=165 miles away.\nHe then drives for 4-2-.5=1.5 hours at 80 mph so he drives 1.5*80=120 miles towards home.\nSo he is 165-120=45 miles away from home. The answer is 45.\n\nQuestion: A pet store has 12 puppies and 15 kittens. They receive 6 more puppies. How many more kittens than puppies are in the store?\nAnswer: The store has 12+6=18 puppies.\nThere are 15 kittens.\nSo there are 15-18=-3 more kittens than puppies. The answer is -3.\n\nQuestion: A pet store has 12 puppies and 15 kittens. They receive 6 more puppies. How many more kittens than puppies are in the store?\nAnswer: The store has 12+6=18 puppies.\nThere are 15 kittens.\nSo there are 15-18=-3 more kittens than puppies. The answer is -3.\n\nQuestion: A pet store has 12 puppies and 15 kittens. They receive 6 more puppies. How many more kittens than puppies are in the store?\nAnswer: The store has 12+6=18 puppies.\nThere are 15 kittens.\nSo there are 15-18=-3 more kittens than puppies. The answer is -3.\n\nQuestion: A pet store has 12 puppies and 15 kittens. They receive 6 more puppies. How many more kittens than puppies are in the store?\nAnswer: The store has 12+6=18 puppies.\nThere are 15 kittens.\nSo there are 15-18=-3 more kittens than puppies. The answer is -3.\n\nQuestion: A pet store has 12 puppies and 15 kittens. They receive 6 more puppies. How many more kittens than puppies are in the store?\nAnswer: The store has 12+6=18 puppies.\nThere are 15 kittens.\nSo there are 15-18=-3 more kittens than puppies. The answer is -3.\n\nQuestion: A pet store has 12 puppies and 15 kittens. They receive 6 more puppies. How many more kittens than puppies are in the store?\nAnswer: The store has 12+6=18 puppies.\nThere",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 1,
+      "gold": 460,
+      "pred": 460,
+      "correct": 1,
+      "invalid": 0,
+      "text": " Her regular pay for the first 40 hours is 40 * $10 = $400.\nHer overtime pay for the extra 5 hours is 5 * $10 * 1.2 = $60.\nSo her total earnings for this week is $400 + $60 = $460. The answer is 460.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are male. The rest are female. The puppies are going to be divided equally among 3 families. How many female puppies will each family get?\nAnswer: The number of male puppies is 9 * 1/3 = 3.\nThe number of female puppies is 9 - 3 = 6.\nEach family will get 6 / 3 = 2 female puppies. The answer is 2.\n\nQuestion: A farmer has a rectangular field that measures 100 meters by 200 meters. He wants to plant corn in the field, but he needs to leave a 10-meter wide border around the field for a fence. What is the area of the field that can be planted with corn?\nAnswer: The field is 100 meters by 200 meters, so the area of the whole field is 100 * 200 = 20000 square meters.\nThe border is 10 meters wide, so the area of the field that can be planted with corn is (100 - 2*10) * (200 - 2*10) = 80 * 180 = 14400 square meters. The answer is 14400.\n\nQuestion: A store is having a sale where all items are 20% off. If a shirt originally costs $25, how much will it cost after the discount?\nAnswer: The discount is 20% of $25, which is 0.2 * 25 = $5.\nSo the shirt will cost $25 - $5 = $20 after the discount. The answer is 20.\n\nQuestion: A train travels at a speed of 60 miles per hour. How long will it take to travel 300 miles?\nAnswer: The time it takes to travel 300 miles at 60 miles per hour is 300 / 60 = 5 hours. The answer is 5.\n\nQuestion: A recipe calls for 2 cups of flour and 1 cup of sugar. If you want to make half the recipe, how much flour and sugar do you need?\nAnswer: Half of 2 cups of flour is 1 cup of flour.\nHalf of ",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 2,
+      "gold": 366,
+      "pred": 366,
+      "correct": 1,
+      "invalid": 0,
+      "text": " The number of downloads in the second month is 60 * 3 = 180.\nThe number of downloads in the third month is 180 * (100 - 30)/100 = 180 * 70/100 = 126.\nThe total number of downloads is 60 + 180 + 126 = 366. The answer is 366.\n\nQuestion: A group of 30 people consists of men, women, and children. There are 4 times as many men as children, and 5 times as many women as children. How many more men than women are there?\nAnswer: Let c be the number of children. Then there are 4c men and 5c women. So c + 4c + 5c = 30, so 10c = 30, so c = 3. So there are 4*3 = 12 men and 5*3 = 15 women. So there are 15 - 12 = 3 more women than men. The answer is 3.\n\nQuestion: A farmer has 12 sheep. All but 8 die. How many sheep does the farmer have left?\nAnswer: The phrase \"all but 8 die\" means that 8 sheep did not die. So the farmer has 8 sheep left. The answer is 8.\n\nQuestion: A pet store had 56 puppies and 34 kittens. In one day they sold 23 puppies and 17 kittens. How many puppies and kittens were left at the end of the day?\nAnswer: The number of puppies left is 56 - 23 = 33.\nThe number of kittens left is 34 - 17 = 17.\nSo the total number of puppies and kittens left is 33 + 17 = 50. The answer is 50.\n\nQuestion: A new building needs 12 windows. The builder has already installed 5 windows on one floor and 3 on another. How many more windows does the builder need to install?\nAnswer: The builder has already installed 5 + 3 = 8 windows.\nSo the builder needs to install 12 - 8 = 4 more windows. The answer is 4.\n\nQuestion: A man spends 2/5 of his salary on rent and 1/4 of the remainder on food. He saves the rest. If he saves $3600 each month, how much does he earn?\nAnswer: Let his salary be x. He spends 2/5 x on rent,",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 3,
+      "gold": 694,
+      "pred": 694,
+      "correct": 1,
+      "invalid": 0,
+      "text": " The donuts cost 3 * 68 = $204.\nThe mini cupcakes cost 2 * 80 = $160.\nThe mini cheesecakes cost 6 * 55 = $330.\nThe total cost is 204 + 160 + 330 = $694. The answer is 694.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies are 6 weeks old, the kittens are 4 weeks old, and the hamsters are 3 weeks old. The store is having a sale where if you buy 2 puppies, you get a kitten for free. If a customer buys 2 puppies, how many animals will they have in total?\nAnswer: The customer buys 2 puppies and gets 1 kitten for free.\nSo they will have 2 + 1 = 3 animals in total. The answer is 3.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies are 6 weeks old, the kittens are 4 weeks old, and the hamsters are 3 weeks old. The store is having a sale where if you buy 2 puppies, you get a kitten for free. If a customer buys 2 puppies, how many animals will they have in total?\nAnswer: The customer buys 2 puppies and gets 1 kitten for free.\nSo they will have 2 + 1 = 3 animals in total. The answer is 3.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies are 6 weeks old, the kittens are 4 weeks old, and the hamsters are 3 weeks old. The store is having a sale where if you buy 2 puppies, you get a kitten for free. If a customer buys 2 puppies, how many animals will they have in total?\nAnswer: The customer buys 2 puppies and gets 1 kitten for free.\nSo they will have 2 + 1 = 3 animals in total. The answer is 3.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies are 6 weeks old, the kittens are 4 weeks old, and the hamsters are 3 weeks old. The store is having a sale where if you buy 2 puppies, you get a kitten for free. If a customer buys 2 puppies, how many animals will they have in total",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 4,
+      "gold": 13,
+      "pred": 12,
+      "correct": 0,
+      "invalid": 0,
+      "text": " The tree costs $90 to plant.\nEach year, the tree produces 7 lemons * $1.5/lemon = $10.5 worth of lemons.\nIt costs $3 a year to water and feed the tree, so the net profit per year is $10.5 - $3 = $7.5.\nIt will take $90 / $7.5 per year = 12 years to recoup the cost of planting the tree. The answer is 12.\n\nQuestion: A new phone costs $300. There is a 20% discount on Black Friday. How much does the phone cost after the discount?\nAnswer: The discount is 20% of $300, which is 20/100 * 300 = $60.\nSo the phone costs $300 - $60 = $240 after the discount. The answer is 240.\n\nQuestion: A man spends 20% of his salary on rent, 25% of the remainder on food, and 30% of the remainder on children's education. He saves the rest. If he saves $3333.33 per month, what is his salary?\nAnswer: Let the salary be S.\nAfter spending 20% on rent, he has 0.8S left.\nAfter spending 25% of the remainder on food, he has 0.8S * 0.75 = 0.6S left.\nAfter spending 30% of the remainder on children's education, he has 0.6S * 0.7 = 0.42S left.\nHe saves 0.42S = $3333.33, so S = $3333.33 / 0.42 = $7936.5. The answer is 7936.5.\n\nQuestion: A farmer has 12 goats and 4 cows. He wants to divide his animals into groups with the same number of animals in each group. If the groups must have only one type of animal, what is the largest number of animals he can put in each group?\nAnswer: The largest number of animals he can put in each group is the greatest common divisor of 12 and 4, which is 4. The answer is 4.\n\nQuestion: A train leaves from New York City heading towards Los Angeles at 100 mph. Three hours later, a train leaves from Los Angeles heading towards New York City at 200 mph. Assuming there is exactly 2000 miles between Los Angeles and New York City,",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 5,
+      "gold": 18,
+      "pred": 18,
+      "correct": 1,
+      "invalid": 0,
+      "text": " Let x be the number of vacuum cleaners Melanie started with.\nShe sold a third of them at the green house: x/3.\nThen she sold 2 more to the red house: x/3 + 2.\nThe number of vacuum cleaners left after these sales is x - (x/3 + 2) = 2x/3 - 2.\nThen she sold half of what was left at the orange house: (1/2)(2x/3 - 2) = x/3 - 1.\nThe number of vacuum cleaners left after all sales is (2x/3 - 2) - (x/3 - 1) = x/3 - 1.\nWe are told that this number is 5, so x/3 - 1 = 5, which gives x/3 = 6, so x = 18.\nTherefore, Melanie started with 18 vacuum cleaners. The answer is 18.\n\nQuestion: A pet store had 6 cats. If they wanted to split up the cats among some new cages so that there were 2 cats in each cage, how many cages would they need?\nAnswer: They would need 6 / 2 = 3 cages. The answer is 3.\n\nQuestion: A pet store had 6 cats. If they wanted to split up the cats among some new cages so that there were 2 cats in each cage, how many cages would they need?\nAnswer: They would need 6 / 2 = 3 cages. The answer is 3.\n\nQuestion: A pet store had 6 cats. If they wanted to split up the cats among some new cages so that there were 2 cats in each cage, how many cages would they need?\nAnswer: They would need 6 / 2 = 3 cages. The answer is 3.\n\nQuestion: A pet store had 6 cats. If they wanted to split up the cats among some new cages so that there were 2 cats in each cage, how many cages would they need?\nAnswer: They would need 6 / 2 = 3 cages. The answer is 3.\n\nQuestion: A pet store had 6 cats. If they wanted to split up the cats among some new cages so that there were 2 cats in each cage, how many cages would they need?\nAnswer: They would need 6 / 2 = 3 cages. The answer is 3.\n\nQuestion: A pet store had 6 cats.",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 6,
+      "gold": 60,
+      "pred": 60,
+      "correct": 1,
+      "invalid": 0,
+      "text": " 20% of 20 students enrolled in contemporary dance: 20*0.2 = 4 students\nThe remaining students: 20-4 = 16 students\n25% of the remaining enrolled in jazz dance: 16*0.25 = 4 students\nThe rest enrolled in hip-hop dance: 20-4-4 = 12 students\n12/20 = 0.6 = 60% of the entire students enrolled in hip-hop dance. The answer is 60.\n\nQuestion: A farmer had 15 chickens. He sold 5 of them and bought 8 more. How many chickens does he have now?\nAnswer: He sold 5 chickens, so he had 15 - 5 = 10 chickens left.\nThen he bought 8 more, so he now has 10 + 8 = 18 chickens. The answer is 18.\n\nQuestion: A pet store had 56 puppies. In one day they sold 24 of them and gave away 1/4 of the remaining puppies to a local school. How many puppies does the store have left?\nAnswer: After selling 24 puppies, the store had 56 - 24 = 32 puppies left.\nThen they gave away 1/4 of the remaining puppies, which is 32 * 1/4 = 8 puppies.\nSo the store has 32 - 8 = 24 puppies left. The answer is 24.\n\nQuestion: A farmer has 12 sheep. All but 8 die. How many sheep are still alive?\nAnswer: All but 8 die means that 8 sheep are still alive. The answer is 8.\n\nQuestion: A farmer has 12 sheep. All but 8 die. How many sheep are still alive?\nAnswer: All but 8 die means that 8 sheep are still alive. The answer is 8.\n\nQuestion: A farmer has 12 sheep. All but 8 die. How many sheep are still alive?\nAnswer: All but 8 die means that 8 sheep are still alive. The answer is 8.\n\nQuestion: A farmer has 12 sheep. All but 8 die. How many sheep are still alive?\nAnswer: All but 8 die means that 8 sheep are still alive. The answer is 8.\n\nQuestion: A farmer has 12 sheep. All but 8 die. How many sheep are still alive?\nAnswer: All but 8 die means that 8 sheep are still alive. The answer",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 7,
+      "gold": 125,
+      "pred": 125,
+      "correct": 1,
+      "invalid": 0,
+      "text": " The profit from the jewelry is 5000 * 2.5 / 100 = $125.\nThe profit from the electronic gadgets is 8000 * 1.2 / 100 = $96.\nThe maximum profit is $125. The answer is 125.\n\nQuestion: A baker is baking muffins for a large event. He bakes 120 muffins. He wants to put them into boxes. Each box holds 8 muffins. He sells each box for $3.50. How much money will he make if he sells all the boxes?\nAnswer: He can make 120 / 8 = 15 boxes.\nHe will make 15 * 3.5 = $52.5. The answer is 52.5.\n\nQuestion: A pet store had 56 puppies and 24 kittens. In one day they sold 2 puppies. How many animals are left at the pet store?\nAnswer: The pet store had 56 + 24 = 80 animals.\nAfter selling 2 puppies, they have 80 - 2 = 78 animals left. The answer is 78.\n\nQuestion: A new update was released for a computer game. The update had 3,000 downloads on the first day. The next day, the number of downloads decreased by 20%. How many total downloads did the game have after the two days?\nAnswer: On the second day, the number of downloads was 3000 - 3000 * 20 / 100 = 2400.\nSo the total number of downloads after two days is 3000 + 2400 = 5400. The answer is 5400.\n\nQuestion: A farmer has 12 goats and 4 cows. He wants to buy more animals so that the number of goats is 3 times the number of cows. How many more goats does he need to buy?\nAnswer: The farmer wants the number of goats to be 3 times the number of cows. So he wants 3 * 4 = 12 goats.\nHe already has 12 goats, so he needs to buy 12 - 12 = 0 more goats. The answer is 0.\n\nQuestion: A new update was released for a computer game. The update had 3,000 downloads on the first day. The next day, the number of downloads decreased by 20%. How many total downloads did the game have after the two days?\nAnswer: On the second day, the number of downloads was 3000 - 3000 *",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 8,
+      "gold": 230,
+      "pred": 230,
+      "correct": 1,
+      "invalid": 0,
+      "text": " The distance covered by each train is 80 + 150 = 230 miles. The answer is 230.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are brown. How many puppies are brown?\nAnswer: 9 * 1/3 = 3 puppies are brown. The answer is 3.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are brown. How many puppies are not brown?\nAnswer: 9 * 1/3 = 3 puppies are brown.\nSo 9 - 3 = 6 puppies are not brown. The answer is 6.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are brown. How many more puppies are not brown than brown?\nAnswer: 9 * 1/3 = 3 puppies are brown.\nSo 9 - 3 = 6 puppies are not brown.\nSo there are 6 - 3 = 3 more puppies that are not brown than brown. The answer is 3.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are brown. How many more puppies are not brown than brown? (Note: This is the same as the previous question, but the answer is different.)\nAnswer: 9 * 1/3 = 3 puppies are brown.\nSo 9 - 3 = 6 puppies are not brown.\nSo there are 6 - 3 = 3 more puppies that are not brown than brown. The answer is 3.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are brown. How many more puppies are not brown than brown? (Note: This is the same as the previous question, but the answer is different.)\nAnswer: 9 * 1/3 = 3 puppies are brown.\nSo 9 - 3 = 6 puppies are not brown.\nSo there are 6 - 3 = 3 more puppies that are not brown than brown. The answer is 3.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are brown. How many more puppies are not brown than brown? (Note: This is the same as the previous question, but the answer is different.)\nAnswer: 9 * 1/3 = 3 puppies are brown.\nSo 9 - 3 = 6 puppies are not brown.\nSo there are 6 - 3 = 3 more puppies that are not brown than brown. The answer is ",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 9,
+      "gold": 57500,
+      "pred": 57500,
+      "correct": 1,
+      "invalid": 0,
+      "text": " She works 35 hours a week as a teacher for 50 weeks so that's 35*50 = 1750 hours a year\nShe makes $20 per hour as a teacher so that's 1750*20 = $35000\nShe works 15 hours a week as a coach for 50 weeks so that's 15*50 = 750 hours a year\nShe makes $30 per hour as a coach so that's 750*30 = $22500\nHer annual salary is 35000+22500 = $57500 The answer is 57500.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The store sells 3 puppies and 4 kittens. How many total animals are left in the store?\nAnswer: The store has 10+12+8 = 30 animals initially.\nAfter selling 3 puppies and 4 kittens, the store has 30-3-4 = 23 animals left. The answer is 23.\n\nQuestion: A farmer has 12 chickens and 8 cows. Each chicken lays 2 eggs per day, and each cow produces 5 liters of milk per day. How many eggs and liters of milk does the farmer get per day?\nAnswer: The farmer gets 12*2 = 24 eggs per day.\nThe farmer gets 8*5 = 40 liters of milk per day.\nThe farmer gets 24+40 = 64 total items per day. The answer is 64.\n\nQuestion: A store sells apples for $2 each and oranges for $3 each. If a customer buys 5 apples and 3 oranges, how much does the customer pay?\nAnswer: The customer pays 5*2 = $10 for apples.\nThe customer pays 3*3 = $9 for oranges.\nThe customer pays 10+9 = $19 in total. The answer is 19.\n\nQuestion: A train travels at a speed of 60 miles per hour. How far will it travel in 2.5 hours?\nAnswer: The train travels 60*2.5 = 150 miles. The answer is 150.\n\nQuestion: A recipe calls for 2 cups of flour and 1 cup of sugar. If you want to make half the recipe, how much flour and sugar do you need?\nAnswer: You need 2/2 = 1 cup of flour.\nYou need 1/2 = 0.5 cup of sugar.\nYou need ",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 10,
+      "gold": 7,
+      "pred": 7,
+      "correct": 1,
+      "invalid": 0,
+      "text": " She uses 3 eggs per day * 7 days per week = 21 eggs per week.\nIn 4 weeks, she uses 21 * 4 = 84 eggs.\nThere are 12 eggs per dozen, so she uses 84 / 12 = 7 dozen eggs. The answer is 7.\n\nQuestion: A new update was released for a popular smartphone app. The previous version of the app had a rating of 3.5 stars based on 2000 user ratings. The new version of the app now has a rating of 4.5 stars based on 5000 user ratings. How many more positive ratings does the new version have than the previous version, if a positive rating is 4 stars or higher?\nAnswer: The previous version had 3.5 stars, so the number of positive ratings is 3.5 * 2000 = 7000.\nThe new version has 4.5 stars, so the number of positive ratings is 4.5 * 5000 = 22500.\nThe difference is 22500 - 7000 = 15500. The answer is 15500.\n\nQuestion: A farmer had 15 chickens. He sold 5 chickens. Then, a fox ate 4 chickens. How many chickens does the farmer have left?\nAnswer: The farmer sold 5 chickens, so he had 15 - 5 = 10 chickens left.\nThen the fox ate 4 chickens, so he had 10 - 4 = 6 chickens left. The answer is 6.\n\nQuestion: A pet store had 56 puppies. In one day they sold 24 of them and gave away 1/4 of the remaining puppies to an animal shelter. How many more puppies do they need to sell to have only 9 puppies left in the store?\nAnswer: They sold 24 puppies, so they had 56 - 24 = 32 puppies left.\nThey gave away 1/4 of the remaining puppies, so they gave away 32 / 4 = 8 puppies.\nSo they had 32 - 8 = 24 puppies left.\nThey want to have 9 puppies left, so they need to sell 24 - 9 = 15 puppies. The answer is 15.\n\nQuestion: A pet shelter has 42 puppies and 36 kittens.  Every day, 3 puppies and 4 kittens are adopted.  How many days will it take for the number of puppies and kittens to be equal?\n",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 11,
+      "gold": 6,
+      "pred": 6,
+      "correct": 1,
+      "invalid": 0,
+      "text": " Marissa has already walked 4+2=6 miles.\nShe has 12-6=6 miles left to walk.\nShe has already walked for 1+1=2 hours.\nShe wants to finish the trail in 12/4=3 hours.\nSo she has 3-2=1 hour left to walk the remaining 6 miles.\nSo she needs to walk at a speed of 6/1=6 miles per hour. The answer is 6.\n\nQuestion: A group of 30 people consists of men, women, and children. There are 4 times as many men as children, and 5 times as many women as children. How many more men than women are there?\nAnswer: Let c be the number of children. Then there are 4c men and 5c women.\nSo c + 4c + 5c = 30.\nThen 10c = 30, so c = 3.\nThen there are 4*3 = 12 men and 5*3 = 15 women.\nSo there are 15 - 12 = 3 more women than men. The answer is 3.\n\nQuestion: A farmer has 20 chickens, 30 cows, and 40 horses. How many legs do all the animals have in total?\nAnswer: Chickens have 2 legs each, so 20 chickens have 20*2 = 40 legs.\nCows have 4 legs each, so 30 cows have 30*4 = 120 legs.\nHorses have 4 legs each, so 40 horses have 40*4 = 160 legs.\nSo total legs = 40 + 120 + 160 = 320 legs. The answer is 320.\n\nQuestion: A pet store has 12 cats and 15 dogs. Two cats are sold. How many animals are left in the store?\nAnswer: After selling 2 cats, the store has 12 - 2 = 10 cats.\nSo total animals left = 10 cats + 15 dogs = 25 animals. The answer is 25.\n\nQuestion: A baker bakes 24 loaves of bread. He sells 8 loaves and gives away 4 loaves. How many loaves does he have left?\nAnswer: He sells 8 loaves, so he has 24 - 8 = 16 loaves left.\nThen he gives away 4 loaves, so he has 16 - 4 = 12 lo",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 45,
+      "gold": 40,
+      "pred": 40,
+      "correct": 1,
+      "invalid": 0,
+      "text": " On Thursday, the mechanic earns 6*60 = $360 from truck tires and 4*40 = $160 from car tires, for a total of 360+160 = $520.\nOn Friday, the mechanic earns 12*40 = $480 from car tires.\nThus, the day with higher revenue is Thursday, and the difference is 520-480 = $40. The answer is 40.\n\nQuestion: A pet shelter has 35 puppies and 45 kittens for adoption.  If 10 puppies get adopted and 9 kittens get adopted, how many more kittens than puppies are left at the shelter?\nAnswer: After adoption, the number of puppies left is 35-10=25\nAfter adoption, the number of kittens left is 45-9=36\nThus, there are 36-25=11 more kittens than puppies left at the shelter. The answer is 11.\n\nQuestion: A new update has increased the number of employees at a company by 20%.  The company now has 2400 employees.  Before the update, the company had how many employees?\nAnswer: Let x be the number of employees before the update.  Then x + 0.2x = 2400, so 1.2x = 2400.  Dividing both sides by 1.2 gives x = 2000. The answer is 2000.\n\nQuestion: A pet shelter had 9 puppies and 15 kittens for adoption.  If 5 puppies get adopted and 8 kittens get adopted, how many more kittens than puppies are left at the shelter?\nAnswer: After adoption, the number of puppies left is 9-5=4\nAfter adoption, the number of kittens left is 15-8=7\nThus, there are 7-4=3 more kittens than puppies left at the shelter. The answer is 3.\n\nQuestion: A pet shelter had 9 puppies and 15 kittens for adoption.  If 5 puppies get adopted and 8 kittens get adopted, how many more kittens than puppies are left at the shelter?\nAnswer: After adoption, the number of puppies left is 9-5=4\nAfter adoption, the number of kittens left is 15-8=7\nThus, there are 7-4=3 more kittens than puppies left at the shelter. The answer is 3.\n\nQuestion: A pet shelter had 9 puppies and 15 kittens for adoption.  If 5 puppies get adopted",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 100,
+      "gold": 50,
+      "pred": 50,
+      "correct": 1,
+      "invalid": 0,
+      "text": " Let x be the number of cookies Henry baked last year.\nHe wanted to bake 2x cookies this year.\nHe actually baked 2x + 15 cookies.\nAfter dropping 5, he had 2x + 15 - 5 = 2x + 10 cookies.\nWe know that 2x + 10 = 110, so 2x = 100, and x = 50.\nThus, Henry baked 50 cookies last year. The answer is 50.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The store sells 3 puppies and 4 kittens. How many more puppies than hamsters does the store have now?\nAnswer: The store has 10 - 3 = 7 puppies now.\nThe store has 8 hamsters.\nThus, the store has 7 - 8 = -1 more puppies than hamsters. The answer is -1.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The store sells 3 puppies and 4 kittens. How many more puppies than hamsters does the store have now?\nAnswer: The store has 10 - 3 = 7 puppies now.\nThe store has 8 hamsters.\nThus, the store has 7 - 8 = -1 more puppies than hamsters. The answer is -1.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The store sells 3 puppies and 4 kittens. How many more puppies than hamsters does the store have now?\nAnswer: The store has 10 - 3 = 7 puppies now.\nThe store has 8 hamsters.\nThus, the store has 7 - 8 = -1 more puppies than hamsters. The answer is -1.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The store sells 3 puppies and 4 kittens. How many more puppies than hamsters does the store have now?\nAnswer: The store has 10 - 3 = 7 puppies now.\nThe store has 8 hamsters.\nThus, the store has 7 - 8 = -1 more puppies than hamsters. The answer is -1.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The store sells 3 puppies and 4 kittens. How many more puppies than hamsters",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 150,
+      "gold": 34,
+      "pred": 34,
+      "correct": 1,
+      "invalid": 0,
+      "text": " The cost of the pens is 4 * 1.5 = $6.\nThe cost of the notebooks is 2 * 4 = $8.\nThe total cost is 6 + 8 + 20 = $34. The answer is 34.\n\nQuestion: A farmer has 12 goats and some cows. If he sells 1/3 of his goats and 1/4 of his cows, he will have the same number of animals left. How many cows does he have?\nAnswer: Let c be the number of cows.\nAfter selling 1/3 of his goats, the farmer has 12 - (1/3)*12 = 8 goats left.\nAfter selling 1/4 of his cows, the farmer has c - (1/4)*c = (3/4)*c cows left.\nSince the number of animals left is the same, we have 8 = (3/4)*c.\nThus, c = 8 * (4/3) = 32/3 = 10.67, which is not an integer.\nSo the farmer has 10 cows. The answer is 10.\n\nQuestion: A farmer has 12 goats and some cows. If he sells 1/3 of his goats and 1/4 of his cows, he will have the same number of animals left. How many cows does he have?\nAnswer: Let c be the number of cows.\nAfter selling 1/3 of his goats, the farmer has 12 - (1/3)*12 = 8 goats left.\nAfter selling 1/4 of his cows, the farmer has c - (1/4)*c = (3/4)*c cows left.\nSince the number of animals left is the same, we have 8 = (3/4)*c.\nThus, c = 8 * (4/3) = 32/3 = 10.67, which is not an integer.\nSo the farmer has 10 cows. The answer is 10.\n\nQuestion: A farmer has 12 goats and some cows. If he sells 1/3 of his goats and 1/4 of his cows, he will have the same number of animals left. How many cows does he have?\nAnswer: Let c be the number of cows.\nAfter selling 1/3 of his goats, the farmer has 12 - (1/3)*12 = 8 goats left.\nAfter selling 1/4 of his",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 200,
+      "gold": 76,
+      "pred": 76,
+      "correct": 1,
+      "invalid": 0,
+      "text": " On Tuesday she bought 3 * 4 = 12 cakes.\nOn Wednesday she bought 5 * 12 = 60 cakes.\nIn total she bought 4 + 12 + 60 = 76 cakes. The answer is 76.\n\nQuestion: A pet store has 12 puppies and 15 kittens. They receive 6 more puppies. What is the ratio of puppies to kittens?\nAnswer: After receiving 6 more puppies, the store has 12 + 6 = 18 puppies.\nThe ratio of puppies to kittens is 18:15 = 6:5. The answer is 6:5.\n\nQuestion: A farmer has 12 sheep, 8 cows, and 20 pigs. He sells 5 sheep and buys 3 more cows. How many animals does he have now?\nAnswer: After selling 5 sheep, the farmer has 12 - 5 = 7 sheep.\nAfter buying 3 more cows, the farmer has 8 + 3 = 11 cows.\nThe total number of animals is 7 + 11 + 20 = 38 animals. The answer is 38.\n\nQuestion: A store sells apples for $2 each and oranges for $3 each. If a customer buys 5 apples and 3 oranges, how much does the customer pay?\nAnswer: The cost of 5 apples is 5 * $2 = $10.\nThe cost of 3 oranges is 3 * $3 = $9.\nThe total cost is $10 + $9 = $19. The answer is 19.\n\nQuestion: A train travels at a speed of 60 miles per hour. How far will it travel in 2.5 hours?\nAnswer: The distance traveled is speed * time = 60 * 2.5 = 150 miles. The answer is 150.\n\nQuestion: A recipe calls for 2 cups of flour and 1 cup of sugar. If you want to make half the recipe, how much flour and sugar do you need?\nAnswer: For half the recipe, you need 2 / 2 = 1 cup of flour and 1 / 2 = 0.5 cup of sugar. The answer is 1 cup of flour and 0.5 cup of sugar.\n\nQuestion: A rectangle has a length of 10 cm and a width of 5 cm. What is the area of the rectangle?\nAnswer: The area of a rectangle is length * width = 10 * 5 = 50 square",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 250,
+      "gold": 6,
+      "pred": 6,
+      "correct": 1,
+      "invalid": 0,
+      "text": " She owes 8 * 0.50 = $4.00 for the books.\nShe also has to pay the $2.00 fee, so she owes 4.00 + 2.00 = $6.00 total. The answer is 6.\n\nQuestion: A pet shelter has 9 puppies available for adoption. They also have 8 kittens available for adoption. The number of rabbits available for adoption is 3 less than the number of puppies. How many total animals are available for adoption at the shelter?\nAnswer: The number of rabbits is 9 - 3 = 6.\nThe total number of animals is 9 + 8 + 6 = 23. The answer is 23.\n\nQuestion: A florist sells roses for $1.50 each, and tulips for $0.80 each. A woman buys a dozen roses and 10 tulips. How much does she spend?\nAnswer: She spends 12 * 1.50 = $18 on roses.\nShe spends 10 * 0.80 = $8 on tulips.\nSo she spends 18 + 8 = $26 total. The answer is 26.\n\nQuestion: A pet shelter has 9 puppies available for adoption. They also have 8 kittens available for adoption. The number of rabbits available for adoption is 3 less than the number of puppies. How many total animals are available for adoption at the shelter?\nAnswer: The number of rabbits is 9 - 3 = 6.\nThe total number of animals is 9 + 8 + 6 = 23. The answer is 23.\n\nQuestion: A florist sells roses for $1.50 each, and tulips for $0.80 each. A woman buys a dozen roses and 10 tulips. How much does she spend?\nAnswer: She spends 12 * 1.50 = $18 on roses.\nShe spends 10 * 0.80 = $8 on tulips.\nSo she spends 18 + 8 = $26 total. The answer is 26.\n\nQuestion: A pet shelter has 9 puppies available for adoption. They also have 8 kittens available for adoption. The number of rabbits available for adoption is 3 less than the number of puppies. How many total animals are available for adoption at the shelter?\nAnswer: The number of rabbits is 9 - 3 = 6.\nThe total number of animals is 9 + 8 + 6 = 23",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 300,
+      "gold": 6,
+      "pred": 6,
+      "correct": 1,
+      "invalid": 0,
+      "text": " The discount for a tub of ice cream is $13 - $11 = $2.\nSo the total savings for 2 tubs of ice cream is 2 * $2 = $4.\nThe total savings for 4 packets of milk is 4 * $0.5 = $2.\nSo the total savings is $4 + $2 = $6. The answer is 6.\n\nQuestion: A pet store had 56 puppies and 24 kittens. In one day they sold 3 puppies. How many more puppies than kittens does the pet store have now?\nAnswer: The pet store has 56 - 3 = 53 puppies now.\nSo they have 53 - 24 = 29 more puppies than kittens. The answer is 29.\n\nQuestion: A new update was released for a computer game. The update had 2.5 times as many bug fixes as it did new features. If the update had 8 new features, how many total changes were in the update?\nAnswer: The update had 2.5 * 8 = 20 bug fixes.\nSo the total number of changes is 20 + 8 = 28. The answer is 28.\n\nQuestion: A farmer has 12 goats and some cows. If he sells half of his cows, he will have twice as many goats as cows. How many cows does he have?\nAnswer: Let c be the number of cows.\nAfter selling half of his cows, he will have c/2 cows.\nHe will have twice as many goats as cows, so 12 = 2 * c/2 = c.\nSo he has 12 cows. The answer is 12.\n\nQuestion: A new update was released for a computer game. The update had 2.5 times as many bug fixes as it did new features. If the update had 8 new features, how many total changes were in the update?\nAnswer: The update had 2.5 * 8 = 20 bug fixes.\nSo the total number of changes is 20 + 8 = 28. The answer is 28.\n\nQuestion: A farmer has 12 goats and some cows. If he sells half of his cows, he will have twice as many goats as cows. How many cows does he have?\nAnswer: Let c be the number of cows.\nAfter selling half of his cows, he will have c/2 cows.\nHe will have twice as many goats as cows, so 12 = 2 * c/2",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 311,
+      "gold": 15,
+      "pred": 15,
+      "correct": 1,
+      "invalid": 0,
+      "text": " Let the number of electric poles be x.\nThe ratio of electric poles to electric wires is 1:3, so x:45 = 1:3.\nCross-multiplying, we get 3x = 45, so x = 15.\nThus, the total number of electric poles required is 15. The answer is 15.\n\nQuestion: A new update was released for a popular video game. The update added 3 new weapons, 5 new maps, and 2 new game modes. The game already had 12 weapons, 9 maps, and 4 game modes. What is the ratio of the total number of weapons to the total number of maps after the update?\nAnswer: After the update, the total number of weapons is 12 + 3 = 15.\nAfter the update, the total number of maps is 9 + 5 = 14.\nThus, the ratio of weapons to maps is 15:14. The answer is 15:14.\n\nQuestion: A pet shelter had 9 puppies when another 5 were brought in. If 2 puppies are adopted, how many puppies are still at the shelter?\nAnswer: The shelter originally had 9 puppies, and 5 more were brought in, so there were 9 + 5 = 14 puppies.\nThen 2 puppies were adopted, so there are 14 - 2 = 12 puppies left. The answer is 12.\n\nQuestion: A pet shelter had 9 puppies when another 5 were brought in. If 2 puppies are adopted, how many puppies are still at the shelter?\nAnswer: The shelter originally had 9 puppies, and 5 more were brought in, so there were 9 + 5 = 14 puppies.\nThen 2 puppies were adopted, so there are 14 - 2 = 12 puppies left. The answer is 12.\n\nQuestion: A pet shelter had 9 puppies when another 5 were brought in. If 2 puppies are adopted, how many puppies are still at the shelter?\nAnswer: The shelter originally had 9 puppies, and 5 more were brought in, so there were 9 + 5 = 14 puppies.\nThen 2 puppies were adopted, so there are 14 - 2 = 12 puppies left. The answer is 12.\n\nQuestion: A pet shelter had 9 puppies when another 5 were brought in. If 2 puppies are adopted, how many puppies are still at the shelter?\n",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 315,
+      "gold": 75,
+      "pred": 75,
+      "correct": 1,
+      "invalid": 0,
+      "text": " First find the number of ice cubes: 65 / 13 = 5 ice cubes\nThen find the total weakening from the ice cubes: 5 * 12 = 60 milliliters\nThen add the weakening from the cream: 60 + 15 = 75 milliliters The answer is 75.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are black and half of the remaining puppies are brown. The rest are white. How many white puppies are there?\nAnswer: One-third of 9 is 9 * 1/3 = 3 black puppies.\nThe remaining puppies are 9 - 3 = 6.\nHalf of the remaining are brown, so 6 / 2 = 3 brown puppies.\nThe rest are white, so 6 - 3 = 3 white puppies. The answer is 3.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are black and half of the remaining puppies are brown. The rest are white. How many white puppies are there?\nAnswer: One-third of 9 is 9 * 1/3 = 3 black puppies.\nThe remaining puppies are 9 - 3 = 6.\nHalf of the remaining are brown, so 6 / 2 = 3 brown puppies.\nThe rest are white, so 6 - 3 = 3 white puppies. The answer is 3.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are black and half of the remaining puppies are brown. The rest are white. How many white puppies are there?\nAnswer: One-third of 9 is 9 * 1/3 = 3 black puppies.\nThe remaining puppies are 9 - 3 = 6.\nHalf of the remaining are brown, so 6 / 2 = 3 brown puppies.\nThe rest are white, so 6 - 3 = 3 white puppies. The answer is 3.\n\nQuestion: A pet shelter has 9 puppies. One-third of them are black and half of the remaining puppies are brown. The rest are white. How many white puppies are there?\nAnswer: One-third of 9 is 9 * 1/3 = 3 black puppies.\nThe remaining puppies are 9 - 3 = 6.\nHalf of the remaining are brown, so 6 / 2 = 3 brown puppies.\nThe rest are white, so 6 - 3 = 3 white puppies. The answer is ",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 318,
+      "gold": 14,
+      "pred": 14,
+      "correct": 1,
+      "invalid": 0,
+      "text": " Let x be the number of people who got on the bus at the terminal.\nAt the first stop, 5 more people got in, so the number of people on the bus becomes x + 5.\nAt the second stop, 7 people got down and 8 more got in, so the number of people on the bus becomes x + 5 - 7 + 8 = x + 6.\nSince there were 20 people heading to the third stop, we have x + 6 = 20, so x = 14. The answer is 14.\n\nQuestion: A pet store had 56 puppies and 37 kittens.  At the end of the first day, they had sold 19 puppies and 18 kittens.  How many puppies and kittens were left at the store at the end of the first day?\nAnswer: The number of puppies left is 56 - 19 = 37.\nThe number of kittens left is 37 - 18 = 19.\nSo the total number of puppies and kittens left is 37 + 19 = 56. The answer is 56.\n\nQuestion: A farmer has 12 goats and 4 cows.  He has 3 times as many pigs as cows.  How many more pigs than goats does he have?\nAnswer: The farmer has 4 cows, so he has 3 * 4 = 12 pigs.\nHe has 12 goats, so he has 12 - 12 = 0 more pigs than goats. The answer is 0.\n\nQuestion: A new update needs to be downloaded and installed.  The download is 200 MB and the installation is 20 MB.  The download speed is 1 MB per second and the installation speed is 2 MB per second.  How long does the whole process take?\nAnswer: The download takes 200 / 1 = 200 seconds.\nThe installation takes 20 / 2 = 10 seconds.\nSo the whole process takes 200 + 10 = 210 seconds. The answer is 210.\n\nQuestion: A group of 6 friends decide to rent a vacation house for a week.  The house will cost them a total of $2,100.  They will split the cost equally.  How much does each person pay?\nAnswer: Each person pays 2100 / 6 = $350. The answer is 350.\n\nQuestion: A pet shelter has 9 puppies and 15 kittens available for adoption.  If 5 puppies get",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 100,
+      "gold": 50,
+      "pred": 50,
+      "correct": 1,
+      "invalid": 0,
+      "text": " Let x be the number of cookies Henry baked last year.\nHe wanted to make 2x cookies this year.\nHe actually made 2x+15 cookies.\nAfter dropping 5, he had 2x+15-5 = 2x+10 cookies.\nWe know that 2x+10 = 110, so 2x = 100, and x = 50.\nSo Henry baked 50 cookies last year. The answer is 50.\n\nQuestion: A pet shelter has 9 puppies available for adoption. One-third of them are male. How many female puppies are available for adoption?\nAnswer: The number of male puppies is 9 * 1/3 = 3.\nThe number of female puppies is 9 - 3 = 6. The answer is 6.\n\nQuestion: A pet shelter has 9 puppies available for adoption. One-third of them are male. How many female puppies are available for adoption?\nAnswer: The number of male puppies is 9 * 1/3 = 3.\nThe number of female puppies is 9 - 3 = 6. The answer is 6.\n\nQuestion: A pet shelter has 9 puppies available for adoption. One-third of them are male. How many female puppies are available for adoption?\nAnswer: The number of male puppies is 9 * 1/3 = 3.\nThe number of female puppies is 9 - 3 = 6. The answer is 6.\n\nQuestion: A pet shelter has 9 puppies available for adoption. One-third of them are male. How many female puppies are available for adoption?\nAnswer: The number of male puppies is 9 * 1/3 = 3.\nThe number of female puppies is 9 - 3 = 6. The answer is 6.\n\nQuestion: A pet shelter has 9 puppies available for adoption. One-third of them are male. How many female puppies are available for adoption?\nAnswer: The number of male puppies is 9 * 1/3 = 3.\nThe number of female puppies is 9 - 3 = 6. The answer is 6.\n\nQuestion: A pet shelter has 9 puppies available for adoption. One-third of them are male. How many female puppies are available for adoption?\nAnswer: The number of male puppies is 9 * 1/3 = 3.\nThe number of female puppies is 9 - 3 = 6. The answer is 6.\n\nQuestion:",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 120,
+      "gold": 880,
+      "pred": 880,
+      "correct": 1,
+      "invalid": 0,
+      "text": " If each pepper costs 15$, then each watermelon costs 3 * 15$ = 45$.\nEach orange costs 45$ - 5$ = 40$.\nSo the total amount of money spent is 4 * 45$ + 20 * 15$ + 10 * 40$ = 180$ + 300$ + 400$ = 880$. The answer is 880.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies cost $50 each, the kittens cost $40 each, and the hamsters cost $30 each. What is the total cost of all the animals in the store?\nAnswer: The total cost of the puppies is 10 * $50 = $500.\nThe total cost of the kittens is 12 * $40 = $480.\nThe total cost of the hamsters is 8 * $30 = $240.\nThe total cost of all the animals is $500 + $480 + $240 = $1220. The answer is 1220.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies cost $50 each, the kittens cost $40 each, and the hamsters cost $30 each. What is the total cost of all the animals in the store?\nAnswer: The total cost of the puppies is 10 * $50 = $500.\nThe total cost of the kittens is 12 * $40 = $480.\nThe total cost of the hamsters is 8 * $30 = $240.\nThe total cost of all the animals is $500 + $480 + $240 = $1220. The answer is 1220.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies cost $50 each, the kittens cost $40 each, and the hamsters cost $30 each. What is the total cost of all the animals in the store?\nAnswer: The total cost of the puppies is 10 * $50 = $500.\nThe total cost of the kittens is 12 * $40 = $480.\nThe total cost of the hamsters is 8 * $30 = $240.\nThe total cost of all the animals is $500 + $480 + $240 = $1220. The answer is 1220.\n\nQuestion: A pet store has 10 puppies, 12 kittens, and 8 hamsters. The puppies",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    },
+    {
+      "q": 140,
+      "gold": 30,
+      "pred": 30,
+      "correct": 1,
+      "invalid": 0,
+      "text": " The total cost of the tickets is $12 + $10 = $22.\nIf she received $8 in change, she gave the cashier $22 + $8 = $30. The answer is 30.\n\nQuestion: A pet store has 5 crates of cats. Each crate has the same number of cats. The store has 2 cats that are not in crates. There are a total of 37 cats in the store. How many cats are in each crate?\nAnswer: There are 37 - 2 = 35 cats in crates.\nThere are 35 / 5 = 7 cats in each crate. The answer is 7.\n\nQuestion: A farmer has 12 goats and some cows. The number of cows is 1/3 the number of goats. How many animals does the farmer have?\nAnswer: The number of cows is 12 * 1/3 = 4.\nSo the farmer has 12 + 4 = 16 animals. The answer is 16.\n\nQuestion: A pet store has 30 animals. There are 10 cats, 8 dogs, and the rest are fish. What is the ratio of fish to total animals in the store?\nAnswer: The number of fish is 30 - 10 - 8 = 12.\nThe ratio of fish to total animals is 12:30 = 2:5. The answer is 2:5.\n\nQuestion: A pet store has 30 animals. There are 10 cats, 8 dogs, and the rest are fish. What is the ratio of fish to total animals in the store?\nAnswer: The number of fish is 30 - 10 - 8 = 12.\nThe ratio of fish to total animals is 12:30 = 2:5. The answer is 2:5.\n\nQuestion: A pet store has 30 animals. There are 10 cats, 8 dogs, and the rest are fish. What is the ratio of fish to total animals in the store?\nAnswer: The number of fish is 30 - 10 - 8 = 12.\nThe ratio of fish to total animals is 12:30 = 2:5. The answer is 2:5.\n\nQuestion: A pet store has 30 animals. There are 10 cats, 8 dogs, and the rest are fish. What is the ratio of fish to total animals in the store?\nAnswer: The number of fish is 30 - 10",
+      "completion_tokens": 512,
+      "finish_reason": {
+        "type": "length",
+        "length": 512
+      }
+    }
+  ]
+}

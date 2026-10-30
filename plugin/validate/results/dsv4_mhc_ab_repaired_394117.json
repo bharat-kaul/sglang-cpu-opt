@@ -1,0 +1,20 @@
+{
+  "operating_point": {
+    "threads": "8",
+    "socket": 1,
+    "load_format": "auto",
+    "input_len": 8,
+    "output_len": 6,
+    "reps": 6
+  },
+  "by_batch": {
+    "1": {
+      "error": "no provenance-confirmed reps",
+      "bad_reps": 12
+    },
+    "32": {
+      "error": "no provenance-confirmed reps",
+      "bad_reps": 12
+    }
+  }
+}

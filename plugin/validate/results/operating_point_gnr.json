@@ -1,0 +1,434 @@
+{
+ "_schema": "Operating-point regen after the reopt wave: PROMOTED variant per kernel, 512-bit flags, WARM + STREAMING (LLC-flushed, reliable) us vs the torch baseline. speedup uses STREAMING. floor = max(bytes/BW, FLOPs/peak) vs NOMINAL peak; %roof = floor/stream (streaming).",
+ "flags": [
+  "-O3",
+  "-fopenmp",
+  "-march=native",
+  "-mprefer-vector-width=512",
+  "-DCPU_CAPABILITY_AVX512"
+ ],
+ "node": "pcl-gnrap01.sc.intel.com",
+ "job": "392789",
+ "kernels": {
+  "indexer_logits": {
+   "pretty": "indexer logits",
+   "donor": true,
+   "authored": "oneDNN BRGEMM + authored epilogue (512-bit)",
+   "M": {
+    "1": {
+     "cpp_warm_us": 133.9,
+     "cpp_stream_us": 181.3,
+     "torch_warm_us": 6866.4,
+     "torch_stream_us": 7986.1,
+     "speedup_stream": 44.06,
+     "floor_us": 1.566,
+     "pct_roof_stream": 0.9
+    },
+    "2": {
+     "cpp_warm_us": 120.7,
+     "cpp_stream_us": 171.8,
+     "torch_warm_us": 213.3,
+     "torch_stream_us": 349.3,
+     "speedup_stream": 2.03,
+     "floor_us": 3.133,
+     "pct_roof_stream": 1.8
+    },
+    "4": {
+     "cpp_warm_us": 124.9,
+     "cpp_stream_us": 183.0,
+     "torch_warm_us": 241.7,
+     "torch_stream_us": 365.8,
+     "speedup_stream": 2.0,
+     "floor_us": 6.266,
+     "pct_roof_stream": 3.4
+    },
+    "8": {
+     "cpp_warm_us": 138.0,
+     "cpp_stream_us": 212.1,
+     "torch_warm_us": 294.4,
+     "torch_stream_us": 439.1,
+     "speedup_stream": 2.07,
+     "floor_us": 12.531,
+     "pct_roof_stream": 5.9
+    },
+    "16": {
+     "cpp_warm_us": 170.8,
+     "cpp_stream_us": 256.3,
+     "torch_warm_us": 910.6,
+     "torch_stream_us": 1211.6,
+     "speedup_stream": 4.73,
+     "floor_us": 25.063,
+     "pct_roof_stream": 9.8
+    },
+    "32": {
+     "cpp_warm_us": 248.4,
+     "cpp_stream_us": 393.0,
+     "torch_warm_us": 1090.5,
+     "torch_stream_us": 1471.1,
+     "speedup_stream": 3.74,
+     "floor_us": 50.126,
+     "pct_roof_stream": 12.8
+    },
+    "64": {
+     "cpp_warm_us": 355.4,
+     "cpp_stream_us": 515.7,
+     "torch_warm_us": 1054.7,
+     "torch_stream_us": 1752.3,
+     "speedup_stream": 3.4,
+     "floor_us": 100.251,
+     "pct_roof_stream": 19.4
+    }
+   }
+  },
+  "indexer_topk": {
+   "pretty": "indexer top-k",
+   "donor": false,
+   "authored": "pure-authored nth_element selection",
+   "M": {
+    "1": {
+     "cpp_warm_us": 3.8,
+     "cpp_stream_us": 15.3,
+     "torch_warm_us": 7.3,
+     "torch_stream_us": 27.6,
+     "speedup_stream": 1.81,
+     "floor_us": 0.023,
+     "pct_roof_stream": 0.1
+    },
+    "2": {
+     "cpp_warm_us": 18.2,
+     "cpp_stream_us": 37.1,
+     "torch_warm_us": 9.0,
+     "torch_stream_us": 25.8,
+     "speedup_stream": 0.7,
+     "floor_us": 0.046,
+     "pct_roof_stream": 0.1
+    },
+    "4": {
+     "cpp_warm_us": 17.6,
+     "cpp_stream_us": 42.6,
+     "torch_warm_us": 18.5,
+     "torch_stream_us": 45.8,
+     "speedup_stream": 1.08,
+     "floor_us": 0.091,
+     "pct_roof_stream": 0.2
+    },
+    "8": {
+     "cpp_warm_us": 18.9,
+     "cpp_stream_us": 47.1,
+     "torch_warm_us": 68.9,
+     "torch_stream_us": 102.6,
+     "speedup_stream": 2.18,
+     "floor_us": 0.183,
+     "pct_roof_stream": 0.4
+    },
+    "16": {
+     "cpp_warm_us": 20.6,
+     "cpp_stream_us": 47.0,
+     "torch_warm_us": 179.2,
+     "torch_stream_us": 232.3,
+     "speedup_stream": 4.94,
+     "floor_us": 0.366,
+     "pct_roof_stream": 0.8
+    },
+    "32": {
+     "cpp_warm_us": 20.9,
+     "cpp_stream_us": 48.2,
+     "torch_warm_us": 279.8,
+     "torch_stream_us": 446.2,
+     "speedup_stream": 9.25,
+     "floor_us": 0.731,
+     "pct_roof_stream": 1.5
+    },
+    "64": {
+     "cpp_warm_us": 21.8,
+     "cpp_stream_us": 50.0,
+     "torch_warm_us": 385.7,
+     "torch_stream_us": 481.7,
+     "speedup_stream": 9.63,
+     "floor_us": 1.463,
+     "pct_roof_stream": 2.9
+    }
+   }
+  },
+  "compressor_R128": {
+   "pretty": "compressor",
+   "donor": false,
+   "authored": "pure-authored, hand-inlined Cephes exp (D1)",
+   "M": {
+    "1": {
+     "cpp_warm_us": 21.1,
+     "cpp_stream_us": 35.6,
+     "torch_warm_us": 292.3,
+     "torch_stream_us": 376.5,
+     "speedup_stream": 10.58,
+     "floor_us": 2.2,
+     "pct_roof_stream": 6.2
+    },
+    "2": {
+     "cpp_warm_us": 22.9,
+     "cpp_stream_us": 37.2,
+     "torch_warm_us": 146.1,
+     "torch_stream_us": 207.3,
+     "speedup_stream": 5.57,
+     "floor_us": 3.669,
+     "pct_roof_stream": 9.9
+    },
+    "4": {
+     "cpp_warm_us": 25.9,
+     "cpp_stream_us": 45.2,
+     "torch_warm_us": 153.2,
+     "torch_stream_us": 225.6,
+     "speedup_stream": 4.99,
+     "floor_us": 6.606,
+     "pct_roof_stream": 14.6
+    },
+    "8": {
+     "cpp_warm_us": 33.4,
+     "cpp_stream_us": 67.4,
+     "torch_warm_us": 181.3,
+     "torch_stream_us": 267.4,
+     "speedup_stream": 3.97,
+     "floor_us": 12.48,
+     "pct_roof_stream": 18.5
+    },
+    "16": {
+     "cpp_warm_us": 39.1,
+     "cpp_stream_us": 104.9,
+     "torch_warm_us": 235.8,
+     "torch_stream_us": 353.7,
+     "speedup_stream": 3.37,
+     "floor_us": 24.229,
+     "pct_roof_stream": 23.1
+    },
+    "32": {
+     "cpp_warm_us": 57.2,
+     "cpp_stream_us": 174.4,
+     "torch_warm_us": 297.4,
+     "torch_stream_us": 484.6,
+     "speedup_stream": 2.78,
+     "floor_us": 47.726,
+     "pct_roof_stream": 27.4
+    },
+    "64": {
+     "cpp_warm_us": 89.5,
+     "cpp_stream_us": 243.3,
+     "torch_warm_us": 269.0,
+     "torch_stream_us": 523.3,
+     "speedup_stream": 2.15,
+     "floor_us": 94.72,
+     "pct_roof_stream": 38.9
+    }
+   }
+  },
+  "sparse_bestof": {
+   "pretty": "sparse attend",
+   "donor": true,
+   "authored": "oneDNN at::bmm + hand-exp softmax (bestof_hx)",
+   "M": {
+    "1": {
+     "cpp_warm_us": 85.2,
+     "cpp_stream_us": 181.0,
+     "torch_warm_us": 382.4,
+     "torch_stream_us": 566.6,
+     "speedup_stream": 3.13,
+     "floor_us": 8.623,
+     "pct_roof_stream": 4.8
+    },
+    "2": {
+     "cpp_warm_us": 133.7,
+     "cpp_stream_us": 186.9,
+     "torch_warm_us": 360.8,
+     "torch_stream_us": 511.4,
+     "speedup_stream": 2.74,
+     "floor_us": 17.246,
+     "pct_roof_stream": 9.2
+    },
+    "4": {
+     "cpp_warm_us": 156.1,
+     "cpp_stream_us": 248.8,
+     "torch_warm_us": 389.0,
+     "torch_stream_us": 583.3,
+     "speedup_stream": 2.34,
+     "floor_us": 34.493,
+     "pct_roof_stream": 13.9
+    },
+    "8": {
+     "cpp_warm_us": 256.0,
+     "cpp_stream_us": 385.6,
+     "torch_warm_us": 493.2,
+     "torch_stream_us": 766.8,
+     "speedup_stream": 1.99,
+     "floor_us": 68.985,
+     "pct_roof_stream": 17.9
+    },
+    "16": {
+     "cpp_warm_us": 440.4,
+     "cpp_stream_us": 588.4,
+     "torch_warm_us": 708.9,
+     "torch_stream_us": 1004.9,
+     "speedup_stream": 1.71,
+     "floor_us": 137.971,
+     "pct_roof_stream": 23.4
+    },
+    "32": {
+     "cpp_warm_us": 666.8,
+     "cpp_stream_us": 893.9,
+     "torch_warm_us": 927.6,
+     "torch_stream_us": 1356.5,
+     "speedup_stream": 1.52,
+     "floor_us": 275.941,
+     "pct_roof_stream": 30.9
+    },
+    "64": {
+     "cpp_warm_us": 1266.3,
+     "cpp_stream_us": 1557.8,
+     "torch_warm_us": 1518.3,
+     "torch_stream_us": 1975.4,
+     "speedup_stream": 1.27,
+     "floor_us": 551.882,
+     "pct_roof_stream": 35.4
+    }
+   }
+  },
+  "sinkhorn": {
+   "pretty": "MHC sinkhorn",
+   "donor": false,
+   "authored": "pure-authored fused recurrence",
+   "M": {
+    "1": {
+     "cpp_warm_us": 4.9,
+     "cpp_stream_us": 15.0,
+     "torch_warm_us": 222.3,
+     "torch_stream_us": 492.4,
+     "speedup_stream": 32.88,
+     "floor_us": 0.001,
+     "pct_roof_stream": 0.0
+    },
+    "2": {
+     "cpp_warm_us": 5.0,
+     "cpp_stream_us": 15.7,
+     "torch_warm_us": 222.1,
+     "torch_stream_us": 486.2,
+     "speedup_stream": 30.91,
+     "floor_us": 0.001,
+     "pct_roof_stream": 0.0
+    },
+    "4": {
+     "cpp_warm_us": 7.8,
+     "cpp_stream_us": 17.9,
+     "torch_warm_us": 223.1,
+     "torch_stream_us": 493.0,
+     "speedup_stream": 27.61,
+     "floor_us": 0.002,
+     "pct_roof_stream": 0.0
+    },
+    "8": {
+     "cpp_warm_us": 11.9,
+     "cpp_stream_us": 22.5,
+     "torch_warm_us": 232.2,
+     "torch_stream_us": 503.7,
+     "speedup_stream": 22.35,
+     "floor_us": 0.005,
+     "pct_roof_stream": 0.0
+    },
+    "16": {
+     "cpp_warm_us": 20.4,
+     "cpp_stream_us": 31.9,
+     "torch_warm_us": 241.7,
+     "torch_stream_us": 525.6,
+     "speedup_stream": 16.46,
+     "floor_us": 0.009,
+     "pct_roof_stream": 0.0
+    },
+    "32": {
+     "cpp_warm_us": 37.2,
+     "cpp_stream_us": 49.1,
+     "torch_warm_us": 272.6,
+     "torch_stream_us": 571.2,
+     "speedup_stream": 11.64,
+     "floor_us": 0.017,
+     "pct_roof_stream": 0.0
+    },
+    "64": {
+     "cpp_warm_us": 64.3,
+     "cpp_stream_us": 83.3,
+     "torch_warm_us": 315.0,
+     "torch_stream_us": 639.0,
+     "speedup_stream": 7.67,
+     "floor_us": 0.035,
+     "pct_roof_stream": 0.0
+    }
+   }
+  },
+  "combine": {
+   "pretty": "MHC combine",
+   "donor": false,
+   "authored": "pure-authored accumulate-once",
+   "M": {
+    "1": {
+     "cpp_warm_us": 3.3,
+     "cpp_stream_us": 16.3,
+     "torch_warm_us": 17.7,
+     "torch_stream_us": 70.7,
+     "speedup_stream": 4.34,
+     "floor_us": 0.229,
+     "pct_roof_stream": 1.4
+    },
+    "2": {
+     "cpp_warm_us": 19.3,
+     "cpp_stream_us": 32.1,
+     "torch_warm_us": 34.3,
+     "torch_stream_us": 86.7,
+     "speedup_stream": 2.7,
+     "floor_us": 0.457,
+     "pct_roof_stream": 1.4
+    },
+    "4": {
+     "cpp_warm_us": 19.1,
+     "cpp_stream_us": 33.6,
+     "torch_warm_us": 33.3,
+     "torch_stream_us": 90.3,
+     "speedup_stream": 2.68,
+     "floor_us": 0.914,
+     "pct_roof_stream": 2.7
+    },
+    "8": {
+     "cpp_warm_us": 20.2,
+     "cpp_stream_us": 35.0,
+     "torch_warm_us": 34.8,
+     "torch_stream_us": 88.3,
+     "speedup_stream": 2.52,
+     "floor_us": 1.829,
+     "pct_roof_stream": 5.2
+    },
+    "16": {
+     "cpp_warm_us": 20.4,
+     "cpp_stream_us": 36.0,
+     "torch_warm_us": 34.8,
+     "torch_stream_us": 90.0,
+     "speedup_stream": 2.5,
+     "floor_us": 3.658,
+     "pct_roof_stream": 10.2
+    },
+    "32": {
+     "cpp_warm_us": 21.9,
+     "cpp_stream_us": 39.7,
+     "torch_warm_us": 35.1,
+     "torch_stream_us": 97.7,
+     "speedup_stream": 2.46,
+     "floor_us": 7.316,
+     "pct_roof_stream": 18.4
+    },
+    "64": {
+     "cpp_warm_us": 21.2,
+     "cpp_stream_us": 46.5,
+     "torch_warm_us": 37.1,
+     "torch_stream_us": 101.0,
+     "speedup_stream": 2.17,
+     "floor_us": 14.631,
+     "pct_roof_stream": 31.5
+    }
+   }
+  }
+ }
+}

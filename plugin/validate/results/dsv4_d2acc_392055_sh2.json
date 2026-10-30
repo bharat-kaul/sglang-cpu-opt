@@ -1,0 +1,47 @@
+{
+  "model": "/scratch/bkaul/models/DeepSeek-V4-Flash",
+  "num_shots": 8,
+  "shard_index": 2,
+  "num_shards": 8,
+  "done": 40,
+  "total": 40,
+  "partial": false,
+  "accuracy": 0.9,
+  "correct": 36,
+  "invalid": 0,
+  "elapsed_s": 2459.2,
+  "acc_min": 0.3,
+  "verdict": "PASS",
+  "run_identity": {
+    "model": "/scratch/bkaul/models/DeepSeek-V4-Flash",
+    "device": "cpu",
+    "tp": 1,
+    "dtype": "bfloat16",
+    "quantization": null,
+    "num_shots": 8,
+    "max_new_tokens": 256,
+    "chunk_size": 16,
+    "num_shards": 8,
+    "shard_index": 2,
+    "sampling_params": {
+      "temperature": 0.0,
+      "max_new_tokens": 256,
+      "stop": [
+        "Question",
+        "Assistant:"
+      ]
+    },
+    "git_sha": "dc62aa04e8ba73906f0d093420289a04b2b7bbbb",
+    "env_toggles": {
+      "INTEL_CPU_DSV4_DSA_CKERNEL": "1",
+      "INTEL_CPU_DSV4_MXFP4_MOE": "1",
+      "INTEL_CPU_DSV4_DSA_CPU": "1",
+      "INTEL_CPU_DSV4_DECODE_THREADS": "64",
+      "CONTEXT_LEN": "4096",
+      "SWA_RATIO": "0.5",
+      "MAX_TOTAL_TOKENS": "131072"
+    },
+    "scorer": "extract_final_answer(task_gsm8k)",
+    "protocol_version": 2
+  }
+}

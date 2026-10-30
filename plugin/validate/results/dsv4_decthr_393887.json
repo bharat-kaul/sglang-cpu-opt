@@ -1,0 +1,75 @@
+{
+  "rows": [
+    {
+      "threads": 8,
+      "batch": 1,
+      "prefill_tok_s": 1.6,
+      "decode_tok_s": 2.23,
+      "decode_step_ms": 449.3
+    },
+    {
+      "threads": 16,
+      "batch": 1,
+      "prefill_tok_s": 1.6,
+      "decode_tok_s": 1.29,
+      "decode_step_ms": 777.5
+    },
+    {
+      "threads": 30,
+      "batch": 1,
+      "prefill_tok_s": 1.6,
+      "decode_tok_s": 1.07,
+      "decode_step_ms": 934.1
+    },
+    {
+      "threads": 45,
+      "batch": 1,
+      "prefill_tok_s": 1.6,
+      "decode_tok_s": 0.94,
+      "decode_step_ms": 1059.0
+    },
+    {
+      "threads": 58,
+      "batch": 1,
+      "prefill_tok_s": 1.6,
+      "decode_tok_s": 0.89,
+      "decode_step_ms": 1126.0
+    },
+    {
+      "threads": 8,
+      "batch": 32,
+      "prefill_tok_s": 8.8,
+      "decode_tok_s": 13.39,
+      "decode_step_ms": 2389.4
+    },
+    {
+      "threads": 16,
+      "batch": 32,
+      "prefill_tok_s": 8.8,
+      "decode_tok_s": 5.52,
+      "decode_step_ms": 5795.0
+    },
+    {
+      "threads": 30,
+      "batch": 32,
+      "prefill_tok_s": 8.8,
+      "decode_tok_s": 3.65,
+      "decode_step_ms": 8756.7
+    },
+    {
+      "threads": 45,
+      "batch": 32,
+      "prefill_tok_s": 8.7,
+      "decode_tok_s": 1.83,
+      "decode_step_ms": 17481.8
+    },
+    {
+      "threads": 58,
+      "batch": 32,
+      "prefill_tok_s": 8.8,
+      "decode_tok_s": 2.71,
+      "decode_step_ms": 11788.7
+    }
+  ],
+  "node": "pcl-spr01"
+}

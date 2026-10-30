@@ -1,0 +1,168 @@
+{
+  "model": "DeepSeek-V4-Flash",
+  "node": "EMR",
+  "precision": "MXFP4 W4A16 experts, bf16 compute",
+  "batch": 1,
+  "phases": {
+    "prefill": {
+      "wall_s": 6860.085650171852,
+      "ops": [
+        {
+          "op": "mhc.hc_pre",
+          "s": 433.4994,
+          "bucket": "torch"
+        },
+        {
+          "op": "dense.fp8_linear",
+          "s": 409.5158,
+          "bucket": "kernel"
+        },
+        {
+          "op": "mla.b.gather",
+          "s": 17.5296,
+          "bucket": "framework"
+        },
+        {
+          "op": "mla.b.mask",
+          "s": 73.6122,
+          "bucket": "framework"
+        },
+        {
+          "op": "mla.b.cvt",
+          "s": 0.5927,
+          "bucket": "framework"
+        },
+        {
+          "op": "mla.b.qk",
+          "s": 479.869,
+          "bucket": "kernel"
+        },
+        {
+          "op": "mla.b.softmax",
+          "s": 635.5012,
+          "bucket": "kernel"
+        },
+        {
+          "op": "mla.b.pv",
+          "s": 744.1142,
+          "bucket": "kernel"
+        },
+        {
+          "op": "dsa.mla.attend",
+          "s": 1957.588,
+          "bucket": "torch"
+        },
+        {
+          "op": "mhc.hc_post",
+          "s": 137.1473,
+          "bucket": "torch"
+        },
+        {
+          "op": "moe.expert_apply",
+          "s": 2367.4483,
+          "bucket": "kernel"
+        },
+        {
+          "op": "moe",
+          "s": 2530.3041,
+          "bucket": "kernel"
+        },
+        {
+          "op": "dense.bf16_linear",
+          "s": 1.9824,
+          "bucket": "kernel"
+        },
+        {
+          "op": "dsa.indexer",
+          "s": 254.1875,
+          "bucket": "torch"
+        },
+        {
+          "op": "dsa.compressor",
+          "s": 500.5024,
+          "bucket": "torch"
+        }
+      ]
+    },
+    "decode": {
+      "wall_s": 42.646026679547504,
+      "ops": [
+        {
+          "op": "mhc.hc_pre",
+          "s": 5.9025,
+          "bucket": "torch"
+        },
+        {
+          "op": "dense.fp8_linear",
+          "s": 1.3113,
+          "bucket": "kernel"
+        },
+        {
+          "op": "mla.b.gather",
+          "s": 0.7836,
+          "bucket": "framework"
+        },
+        {
+          "op": "mla.b.mask",
+          "s": 0.8913,
+          "bucket": "framework"
+        },
+        {
+          "op": "mla.b.cvt",
+          "s": 0.0108,
+          "bucket": "framework"
+        },
+        {
+          "op": "mla.b.qk",
+          "s": 1.7671,
+          "bucket": "kernel"
+        },
+        {
+          "op": "mla.b.softmax",
+          "s": 1.4729,
+          "bucket": "kernel"
+        },
+        {
+          "op": "mla.b.pv",
+          "s": 2.0114,
+          "bucket": "kernel"
+        },
+        {
+          "op": "dsa.mla.attend",
+          "s": 7.0207,
+          "bucket": "torch"
+        },
+        {
+          "op": "mhc.hc_post",
+          "s": 2.2829,
+          "bucket": "torch"
+        },
+        {
+          "op": "moe.expert_apply",
+          "s": 11.9429,
+          "bucket": "kernel"
+        },
+        {
+          "op": "moe",
+          "s": 13.2338,
+          "bucket": "kernel"
+        },
+        {
+          "op": "dense.bf16_linear",
+          "s": 0.0853,
+          "bucket": "kernel"
+        },
+        {
+          "op": "dsa.indexer",
+          "s": 3.4065,
+          "bucket": "torch"
+        },
+        {
+          "op": "dsa.compressor",
+          "s": 1.0232,
+          "bucket": "torch"
+        }
+      ]
+    }
+  }
+}

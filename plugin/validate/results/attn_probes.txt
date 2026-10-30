@@ -1,0 +1,31 @@
+[FP8 PARITY] PASS cos=1.000000 rel=2.034e-03 shape=(13, 1536) w=(1536, 4096)
+[KROPE#1] rope_cos=1.000000 rope_maxerr=0.000e+00 (cos<1 => kernel rope impl bug)
+ATTN#0: T=13 H=64 D=512 hdv=512 dp=139857878016064 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=False nbufs=1
+TOK t=0 nkeys=1 idx=[256] scale=0.04419 K0=[0.1602, 0.5742, 0.3867, -0.3086] qK0=[3.9495, 1.0352] p0=[0.9485] out=[0.1519, 0.5447, 0.3668, -0.2927]
+TOK t=1 nkeys=2 idx=[257, 256] scale=0.04419 K0=[0.0479, -1.3984, -0.7969, -0.2773] qK0=[3.8056, 5.4826, 1.0352] p0=[0.156, 0.8343] out=[0.1411, 0.261, 0.1984, -0.3007]
+TOK t=2 nkeys=3 idx=[258, 257, 256] scale=0.04419 K0=[0.0172, -0.0498, -0.1611, 0.3203] qK0=[3.3188, 4.4637, 3.0139, 1.0352] p0=[0.2007, 0.6308, 0.148] out=[0.0573, -0.8071, -0.4778, -0.1563]
+TOK t=3 nkeys=4 idx=[259, 258, 257, 256] scale=0.04419 K0=[0.4434, -0.6719, -0.8477, -0.4316] qK0=[4.7671, 4.1943, 2.8926, 0.0899] p0=[0.5712, 0.3221, 0.0876, 0.0053] out=[0.2639, -0.5194, -0.6039, -0.1693]
+TOK t=4 nkeys=5 idx=[260, 259, 258, 257, 256] scale=0.04419 K0=[-0.252, -0.5977, -0.1064, -0.0469] qK0=[4.2785, 4.0665, 2.4366, 0.6199] p0=[0.4875, 0.3944, 0.0773, 0.0126] out=[0.0554, -0.5724, -0.4051, -0.1747]
+ATTN#0 OUT: sum_abs=1.201e+05 zero_rows=0/13
+[KROPE#2] rope_cos=1.000000 rope_maxerr=0.000e+00 (cos<1 => kernel rope impl bug)
+ATTN#1: T=13 H=64 D=512 hdv=512 dp=139834948886592 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=False nbufs=2
+TOK t=0 nkeys=1 idx=[256] scale=0.04419 K0=[-0.4297, 0.9766, -0.2061, 0.2949] qK0=[-2.9574, 0.5866] p0=[0.0281] out=[-0.0121, 0.0274, -0.0058, 0.0083]
+TOK t=1 nkeys=2 idx=[257, 256] scale=0.04419 K0=[1.0469, -0.7656, 0.0178, 0.7812] qK0=[-2.094, -0.6429, 0.5866] p0=[0.0503, 0.2149] out=[-0.0396, 0.1713, -0.0434, 0.1027]
+TOK t=2 nkeys=3 idx=[258, 257, 256] scale=0.04419 K0=[0.7227, 0.293, 0.1602, 0.5508] qK0=[-4.5944, -2.4957, 0.2661, 0.5866] p0=[0.0032, 0.0258, 0.4084] out=[-0.1462, 0.38, -0.0832, 0.1423]
+TOK t=3 nkeys=4 idx=[259, 258, 257, 256] scale=0.04419 K0=[0.6602, 1.1172, 0.1719, 1.4219] qK0=[-1.937, -2.6229, -1.4427, 2.1491] p0=[0.0133, 0.0067, 0.0218, 0.7921] out=[-0.3039, 0.7737, -0.1595, 0.2733]
+TOK t=4 nkeys=5 idx=[260, 259, 258, 257, 256] scale=0.04419 K0=[-0.0679, -0.0908, 0.3203, -0.668] qK0=[-4.1674, -2.8219, -2.7772, -0.5196] p0=[0.0005, 0.0018, 0.0019, 0.0177] out=[-0.3762, 0.8918, -0.1894, 0.2898]
+ATTN#1 OUT: sum_abs=9.645e+04 zero_rows=0/13
+[KROPE#3] rope_cos=1.000000 rope_maxerr=0.000e+00 (cos<1 => kernel rope impl bug)
+ATTN#2: T=13 H=64 D=512 hdv=512 dp=139833681465408 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=True nbufs=3
+ATTN#2 OUT: sum_abs=1.204e+05 zero_rows=0/13
+[KROPE#4] rope_cos=1.000000 rope_maxerr=0.000e+00 (cos<1 => kernel rope impl bug)
+ATTN#3: T=13 H=64 D=512 hdv=512 dp=139832414044224 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=False nbufs=4
+ATTN#3 OUT: sum_abs=7.452e+04 zero_rows=0/13
+ATTN#4: T=13 H=64 D=512 hdv=512 dp=139831146623040 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=True nbufs=5
+ATTN#4 OUT: sum_abs=5.732e+04 zero_rows=0/13
+ATTN#5: T=13 H=64 D=512 hdv=512 dp=139829879201856 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=False nbufs=6
+ATTN#5 OUT: sum_abs=8.323e+04 zero_rows=0/13
+ATTN#6: T=13 H=64 D=512 hdv=512 dp=139828611780672 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=True nbufs=7
+ATTN#6 OUT: sum_abs=8.184e+04 zero_rows=0/13
+ATTN#7: T=13 H=64 D=512 hdv=512 dp=139827344359488 kv_valid=True n_valid=13 idx_from_indices=True pos_kept=False nbufs=8
+ATTN#7 OUT: sum_abs=8.407e+04 zero_rows=0/13

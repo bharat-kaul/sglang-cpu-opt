@@ -1,0 +1,1 @@
+[MXFP4 PARITY] PASS cosine=0.999997 rel=4.339e-03 max_abs=3.754e-03

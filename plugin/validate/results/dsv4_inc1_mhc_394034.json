@@ -1,0 +1,8 @@
+{
+  "parity": "PASS",
+  "eager_step_ms": 2433.6,
+  "cwin_step_ms": 2431.2,
+  "speedup": 1.001,
+  "gain_pct": 0.1,
+  "batch": 32
+}
