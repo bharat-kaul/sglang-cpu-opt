@@ -100,3 +100,21 @@ Every increment below passes this gate before any perf number is quoted, and shi
   no extra copies). Individual gated fusions are correctness bricks, not wins (confirms L.11). Next: either
   vectorize the coop kernels to parity-speed first, or build the driver and accept temporary per-kernel slowness
   until enough ops are in one region that the removed fork-joins dominate. Keep COOP_MHC OFF by default.
+
+## Vectorization + C++ driver validated (jobs 395073) — mechanism proven on REAL kernel work
+- **Coop kernel vectorized (AVX-512):** coop_hc_combine_rmsnorm_f32 is bit-faithful (cos=0.9999967) AND 8x
+  faster than the torch reference (30.9 vs 251 us/call @ B=32). Fixes the inc-4 regression; wired kernel is now
+  parity-speed.
+- **C++ layer-driver demonstrator** — real combine+rmsnorm as K ops/layer x 43 layers, per-op fork-join (A) vs
+  one cooperative region/layer (B), warm 32 threads:
+  | M (batch) | K=12 | K=24 |
+  |---|---|---|
+  | 1  | 3.66x | 4.38x |
+  | 32 | 2.51x | 1.61x |
+  | 64 | 2.29x | 2.23x |
+  The driver delivers 1.6-4.4x on the glue, largest at small M (decode). Validates the mechanism on REAL work
+  (vs the toy POC). Speedup shrinks as work/row grows (fork-join a smaller fraction), consistent with the model.
+- **REMAINING (the sustained core):** convert the actual DSV4 layer ops (MLA attention, DSA compressor/indexer/
+  topk/attend, MHC sinkhorn, MoE gate/experts) from at::parallel_for to region-cooperative (coop_parallel_for)
+  form, and a C++ per-layer driver that opens ONE region and sequences them, wired into the model forward +
+  per-layer parity gate. The mechanism is proven; this is the multi-week op-by-op conversion + wiring.

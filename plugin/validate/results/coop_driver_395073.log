@@ -1,0 +1,37 @@
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ g++ -O3 -march=native -mavx512bf16 -fopenmp /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/coop_driver_bench.cpp -o /scratch/bkaul/coop_driver
++ export OMP_WAIT_POLICY=active GOMP_SPINCOUNT=1000000
++ OMP_WAIT_POLICY=active
++ GOMP_SPINCOUNT=1000000
++ set +x
+########## M=1 K=12 ##########
+T=32  K=12 glue-ops/layer  M=1  H=4096  layers=43  (real combine+rmsnorm work)
+  (A) per-op fork-join      4.717 ms/step  (sink=1.0)
+  (B) one region/layer      1.287 ms/step  (sink=1.0)
+  => DRIVER speedup = 3.66x
+########## M=1 K=24 ##########
+T=32  K=24 glue-ops/layer  M=1  H=4096  layers=43  (real combine+rmsnorm work)
+  (A) per-op fork-join      9.970 ms/step  (sink=1.0)
+  (B) one region/layer      2.278 ms/step  (sink=1.0)
+  => DRIVER speedup = 4.38x
+########## M=32 K=12 ##########
+T=32  K=12 glue-ops/layer  M=32  H=4096  layers=43  (real combine+rmsnorm work)
+  (A) per-op fork-join      5.609 ms/step  (sink=1.0)
+  (B) one region/layer      2.235 ms/step  (sink=1.0)
+  => DRIVER speedup = 2.51x
+########## M=32 K=24 ##########
+T=32  K=24 glue-ops/layer  M=32  H=4096  layers=43  (real combine+rmsnorm work)
+  (A) per-op fork-join      7.043 ms/step  (sink=1.0)
+  (B) one region/layer      4.387 ms/step  (sink=1.0)
+  => DRIVER speedup = 1.61x
+########## M=64 K=12 ##########
+T=32  K=12 glue-ops/layer  M=64  H=4096  layers=43  (real combine+rmsnorm work)
+  (A) per-op fork-join      6.649 ms/step  (sink=1.0)
+  (B) one region/layer      2.900 ms/step  (sink=1.0)
+  => DRIVER speedup = 2.29x
+########## M=64 K=24 ##########
+T=32  K=24 glue-ops/layer  M=64  H=4096  layers=43  (real combine+rmsnorm work)
+  (A) per-op fork-join      13.681 ms/step  (sink=1.0)
+  (B) one region/layer      6.145 ms/step  (sink=1.0)
+  => DRIVER speedup = 2.23x
+[done] coop driver bench job=395073
