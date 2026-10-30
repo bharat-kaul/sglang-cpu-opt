@@ -29,6 +29,24 @@ static inline uint64_t stream_region(const uint8_t* p, size_t nbytes, int prefet
     return s;
 }
 
+// Stream + a representative fp4->bf16 DEQUANT of the expert weight (the kernel's dominant per-expert compute).
+// Each packed uint8 holds two fp4 nibbles -> two bf16 out. We emulate the unpack+scale cost: load 64B, split
+// nibbles, convert to float via a 16-entry LUT, multiply by a block scale, store to a bf16 scratch. This is the
+// compute that must hide under the ~235 GB/s stream; measuring stream+dequant tells us the compute-bound rate.
+static inline uint64_t stream_dequant_region(const uint8_t* p, size_t nbytes, float* scratch, const float* lut) {
+    uint64_t checksum = 0;
+    size_t n = nbytes; // bytes
+    for (size_t i = 0; i < n; ++i) {
+        uint8_t b = p[i];
+        int lo = b & 0xF, hi = (b >> 4) & 0xF;
+        float a = lut[lo], c = lut[hi];
+        scratch[(i & 1023) * 2] = a;              // write into a small rotating scratch (cache-resident)
+        scratch[(i & 1023) * 2 + 1] = c;
+        checksum += (uint64_t)(a + c);
+    }
+    return checksum;
+}
+
 int main(int argc, char** argv) {
     int T = argc > 1 ? atoi(argv[1]) : 32;
     int active = argc > 2 ? atoi(argv[2]) : 56;
@@ -92,6 +110,29 @@ int main(int argc, char** argv) {
     bench("  + SW prefetch(8)", 8, 1);
     bench("  + interleave G=4/thread", 0, 4);
     bench("  + interleave G=4 + prefetch", 8, 4);
+
+    // stream + scalar fp4->bf16 dequant (the per-expert compute that must hide under the stream)
+    {
+        float lut[16]; for (int i = 0; i < 16; ++i) lut[i] = (float)(i - 8) * 0.5f;
+        volatile uint64_t sink = 0; double best = 1e30;
+        for (int rep = 0; rep < 5; ++rep) {
+            auto t0 = std::chrono::high_resolution_clock::now();
+            #pragma omp parallel reduction(+:sink)
+            {
+                std::vector<float> scratch(2048);
+                #pragma omp for schedule(dynamic,1)
+                for (int j = 0; j < active; ++j) {
+                    int e = ids[j];
+                    sink += stream_dequant_region(&w13[(size_t)e * w13_e], w13_e, scratch.data(), lut);
+                    sink += stream_dequant_region(&w2[(size_t)e * w2_e], w2_e, scratch.data(), lut);
+                }
+            }
+            auto t1 = std::chrono::high_resolution_clock::now();
+            best = std::min(best, std::chrono::duration<double>(t1 - t0).count());
+        }
+        printf("  %-28s  %.2f ms   %.0f GB/s   (stream+scalar dequant = compute-bound rate; sink=%llu)\n",
+               "stream + fp4 dequant", best * 1e3, gb / best, (unsigned long long)sink);
+    }
     // contiguous upper bound: stream the first `active` experts as one flat sweep
     {
         volatile uint64_t sink = 0; double best = 1e30;

@@ -1,0 +1,39 @@
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ g++ -O3 -march=native -fopenmp /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/moe_bw_feasibility.cpp -o /scratch/bkaul/moe_bw_feas
++ export OMP_PROC_BIND=close OMP_PLACES=cores
++ OMP_PROC_BIND=close
++ OMP_PLACES=cores
++ set +x
+########## T=32 active=56 ##########
+alloc 3.22 GB (E=256, per-expert 12.58 MB), T=32 active=56
+streaming 0.705 GB (56 experts) :
+  kernel-like (1 expert/unit)   2.99 ms   235 GB/s   (sink=3638568846677245952)
+    + SW prefetch(8)            2.98 ms   237 GB/s   (sink=3638568846677245952)
+    + interleave G=4/thread     3.34 ms   211 GB/s   (sink=3638568846677245952)
+    + interleave G=4 + prefetch  3.39 ms   208 GB/s   (sink=3638568846677245952)
+  contiguous sweep              1.43 ms   327 GB/s   (contiguous upper bound, w13-only bytes)
+########## T=32 active=203 ##########
+alloc 3.22 GB (E=256, per-expert 12.58 MB), T=32 active=203
+streaming 2.554 GB (203 experts) :
+  kernel-like (1 expert/unit)   10.16 ms   252 GB/s   (sink=8578126050777628672)
+    + SW prefetch(8)            10.06 ms   254 GB/s   (sink=8578126050777628672)
+    + interleave G=4/thread     10.23 ms   250 GB/s   (sink=8578126050777628672)
+    + interleave G=4 + prefetch  10.23 ms   250 GB/s   (sink=8578126050777628672)
+  contiguous sweep              7.80 ms   218 GB/s   (contiguous upper bound, w13-only bytes)
+########## T=48 active=56 ##########
+alloc 3.22 GB (E=256, per-expert 12.58 MB), T=48 active=56
+streaming 0.705 GB (56 experts) :
+  kernel-like (1 expert/unit)   2.94 ms   240 GB/s   (sink=3638568846677245952)
+    + SW prefetch(8)            2.76 ms   255 GB/s   (sink=3638568846677245952)
+    + interleave G=4/thread     2.99 ms   236 GB/s   (sink=3638568846677245952)
+    + interleave G=4 + prefetch  3.02 ms   233 GB/s   (sink=3638568846677245952)
+  contiguous sweep              1.09 ms   430 GB/s   (contiguous upper bound, w13-only bytes)
+########## T=48 active=203 ##########
+alloc 3.22 GB (E=256, per-expert 12.58 MB), T=48 active=203
+streaming 2.554 GB (203 experts) :
+  kernel-like (1 expert/unit)   10.23 ms   250 GB/s   (sink=8578126050777628672)
+    + SW prefetch(8)            10.10 ms   253 GB/s   (sink=8578126050777628672)
+    + interleave G=4/thread     12.01 ms   213 GB/s   (sink=8578126050777628672)
+    + interleave G=4 + prefetch  12.04 ms   212 GB/s   (sink=8578126050777628672)
+  contiguous sweep              6.60 ms   258 GB/s   (contiguous upper bound, w13-only bytes)
+[done] moe bw feasibility job=394934

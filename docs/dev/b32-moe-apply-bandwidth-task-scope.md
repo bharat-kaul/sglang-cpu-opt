@@ -19,35 +19,39 @@ bandwidth specifically at B=32**:
 **It is NOT thread-starved** (measured: B=32 @24/32/48 threads = 75/100/104 GB/s — plateaus past 32). More
 threads do not help; the limit is intrinsic to the shape.
 
-## 2. Root-cause hypothesis (grounded in `moe.cpp`)
+## 2. Root-cause hypothesis (grounded in `moe.cpp`) — UPDATED by the feasibility microbench (job 394934)
 
-`fused_experts_kernel_impl` parallelizes via `parallel_2d(MB, NB, ...)` over M-blocks (token groups, `BLOCK_M`)
-× N-blocks, and each active expert contributes ≈ 1 M-block at B=32 (m_size ≈ 1–2 << BLOCK_M). Consequences at
-B=32 (56 experts):
-- **Low memory-level parallelism.** 56 experts => 56 M-blocks; across 32–48 threads that is ~1–2 blocks/thread,
-  and each block streams ONE expert's full packed weights (~12.6 MB: `w1 [2N,K]` + `w2 [N,K]`) from a distinct,
-  strided region of the `[E, …]` weight tensor. Few concurrent weight streams + strided access => DRAM BW is
-  under-saturated (B=64's 203 blocks keep far more requests in flight => 1.6× the BW).
-- **Thread imbalance.** 56 (or 57/58) active experts is an awkward count for 32–48 threads => tail threads idle.
-- **Per-expert fixed overhead poorly amortized.** For each M-block: gather `m_size` A-rows (`copy_stub`), tile/
-  scale setup, dequant-scale load — all paid per expert, amortized over only ~2 rows of real work.
-- (`use_brgemm` is globally false here since `avg_M = M*topk/E ≈ 1`; the vector path is correct — this is NOT a
-  "force BRGEMM" task. See the occupancy census: 56% of B=32 experts have 1 row.)
+**⚠ The original "scattered access is the ceiling" hypothesis was REFUTED by the gate.** A pure AVX-512 stream of
+B=32's EXACT 56-expert byte pattern achieves **235 GB/s** (T=32) / **240–255 GB/s** (T=48) — the actual MoE kernel
+reaches only **100–104 GB/s**. So the scattered access is NOT the limit; there is **~2.3× recoverable headroom at
+B=32** (and ~1.6× at B=64: 160 vs 252). SW prefetch and multi-expert interleave did NOT raise the pure stream
+(235→237; HW prefetcher already saturates), so those levers are OUT.
 
-Net: at B=32 the kernel does not keep enough independent weight streams in flight to saturate the memory system,
-and pays per-expert setup on tiny row counts.
+**Revised root cause:** the kernel runs at 100 GB/s because its **compute does not hide in the shadow of the
+weight stream** (rule 0's corollary). The gap (235 achievable stream vs 100 achieved) is the per-expert
+**fp4→bf16 dequant + GEMV + A-row gather (`copy_stub`) + thread imbalance** (56 experts awkward for 32–48
+threads), NOT memory bandwidth or access pattern. At ~2 rows/expert the GEMV is tiny, but the dequant processes
+the FULL ~12.6 MB expert weight regardless of m_size — so if the dequant is not vectorized/overlapped enough to
+clear under the 235 GB/s stream, the op runs at the (slower) dequant/compute rate. `use_brgemm` is correctly
+false (vector path); this is a compute-hiding + thread-balance problem, not a BRGEMM problem.
 
-## 3. Candidate levers (to be screened by microbench BEFORE authoring)
+**Pending gate step (do next, before authoring):** isolate the fp4→bf16 dequant + tiny-GEMV compute rate to
+confirm the kernel is dequant/compute-bound (not stream-bound) and bound the achievable (can the compute be made
+to hide under 235 GB/s, or is dequant itself the new floor?).
 
-1. **Cross-expert software prefetch / double-buffering** — prefetch expert k+1's packed weights while the GEMV
-   for expert k runs (raise memory-level parallelism without more threads). Highest-leverage, lowest-risk.
-2. **Multiple experts in flight per thread** — interleave 2–4 experts' weight streams per thread so the memory
-   subsystem sees more concurrent requests (saturate BW at low rows/expert).
-3. **Block/expert-to-thread balancing** — assign experts to threads by weight-bytes (not count) so 32–48 threads
-   finish together; split nothing (rows too few), just balance the stream assignment.
-4. **Amortize per-expert setup** — hoist dequant-scale/tile setup out of the per-block inner path where possible.
-- NOT a lever (ruled out wave-3): forcing BRGEMM/AMX (tile underfilled at ~2 rows); adding threads (plateaus);
-  the monolith (unrelated — this is intra-kernel).
+## 3. Candidate levers (to be screened by microbench BEFORE authoring) — REVISED post-gate
+
+**Refuted by the gate (do NOT pursue):** cross-expert SW prefetch and multi-expert interleave — the pure stream
+already hits 235 GB/s and these did not raise it (HW prefetcher saturates). The access pattern is not the limit.
+
+**Revised levers (make the compute hide under the 235 GB/s stream):**
+1. **Faster / vectorized fp4→bf16 dequant** — the dominant per-expert compute; ensure it is AMX/AVX-512-vectorized
+   and fused into the GEMV epilogue (compute-from-native-precision), so dequant clears under the weight stream.
+2. **Thread-balance by weight-bytes, not expert-count** — 56 experts across 32–48 threads leaves tail threads
+   idle; assign experts so threads finish together (B=64's 203 experts already balance well → 1.6× the BW).
+3. **Amortize/hoist per-expert setup** (tile/scale/gather) out of the inner path.
+- NOT levers (ruled out): prefetch/interleave (gate-refuted), force BRGEMM/AMX tiles (underfilled at ~2 rows),
+  more threads (plateaus past 32), the monolith (unrelated).
 
 ## 4. Feasibility-gate preconditions (MUST pass before authoring — per `kernel-feasibility-gate`)
 
@@ -80,12 +84,15 @@ and pays per-expert setup on tiny row counts.
    B=32 primary, confirm the apply win propagates (MoE is 72% => ~1.4× ceiling) and does not regress B=1/B=64.
 4. Re-attribute after the change (Amdahl): attention/dense/glue rise as the MoE shrinks.
 
-## 7. Recommendation
+## 7. Recommendation — UPDATED post-gate: PURSUE (headroom confirmed real)
 
-**Defer** unless B=32/mid-batch is a declared priority operating point. The decode campaign's banked result is the
-warm + M-adaptive-threads config (~4–5× over naive). This MoE lever is a real but **bounded ~1.4×-at-B=32**
-follow-on that requires upstream `moe.cpp` work; schedule it only after the feasibility-gate preconditions (§4)
-confirm the operating-point priority and the memory-level-parallelism root cause with perf counters.
+The feasibility gate **refuted the defer rationale**: B=32's scattered access is NOT the ceiling (pure stream
+235 GB/s vs kernel 100) → **~2.3× recoverable at B=32** (~1.4× on decode@B=32, MoE=72%), and ~1.6× at B=64. The
+lever is making the per-expert fp4-dequant+GEMV compute hide under the 235 GB/s stream + balancing experts across
+threads — a compute/overlap/balance problem, not access-pattern. **One gate step remains** (§4.2 revised: isolate
+the dequant+GEMV compute rate to confirm dequant-bound vs imbalance-bound and set the achievable). If that
+confirms, author in the native `moe.cpp` (upstream). Still bounded (~1.4× decode@B=32) and upstream-touching, but
+now a CONFIRMED-real win worth banking for absolute-best-performance, not a speculative one.
 
 Evidence: wave-3 jobs 394867/868/907/908/917/918; occupancy census job 394490;
 `docs/dsv4-decode-operating-point.md`; machine BW `plugin/validate/results/machine_constants_emr.json`
