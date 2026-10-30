@@ -25,6 +25,19 @@ cooperative region per layer). The old step-1 "remove Python dispatch" is now kn
 hard+valuable part is making the layer ops cooperate in ONE region (ATen serializes inside a naive nested region
 — so the ops must be reimplemented region-cooperatively; this is the multi-week core).
 
+## ⚡ THESIS CONFIRMED + CEILING MEASURED (POC job 395025)
+A counterfactual microbench — 43 layers × N small ops, **(A) per-op fork-join** vs **(B) one cooperative
+`omp parallel` region per layer** (warm, 32/48 threads) — directly measures the recoverable overhead:
+| ops/layer | A per-op (ms) | B one-region (ms) | region-collapse speedup |
+|---|---|---|---|
+| 12 | 5.11 | 1.57 | **3.26×** |
+| 24 (~DSV4) | 10.04 | 2.43 | **4.14×** |
+| 40 | 16.45 | 3.79 | **4.34×** |
+Region-collapse recovers **~4×** of the fork-join overhead portion. Applied to decode (716 ms = ~286 ms real
+parallel work + ~430 ms fork-join overhead): monolith → **~390 ms = ~1.8× e2e**, ceiling (near-full overhead
+removal) **~286 ms = ~2.5× e2e** on decode — on top of the banked warm config. This is the measured prize and it
+justifies the multi-week build.
+
 ## What is established (do not re-litigate)
 - **The overhead is OVERHEAD, not compute** — now at ~60% (measured by perf, supersedes the 29% region-timer
   estimate). Monolithic per-layer region is the right fix. CONFIRMED by profiling.

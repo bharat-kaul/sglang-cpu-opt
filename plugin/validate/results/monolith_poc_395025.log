@@ -1,0 +1,37 @@
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ g++ -O3 -march=native -fopenmp /data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/monolith_thesis_poc.cpp -o /scratch/bkaul/monolith_poc
++ export OMP_WAIT_POLICY=active GOMP_SPINCOUNT=1000000
++ OMP_WAIT_POLICY=active
++ GOMP_SPINCOUNT=1000000
++ set +x
+########## T=32 ops/layer=12 ##########
+T=32  ops/layer=12  layers=43  elems/op=4096
+  (A) per-op fork-join        5.109 ms / step  (sink=10.0)
+  (B) one region/layer        1.568 ms / step  (sink=10.0)
+  => region-collapse speedup = 3.26x  (fork-join barrier overhead recovered)
+########## T=32 ops/layer=24 ##########
+T=32  ops/layer=24  layers=43  elems/op=4096
+  (A) per-op fork-join        10.043 ms / step  (sink=10.0)
+  (B) one region/layer        2.425 ms / step  (sink=10.0)
+  => region-collapse speedup = 4.14x  (fork-join barrier overhead recovered)
+########## T=32 ops/layer=40 ##########
+T=32  ops/layer=40  layers=43  elems/op=4096
+  (A) per-op fork-join        16.450 ms / step  (sink=10.0)
+  (B) one region/layer        3.792 ms / step  (sink=10.0)
+  => region-collapse speedup = 4.34x  (fork-join barrier overhead recovered)
+########## T=48 ops/layer=12 ##########
+T=48  ops/layer=12  layers=43  elems/op=4096
+  (A) per-op fork-join        3.736 ms / step  (sink=10.0)
+  (B) one region/layer        1.861 ms / step  (sink=10.0)
+  => region-collapse speedup = 2.01x  (fork-join barrier overhead recovered)
+########## T=48 ops/layer=24 ##########
+T=48  ops/layer=24  layers=43  elems/op=4096
+  (A) per-op fork-join        14.490 ms / step  (sink=10.0)
+  (B) one region/layer        3.699 ms / step  (sink=10.0)
+  => region-collapse speedup = 3.92x  (fork-join barrier overhead recovered)
+########## T=48 ops/layer=40 ##########
+T=48  ops/layer=40  layers=43  elems/op=4096
+  (A) per-op fork-join        24.952 ms / step  (sink=10.0)
+  (B) one region/layer        5.341 ms / step  (sink=10.0)
+  => region-collapse speedup = 4.67x  (fork-join barrier overhead recovered)
+[done] monolith poc job=395025
