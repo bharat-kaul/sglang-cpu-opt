@@ -1,0 +1,53 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2c33b50b16c472efe58357d1d2a8a5414bc23fbf/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64:/sbin:/bin
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2c33b50b16c472efe58357d1d2a8a5414bc23fbf/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64:/sbin:/bin
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ DTHR=40
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ PYTHONPATH=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS=40 INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ INTEL_CPU_DSV4_DECODE_THREADS=40
++ INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ export OMP_WAIT_POLICY=active GOMP_SPINCOUNT=1000000
++ OMP_WAIT_POLICY=active
++ GOMP_SPINCOUNT=1000000
++ export INTEL_CPU_DSV4_MOE_ROOFLINE=1 INTEL_CPU_DSV4_MOE_OCC=1 INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moe_rl_occ_394917.json
++ INTEL_CPU_DSV4_MOE_ROOFLINE=1
++ INTEL_CPU_DSV4_MOE_OCC=1
++ INTEL_CPU_DSV4_MOE_OCC_FILE=/data/nfs_home/bkaul/dsv4-tree-pilot/plugin/validate/results/moe_rl_occ_394917.json
++ set +x
+slurmstepd: error: *** JOB 394917 ON pcl-spr01 CANCELLED AT 2026-10-29T22:32:48 DUE TO TIME LIMIT ***
