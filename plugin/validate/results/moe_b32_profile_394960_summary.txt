@@ -1,0 +1,22 @@
+DSV4 B=32 decode warm (32thr) perf self-time profile (job 394960, lean -F499, shadow symbol build)
+decode_step = 716.7 ms (44.6 tok/s)
+
+TOP self-time symbols (whole decode):
+  33.77%  gomp_barrier_wait_end        (libgomp)   OpenMP barrier spin
+  29.26%  gomp_team_barrier_wait_end   (libgomp)   OpenMP barrier spin   => 63% BARRIER/SYNC
+   6.35%  [kernel] 0x...                            syscall/page-fault
+   6.09%  tinygemm_kernel<bf16,u8,u8>  (mxfp4)      MoE compute (dispatch+loop)
+   2.07%  [kernel]
+   1.82%  tinygemm_kernel_nn<bf16,...> (mxfp4)      MoE compute (inner unpack+gemv)
+   1.18%  convert_weight_packed                     weight repack (per-call?)
+   0.88%  aten direct_copy_kernel
+   0.75%  tinygemm_kernel_nn
+   0.68%  tinygemm_kernel
+  (MoE tinygemm total ~= 9%; copy/convert/aten ~= 3-4%; DSA sparse_attend 0.18%)
+
+VERDICT: at B=32 warm the decode is ~63% OpenMP BARRIER SPIN (load imbalance across 32 threads over 56
+uneven-row experts + many small parallel regions), NOT kernel compute (~9%). The MXFP4 unpack-efficiency
+lever I was about to pursue targets only ~9% of the step. The real lever is LOAD BALANCING / BARRIER REDUCTION
+in the MoE (and decode) parallel regions: balance parallel_2d by actual work (rows) not block count, and/or
+reduce the number of parallel-region barriers per step. This also explains the feasibility bench gap
+(pure stream 235 = balanced; kernel 100 = imbalanced + barrier tails).

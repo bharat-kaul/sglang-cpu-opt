@@ -1,0 +1,90 @@
++ source /scratch/bkaul/venvs/sglang-cpu/bin/activate
+++ deactivate nondestructive
+++ '[' -n '' ']'
+++ '[' -n '' ']'
+++ hash -r
+++ '[' -n '' ']'
+++ unset VIRTUAL_ENV
+++ unset VIRTUAL_ENV_PROMPT
+++ '[' '!' nondestructive = nondestructive ']'
+++ case "$(uname)" in
++++ uname
+++ export VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ VIRTUAL_ENV=/scratch/bkaul/venvs/sglang-cpu
+++ _OLD_VIRTUAL_PATH=/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2c33b50b16c472efe58357d1d2a8a5414bc23fbf/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64:/sbin:/bin
+++ PATH=/scratch/bkaul/venvs/sglang-cpu/bin:/usr/share/Modules/bin:/data/nfs_home/bkaul/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/data/nfs_home/bkaul/.vscode-server/cli/servers/Stable-2c33b50b16c472efe58357d1d2a8a5414bc23fbf/server/node_modules/@vscode/ripgrep-universal/bin/linux-x64:/sbin:/bin
+++ export PATH
+++ VIRTUAL_ENV_PROMPT='(sglang-cpu) '
+++ export VIRTUAL_ENV_PROMPT
+++ '[' -n '' ']'
+++ '[' -z '' ']'
+++ _OLD_VIRTUAL_PS1=
+++ PS1='((sglang-cpu) ) '
+++ export PS1
+++ hash -r
++ WT=/data/nfs_home/bkaul/dsv4-tree-pilot
++ CKPT=/scratch/bkaul/models/DeepSeek-V4-Flash
++ SHADOW=/scratch/bkaul/sgl_kernel_shadow
++ export SGLANG_USE_CPU_ENGINE=1 INTEL_CPU_DSV4_DSA_CPU=1 INTEL_CPU_DSV4_MXFP4_MOE=1 INTEL_CPU_DSV4_DSA_CKERNEL=1
++ SGLANG_USE_CPU_ENGINE=1
++ INTEL_CPU_DSV4_DSA_CPU=1
++ INTEL_CPU_DSV4_MXFP4_MOE=1
++ INTEL_CPU_DSV4_DSA_CKERNEL=1
++ export SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ SGLANG_EXTERNAL_MODEL_PACKAGE=intel_cpu_models
++ export PYTHONPATH=/scratch/bkaul/sgl_kernel_shadow:/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ PYTHONPATH=/scratch/bkaul/sgl_kernel_shadow:/data/nfs_home/bkaul/dsv4-tree-pilot/plugin
++ export TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ TORCH_EXTENSIONS_DIR=/scratch/bkaul/torch_ext_dsv4_stable
++ export CONTEXT_LEN=4096 MAX_TOTAL_TOKENS=131072 SWA_RATIO=0.5
++ CONTEXT_LEN=4096
++ MAX_TOTAL_TOKENS=131072
++ SWA_RATIO=0.5
++ export INTEL_CPU_DSV4_DECODE_THREADS=32 INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ INTEL_CPU_DSV4_DECODE_THREADS=32
++ INTEL_CPU_DSV4_DECODE_THREADS_STICKY=1
++ export OMP_WAIT_POLICY=active GOMP_SPINCOUNT=1000000
++ OMP_WAIT_POLICY=active
++ GOMP_SPINCOUNT=1000000
++ set +x
+[profile] common_ops: /scratch/bkaul/sgl_kernel_shadow/sgl_kernel/common_ops.cpython-312-x86_64-linux-gnu.so
+[2026-10-30 01:06:56] Ignore import error when loading sglang.srt.models.inkling: No module named 'cutlass'
+[CLEAN] B=32: decode_step=716.7 ms  (44.647 tok/s)  n=3 fresh
+########## PERF REPORT: kernel self-time breakdown ##########
+     6.09%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] void (anonymous namespace)::tinygemm_kernel<c10::BFloat16, unsigned char, unsigned char, false>(c10::BFloat16 const*, unsigned char const*, c10::BFloat16*, c10::BFloat16*, float*, unsigned char const*, float const*, long, long, long, long, long, long, bool, long, bool) [clone .isra.0]
+     1.82%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] (anonymous namespace)::tinygemm_kernel_nn<c10::BFloat16, unsigned char, unsigned char, false, 4, 32>::apply(c10::BFloat16 const*, unsigned char const*, c10::BFloat16*, float const*, unsigned char const*, int, int, int, int, long) [clone .constprop.0]
+     1.18%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] void at::internal::invoke_parallel<at::parallel_for<convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1}>(long, long, long, convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1} const&)::{lambda(long, long)#1}>(long, long, long, at::parallel_for<convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1}>(long, long, long, convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1} const&)::{lambda(long, long)#1} const&) [clone ._omp_fn.0]
+     0.75%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] (anonymous namespace)::tinygemm_kernel_nn<c10::BFloat16, unsigned char, unsigned char, false, 3, 32>::apply(c10::BFloat16 const*, unsigned char const*, c10::BFloat16*, float const*, unsigned char const*, int, int, int, int, long) [clone .constprop.0]
+     0.68%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] void (anonymous namespace)::tinygemm_kernel<c10::BFloat16, c10::Float8_e4m3fn, float, false>(c10::BFloat16 const*, c10::Float8_e4m3fn const*, c10::BFloat16*, c10::BFloat16*, float*, float const*, float const*, long, long, long, long, long, long, bool, long, bool) [clone .isra.0]
+########## TOP 30 SYMBOLS OVERALL ##########
+    33.77%  sglang::schedul  libgomp.so.1                                       [.] gomp_barrier_wait_end
+    29.26%  sglang::schedul  libgomp.so.1                                       [.] gomp_team_barrier_wait_end
+     6.35%  sglang::schedul  [unknown]                                          [k] 0xffffffffb81598db
+     6.09%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] void (anonymous namespace)::tinygemm_kernel<c10::BFloat16, unsigned char, unsigned char, false>(c10::BFloat16 const*, unsigned char const*, c10::BFloat16*, c10::BFloat16*, float*, unsigned char const*, float const*, long, long, long, long, long, long, bool, long, bool) [clone .isra.0]
+     2.07%  sglang::schedul  [unknown]                                          [k] 0xffffffffb767734a
+     1.82%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] (anonymous namespace)::tinygemm_kernel_nn<c10::BFloat16, unsigned char, unsigned char, false, 4, 32>::apply(c10::BFloat16 const*, unsigned char const*, c10::BFloat16*, float const*, unsigned char const*, int, int, int, int, long) [clone .constprop.0]
+     1.58%  sglang::schedul  [unknown]                                          [k] 0xffffffffb81598dd
+     1.18%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] void at::internal::invoke_parallel<at::parallel_for<convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1}>(long, long, long, convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1} const&)::{lambda(long, long)#1}>(long, long, long, at::parallel_for<convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1}>(long, long, long, convert_weight_packed(at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#5}::operator()() const::{lambda(long, long)#1} const&)::{lambda(long, long)#1} const&) [clone ._omp_fn.0]
+     0.88%  sglang::schedul  libtorch_cpu.so                                    [.] void c10::function_ref<void (char**, long const*, long, long)>::callback_fn<at::native::AVX2::VectorizedLoop2d<at::native::AVX2::direct_copy_kernel(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#10}::operator()() const::{lambda(signed char)#1}, at::native::AVX2::direct_copy_kernel(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#10}::operator()() const::{lambda(at::vec::AVX2::Vectorized<signed char>)#1}> >(long, char**, long const*, long, long)
+     0.75%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] (anonymous namespace)::tinygemm_kernel_nn<c10::BFloat16, unsigned char, unsigned char, false, 3, 32>::apply(c10::BFloat16 const*, unsigned char const*, c10::BFloat16*, float const*, unsigned char const*, int, int, int, int, long) [clone .constprop.0]
+     0.74%  sglang::schedul  libtorch_cpu.so                                    [.] void c10::function_ref<void (char**, long const*, long, long)>::callback_fn<at::native::AVX2::VectorizedLoop2d<at::native::(anonymous namespace)::fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#1}::operator()() const::{lambda()#1}, at::native::(anonymous namespace)::fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#1}::operator()() const::{lambda()#2}> >(long, char**, long const*, long, long)
+     0.68%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] void (anonymous namespace)::tinygemm_kernel<c10::BFloat16, c10::Float8_e4m3fn, float, false>(c10::BFloat16 const*, c10::Float8_e4m3fn const*, c10::BFloat16*, c10::BFloat16*, float*, float const*, float const*, long, long, long, long, long, long, bool, long, bool) [clone .isra.0]
+     0.48%  sglang::schedul  [unknown]                                          [k] 0xffffffffb8159477
+     0.42%  sglang::schedul  [unknown]                                          [k] 0xffffffffc1fd6259
+     0.31%  sglang::schedul  libtorch_cpu.so                                    [.] void at::internal::invoke_parallel<at::parallel_for<at::native::AVX2::reduced_float_copy_kernel(at::TensorIteratorBase&, bool)::{lambda()#1}::operator()() const::{lambda()#2}::operator()() const::{lambda(long, long)#1}>(long, long, long, at::native::AVX2::reduced_float_copy_kernel(at::TensorIteratorBase&, bool)::{lambda()#1}::operator()() const::{lambda()#2}::operator()() const::{lambda(long, long)#1} const&)::{lambda(long, long)#1}>(long, long, long, at::parallel_for<at::native::AVX2::reduced_float_copy_kernel(at::TensorIteratorBase&, bool)::{lambda()#1}::operator()() const::{lambda()#2}::operator()() const::{lambda(long, long)#1}>(long, long, long, at::native::AVX2::reduced_float_copy_kernel(at::TensorIteratorBase&, bool)::{lambda()#1}::operator()() const::{lambda()#2}::operator()() const::{lambda(long, long)#1} const&)::{lambda(long, long)#1} const&) [clone ._omp_fn.0]
+     0.26%  sglang::schedul  libtorch_cpu.so                                    [.] void c10::function_ref<void (char**, long const*, long, long)>::callback_fn<at::native::AVX2::VectorizedLoop2d<at::native::(anonymous namespace)::rshift_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}, at::native::(anonymous namespace)::rshift_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(at::vec::AVX2::Vectorized<int>, at::vec::AVX2::Vectorized<int>)#1}> >(long, char**, long const*, long, long)
+     0.24%  python           libscipy_openblas64_-fdde5778.so                   [.] blas_thread_server
+     0.23%  sglang::schedul  libtorch_cpu.so                                    [.] mkl_blas_avx512_sgemm_kernel_nocopy_TN_b0
+     0.22%  python           libscipy_openblas-5f890258.so                      [.] blas_thread_server
+     0.19%  sglang::schedul  [unknown]                                          [k] 0xffffffffb81598e2
+     0.18%  sglang::schedul  libtorch_cpu.so                                    [.] void c10::function_ref<void (char**, long const*, long, long)>::callback_fn<at::native::AVX2::VectorizedLoop2d<at::native::(anonymous namespace)::bitwise_and_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}, at::native::(anonymous namespace)::bitwise_and_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(at::vec::AVX2::Vectorized<int>, at::vec::AVX2::Vectorized<int>)#1}> >(long, char**, long const*, long, long)
+     0.18%  sglang::schedul  dsv4ck_sa.so                                       [.] sparse_attend_masked(at::Tensor, at::Tensor, at::Tensor, at::Tensor, double)::{lambda(long, long)#1}::operator()(long, long) const
+     0.17%  sglang::schedul  [unknown]                                          [k] 0xffffffffb700181e
+     0.15%  sglang::schedul  common_ops.cpython-312-x86_64-linux-gnu.so         [.] void at::internal::invoke_parallel<at::parallel_for<convert_scale_packed(at::Tensor&)::{lambda(long, long)#1}>(long, long, long, convert_scale_packed(at::Tensor&)::{lambda(long, long)#1} const&)::{lambda(long, long)#1}>(long, long, long, at::parallel_for<convert_scale_packed(at::Tensor&)::{lambda(long, long)#1}>(long, long, long, convert_scale_packed(at::Tensor&)::{lambda(long, long)#1} const&)::{lambda(long, long)#1} const&) [clone ._omp_fn.0]
+     0.14%  sglang::schedul  libc.so.6                                          [.] __memmove_avx512_unaligned_erms
+     0.14%  sglang::schedul  libtorch_cpu.so                                    [.] mkl_blas_avx512_sgemm_kernel_nocopy_TN_b1
+     0.13%  sglang::schedul  [unknown]                                          [k] 0xffffffffb76c0071
+     0.13%  sglang::schedul  libtorch_cpu.so                                    [.] void c10::function_ref<void (char**, long const*, long, long)>::callback_fn<at::native::AVX2::VectorizedLoop2d<at::native::(anonymous namespace)::fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda()#1}, at::native::(anonymous namespace)::fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda()#2}> >(long, char**, long const*, long, long)
+     0.12%  sglang::schedul  [unknown]                                          [k] 0xffffffffb72b45d6
+     0.12%  sglang::schedul  libgomp.so.1                                       [.] gomp_team_barrier_wait_final
+[done] moe profile job=394960
