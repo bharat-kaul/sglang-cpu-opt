@@ -3757,10 +3757,28 @@ def _install_mhc_cpu() -> None:
             term2 = torch.einsum("sjk,sjh->skh", comb_res_mix.float(), residual.float())
             return (post_layer_mix * x.unsqueeze(1) + term2).type_as(x)
 
+        def _mhc_post_dispatch(x, residual, post, comb):
+            # Monolith increment 5: route the MHC post-boundary to the vectorized cooperative kernel
+            # (coop_hc_post, 56x faster than the torch einsum). Gated; parity assert under CHECK=1; fallback.
+            if _os.environ.get("INTEL_CPU_DSV4_COOP_MHC") == "1":
+                try:
+                    out = torch.ops.sgl_kernel.coop_hc_post_cpu(
+                        x.contiguous(), residual.contiguous(),
+                        comb.float().contiguous(), post.float().contiguous(), comb.shape[1],
+                    )
+                    if _os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL_CHECK") == "1":
+                        ref = _mhc_post_cpu(x, residual, post.unsqueeze(-1), comb)
+                        _cos = torch.nn.functional.cosine_similarity(
+                            out.float().reshape(-1), ref.float().reshape(-1), dim=0, eps=1e-12
+                        ).item()
+                        assert _cos >= 0.9995, f"coop hc_post parity cos={_cos:.6f}"
+                    return out
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning("[DSV4] coop hc_post fell back to eager: %r", _e)
+            return _mhc_post_cpu(x, residual, post.unsqueeze(-1), comb)
+
         # hc_post passes raw post [s,n]; the mix wants [s,n,1].
-        _mhc.mhc_post = _timed("mhc.post", "torch")(
-            lambda x, residual, post, comb: _mhc_post_cpu(x, residual, post.unsqueeze(-1), comb)
-        )
+        _mhc.mhc_post = _timed("mhc.post", "torch")(_mhc_post_dispatch)
     try:
         import sglang.srt.models.deepseek_v4 as _dv4
 
