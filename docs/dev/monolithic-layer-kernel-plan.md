@@ -85,3 +85,18 @@ Every increment below passes this gate before any perf number is quoted, and shi
 - [ ] Sharded gsm8k accuracy confirm → merge.
 
 *This is a multi-stage authoring effort; the structural region-collapse (steps 1–4) is where the 29% lives.*
+
+## Increment 4 result (job 395049) — wire/parity/measure loop PROVEN; standalone fusion is neutral/negative
+- **In-model parity PASS** (COOP_MHC=1 + CHECK=1, no assert, no fallback): the fused coop_hc_combine_rmsnorm is
+  bit-faithful on the live decode path. The wire -> in-model-parity -> measure loop (with eager fallback) works.
+- **A/B:** B=1 184.8->183.1 ms (~flat); B=32 704.9->**751.5 ms (~6.6% SLOWER)**.
+- **Why (two real lessons):**
+  1. **No fork-join saved yet** — without the layer driver each hc_pre runs STANDALONE, so coop_parallel_for
+     still forks its own region. The saving only appears INSIDE one layer region (the driver, not yet built).
+  2. **The demonstrator kernels are naive scalar fp32**, vs the AVX-512-vectorized originals they replace
+     (hc_combine einsum + production rmsnorm_cpu). Per-element slower -> shows at B=32; plus .contiguous() copies.
+- **Implication for the build:** the monolith win requires BOTH (a) the C++ per-layer DRIVER (one region/layer,
+  to actually remove the fork-joins) AND (b) the cooperative kernels to be AS FAST as the originals (AVX-512,
+  no extra copies). Individual gated fusions are correctness bricks, not wins (confirms L.11). Next: either
+  vectorize the coop kernels to parity-speed first, or build the driver and accept temporary per-kernel slowness
+  until enough ops are in one region that the removed fork-joins dominate. Keep COOP_MHC OFF by default.

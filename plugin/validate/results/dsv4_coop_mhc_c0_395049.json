@@ -1,0 +1,33 @@
+{
+  "cores": "?",
+  "decode_threads_env": "32",
+  "sticky": "1",
+  "torch_threads_launch": 58,
+  "input_len": 8,
+  "output_len": 8,
+  "reps": 4,
+  "by_batch": {
+    "1": {
+      "decode_step_ms": 184.77,
+      "decode_tok_s": 5.412,
+      "tpref_s": 0.373,
+      "samples_s": [
+        1.6643,
+        1.671,
+        1.654,
+        1.6676
+      ]
+    },
+    "32": {
+      "decode_step_ms": 704.93,
+      "decode_tok_s": 45.395,
+      "tpref_s": 1.878,
+      "samples_s": [
+        6.736,
+        6.8355,
+        6.8947,
+        6.7898
+      ]
+    }
+  }
+}
