@@ -24,13 +24,13 @@ static inline void combine_rmsnorm_row(const float* x, const float* pre, const f
     __m512 acc = _mm512_setzero_ps();
     for (int k = 0; k < HC; ++k)
       acc = _mm512_fmadd_ps(_mm512_set1_ps(pre[k]), _mm512_loadu_ps(x + k * H + h), acc);
-    _mm512_store_ps(ytmp + h, acc);
+    _mm512_storeu_ps(ytmp + h, acc);
     vss = _mm512_fmadd_ps(acc, acc, vss);
   }
   float inv = 1.f / std::sqrt(_mm512_reduce_add_ps(vss) / H + eps);
   __m512 vinv = _mm512_set1_ps(inv);
   for (int h = 0; h < H; h += 16)
-    _mm512_storeu_ps(out + h, _mm512_mul_ps(_mm512_mul_ps(_mm512_load_ps(ytmp + h), vinv),
+    _mm512_storeu_ps(out + h, _mm512_mul_ps(_mm512_mul_ps(_mm512_loadu_ps(ytmp + h), vinv),
                                             _mm512_loadu_ps(w + h)));
 }
 
