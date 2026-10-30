@@ -2935,6 +2935,53 @@ def _install_fp4_expert_cpu_dequant() -> None:
                         _json.dump(occ, _w, indent=2)
             except Exception as _e:  # noqa: BLE001
                 logger.warning("[MOE OCC] failed: %r", _e)
+        # MoE ROOFLINE probe (review §4): once per distinct decode M, roofline the EXECUTED apply vs the
+        # config-matched weight-streaming floor on THIS node. Separates 'memory-bound at floor' from
+        # 'overhead above floor'. Streams the active experts' packed 4-bit weight bytes as the floor.
+        if _os.environ.get("INTEL_CPU_DSV4_MOE_ROOFLINE", "0") == "1":
+            try:
+                import time as _tm
+
+                import torch as _t
+
+                x = dispatch_output.hidden_states
+                _tw, ti, _ = dispatch_output.topk_output
+                M = int(x.shape[0])
+                rl = _MOE_DIAG.setdefault("rl_m", set())
+                if M not in rl:
+                    rl.add(M)
+                    w13 = layer.w13_weight; w2 = layer.w2_weight  # packed uint8 (4-bit), [E, ...]
+                    active = int(_t.unique(ti.reshape(-1)).numel())
+                    E = int(w13.shape[0])
+                    bytes_per_expert = (w13[0].numel() * w13.element_size()
+                                        + w2[0].numel() * w2.element_size())
+                    gb = active * bytes_per_expert / 1e9
+                    nth = _t.get_num_threads()
+                    # apply time (executed path), median of reps
+                    reps = 7
+                    _ts = []
+                    for _ in range(reps):
+                        _t0 = _tm.perf_counter(); _mxfp4_apply_raw(layer, dispatch_output, with_parity=False)
+                        _ts.append(_tm.perf_counter() - _t0)
+                    _ts.sort(); apply_ms = _ts[len(_ts) // 2] * 1e3
+                    # weight-stream floor: gather the active experts' PACKED bytes (read 4-bit weights once +
+                    # write contiguous) reps times -- a realistic 'bring active-expert weights to cache' floor.
+                    idx = _t.unique(ti.reshape(-1))
+                    _fs = []
+                    for _ in range(reps):
+                        _t0 = _tm.perf_counter()
+                        _g13 = w13.index_select(0, idx); _g2 = w2.index_select(0, idx)
+                        _s = int(_g13[0, 0, 0]) + int(_g2[0, 0, 0])  # force materialization
+                        _fs.append(_tm.perf_counter() - _t0)
+                    _fs.sort(); floor_ms = _fs[len(_fs) // 2] * 1e3
+                    logger.warning(
+                        "[MOE ROOFLINE] M=%d threads=%d active=%d/%d | stream=%.3fGB  apply=%.2fms (%.0f GB/s) "
+                        "floor=%.2fms (%.0f GB/s)  apply/floor=%.1fx",
+                        M, nth, active, E, gb, apply_ms, gb / (apply_ms / 1e3),
+                        floor_ms, gb / (floor_ms / 1e3), apply_ms / max(1e-6, floor_ms),
+                    )
+            except Exception as _e:  # noqa: BLE001
+                logger.warning("[MOE ROOFLINE] failed: %r", _e)
         if _TIMEIT_ON:
             try:
                 import torch as _t
