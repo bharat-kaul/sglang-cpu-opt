@@ -1,15 +1,34 @@
 # Monolithic per-layer fused decode kernel — scoped build plan (branch: dsv4-fused-layer-decode)
 
-**Goal.** Recover the measured **~29% per-layer "glue"** in DSv4 CPU decode by collapsing the per-layer op
-sequence into **one C++ region per layer** (no torch dispatch / no OMP park-wake between ops).
+**Goal.** Recover the measured decode **serial/fork-join overhead** by collapsing the per-layer op sequence into
+**one cooperative C++ parallel region per layer** (no per-op fork-join barrier, no OMP park-wake between ops).
+
+## ⚡ MEASURED JUSTIFICATION (perf profiling, jobs 394960/394972 — supersedes the old region-timer "29%")
+A `perf` self-time + LBR call-graph profile of **real B=32 warm decode** (32 threads, symbol-bearing build) shows:
+- **~60% of the decode step = OpenMP barrier spin** (`gomp_barrier_wait_end` 33.8% + `gomp_team_barrier_wait_end`
+  29.3%), reached from `start_thread`/`clone3` **directly** = worker threads **idle at the team barrier** waiting
+  for the main thread to launch the next parallel region.
+- **Only ~9–13% = actual MoE kernel compute** (`tinygemm`/`parallel_2d`); the MoE's OWN region barrier is ~4%.
+- **99% is the in-process forward** (`sglang::schedul`); framework detok/scheduler = 0.03%, **Python dispatch =
+  0.87%** → the 60% is **C++ fork-join across hundreds of small per-op parallel regions**, NOT Python, NOT a
+  single op, NOT the MoE kernel.
+- **Prize:** decode = **7.8× above its MoE weight-streaming floor** (716 ms vs 92 ms @ 329 GB/s). The serial 60%
+  is the gap. Removing it (workers get work during the serial sections) → realistic **~2–4× on decode**. This is
+  the single biggest remaining decode lever.
+- **Why warm didn't already get it:** warm (spin) made each wait *cheaper* (no park/wake syscall) = the 2.2×; the
+  structural **waits remain** (60% of the now-faster step). Only region-collapse removes the waits themselves.
+- **Reconciles the old region-timer "MoE 72% / glue 29%"** (L.7): most of that "MoE wall" is idle-barrier spin
+  during the call's serial setup + surrounding per-op dispatch, which a region timer cannot see.
+
+**PROFILING-REFINED PRIORITY (changes the plan below):** the win is the **layer-level region collapse** (one
+cooperative region per layer). The old step-1 "remove Python dispatch" is now known **low-value** (0.87%). The
+hard+valuable part is making the layer ops cooperate in ONE region (ATen serializes inside a naive nested region
+— so the ops must be reimplemented region-cooperatively; this is the multi-week core).
 
 ## What is established (do not re-litigate)
-- **Target = 29% of the decode step**, measured + decomposed (job 393977, stable across layer counts;
-  `decode_step_ms = 48 + 75.8·N`, per-step-fixed only 1% → megakernel-beyond-per-layer unnecessary).
-- **The 29% is OVERHEAD, not compute** (magnitude: 17.4 s glue vs ~0.1 s real elementwise) → recoverable by
-  removing inter-op dispatch + OMP park/wake. Monolithic per-layer region is the right fix. CONFIRMED.
-- **Scope = "level-1" monolithic:** the 29% is `layer.total − Σ(timed ops)` = the glue *between* the big
-  kernels. The big kernels' OWN fork-join is inside the 71% timed (a separate thread-count lever). So we do
+- **The overhead is OVERHEAD, not compute** — now at ~60% (measured by perf, supersedes the 29% region-timer
+  estimate). Monolithic per-layer region is the right fix. CONFIRMED by profiling.
+- **Scope = "level-1" monolithic:** the big kernels (MoE/attn) stay their own calls; we collapse the GLUE +
   **NOT** reimplement MoE/attention — we fuse the elementwise glue + Python dispatch *around* the existing
   kernels (inter-kernel-fusion fused prologue/epilogue). This is the tractable, 29%-capturing level.
 - **Small per-op swaps are ~0% e2e** (increment-1 MHC-wire: correct but +0.1%). Only the structural
