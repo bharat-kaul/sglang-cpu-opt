@@ -1,0 +1,44 @@
+{
+  "cores": "?",
+  "decode_threads_env": "8",
+  "sticky": "1",
+  "torch_threads_launch": 58,
+  "input_len": 8,
+  "output_len": 8,
+  "reps": 4,
+  "by_batch": {
+    "1": {
+      "decode_step_ms": 612.34,
+      "decode_tok_s": 1.633,
+      "tpref_s": 1.706,
+      "samples_s": [
+        5.9971,
+        6.0067,
+        5.9491,
+        5.9871
+      ]
+    },
+    "32": {
+      "decode_step_ms": 3224.23,
+      "decode_tok_s": 9.925,
+      "tpref_s": 6.752,
+      "samples_s": [
+        29.1644,
+        29.517,
+        29.2693,
+        29.3738
+      ]
+    },
+    "64": {
+      "decode_step_ms": 4290.38,
+      "decode_tok_s": 14.917,
+      "tpref_s": 10.314,
+      "samples_s": [
+        40.2444,
+        40.9419,
+        39.6886,
+        40.4488
+      ]
+    }
+  }
+}

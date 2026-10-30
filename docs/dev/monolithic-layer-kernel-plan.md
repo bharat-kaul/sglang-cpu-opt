@@ -147,3 +147,13 @@ across jobs); only 2 of ~24 ops wired; the CHECK-leg in-model parity log was inc
 fallback) — isolated parity is bit-exact (cos>=0.9999) + inc-4 in-model CHECK passed on identical math; re-confirm
 cleanly before default-on. COOP_MHC stays OFF by default. Signal: faster-glue + region-collapse are ADDITIVE
 levers on the same barrier; this banks the faster-glue portion.
+
+## OVERALL e2e wall-time banked (jobs 395077/395078) — naive -> fully-optimized, single EMR socket
+decode_step (ms) and prefill (s), naive (cold/8thr/no-coop) vs optimized (warm/M-adaptive-threads/coop-MHC):
+  B=1 : decode 612 -> 173 ms = 3.54x   | prefill 1.71 -> 0.38 s = 4.5x
+  B=32: decode 3224 -> 725 ms = 4.45x  | prefill 6.75 -> 2.02 s = 3.3x
+  B=64: decode 4290 -> 1167 ms = 3.68x | prefill 10.31 -> 3.36 s = 3.1x
+=> ~3.5-4.5x decode AND ~3-4.5x prefill, banked and validated, from CONFIG (warm pool + M-adaptive threads) +
+the coop-MHC glue fusion. Prefill ALSO improved (the warm/thread config helps both phases; prefill was never the
+monolith target). This is the total wall-time win from the whole campaign. The remaining monolith ceiling
+(~1.8-2.5x MORE on decode) requires the Python->C++ layer-forward port (multi-week); mechanism fully de-risked.
