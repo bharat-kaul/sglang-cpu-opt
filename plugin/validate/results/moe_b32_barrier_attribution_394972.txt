@@ -1,0 +1,22 @@
+DSV4 B=32 decode warm (32thr) LBR call-graph barrier attribution (job 394972), decode_step=737 ms.
+
+BARRIER CALLERS (the ~60% barrier spin): reached from start_thread / clone3;start_thread DIRECTLY:
+  29.6%  start_thread;gomp_barrier_wait            <- worker threads IDLE at the team barrier
+  25.6%  start_thread;gomp_team_barrier_wait_final <- worker threads IDLE at the team barrier
+  => ~55-61% of decode = WORKER THREADS SPINNING IDLE at the TEAM barrier, waiting for the main thread
+     to launch the next parallel region. NOT stragglers inside a kernel's parallel region.
+
+ACTUAL PARALLEL COMPUTE (the MoE's own parallel_2d regions, where real work happens):
+  parallel_2d<fused_experts_fp_kernel_impl>  ~4.2% + 2.1% + 1.2% + ... (stage1+stage2)  = ~13% total
+  tinygemm (MoE compute self-time, prior flat profile) ~9%.
+
+INTERPRETATION (Amdahl): with 32 threads, aggregate idle-barrier ~60% => the WALL is ~60% SERIAL
+(main thread alone doing per-op dispatch + serial glue + per-step scheduler/sampling/detok, 31 cores idle).
+Decode at B=32 warm is SERIAL/DISPATCH-BOUND, not MoE-kernel-bound.
+
+CONCLUSION for the "bank the MoE win" thread:
+  The B=32 MoE MXFP4 kernel is ~9-13% of the decode step -> optimizing it (even the ~1.5-1.7x unpack
+  headroom) moves decode by only low-single-digit %. The MoE kernel is the WRONG target. The real decode
+  lever is reducing the ~60% SERIAL fraction: fuse ops into fewer/larger parallel regions (per-layer
+  monolith, now measured-justified), graph-capture to cut per-op launch, and/or framework scheduler overhead.
+  The profiling pass did its job: it prevented authoring a kernel change against a ~10% target.
