@@ -2964,16 +2964,24 @@ def _install_fp4_expert_cpu_dequant() -> None:
                         _t0 = _tm.perf_counter(); _mxfp4_apply_raw(layer, dispatch_output, with_parity=False)
                         _ts.append(_tm.perf_counter() - _t0)
                     _ts.sort(); apply_ms = _ts[len(_ts) // 2] * 1e3
-                    # weight-stream floor: gather the active experts' PACKED bytes (read 4-bit weights once +
-                    # write contiguous) reps times -- a realistic 'bring active-expert weights to cache' floor.
-                    idx = _t.unique(ti.reshape(-1))
-                    _fs = []
-                    for _ in range(reps):
-                        _t0 = _tm.perf_counter()
-                        _g13 = w13.index_select(0, idx); _g2 = w2.index_select(0, idx)
-                        _s = int(_g13[0, 0, 0]) + int(_g2[0, 0, 0])  # force materialization
-                        _fs.append(_tm.perf_counter() - _t0)
-                    _fs.sort(); floor_ms = _fs[len(_fs) // 2] * 1e3
+                    # weight-stream floor (VALID): achievable SEQUENTIAL read BW on-node at this thread count,
+                    # measured once over a large contiguous buffer, then floor_ms = gb / seq_BW. (A strided
+                    # index_select gather is NOT a floor -- read+write + prefetch-defeating -> slower than the
+                    # fused kernel, which is physically impossible for a lower bound.)
+                    seq_bw = _MOE_DIAG.get("seq_bw_gbs")
+                    if seq_bw is None:
+                        buf = _t.empty(int(1.5e9), dtype=_t.uint8)  # 1.5 GB contiguous
+                        buf.fill_(1)
+                        _bs = []
+                        for _ in range(3):
+                            _t0 = _tm.perf_counter()
+                            _ = buf.sum(dtype=_t.int64)  # sequential read of all bytes, multi-threaded
+                            _bs.append(_tm.perf_counter() - _t0)
+                        _bs.sort()
+                        seq_bw = (buf.numel() / 1e9) / _bs[len(_bs) // 2]
+                        _MOE_DIAG["seq_bw_gbs"] = seq_bw
+                        del buf
+                    floor_ms = gb / seq_bw * 1e3
                     logger.warning(
                         "[MOE ROOFLINE] M=%d threads=%d active=%d/%d | stream=%.3fGB  apply=%.2fms (%.0f GB/s) "
                         "floor=%.2fms (%.0f GB/s)  apply/floor=%.1fx",
