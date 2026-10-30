@@ -118,3 +118,17 @@ Every increment below passes this gate before any perf number is quoted, and shi
   topk/attend, MHC sinkhorn, MoE gate/experts) from at::parallel_for to region-cooperative (coop_parallel_for)
   form, and a C++ per-layer driver that opens ONE region and sequences them, wired into the model forward +
   per-layer parity gate. The mechanism is proven; this is the multi-week op-by-op conversion + wiring.
+
+## Region-aware primitives landed — the high-leverage enablers (no e2e yet; mechanism for the driver)
+- **parallel_2d → region-aware** (common.h): nested => cooperate on the driver's team (no new fork); standalone
+  => fork as before. Makes EVERY parallel_2d caller (MoE fused_experts + more) cooperative with ZERO per-kernel
+  rewrites. Verified BIT-IDENTICAL MoE output vs the unmodified build (max diff 0.0) — provably safe.
+- **coop_at_parallel_for** (coop.h): region-aware drop-in for at::parallel_for -> converting the ~21 files that
+  use it is now a MECHANICAL find-replace. This is the safe "parallel wave" recipe: each file independent, only
+  coop.h + the registration file are coordination points.
+- **STATUS:** mechanism ~complete (coop_parallel_for, coop_at_parallel_for, region-aware parallel_2d, coop_region,
+  coop_barrier). Remaining = (1) mechanical find-replace at::parallel_for -> coop_at_parallel_for in the layer's
+  hot kernels (MoE stages 1.5/3 silu+reduce, attention, DSA, norms) + a per-kernel SCRATCH/race audit under the
+  shared team; (2) the C++ per-layer DRIVER that opens one coop_region and sequences the (now-cooperative)
+  kernels; (3) wire into the forward + per-layer parity gate + e2e A/B. No e2e movement until a contiguous
+  critical mass is in one region (L.11). The hard de-risking (does the mechanism work + stay bit-exact) is DONE.
