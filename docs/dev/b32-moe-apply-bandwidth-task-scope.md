@@ -53,24 +53,29 @@ already hits 235 GB/s and these did not raise it (HW prefetcher saturates). The 
 - NOT levers (ruled out): prefetch/interleave (gate-refuted), force BRGEMM/AMX tiles (underfilled at ~2 rows),
   more threads (plateaus past 32), the monolith (unrelated).
 
-## 4. Feasibility-gate verdict (jobs 394934/394935) — HEADROOM CONFIRMED; achievable ~1.6× apply
+## 4. Feasibility-gate verdict (jobs 394934/394935/394952) — headroom REAL but BOUNDED; much is structural
 
-**Established (valid evidence):**
-- Pure AVX-512 stream of B=32's exact 56-expert bytes = **235–261 GB/s** (T32/T48). The kernel reaches **100–104**.
-  → memory/access-pattern is NOT the limit; **~2.3× to the stream ceiling exists**.
-- Prefetch + multi-expert interleave do NOT raise the pure stream (HW prefetcher saturates) → those levers OUT.
-- **The SAME kernel already achieves 160 GB/s at B=64** (203 experts) vs 100 at B=32 (56 experts) → the realistic
-  bankable target for B=32 is ~B=64's efficiency (**~160 GB/s = ~1.6× on the apply = ~1.4× on decode@B=32**); the
-  full 235 is unlikely (the per-expert dequant/GEMV compute won't fully hide).
-**Discarded (invalid evidence, self-audit):** the scalar fp4-dequant probe measured 30–35 GB/s — SLOWER than the
-kernel's 100, so it is a naive-scalar artifact, not a dequant ceiling. It cannot bound anything; discarded (same
-as the earlier gather/reduction floor probes). Pinning the exact mechanism (dequant-compute vs pipeline vs
-low-expert-count amortization) needs perf-counters on the REAL kernel or a properly AVX-512-vectorized dequant
-microbench — a step to take at authoring time, not a blocker for the go/no-go.
-**Verdict:** headroom is REAL and bounded (~1.6× apply / ~1.4× decode at B=32, converging B=32 toward the kernel's
-own B=64 efficiency). The lever is the kernel's compute/pipeline at low active-expert counts, not memory/prefetch/
-threads. **Banking it REQUIRES upstream work: rebuild + modify the installed `sglang .../cpu/moe.cpp`** (the fused
-MXFP4 experts path), not the plugin. That is a real kernel-authoring + native-build effort.
+**Corrected ceilings (three microbench rounds, each self-audited):**
+- Raw AVX-512 stream of B=32's 56-expert bytes = **235–261 GB/s** — but this OVERSTATES headroom (ignores the
+  mandatory fp4→bf16 unpack).
+- Vectorized LUT **stream+unpack** (the true per-weight compute floor) = **170 (T32) / 198 (T48) GB/s**.
+- The kernel achieves **100 GB/s** at B=32.
+So the recoverable gap is **kernel 100 → unpack-ceiling ~170 = ~1.5–1.7× on the apply (~1.3–1.4× decode@B=32)**,
+NOT the 2.3× the raw stream implied. (Scalar-dequant 30 GB/s and the index_select floor were both invalid and
+discarded.)
+
+**Root cause (from reading gemm_fp8.cpp — my earlier "B_tmp materialization" guess was WRONG):** the non-brgemm
+MXFP4 path B=32 uses already (a) fuses the fp4→bf16 unpack INTO registers (`CVT_MXFP4_TO_BF16`→`dpbf16`, no
+`B_tmp` round-trip) and (b) size-specializes on actual m_size (1/2/3/4-row `tinygemm_kernel_nn`). So the kernel is
+already reasonably good. The B=32 deficit is split between:
+  - **STRUCTURAL (not recoverable):** at ~2 rows/expert the irreducible unpack amortizes over only 2 `dpbf16` —
+    inherent to the routing; B=64's 3.4 rows/expert is why it hits 160 not 100.
+  - **RECOVERABLE (~1.5–1.7×):** the 100→170 gap = per-(mb,nb)-block overhead (A-gather `copy_stub`, scale
+    reload+transpose every 16 K, C store + downconvert, loop/call overhead) across 56×NB/threads blocks.
+
+**Verdict: PURSUE is defensible but the win is BOUNDED (~1.3–1.4× decode at B=32 only) and sits behind
+uncertain-yield micro-optimization of SHARED fp8/mxfp4 kernel code** (profile-guided reduction of per-block
+overhead), with bit-exact MXFP4 parity risk. It is NOT a quick or clean 2×.
 
 ## 5. Cost / risk
 
