@@ -496,6 +496,28 @@ def _install_hc_pre_cpu() -> None:
         with _dv4.use_symmetric_memory(
             _dv4.get_tp_group(), disabled=not _dv4.is_allocation_symmetric()
         ):
+            # Monolith increment 4: fuse the final hc_combine + the caller's post-norm into ONE cooperative
+            # region (removes one fork-join per hc_pre call). Gated; eager fallback + optional parity assert.
+            _coop = _os.environ.get("INTEL_CPU_DSV4_COOP_MHC") == "1" and norm is not None
+            if _coop:
+                try:
+                    _preS = pre.squeeze(1)
+                    _w = getattr(norm, "weight", None)
+                    _eps = getattr(norm, "variance_epsilon", self.rms_norm_eps)
+                    _wt = _w.data if hasattr(_w, "data") else _w
+                    y_fused = torch.ops.sgl_kernel.coop_hc_combine_rmsnorm_f32_cpu(
+                        x_flat.contiguous(), _preS.float().contiguous(), _wt.contiguous(),
+                        self.hc_mult, float(_eps),
+                    )
+                    if _os.environ.get("INTEL_CPU_DSV4_DSA_CKERNEL_CHECK") == "1":
+                        y_ref = norm(hc_combine(x_flat, _preS, self.hc_mult, x.dtype))
+                        _cos = torch.nn.functional.cosine_similarity(
+                            y_fused.float().reshape(-1), y_ref.float().reshape(-1), dim=0, eps=1e-12
+                        ).item()
+                        assert _cos >= 0.9995, f"coop hc_combine+norm parity cos={_cos:.6f}"
+                    return y_fused, post.squeeze(1), comb.squeeze(1), True  # norm FUSED -> caller skips it
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning("[DSV4] coop hc_combine+norm fell back to eager: %r", _e)
             y = hc_combine(x_flat, pre.squeeze(1), self.hc_mult, x.dtype)
         return y, post.squeeze(1), comb.squeeze(1), False
 
