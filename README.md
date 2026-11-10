@@ -184,7 +184,7 @@ Coherent generations and smooth layer-cosine curves cannot establish that a
 residual difference is harmless. The [chronological review](docs/dev/DSv4-shared-clamp-disposition-REVIEW.md)
 separates operator evidence, selected-case experiments and full-task results.
 
-**(B) The task gap was a REAL port bug — found by binding the comparator correctly, then localized to one line.**
+**(B) Accuracy recovery required multiple corrections: attention layout/state, cache lifecycle, and routed/shared SwiGLU clamping.**
 
 ![DSV4-Flash final matched full-set CPU/GPU accuracy](docs/plots/dsv4_accuracy_full_20261109.svg)
 
@@ -196,7 +196,7 @@ separates operator evidence, selected-case experiments and full-task results.
 | + `wkv_gate` row-major fix (prefill) | **0.865** | compressed attention now correct in prefill (layer-2 cosine 0.9997) |
 | + decode persist + request-aware mask (historical subset) | 0.9437 | 302/320; not comparable as a full-set result |
 | Historical GPU, post-trained Flash | 0.9535 | 1250/1311; older execution protocol |
-| **Latest CPU, full set** | **0.9504** | **1246/1311**, fixes enabled, experimental quantization OFF |
+| **Latest CPU, full set** | **0.9504** | **1246/1311**, chunk accumulation + routed/shared **SwiGLU clamps ON**, experimental quantization OFF |
 | **Fresh matched GPU, full set** | **0.9497** | **1245/1311**, TP4; [machine-readable result](plugin/validate/results/dsv4_latest_fullacc_20261109.json) |
 
 - **The decisive move was the correctly-bound oracle.** The published 90.8 is Flash-**Base** (FP8), a
@@ -205,7 +205,7 @@ separates operator evidence, selected-case experiments and full-task results.
   valid signal. Running the **GPU on the same checkpoint + same harness** gave **0.9535** → the real target was
   ~0.95, and CPU at 0.80 was genuinely ~15 pts low. *Comparator-provenance dissolved the false "below published"
   panic; the correctly-bound GPU oracle then revealed the gap was real after all.*
-- **The bug: a silent weight-layout permutation.** The DSA compressor's `wkv_gate` projection was
+- **An early bug: a silent weight-layout permutation.** The DSA compressor's `wkv_gate` projection was
   AMX-VNNI-**prepacked** (as the CPU path packs every linear) but **consumed by a plain matmul**
   (`compute_kv_score → linear_bf16_fp32`) → scrambled projection → garbage compressed KV → wrong attention on
   every compressed layer (37 of 43). This is the **same bug class** the plugin had already fixed for `wo_a`;
@@ -216,14 +216,28 @@ separates operator evidence, selected-case experiments and full-task results.
   correct (self-consistency cos≈1.0) so the compressed-KV *values* were wrong; the operand-identity check — live
   `wkv_gate.weight` vs the raw checkpoint = **cos 0.0007 with per-row norms preserved** — named it a prepack
   permutation.
-- **Three fixes, three correctness axes** (playbook §5.4): (1) keep `wkv_gate` row-major → **0.865**;
+- **The initial attention fixes** (playbook §5.4): (1) keep `wkv_gate` row-major → **0.865**;
   (2) persist per-request compressed KV so **decode** attends long-range context (a prefill-only handoff ran
   decode SWA-only); (3) make the coverage mask **request-aware** (a position-only mask leaks across a batched
   prefill) → **0.9437 on the historical 320-question subset**. Subsequent full-set
-  work addressed cache lifecycle, chunk accumulation and missing activation clamps.
+  work addressed cache lifecycle, chunk accumulation and the missing SwiGLU clamps detailed below.
   The earlier attribution of the remaining gap to "benign accumulation" was not
   established by that subset or by layer cosine alone. The latest matched full-set
   result above supersedes that conclusion.
+- **The later SwiGLU correction: apply the configured clamp in BOTH routed and shared experts.**
+  The CPU expert paths had omitted the clamp used by the GPU/reference path.
+  The native CPU correction computes `SiLU(min(gate, limit)) * clamp(up, -limit, limit)`
+  with this checkpoint's `swiglu_limit=10`, preserving packed-weight GEMMs.
+  It is implemented in the [routed-expert loader](plugin/intel_cpu_models/_dsv4_moe_clamp.py)
+  and [shared-expert loader](plugin/intel_cpu_models/_dsv4_shared_clamp.py), using the
+  [clamped activation kernel](plugin/kernels/dsv4_moe_clamp.h).
+  In the recorded full-set comparison, routed-clamp/shared-OFF CPU scored **1240/1311**;
+  routed+shared clamps scored **1246/1311** (**13 recoveries, 7 regressions; net +6**).
+  The latest full CPU run reproduced all 1311 texts and answers from that 1246 run.
+  See the [experiment record](docs/dev/DSv4-shared-clamp-disposition-REVIEW.md).
+  **These fixes are on `main`, but remain opt-in:** the reported **95.04%** CPU result uses
+  `INTEL_CPU_DSV4_MXFP4_CLAMP=1` and `INTEL_CPU_DSV4_SHARED_CLAMP=1`, along with the
+  [complete evaluated configuration](docs/dev/DSv4-accuracy-closure.md).
 
 **Reproducible, not hand-waved:** generations are saved (`--gens-out`) and scored offline
 ([`score_gsm8k.py`](plugin/validate/score_gsm8k.py) grid); the full run is node-parallel + chunked
