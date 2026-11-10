@@ -10,6 +10,15 @@ through, in the order it routes them.
 > Worked results for the six DSv4 DSA kernels are on [kernel-pilot-performance.md](kernel-pilot-performance.md).
 
 **Rules of the road** (apply to every stage):
+- **Keep operator agreement separate from task recovery.** A more accurate
+  standalone operator need not improve autoregressive answers. Match actual
+  native operands, numerical boundaries and consumed prefixes before attributing
+  a difference; equal target-row inputs do not prove equal attention KV history.
+  Validate interventions on original answer batches and collateral-regression
+  controls. If repeated tensor improvements fail to yield a net answer gain,
+  return to the [spine's residual-gap checkpoint](methodology-playbook.md#residual-gap-decision-checkpoint),
+  rather than extending a low-ROI precision sweep. No default promotion follows
+  from cosine improvements or full-task aggregate parity alone.
 - **Work the stages in order.** Each is more complex and *less portable* than the last; only advance when the
   earlier stage is exhausted or clearly cannot help. **Re-run the roofline after every stage.**
 - **Keep the reference runnable.** The torch/library op the kernel replaces is the baseline *and* the

@@ -32,6 +32,26 @@ level). Enablement reuses kernels; optimization writes/improves them.
 Each skill is self-contained (trigger, inputs, procedure, gate) so new models
 reuse them unmodified, and new capabilities are added as new skill folders.
 
+## Residual-gap checkpoint (after the model runs correctly end to end)
+
+Do not let the cheap bring-up ladder become an indefinite single-example debug
+loop. When a remaining task gap is small, a reference changes, or an intervention
+improves tensor agreement without a broad answer gain, route back to
+`accuracy-oracle` for a **fresh matched full-task evaluation** and use
+`high-information-runs` for a staggered, checkpointed node wave.
+
+Before the next diagnostic load, state its answer-level hypothesis, original
+batch/control set, run budget and stop condition. If the budget produces no
+repeatable net answer improvement, stop precision sweeps and re-anchor the task
+metric. Do not require one historical reference answer to reproduce before
+allowing a full accuracy measurement; reference stability is required for
+**local causal attribution**, not for reporting a new protocol-bound task score.
+
+If the matched full run has no aggregate deficit, close that task-accuracy
+campaign without declaring numerical equivalence, default promotion or a green
+enablement certificate. Further per-op correctness obligations remain separate.
+See [the worked accuracy closure](../../../../docs/dev/DSv4-accuracy-closure.md).
+
 ## Step 0a — FRAME THE PERFORMANCE KPI (surface this to the user FIRST, do not assume)
 
 Performance has no single number: an autoregressive model runs **prefill** (M = S·B, compute-bound,

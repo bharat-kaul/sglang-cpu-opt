@@ -1,0 +1,73 @@
+{
+  "scope": "One full matched custom-protocol GSM8K evaluation; not published-score reproduction or repeatability certification.",
+  "cpu_jobs": {
+    "0": "401068_0",
+    "1": "401068_1",
+    "2": "401042_2",
+    "3": "401068_3",
+    "4": "401042_4",
+    "5": "401068_5",
+    "6": "401068_6",
+    "7": "401042_7",
+    "8": "401042_8",
+    "9": "401068_9",
+    "10": "401068_10",
+    "11": "401042_11",
+    "12": "401068_12",
+    "13": "401042_13",
+    "14": "401042_14",
+    "15": "401042_15"
+  },
+  "gpu_job": 401058,
+  "source_manifest_sha256": "ab7753eae9f726c55708becf29d9b2815ff29457fa4098f2249fc0f39bdd1c29",
+  "analysis_sha256": "3c0019abd45240318e8b76574c4b51cb12952198a00e608f340a81692dfd95e3",
+  "matched_runtime": {
+    "disable_radix_cache": true,
+    "chunked_prefill_size": 512,
+    "context_length": 4096,
+    "max_total_tokens": 131072,
+    "swa_full_tokens_ratio": 0.5,
+    "disable_overlap_schedule": true,
+    "max_running_requests": 256
+  },
+  "questions": 1311,
+  "results": {
+    "cpu": {
+      "correct": 1246,
+      "accuracy": 0.950419527078566,
+      "invalid": 0
+    },
+    "gpu": {
+      "correct": 1245,
+      "accuracy": 0.9496567505720824,
+      "invalid": 0
+    }
+  },
+  "cpu_right_gpu_wrong": [
+    7,
+    57,
+    139,
+    149,
+    228,
+    247,
+    769,
+    822,
+    924
+  ],
+  "gpu_right_cpu_wrong": [
+    94,
+    146,
+    298,
+    386,
+    904,
+    1175,
+    1191,
+    1231
+  ],
+  "answer_agreement": 1283,
+  "cpu_minus_gpu": 1,
+  "cpu_vs_historical": {
+    "changed_answers": [],
+    "changed_texts": []
+  }
+}

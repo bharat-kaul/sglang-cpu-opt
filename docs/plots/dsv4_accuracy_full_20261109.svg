@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420" role="img" aria-labelledby="title description">
+  <title id="title">DeepSeek-V4-Flash: matched full GSM8K evaluation</title>
+  <desc id="description">CPU 1246 of 1311, 95.04 percent. GPU 1245 of 1311, 94.97 percent. Zero invalid answers. One custom-protocol run, not statistical superiority or numerical equivalence.</desc>
+  <rect width="1000" height="420" fill="white"/>
+  <g font-family="Arial, sans-serif" fill="#18324a">
+    <text x="40" y="40" font-size="25" font-weight="bold">DeepSeek-V4-Flash: full matched GSM8K</text>
+    <text x="40" y="70" font-size="16">2026-11-09 | 1311 post-shot questions | 8-shot, greedy, max256, batch32</text>
+    <g stroke="#dce4ec">
+      <path d="M170 100V275 M310 100V275 M450 100V275 M590 100V275 M730 100V275 M870 100V275"/>
+    </g>
+    <g font-size="14" text-anchor="middle">
+      <text x="170" y="296">0%</text><text x="310" y="296">20%</text>
+      <text x="450" y="296">40%</text><text x="590" y="296">60%</text>
+      <text x="730" y="296">80%</text><text x="870" y="296">100%</text>
+    </g>
+    <text x="40" y="150" font-size="19">CPU TP1</text>
+    <rect x="170" y="115" width="665.294" height="60" rx="4" fill="#28785d"/>
+    <text x="190" y="152" font-size="22" fill="white">1246 / 1311 = 95.04%</text>
+    <text x="40" y="240" font-size="19">GPU TP4</text>
+    <rect x="170" y="205" width="664.760" height="60" rx="4" fill="#286ba5"/>
+    <text x="190" y="242" font-size="22" fill="white">1245 / 1311 = 94.97%</text>
+    <text x="40" y="337" font-size="17">CPU-only successes: 9 | GPU-only successes: 8 | Invalid answers: 0 on both</text>
+    <text x="40" y="367" font-size="16">No aggregate CPU deficit in this run; not a claim of superiority or numerical equivalence.</text>
+    <text x="40" y="397" font-size="14" fill="#52677a">Source: plugin/validate/results/dsv4_latest_fullacc_20261109.json</text>
+  </g>
+</svg>

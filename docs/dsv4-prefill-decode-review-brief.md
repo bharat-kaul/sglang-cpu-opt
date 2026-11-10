@@ -21,7 +21,9 @@ or **[REGION]** (region-timer attribution — *nominating only, not proof*).
 | **Decode (TPOT)** | **BW-bound by nature, LATENCY-bound by impl** | 678 tok/s @ M=32 (`M·BW / W_active`, BW 848 GB/s, W_active 40 GB) | **57.5** @ M=32 (throughput cfg); **~1.5** @ M=1 | **12× below BW floor @ M=32, 62× @ M=1** |
 
 - Baseline→optimized (fully-naive eager → all-C/AMX DSA kernels): **2.19× prefill / 1.59× decode** [E2E-A/B].
-- Accuracy of this optimized path is certified: gsm8k **0.9437 ≈ GPU 0.9535** (same checkpoint).
+- Accuracy is measured separately with the documented accuracy-fix configuration:
+  **CPU 1246/1311 (95.04%), fresh matched GPU 1245/1311 (94.97%)**.
+  This does not certify the performance settings here; see [accuracy closure](dev/DSv4-accuracy-closure.md).
 - **W_active grows with batch** (MoE): distinct experts 59 @ B=32 → ~104 @ B=64, so the decode roofline is
   **sub-linear** in batch (678 @ M=32 → ~840 @ M=64, +24% not +100%).
 

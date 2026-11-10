@@ -128,6 +128,8 @@ def _install_layer_capture() -> None:
         if activate:
             _CAPTURE_ACTIVE = False
             _CAPTURE_DONE = True
+            if not _is_rank0():
+                return logits  # only rank 0 writes (fixes TP file-write races)
             try:
                 fl = logits
                 if hasattr(fl, "detach"):
@@ -198,51 +200,54 @@ def _install_attn_io_capture() -> None:
     def _is_l0(self):
         return int(getattr(self, "layer_id", getattr(self, "layer_idx", -1))) == 0
 
-    # wo_a input = attention-core output (pre o_proj); wkv output = compressed KV. Patch module
-    # forwards per-instance on first layer-0 call (capture their I/O without re-invoking).
-    _submod_patched = {"done": False}
+    # woa_in = the attention-CORE output pre-o_proj, captured by tapping the NATIVE module-level
+    # `_apply_wo_a_bf16_matmul(o, wo_a, is_decode)` (o is [T,G,D]) which BOTH CPU and GPU call. First
+    # call while capture is active = layer 0's attention. Gated + one-shot per capture.
+    try:
+        import sglang.srt.models.deepseek_v4 as _dv4m
+        if not getattr(_dv4m, "_dsv4_woa_cap_patched", False) and hasattr(_dv4m, "_apply_wo_a_bf16_matmul"):
+            _owoa_fn = _dv4m._apply_wo_a_bf16_matmul
 
-    def _patch_submods(self):
-        if _submod_patched["done"]:
-            return
-        _submod_patched["done"] = True
-        woa = getattr(self, "wo_a", None)
-        if woa is not None:
-            _ow = woa.forward
-            def _woaw(x, *a, **k):
-                if "woa_in" not in _stash:
-                    _save("woa_in", x)
-                return _ow(x, *a, **k)
-            woa.forward = _woaw
-        wkv = getattr(self, "wkv", None)
-        if wkv is not None:
-            _okvf = wkv.forward
-            def _wkvw(x, *a, **k):
-                r = _okvf(x, *a, **k)
-                if "kv" not in _stash:
-                    _save("kv", r[0] if isinstance(r, tuple) else r)
-                return r
-            wkv.forward = _wkvw
+            def _woa_cap(o, wo_a, is_decode, *a, **k):
+                if _CAPTURE_ACTIVE and "woa_in" not in _stash:
+                    _save("woa_in", o)
+                return _owoa_fn(o, wo_a, is_decode, *a, **k)
 
+            _dv4m._apply_wo_a_bf16_matmul = _woa_cap
+            _dv4m._dsv4_woa_cap_patched = True
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Capture the REAL attention operands, gated on the request-bound _CAPTURE_ACTIVE flag so they
+    # bind to the frozen q640 forward (NOT an engine warmup/partial forward). wo_a / wkv are NOT
+    # .forward modules here (low-rank projections applied via functions), so hook the actual methods:
+    # _compute_q_b -> Q (post norm+rope), _compute_kv_bf16 -> KV. These are TP head-sharded, so every
+    # rank saves its own shard to a per-rank file and the heads are concatenated offline.
     _oqb = getattr(Attn, "_compute_q_b", None)
     if _oqb is not None:
         def _qbw(self, q, positions, q_out=None, *a, **k):
             r = _oqb(self, q, positions, q_out, *a, **k)
-            if _is_l0(self) and "q_final" not in _stash:
-                _save("q_final", r)
-                _save("q_lora", q)
+            if _CAPTURE_ACTIVE and _is_l0(self) and "q_final" not in _stash:
+                _save("q_final", r)        # [T, n_local_heads, head_dim] (TP shard)
+                _save("q_lora", q)         # [T, q_lora_rank] (replicated)
             return r
         Attn._compute_q_b = _qbw
 
-    _okv = getattr(Attn, "_compute_kv_to_cache", None)
-    _owkv_attr = None
+    _okvb = getattr(Attn, "_compute_kv_bf16", None)
+    if _okvb is not None:
+        def _kvbw(self, x, positions, *a, **k):
+            r = _okvb(self, x, positions, *a, **k)
+            if _CAPTURE_ACTIVE and _is_l0(self) and "kv" not in _stash:
+                _save("kv", r[0] if isinstance(r, tuple) else r)
+            return r
+        Attn._compute_kv_bf16 = _kvbw
+
     _ofwd = Attn.forward
 
     def _fwd(self, *a, **k):
         global _ATTN_IO_DONE
-        first_l0 = _is_l0(self) and not _ATTN_IO_DONE
+        first_l0 = _is_l0(self) and not _ATTN_IO_DONE and _CAPTURE_ACTIVE
         if first_l0:
-            _patch_submods(self)
             # attn input hidden = MQALayer.forward(self, positions, hidden_states, forward_batch, ...)
             # -> hidden_states is positional arg index 1 (exact).
             xin = k.get("hidden_states")
@@ -256,15 +261,114 @@ def _install_attn_io_capture() -> None:
                         xin = z
                         break
             _save("attn_in", xin)
+            # Patch the layer-0 instance's REAL down-projection modules (the executed path uses the
+            # fused wqkv_a, not wkv.forward / _compute_kv_bf16) so the KV latent is actually captured.
+            # qkv_a = fused q+kv down-proj; kv latent = qkv_a[..., q_lora_rank:]. Also catch wkv/wq_a
+            # if the non-fused path runs. One-shot per module.
+            for mod_name, stash_name in (("wqkv_a", "qkv_a"), ("wkv", "kv_a_only"), ("wq_a", "q_a_only")):
+                mod = getattr(self, mod_name, None)
+                if mod is not None and hasattr(mod, "forward") and not getattr(mod, "_dsv4_io_wrapped", False):
+                    _omodf = mod.forward
+                    def _mk(of, sn, m):
+                        def _w(x, *aa, **kk):
+                            # Record the ACTUAL input the module receives (x_linear), its dtype, and the
+                            # module's weight dtype/quant dispatch — the input may be fp8-quantized on one
+                            # leg (x_quant) and bf16 on the other, which is the precision/dispatch the
+                            # replay must reflect.
+                            if sn + "_in" not in _stash and torch.is_tensor(x) and x.is_floating_point():
+                                _save(sn + "_in", x)
+                            if "_dispatch" not in _stash:
+                                _stash["_dispatch"] = {}
+                            if sn not in _stash["_dispatch"]:
+                                try:
+                                    w = getattr(m, "weight", None)
+                                    qm = getattr(m, "quant_method", None)
+                                    _stash["_dispatch"][sn] = {
+                                        "module": type(m).__name__,
+                                        "input_dtype": str(getattr(x, "dtype", None)),
+                                        "input_is_tensor": bool(torch.is_tensor(x)),
+                                        "weight_dtype": str(getattr(w, "dtype", None)),
+                                        "weight_shape": tuple(w.shape) if torch.is_tensor(w) else None,
+                                        "quant_method": type(qm).__name__,
+                                        "weight_block_size": getattr(qm, "weight_block_size", None),
+                                        "w8a8_backend": getattr(getattr(qm, "w8a8_block_fp8_linear", None), "__name__",
+                                                                str(getattr(qm, "w8a8_block_fp8_linear", None))),
+                                        "block_quant": bool(getattr(qm, "block_quant", False)),
+                                        "scale_attrs": [a for a in ("weight_scale", "weight_scale_inv", "input_scale")
+                                                        if getattr(m, a, None) is not None],
+                                    }
+                                    # Capture the fp8 weight + any scale, to settle weights-vs-matmul
+                                    # offline (same input, compare weights, replay dequant@input).
+                                    if torch.is_tensor(w):
+                                        _stash[sn + "_W"] = w.detach().to(torch.float32).cpu()
+                                    for a in ("weight_scale", "weight_scale_inv", "input_scale"):
+                                        sc = getattr(m, a, None)
+                                        if torch.is_tensor(sc):
+                                            _stash[f"{sn}_{a}"] = sc.detach().to(torch.float32).cpu()
+                                    # STEP 1: capture GPU's ACTUAL quantized activation + scale via the
+                                    # authoritative per-token-group fp8 quant the W8A8 kernel uses
+                                    # (group size = weight_block_size[1], e.g. 128). Faithful, not a
+                                    # reconstruction. On CPU (W8A16) this import/kernel is absent -> skip.
+                                    try:
+                                        wbs = getattr(qm, "weight_block_size", None)
+                                        blk_k = int(wbs[1]) if wbs else 128
+                                        from sglang.kernels.ops.quantization.fp8_kernel import (
+                                            sglang_per_token_group_quant_fp8 as _ptg,
+                                        )
+                                        if torch.is_tensor(x) and x.is_floating_point():
+                                            qa, qs = _ptg(x, blk_k)
+                                            _stash[sn + "_act_fp8"] = qa.detach().to(torch.float32).cpu()
+                                            _stash[sn + "_act_scale"] = qs.detach().to(torch.float32).cpu()
+                                            _stash["_dispatch"][sn]["act_quant_group"] = blk_k
+                                    except Exception as _qe:  # noqa: BLE001
+                                        _stash["_dispatch"][sn]["act_quant"] = f"unavailable: {_qe!r}"
+                                except Exception:  # noqa: BLE001
+                                    pass
+                            rr = of(x, *aa, **kk)
+                            if sn not in _stash:
+                                _save(sn, rr[0] if isinstance(rr, tuple) else rr)
+                            return rr
+                        return _w
+                    mod.forward = _mk(_omodf, stash_name, mod)
+                    mod._dsv4_io_wrapped = True
+            _stash["_q_lora_rank"] = torch.tensor(int(getattr(self, "q_lora_rank", -1)))
+            # REAL-FORWARD SHARED-INPUT REPLAY: if a shared attn_in is provided, run THIS leg's actual
+            # wqkv_a fp8 kernel on it (identical input on both legs) and save the output. Comparing the
+            # two legs' qkv_a_replay isolates the operator (each leg's real fp8 matmul) with ZERO input
+            # difference and without touching the (differently-packed) raw weights.
+            _rin = os.environ.get("INTEL_CPU_DSV4_REPLAY_INPUT")
+            if _rin and os.path.exists(_rin):
+                try:
+                    shared = torch.load(_rin, map_location="cpu")
+                    shared = shared["attn_in"] if isinstance(shared, dict) else shared
+                    wq = getattr(self, "wqkv_a", None)
+                    if wq is not None and torch.is_tensor(shared):
+                        xin_dev = shared.to(device=next(wq.parameters()).device,
+                                            dtype=next(wq.parameters()).dtype if False else torch.bfloat16)
+                        rr = wq(xin_dev)
+                        _save("qkv_a_replay", rr[0] if isinstance(rr, tuple) else rr)
+                        _stash["_replay_input_sha"] = torch.tensor(float(shared.float().sum()))
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning("[ATTNIO] shared-input replay failed: %r", _e)
         r = _ofwd(self, *a, **k)
         if first_l0:
             _ATTN_IO_DONE = True
             o = r[0] if isinstance(r, (tuple, list)) else r
             _save("attn_out", o)
+            # Per-rank save (ALL ranks): sharded operands (q_final/kv) keep each rank's heads so they
+            # can be concatenated offline; replicated ones (attn_in/attn_out/layer_in) are identical
+            # across ranks. Rank in the filename -> no file-write race.
             try:
-                _stash["_meta"] = {"layer_id": 0, "leg": os.environ.get("INTEL_CPU_DSV4_ATTNIO_LEG", "unknown")}
-                torch.save(_stash, out)
-                logger.warning("[ATTNIO] saved %s -> %s", list(_stash.keys()), out)
+                from sglang.srt.distributed import get_tensor_model_parallel_rank as _r
+                rank = int(_r())
+            except Exception:  # noqa: BLE001
+                rank = 0
+            try:
+                _stash["_meta"] = {"layer_id": 0, "rank": rank,
+                                   "leg": os.environ.get("INTEL_CPU_DSV4_ATTNIO_LEG", "unknown")}
+                dst = out[:-3] + f"_rank{rank}.pt" if out.endswith(".pt") else out + f".rank{rank}"
+                torch.save(_stash, dst)
+                logger.warning("[ATTNIO] rank %d saved %s -> %s", rank, list(_stash.keys()), dst)
             except Exception as e:  # noqa: BLE001
                 logger.warning("[ATTNIO] save failed: %r", e)
         return r
@@ -282,7 +386,7 @@ def _install_attn_io_capture() -> None:
         _olfwd = Layer.forward
 
         def _lfwd(self, *a, **k):
-            if int(getattr(self, "layer_id", -1)) == 0 and "layer_in" not in _stash:
+            if int(getattr(self, "layer_id", -1)) == 0 and _CAPTURE_ACTIVE and "layer_in" not in _stash:
                 # signature: forward(self, positions, hidden_states, input_ids, forward_batch, ...)
                 # -> hidden_states is positional arg index 1 (exact, not a dim heuristic).
                 hs = k.get("hidden_states")
@@ -293,6 +397,25 @@ def _install_attn_io_capture() -> None:
 
         Layer.forward = _lfwd
         logger.warning("[ATTNIO] installed DecoderLayer-0 input (embedding anchor) tap.")
+
+
+def _is_rank0() -> bool:
+    """True on the single rank that should write capture files (fixes TP file-write races)."""
+    try:
+        from sglang.srt.distributed import get_tensor_model_parallel_rank
+        return int(get_tensor_model_parallel_rank()) == 0
+    except Exception:  # noqa: BLE001
+        try:
+            import torch.distributed as dist
+            return (not dist.is_initialized()) or dist.get_rank() == 0
+        except Exception:  # noqa: BLE001
+            return True
+
+
+# Per-layer MoE INPUT (post-attention residual stream fed to the router): full [N, hidden], ALL
+# tokens, NOT flattened — the clean operator boundary for the layers-0-3 CPU-vs-GPU comparison.
+_MOE_INPUT: "dict[int, object]" = {}
+_MOE_INPUT_MAX_LAYER = int(os.environ.get("INTEL_CPU_DSV4_MOEIN_MAXLAYER", "6"))
 
 
 def _install_moe_topk_capture() -> None:
@@ -330,6 +453,15 @@ def _install_moe_topk_capture() -> None:
                     tids = getattr(out, "topk_ids", None)
                     if tids is not None:
                         self._dsv4_last_topk_ids = tids.detach().to("cpu")
+                    # Capture the REAL (hidden, router_logits) this TopK received + the exact call
+                    # args, so the router replay can match the real call signature (defect test V2).
+                    _h = k.get("hidden_states", a[0] if len(a) > 0 else None)
+                    _rl = k.get("router_logits", a[1] if len(a) > 1 else None)
+                    if _h is not None and hasattr(_h, "detach"):
+                        self._dsv4_last_topk_hidden = _h.detach().to("cpu")
+                    if _rl is not None and hasattr(_rl, "detach"):
+                        self._dsv4_last_router_logits = _rl.detach().float().to("cpu")
+                    self._dsv4_last_topk_extrakeys = [kk for kk in k if kk not in ("hidden_states", "router_logits")]
                 except Exception:  # noqa: BLE001
                     pass
                 return out
@@ -343,20 +475,72 @@ def _install_moe_topk_capture() -> None:
         _omf = MoE.forward
 
         def _moe_fwd(self, *a, **k):
+            import torch
+            lid = int(getattr(self, "layer_id", -1))
+            # ROUTER INPUT-SUBSTITUTION (defect test, robust): at the target gate layer, REPLACE the
+            # hidden_states fed to the REAL MoE forward with an injected tensor, so the REAL gate+topk
+            # (no re-call artifact) route on the injected input; the moetopk hook below captures the
+            # result. Also save this layer's own bf16 input as the inject-source for the other leg.
+            _inj_layer = os.environ.get("INTEL_CPU_DSV4_ROUTER_INJECT_LAYER")
+            if (_inj_layer and _CAPTURE_ACTIVE and lid == int(_inj_layer)
+                    and not getattr(self, "_dsv4_rinj_done", False)):
+                self._dsv4_rinj_done = True
+                try:
+                    hin = k.get("hidden_states", a[0] if a else None)
+                    own_bf16 = hin.detach().reshape(-1, hin.shape[-1]).to(torch.bfloat16).contiguous()
+                    _rank0 = True
+                    try:
+                        from sglang.srt.distributed import get_tensor_model_parallel_rank as _r
+                        _rank0 = int(_r()) == 0
+                    except Exception:  # noqa: BLE001
+                        pass
+                    # save own input (the other leg loads this as the inject source)
+                    _own_out = os.environ.get("INTEL_CPU_DSV4_ROUTER_INJECT_OWN_OUT")
+                    if _own_out and _rank0:
+                        torch.save({"layer": lid, "own_hidden_bf16": own_bf16.cpu(),
+                                    "leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "?")},
+                                   _own_out + ".tmp"); os.replace(_own_out + ".tmp", _own_out)
+                    # substitute injected input into the REAL forward (replaces hidden for gate+topk+experts;
+                    # we only read this layer's topk, so downstream corruption is irrelevant)
+                    _inj_f = os.environ.get("INTEL_CPU_DSV4_ROUTER_INJECT_FILE")
+                    if _inj_f and os.path.exists(_inj_f):
+                        src = torch.load(_inj_f, map_location="cpu")
+                        inj = (src["own_hidden_bf16"] if isinstance(src, dict) else src)
+                        inj = inj.to(device=hin.device, dtype=hin.dtype).reshape(hin.shape).contiguous()
+                        if "hidden_states" in k:
+                            k["hidden_states"] = inj
+                        else:
+                            a = (inj,) + tuple(a[1:])
+                        with open(os.environ.get("INTEL_CPU_DSV4_ROUTER_REPLAY_DBG",
+                                                 "/scratch/bkaul/router_replay_dbg.txt"), "a") as fh:
+                            fh.write(f"[RINJ] layer {lid}: SUBSTITUTED hidden with inject "
+                                     f"(own_sum={float(own_bf16.float().sum()):.3f} "
+                                     f"inj_sum={float(inj.float().sum()):.3f})\n")
+                except Exception as _e:  # noqa: BLE001
+                    with open("/scratch/bkaul/router_replay_dbg.txt", "a") as fh:
+                        fh.write(f"[RINJ] layer {lid} FAILED: {_e!r}\n")
+            if _CAPTURE_ACTIVE and not _MOE_TOPK_DONE:
+                try:
+                    if 0 <= lid <= _MOE_INPUT_MAX_LAYER and lid not in _MOE_INPUT:
+                        hin = k.get("hidden_states")
+                        if hin is None and a:
+                            hin = a[0]
+                        if hin is not None and hasattr(hin, "detach"):
+                            _MOE_INPUT[lid] = hin.detach().float().reshape(-1, hin.shape[-1]).cpu()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[MOE_IN] layer %s input cap failed: %r", lid, e)
             out = _omf(self, *a, **k)
             if _CAPTURE_ACTIVE and not _MOE_TOPK_DONE:
                 try:
                     tk = getattr(self, "topk", None)
                     tids = getattr(tk, "_dsv4_last_topk_ids", None)
                     if tids is not None:
-                        lid = int(getattr(self, "layer_id", -1))
-                        arr = tids.int().tolist()  # [num_tokens, top_k] global expert ids
                         _MOE_TOPK[lid] = {
                             "is_hash": bool(getattr(self, "is_hash", False)),
-                            "topk_ids": arr,
+                            "topk_ids": tids.int().tolist(),
                         }
                 except Exception as e:  # noqa: BLE001
-                    logger.warning("[MOE_TOPK] layer %s cap failed: %r", getattr(self, "layer_id", "?"), e)
+                    logger.warning("[MOE_TOPK] layer %s cap failed: %r", lid, e)
             return out
 
         MoE.forward = _moe_fwd
@@ -377,6 +561,8 @@ def _install_moe_topk_capture() -> None:
             logits = _omodf(self, *a, **k)
             if not _MOE_TOPK_DONE and _MOE_TOPK:
                 _MOE_TOPK_DONE = True
+                if not _is_rank0():
+                    return logits  # only rank 0 writes (fixes TP file-write races)
                 try:
                     payload = {
                         "leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "unknown"),
@@ -392,6 +578,20 @@ def _install_moe_topk_capture() -> None:
                     logger.warning("[MOE_TOPK] wrote %d MoE layers -> %s", len(_MOE_TOPK), dst)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("[MOE_TOPK] dump failed: %r", e)
+                # MoE INPUT tensors (all tokens, full width) -> compact torch dump for layers 0-3 compare.
+                try:
+                    if _MOE_INPUT:
+                        import torch
+                        dstp = outfile + ".moein.pt"
+                        torch.save({"leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "unknown"),
+                                    "seq_idx": _CAPTURE_SEQ_IDX,
+                                    "input_ids": _CAPTURE_INPUT_IDS,
+                                    "moe_input": {int(li): t.to(torch.float16) for li, t in _MOE_INPUT.items()}},
+                                   dstp + ".tmp")
+                        os.replace(dstp + ".tmp", dstp)
+                        logger.warning("[MOE_IN] wrote %d MoE-input layers -> %s", len(_MOE_INPUT), dstp)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[MOE_IN] dump failed: %r", e)
             return logits
 
         ModelCls.forward = _model_fwd_dump
@@ -474,6 +674,8 @@ def _install_attnout_capture() -> None:
             logits = _omodf(self, *a, **k)
             if not _ATTNOUT_DONE and _ATTNOUT:
                 _ATTNOUT_DONE = True
+                if not _is_rank0():
+                    return logits  # only rank 0 writes (fixes TP file-write races)
                 try:
                     payload = {
                         "leg": os.environ.get("INTEL_CPU_DSV4_LAYER_CAPTURE_LEG", "unknown"),
@@ -514,3 +716,9 @@ _install_layer_capture()
 _install_attn_io_capture()
 _install_moe_topk_capture()
 _install_attnout_capture()
+
+try:
+    from .rescue import install_rescue_hooks
+    install_rescue_hooks()
+except Exception as _e:  # noqa: BLE001
+    logger.warning("[RESCUE] install skipped: %r", _e)

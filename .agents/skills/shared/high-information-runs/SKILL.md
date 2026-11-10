@@ -5,6 +5,46 @@ description: "Experiment-design discipline for when the RUN is the bottleneck (l
 
 # High-Information Runs (maximize dispositions per expensive run)
 
+## Full-accuracy waves: optimize completion time, not loader count
+
+- Distinguish **allocated / waiting-to-load / loading / generating / complete**.
+  Slurm RUNNING does not imply active inference. Report scored questions and
+  completion artifacts, not just allocation counts.
+- For a bandwidth-limited shared checkpoint, gate **weight loading** separately
+  from generation. Release a load slot when the engine is ready; ready engines
+  continue generating concurrently. Fixed sleeps may still overlap every loader.
+  Record load-start/ready times and include queue/wait time in wall-limit planning.
+- A two-loader cap is a starting hypothesis, not an optimum. Increase in a
+  bounded step (for example 2 to 4) and judge **engines ready per minute plus
+  overall completion time**, not only per-node load time. Include GPU readers.
+  Record the before/after cohort and do not claim a replicated throughput result
+  from one staggered campaign. Leave running generation untouched.
+- Check mounts before staging: a path named `/scratch` may be shared NFS.
+  Bulk prewarm/copy adds a full checkpoint read; local SSD staging needs capacity,
+  checkpoint identity verification and enough reuse to amortize the copy.
+  Avoid tmpfs for large models that compete with weights/KV for RAM. Preserve
+  packed weights and existing native multithreaded loading; do not widen weights
+  or add an unmeasured loader solely to shorten a one-off evaluation.
+- Prefer a resident engine across batches when the agreed protocol permits it,
+  but **do not silently change engine/cache lifecycle to save load time** during
+  a matched accuracy comparison. Record such a change as a separate protocol.
+- Checkpoint raw responses before analysis can fail. Test the real wrapper for
+  loader failure, slot release and child-exit propagation; helper-only tests
+  missed actual bookkeeping failures in the residual-gap campaign.
+- Monitor both partial accuracy and completion at submission. After a tool/session
+  interruption, verify the watchers still exist. Where accounting is unavailable,
+  retain observed `scontrol` terminal states and require complete artifacts;
+  disappearing jobs alone are not success. Replacement shards need an explicit
+  shard-to-job map so intentional cancellations do not poison the remaining wave.
+- ETA is **latest engine-ready time + measured remaining generation**, not
+  fastest shard time or time since array submission. Use prior matched shard
+  times until real chunks land, then update from the current run.
+
+The full-task score is the objective; do not attach intrusive numerical traces
+or precision variants to an accuracy run. A high-information accuracy wave
+already answers baseline reproduction, aggregate gap, paired recoveries,
+regressions and truncation/invalid rates from saved generations.
+
 ## ⛔ ASYNC-HEARTBEAT — never fire-and-forget a job then wait for a human to ask "is it done?"
 A recurring velocity leak: submit an sbatch (or a long download/decode), then STOP and idle until the
 operator prompts a status check. The submit→detach→human-prompt round-trip serializes the whole loop on
@@ -22,8 +62,9 @@ human attention. Kill it by making completion AUTO-WAKE the agent:
    transient controller blip (or an instant crash) — concluding "done" on the first empty misfires (seen:
    a blip fired a watcher that then "combined" 0 shards; a crash looked like success). Confirm with `sacct`'s
    authoritative terminal state (COMPLETED/FAILED/TIMEOUT/…) before dispositioning; treat empty-squeue +
-   non-terminal-sacct as "still running". `scripts/await_job.sh` does this — USE IT instead of hand-rolling a
-   `while squeue … ; do sleep; done` loop.
+   non-terminal-sacct as "still running". If accounting is unavailable, retain observed `scontrol`
+   terminal states and require complete artifacts. Verify the waiter's failure/unknown-state behavior
+   before relying on it; an empty-queue fallback in `scripts/await_job.sh` is NOT completion proof.
 6. **FAIL-FAST on the first partial — never pay the full wall to learn a run is bad.** Instrument long runs to
    emit a USABLE partial EARLY (checkpoint per unit of work — per chunk, per shard-chunk), read that partial
    against an EXPECTED threshold (prior known-good number, a published target, or a sanity floor), and

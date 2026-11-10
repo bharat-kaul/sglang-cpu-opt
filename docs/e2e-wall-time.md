@@ -13,7 +13,9 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 real ~59 distinct experts/B=32 — see the mode-collapse note below). **Baseline** = fully naive (eager DSA +
 OMP spin-wait + no thread-cap, the default first-run CPU path). **Optimized** = all authored C/AMX DSA kernels
 (**dispatch-proven**, `eager=0`) + spin-wait OMP, all 128 cores. Operating point B=32, S=128. The accuracy of
-this optimized compute path is established separately: **gsm8k 0.9437 ≈ GPU 0.9535** on the same checkpoint.
+the latest accuracy-fix configuration is measured separately: **GSM8K CPU 1246/1311 (95.04%) versus
+fresh matched GPU 1245/1311 (94.97%)**. This does not revalidate the different performance configuration
+above. See [accuracy closure and evaluated flags](dev/DSv4-accuracy-closure.md).
 
 | EMR, 43L (two-depth) | baseline (naive) | optimized (C/AMX) | **speedup** |
 |---|---:|---:|---:|

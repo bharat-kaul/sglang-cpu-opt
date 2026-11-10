@@ -43,7 +43,7 @@ model on the same silicon and kernel. **Precision matrix:** BF16 and INT8 were b
 automatically from the same donor kernels (INT8 via a calibration-free RTN quantizer),
 INT8 giving ~1.5× throughput at preserved accuracy.
 
-## Thesis 2 — RUNNING END-TO-END on CPU (DeepSeek-V4-Flash, tp=1, native MXFP4) — correctness CERTIFIED: CPU gsm8k 0.9437 ≈ GPU 0.9535 (a real ~15-pt port bug was found & fixed)
+## Thesis 2 — RUNNING END-TO-END on CPU (DeepSeek-V4-Flash, tp=1, native MXFP4) — full matched GSM8K: CPU 95.04%, GPU 94.97%
 
 **Scope (same-day coverage-gate).** The model is **mostly covered** by the DeepSeek-V2 CPU
 kernels (MLA core, dense GEMM, MoE, norm, rope, top-k); the only new family is **DeepSeek Sparse
@@ -89,30 +89,21 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
 - ✅ **Correctness validated.** A real-prompt coherence check (the accuracy oracle's Layer 0)
   caught that the decode path emitted garbage: the DSA sparse selection was stubbed at decode, and
   the MLA attention had **no dense fallback**, so it gathered nothing → zero attention. Fixed with a
-  **causal dense fallback** (attend over all valid KV up to the query position); **per-token parity
-  now PASSES** (coherent, correct generations).
-- ✅ **Accuracy CERTIFIED — the CPU port is within ~1 pt of the GPU reference on the identical checkpoint.**
-  Apples-to-apples at every link: **(i)** DeepSeek publishes gsm8k **≈90.8%** for Flash-**Base**, which the
-  **GPU reference code reproduces** (**0.923**, 1210/1311) → harness trusted; **(ii)** the **same GPU code**
-  on the **post-trained Flash** checkpoint we port scores **0.9535** (1250/1311) → the real target; **(iii)**
-  our **CPU-optimized** build of that same model reaches **0.9437** (302/320) → **within ~1 pt**. A real port
-  bug was found & fixed (not explained away): an earlier read — *"CPU 79.9%, the gap is the eval harness"* — was
-  **refuted** by binding the comparator correctly: the published 90.8 is Flash-**Base**, so "below 90.8" was
-  never valid; running the **GPU oracle on the same post-trained Flash checkpoint + same 8-shot protocol** gave
-  never valid; running the **GPU oracle on the same post-trained Flash checkpoint + same 8-shot protocol** gave
-  **0.9535**, exposing a **real ~15-pt CPU port bug**. The DSA compressor's `wkv_gate` projection was
-  AMX-VNNI-**prepacked** but consumed by a plain matmul → a silent weight-layout permutation → garbage
-  compressed KV on every compressed layer (same bug class already fixed for `wo_a`). **Localized to one line**
-  via per-layer cosine vs the GPU oracle (broke exactly at the first compressed layer) → boundary-capture +
-  reference-replay (arithmetic correct, operands wrong) → operand-identity check (live weight vs raw checkpoint
-  = cos 0.0007, norms preserved = a prepack permutation). **Fixed in three steps across three correctness axes:**
-  (1) keep `wkv_gate` row-major → prefill correct (layer-2 cosine 0.9997), gsm8k 0.796→0.865; (2) persist
-  per-request compressed KV for **decode** (a prefill-only handoff ran decode SWA-only); (3) **request-aware**
-  coverage mask (a position-only mask leaks across a batched prefill) → **0.9437** (302/320, all 8 shards PASS).
-  Component parity still holds (MXFP4 bridge cos 0.999992/0.999995; DSA reduces exactly to dense at top-k=all,
-  err 1.8e-7). Residual ~1 pt = benign bf16/fp8 accumulation over 43 layers. *(DSV4's real-weight
-  per-layer GPU oracle — which localized this bug — is now unblocked via the podman `--events-backend`
-  workaround; a deterministic-dummy bit-exact variant of the same harness is part of the reusable toolkit.)*
+  **causal dense fallback** (attend over all valid KV up to the query position).
+  Coherent generations are a smoke check, not proof of per-token parity.
+- ✅ **Full accuracy campaign completed (2026-11-09).** CPU **1246/1311 (95.04%)**;
+  fresh matched GPU **1245/1311 (94.97%)**, zero invalid answers on both sides.
+  CPU reproduces all 1311 prior generation texts and extracted answers. Paired
+  successes: CPU-only 9, GPU-only 8; answer agreement 1283/1311.
+  The configuration explicitly enables chunk accumulation and routed/shared
+  SwiGLU clamps, with radix cache OFF and experimental activation quantization OFF.
+  Historical GPU1250 used a different batch/engine/cache protocol; historical
+  CPU302/320 was a subset, not a full-set comparison. Neither supports the old
+  claim that a remaining one-point gap was necessarily "benign accumulation."
+  The prepack, compressed-state and batching fixes were followed by cache
+  containment/lifecycle and activation-clamp corrections. This result closes the
+  aggregate task-gap campaign, not numerical-equivalence certification or default
+  promotion. [Evidence, configuration and reproduction](docs/dev/DSv4-accuracy-closure.md).
 - ✅ **Performance measured — baseline → optimized** (fully-naive eager path → all-C/AMX DSA kernels,
   dispatch-proven; 43L two-depth extrapolation, B=32, real-router guard): **prefill 79.8 → 174.5 tok/s
   (2.19×)**, **decode 36.2 → 57.5 tok/s (1.59×)** on EMR — **43% / 8% of the measured-EMR roofline**

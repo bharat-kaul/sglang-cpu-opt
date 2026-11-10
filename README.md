@@ -10,7 +10,7 @@ hand-optimized kernels or creating new kernels (having distilled knowhow into sk
 ## TL;DR — status at a glance
 A reusable **spine-and-leaf playbook** (a phase-gated methodology **spine** + per-technique optimization **leaf** skills) drives every enablement. Two proven paths:
 - **Thesis 1 — reuse known kernels:** OLMo-2-7B (BF16 + auto-INT8) and OLMoE enabled; **accuracy parity 1.0**; peer-relative within donor-kernel efficiency (eff_rel 0.94–1.26). → [details](#thesis-1--throughput-all-known-kernels--proven)
-- **Thesis 2 — author new kernels:** **DeepSeek-V4-Flash** — novel DSA + MHC kernels authored & validated; **accuracy certified within ~1 pt of the GPU reference** (CPU gsm8k **0.9437** vs GPU **0.9535** on the identical checkpoint); **baseline→optimized 2.19× prefill / 1.59× decode**. → [details](#1--deepseek-v4-flash--flagship-novel-kernels-authored--validated)
+- **Thesis 2 — author new kernels:** **DeepSeek-V4-Flash** — novel DSA + MHC kernels authored & validated; **full matched GSM8K evaluation: CPU 1246/1311 (95.04%), GPU 1245/1311 (94.97%)**, with zero invalid answers. No aggregate CPU deficit in this run; not a claim of numerical equivalence or statistically significant superiority. **Baseline→optimized 2.19× prefill / 1.59× decode** remains a separate performance measurement. → [accuracy result and reproduction](docs/dev/DSv4-accuracy-closure.md)
 - **Dig deeper:** 📘 [methodology playbook](docs/methodology-playbook.md) · 📗 [kernel-optimization playbook](docs/standalone-kernel-optimization-playbook.md) · 🧩 [kernel performance journey](docs/kernel-pilot-performance.md) · ⏱️ [end-to-end wall time](docs/e2e-wall-time.md)
 
 > **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
@@ -109,7 +109,7 @@ toward its roofline. Two pages document it in full:
 **two genuinely novel op families** — DeepSeek Sparse Attention (lightning-indexer + KV-compressor +
 top-k sparse-MLA) and MHC hash-clustering — while everything else is covered by the DeepSeek-V2 CPU donors.
 
-> **Deep dives for this model:** 🧩 **[Kernel performance journey](docs/kernel-pilot-performance.md)** (per-kernel roofline → baseline → C/C++, + GNR-vs-EMR) · ⏱️ **[End-to-end wall time](docs/e2e-wall-time.md)** (baseline→optimized tok/s + roofline calc) · ✅ **[Accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** (CPU within ~1 pt of GPU) · 🔎 **[Prefill/decode review brief](docs/dsv4-prefill-decode-review-brief.md)** (code map + perf data + tried & ruled out) · 📐 **[Per-GEMM regime analysis](docs/dsv4-gemm-regime-analysis.md)** (compute- vs BW- vs latency-bound).
+> **Deep dives for this model:** 🧩 **[Kernel performance journey](docs/kernel-pilot-performance.md)** (per-kernel roofline → baseline → C/C++, + GNR-vs-EMR) · ⏱️ **[End-to-end wall time](docs/e2e-wall-time.md)** (baseline→optimized tok/s + roofline calc) · ✅ **[Full accuracy evaluation](docs/dev/DSv4-accuracy-closure.md)** (CPU 95.04%, matched GPU 94.97%) · 🔎 **[Prefill/decode review brief](docs/dsv4-prefill-decode-review-brief.md)** (code map + perf data + tried & ruled out) · 📐 **[Per-GEMM regime analysis](docs/dsv4-gemm-regime-analysis.md)** (compute- vs BW- vs latency-bound).
 
 - **Scope** — scope-discovery surfaced the *true* scope (DSA + MHC **plus** a runtime infra layer, not
   the "4 DSA kernels" a static op-scan implied) → [coverage/scope](plugin/coverage/deepseek_v4_flash_coverage.yaml).
@@ -128,12 +128,12 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
   decode → MLA gathered nothing → zero attention); fixed with a causal **dense fallback**. Per-token
   parity now passes (coherent, correct generations); the MXFP4 bridge is parity-checked standalone
   (cos 0.999992) and in-situ on the real checkpoint (cos 0.999995).
-- **Accuracy CERTIFIED — the CPU port lands within ~1 pt of the GPU reference on the identical checkpoint.**
-  Apples-to-apples at every link: published Flash-**Base** gsm8k **≈90.8%** → **GPU reproduces** it (**0.923**)
-  → **same GPU code** on the post-trained **Flash** checkpoint we port = **0.9535** → our **CPU-optimized**
-  build of that same model = **0.9437** (within ~1 pt). Getting there meant finding & fixing a **real ~15-pt
-  CPU port bug** (a silent `wkv_gate` prepack permutation in the DSA compressor), not explaining it away. Full
-  chain, the bug hunt, and the three-axis fix: **[accuracy certification](#deepseek-v4-flash--accuracy-certification-within-1-pt-of-the-gpu-reference-on-the-identical-checkpoint)** below.
+- **Full accuracy evaluation completed (2026-11-09): CPU 1246/1311 versus fresh GPU 1245/1311.**
+  The evaluated CPU configuration enables chunk accumulation and routed/shared SwiGLU clamps,
+  disables unsupported prefix-cache reuse, and leaves experimental activation quantization OFF.
+  CPU reproduces all 1311 generation texts and answers from its prior 1246 run.
+  Earlier prepack, compressed-state and batching repairs remain part of the serving path.
+  [Result, exact flags, limitations and reproduce commands](docs/dev/DSv4-accuracy-closure.md).
 - **Performance measured** — **baseline → optimized** (fully-naive eager path → all-C/AMX DSA kernels,
   dispatch-proven; 43L two-depth extrapolation, B=32, real-router guard): **prefill 79.8 → 174.5 tok/s
   (2.19×), decode 36.2 → 57.5 tok/s (1.59×)** on EMR, at **43% / 8% of the measured-EMR roofline** (prefill
@@ -160,56 +160,47 @@ top-k sparse-MLA) and MHC hash-clustering — while everything else is covered b
 (O(context²)→O(context·topk)) + the paged flash-MLA *serving* runtime — backend plumbing + tuning,
 not novel-kernel authoring (the DSA math is authored + proven in isolation).
 
-#### DeepSeek-V4-Flash — accuracy certification (within ~1 pt of the GPU reference on the identical checkpoint)
-Two questions a technical reviewer asks — *is the implementation correct?* and *does it match a trusted
-reference on task?* — are now answered the honest way, with an apples-to-apples chain at every link:
+#### DeepSeek-V4-Flash — full matched accuracy evaluation
 
-1. **Reproduce the published reference on GPU.** DeepSeek publishes gsm8k **≈90.8%** for
-   DeepSeek-V4-Flash-**Base**; the **GPU reference code reproduces** it on that checkpoint — **0.923**
-   (1210/1311) — so the harness + protocol are trustworthy.
-2. **Establish the real target on the checkpoint we port.** The **same GPU code** on the **post-trained
-   Flash** checkpoint (the one the CPU plugin actually runs) scores **0.9535** (1250/1311) — Flash has *no*
-   separately-published gsm8k number, so this GPU-on-the-same-checkpoint run *is* the target.
-3. **The CPU port matches it.** Our **CPU-optimized** build of that same Flash model reaches **0.9437**
-   (302/320) — **within ~1 pt of the 0.9535 GPU result**, after finding and fixing a real ~15-pt CPU port
-   bug. (An earlier draft claimed the gap was "the eval harness, not the port"; that was **wrong** and is
-   corrected below — the correction itself is the lesson.)
+The final custom-protocol GSM8K run evaluates the same **1311 post-shot questions**
+on both backends: **CPU 1246 (95.04%), GPU 1245 (94.97%)**. CPU-only successes:
+9; GPU-only successes: 8; extracted-answer agreement: 1283/1311.
+This closes the aggregate accuracy-gap campaign, not every per-question numerical
+difference. It is not a published-score reproduction or a repeatability certificate.
 
-**(A) Numerical faithfulness — proven at the component + token level, not asserted.**
-- **Every `stored ≠ compute` dtype bridge is parity-gated against an independent oracle.** The MXFP4 W4A16
-  expert path (the bulk of the model) matches a torch dequant oracle built from the *same* packed nibbles to
-  **cos 0.999992 standalone / 0.999995 in-situ on the real checkpoint** — fp4·2^k is *exact* in bf16, so this
-  is near-machine-precision, not a lossy approximation.
-- **The novel sparse attention reduces *exactly* to dense at top-k = all (err 1.8e-7)** — a by-construction
-  check of the DSA math against a dense reference that shares the rest of the pipeline.
-- **Greedy (temperature-0) per-token parity passes** on real prompts — coherent, correct generations. This
-  gate earned its keep: it caught a real decode bug (DSA selection stubbed at decode → MLA gathered nothing →
-  zero attention), fixed with a causal dense fallback, *before* any number was published.
-- **Per-layer CPU↔GPU parity on the REAL checkpoint** — a version-matched GPU oracle (same 0.5.20 build,
-  same post-trained Flash checkpoint) captures every decoder layer's attention-module output on a frozen
-  prompt; the CPU build now matches it **cos ≥ 0.998 for layers 0–27 and ≥ 0.978 through layer 42** (a smooth
-  bf16/fp8-accumulation slope, no divergence cliff). This per-layer oracle is what localized the `wkv_gate`
-  bug to the first compressed layer — see (B). (The earlier draft said DSV4's full-GPU per-layer oracle was
-  infrastructure-blocked; the podman `--events-backend` workaround unblocked it this cycle.) A
-  deterministic-dummy *bit-exact* variant of this same harness (name-seeded init → identical weights on CPU
-  and the native-GPU container, decoupling wiring/kernel correctness from the dtype bridge) is part of the
-  reusable toolkit.
+The historical GPU1250 run used batch64 and a different engine/cache lifecycle;
+the fresh comparison uses identical shard boundaries, batch32, prefill512,
+radix cache OFF, prompts, stops and scoring. CPU is TP1, GPU TP4. The earlier
+302/320 CPU subset must not be compared as if it were the same evaluation as
+the 1311-question GPU run. [Full provenance](docs/dev/DSv4-accuracy-closure.md).
+
+**(A) Numerical diagnostics and task accuracy answer different questions.**
+Historical component checks reported MXFP4 bridge cosine 0.999992 standalone /
+0.999995 in situ, and sparse-to-dense error 1.8e-7 at top-k = all. These are
+bounded operator checks, not proof of bit identity or all-token parity.
+Per-layer captures helped localize the earlier prepack bug; later matched-prefix
+traces still show CPU/GPU differences and reference execution sensitivity.
+Coherent generations and smooth layer-cosine curves cannot establish that a
+residual difference is harmless. The [chronological review](docs/dev/DSv4-shared-clamp-disposition-REVIEW.md)
+separates operator evidence, selected-case experiments and full-task results.
 
 **(B) The task gap was a REAL port bug — found by binding the comparator correctly, then localized to one line.**
 
-![DSV4-Flash CPU gsm8k accuracy progression vs the same-checkpoint GPU oracle](docs/plots/dsv4_accuracy_progression_v1.png)
+![DSV4-Flash final matched full-set CPU/GPU accuracy](docs/plots/dsv4_accuracy_full_20261109.svg)
 
 | Row | gsm8k | Note |
 |---|---|---|
 | Published Flash-**Base** (DeepSeek) | **≈0.908** | reference point — a *different* (base, FP8) checkpoint |
-| GPU reference on Flash-Base (our reproduction) | **0.923** | reproduces the published number (1210/1311, [`gpu_base_gsm8k.json`](plugin/validate/results/gpu_base_gsm8k.json)) → harness trusted |
+| Historical GPU reference on Flash-Base | **0.923** | 1210/1311, [`gpu_base_gsm8k.json`](plugin/validate/results/gpu_base_gsm8k.json); a custom-protocol reference, not exact published-protocol reproduction |
 | CPU baseline (pre-fix) | **0.796** | the number the "eval harness" story tried to explain away |
 | + `wkv_gate` row-major fix (prefill) | **0.865** | compressed attention now correct in prefill (layer-2 cosine 0.9997) |
-| **+ decode persist + request-aware mask (CPU final)** | **0.9437** | 302/320, all 8 shards PASS (0.90–0.975) — **within ~1 pt of GPU** |
-| **GPU oracle — post-trained Flash (the port target), SAME 8-shot protocol** | **0.9535** | the apples-to-apples target (1250/1311, [`gpu_flash_gsm8k.json`](plugin/validate/results/gpu_flash_gsm8k.json)) |
+| + decode persist + request-aware mask (historical subset) | 0.9437 | 302/320; not comparable as a full-set result |
+| Historical GPU, post-trained Flash | 0.9535 | 1250/1311; older execution protocol |
+| **Latest CPU, full set** | **0.9504** | **1246/1311**, fixes enabled, experimental quantization OFF |
+| **Fresh matched GPU, full set** | **0.9497** | **1245/1311**, TP4; [machine-readable result](plugin/validate/results/dsv4_latest_fullacc_20261109.json) |
 
 - **The decisive move was the correctly-bound oracle.** The published 90.8 is Flash-**Base** (FP8), a
-  *different* checkpoint — which we **reproduced on GPU** (**0.923**, consistent with published); our
+  *different* checkpoint — which we **evaluated on GPU** (**0.923** under our custom protocol); our
   post-trained Flash has no published gsm8k number, so "below 90.8" was never a
   valid signal. Running the **GPU on the same checkpoint + same harness** gave **0.9535** → the real target was
   ~0.95, and CPU at 0.80 was genuinely ~15 pts low. *Comparator-provenance dissolved the false "below published"
@@ -228,8 +219,11 @@ reference on task?* — are now answered the honest way, with an apples-to-apple
 - **Three fixes, three correctness axes** (playbook §5.4): (1) keep `wkv_gate` row-major → **0.865**;
   (2) persist per-request compressed KV so **decode** attends long-range context (a prefill-only handoff ran
   decode SWA-only); (3) make the coverage mask **request-aware** (a position-only mask leaks across a batched
-  prefill) → **0.9437**. Residual ~1 pt (0.9437 vs 0.9535) is benign bf16/fp8 accumulation over 43 layers
-  (per-layer cosine declines smoothly, no cliff) + minor decode incremental-block omission on long gens.
+  prefill) → **0.9437 on the historical 320-question subset**. Subsequent full-set
+  work addressed cache lifecycle, chunk accumulation and missing activation clamps.
+  The earlier attribution of the remaining gap to "benign accumulation" was not
+  established by that subset or by layer cosine alone. The latest matched full-set
+  result above supersedes that conclusion.
 
 **Reproducible, not hand-waved:** generations are saved (`--gens-out`) and scored offline
 ([`score_gsm8k.py`](plugin/validate/score_gsm8k.py) grid); the full run is node-parallel + chunked

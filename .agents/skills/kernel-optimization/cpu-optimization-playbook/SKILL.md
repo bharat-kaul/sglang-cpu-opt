@@ -10,6 +10,16 @@ task. It does not itself optimize; it **routes** the op through a progressive,
 composable library of per-technique skills, loading each only when its trigger
 condition is met and gating every step against the measured roofline.
 
+**Residual accuracy is a separate routing decision.** For an already-running
+model, repeated improvements in an isolated operator's cosine/error do not prove
+task recovery. Before extending a precision sweep, use the
+[accuracy leaf's residual-gap rules](../../throughput-enablement/accuracy-oracle/SKILL.md):
+reproduce the original answer batch, carry recovery/regression controls, bound
+the diagnostic budget and re-anchor small gaps with a fresh matched full-task
+evaluation. Do not spend kernel budget chasing a historical reference answer
+whose execution protocol or repeat stability is unbound. A closed task-gap
+campaign does not promote a numerical variant or waive per-op correctness.
+
 > **⛔⛔ USER-MANDATED CAMPAIGN REQUIREMENTS — NON-NEGOTIABLE (do NOT relax, defer, or dilute; any
 > model-agnostic / adapter refactor MUST preserve these verbatim as campaign policy).** These are hard
 > gates the user has explicitly required for this enablement; treat each as a blocking prerequisite, not a

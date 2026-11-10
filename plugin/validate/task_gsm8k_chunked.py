@@ -88,6 +88,10 @@ def main():
                         "control file — a HELD-FIXED eager-vs-C decode A/B on ONE resident load (lesson A1)")
     p.add_argument("--gens-schema-v2", action="store_true",
                    help="wrap gens-out as {run_identity, gens:[...]} (self-identifying); default = plain list")
+    p.add_argument("--runtime-out", default="",
+                   help="save resolved engine settings before generation")
+    p.add_argument("--gens-token-ids", action="store_true",
+                   help="save actual output_ids returned by the engine with each generation")
     args = p.parse_args()
 
     lines = read_jsonl(args.data)
@@ -200,6 +204,8 @@ def main():
         chunked_prefill_size=args.chunked_prefill_size,
         **extra_kw,
     )
+    if args.runtime_out:
+        _atomic_write(args.runtime_out, engine.get_server_info())
     sp = {"temperature": 0.0, "max_new_tokens": args.max_new_tokens,
           "stop": ["Question", "Assistant:"]}
 
@@ -313,11 +319,15 @@ def main():
     _toggles = {k: os.environ.get(k) for k in (
         "INTEL_CPU_DSV4_DSA_CKERNEL", "INTEL_CPU_DSV4_DSA_CKERNEL_CHECK", "INTEL_CPU_DSV4_CK_STRICT",
         "INTEL_CPU_DSV4_MXFP4_MOE", "INTEL_CPU_DSV4_DSA_CPU", "INTEL_CPU_DSV4_DECODE_THREADS",
+        "INTEL_CPU_DSV4_CHUNK_ACCUM", "INTEL_CPU_DSV4_MXFP4_CLAMP", "INTEL_CPU_DSV4_SHARED_CLAMP",
+        "INTEL_CPU_DSV4_SHARED_QUANT_DIAGNOSTIC", "INTEL_CPU_DSV4_TRACE_TOKEN_IDS",
+        "INTEL_CPU_DSV4_EXECUTION_TRACE",
         "INTEL_CPU_DSV4_CK_CTL_FILE", "CONTEXT_LEN", "SWA_RATIO", "MAX_TOTAL_TOKENS") if os.environ.get(k) is not None}
     run_identity = {
         "model": args.model, "device": args.device, "tp": args.tp, "dtype": args.dtype,
         "quantization": args.quantization, "num_shots": args.num_shots,
         "max_new_tokens": args.max_new_tokens, "chunk_size": args.chunk_size,
+        "chunked_prefill_size": args.chunked_prefill_size, "mem_fraction": args.mem_fraction,
         "num_shards": args.num_shards, "shard_index": args.shard_index,
         "sampling_params": sp, "git_sha": _git_sha(), "env_toggles": _toggles,
         "scorer": "extract_final_answer(task_gsm8k)", "protocol_version": 2,
@@ -328,6 +338,7 @@ def main():
             continue  # already checkpointed on a prior run — skip
         chunk_p = prompts[start:start + args.chunk_size]
         chunk_l = labels[start:start + args.chunk_size]
+        print(f"[generate] starting {len(chunk_p)} questions at offset {start}", flush=True)
         outs = engine.generate(chunk_p, sp)
         # review P0: require EXACTLY one response per requested question — a short `outs` with `zip`
         # would silently truncate scoring while `done` still advances by the label count.
@@ -335,6 +346,11 @@ def main():
             raise RuntimeError(f"engine returned {len(outs)} outputs for {len(chunk_l)} prompts "
                                f"(chunk at {start}) — refusing to checkpoint a truncated chunk")
         recs = [o if isinstance(o, dict) else {"text": o} for o in outs]
+        if args.gens_token_ids:
+            for r in recs:
+                ids = r.get("output_ids")
+                if not isinstance(ids, list) or any(type(x) is not int for x in ids):
+                    raise RuntimeError("engine response is missing actual integer output_ids")
         texts = [r.get("text", "") for r in recs]
         metas = [r.get("meta_info", {}) if isinstance(r, dict) else {} for r in recs]
         preds = [extract_final_answer(t) for t in texts]
@@ -360,6 +376,7 @@ def main():
             # Enriched schema (review P0): keep immutable identity + termination metadata so a saved
             # generation is scorable/auditable offline (finish reason, token counts, pred).
             gens.extend({"q": q_ids[start + j], "gold": l, "text": t, "pred": p,
+                         **({"output_token_ids": recs[j]["output_ids"]} if args.gens_token_ids else {}),
                          "completion_tokens": m.get("completion_tokens"),
                          "prompt_tokens": m.get("prompt_tokens"),
                          "finish_reason": m.get("finish_reason")}

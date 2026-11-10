@@ -31,6 +31,11 @@ except Exception: print('0 0 0 0')")"
       echo "OK jobid=$AJ sneak-preview PASS: acc=${acc} >= floor=${FLOOR}, invalid rate low (scored=${q}) — let it ride."
     fi
   fi
-  if [ -z "$states" ]; then echo "SNEAK_DONE jobid=$AJ final: scored=${q} correct=${c} invalid=${inv} acc=${acc} at=$(date -Is)"; break; fi
+  # With sbatch --wait, its completion file is authoritative even when squeue briefly returns empty.
+  if { [ -n "${COMPLETION_FILE:-}" ] && [ -f "$COMPLETION_FILE" ]; } ||
+     { [ -z "${COMPLETION_FILE:-}" ] && [ -z "$states" ]; }; then
+    echo "SNEAK_DONE jobid=$AJ final: scored=${q} correct=${c} invalid=${inv} acc=${acc} at=$(date -Is)"
+    break
+  fi
   sleep "$IV"
 done

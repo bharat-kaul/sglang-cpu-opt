@@ -719,9 +719,41 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
 
 ## 5. Correctness-bug localization & serving-completeness (model-agnostic)
 
+### Residual-gap decision checkpoint
+
+For an already-running model, distinguish **a proven local implementation
+defect** from **a small difference between recorded task scores**. Before another
+expensive diagnostic series, set a run budget, original-batch reproduction
+requirement, recovery/regression controls and an answer-level stop condition.
+Improved layer cosine or selected-case recovery does not establish a net task gain.
+
+If the remaining gap is small, the reference protocol has changed, or repeated
+local interventions fail to produce broad answer improvement, return to a fresh
+matched full-task evaluation. Do not block this measurement on recovering one
+historical reference answer. Reference stability and matched complete operands
+are necessary for causal attribution; they are not prerequisites for reporting
+a new, explicitly bounded task score.
+
+Use identical question coverage, prompts, batch grouping/order, prefill,
+cache/engine lifecycle, decoding and scoring. Save actual outputs and resolved
+settings. Run independent CPU/reference jobs concurrently and CPU shards as a
+checkpointed wave with a measured loading-concurrency limit. Report partial
+comparisons on identical completed IDs; close with full coverage and paired
+recoveries/regressions. A near-zero aggregate gap closes this campaign, not
+per-token equivalence or every enablement gate.
+
+Operational rules live in [high-information-runs](../.agents/skills/shared/high-information-runs/SKILL.md);
+attribution and scoring rules in [accuracy-oracle](../.agents/skills/throughput-enablement/accuracy-oracle/SKILL.md).
+[DSv4 worked closure](dev/DSv4-accuracy-closure.md) shows why this checkpoint
+prevents a low-ROI single-example loop.
+
 The Phase-3 companion to §4's perf ledger: how to **localize a correctness gap to one line** and how to know a
 ported serving op is actually *done*. Distilled from the DeepSeek-V4-Flash compressed-attention bring-up, where
-a ~15-pt CPU-vs-GPU gsm8k gap was driven to ~1 pt (0.796 → 0.865 → **0.9437** vs GPU **0.9535**).
+early CPU GSM8K scores improved from 0.796 to 0.865 to 0.9437 on a 320-question
+subset. That subset did not establish a one-point gap against a full-set GPU run.
+The final matched 1311-question evaluation is **CPU1246 versus GPU1245**;
+[configuration, provenance and limits](dev/DSv4-accuracy-closure.md). Aggregate
+task accuracy does not establish per-token or per-operator equivalence.
 
 **1. The two-reference correctness anchor (authors' reference FIRST, GPU oracle SECOND).** Before porting, read
 the **authors' reference implementation** (`inference/model.py`+`kernel.py`) and extract each op's **numerical

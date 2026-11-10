@@ -5,6 +5,51 @@ description: "Use after cpu-model-wiring to prove the CPU-enabled model is numer
 
 # Accuracy Oracle
 
+## Residual task-gap rules (runnable real-weight models)
+
+Use this section when debugging a small CPU/reference task-accuracy gap; it does
+not replace the cheap bring-up gates below.
+
+1. **Bind the reference to execution, not just checkpoint and temperature.**
+   Match dataset IDs/shot exclusions, prompts, batch membership/order, prefill
+   chunking, cache policy, engine lifetime, stops, token limit and scorer. Record
+   source/image digest, actual token IDs and resolved settings; label unavoidable
+   TP/backend differences. Greedy generation is not a determinism guarantee.
+2. **Reproduce the original failing batch before attributing a rescue.** Check
+   complete baseline texts and token IDs, not merely the target answer. A
+   singleton or differently grouped diagnostic is a different experiment.
+   Carry prior recoveries and collateral regressions as controls.
+3. **Tensor agreement is not task improvement.** Lower relative error, higher
+   cosine or a rescued selected case cannot establish a full-set gain. Separate
+   formula conformance, matched-operand operator results, selected-case answer
+   results and full-task results. Net-neutral or negative changes are valid
+   dispositions; leave experimental precision changes default OFF.
+4. **Compare only identical consumed prefixes.** Bind captures to actual request
+   histories and positions, preserving every MHC/residual stream and distinguishing
+   flattened-token rows from next-logit rows. Recompute the first divergence
+   after every intervention. Forced-prefix traces are conditional numerical
+   probes, never natural accuracy results. Explicitly exclude synthetic warm-up.
+5. **Validate the reference too.** A repeat discrepancy before intervention
+   blocks causal attribution. Equal target-row inputs do not establish equal KV
+   history or complete operator operands. Do not label a cache bug, harmless
+   rounding or a specific kernel defect without isolating those operands.
+6. **Bound the residual-debug loop.** Set an explicit run budget/stop condition
+   before a diagnostic series. When local improvements do not yield a broad
+   answer gain, or the reference protocol differs from the historical score,
+   run a fresh matched full evaluation instead of adding another precision sweep
+   or validation framework. A reference's failure on one old case does not block
+   measuring its current full-set accuracy.
+7. **Close on paired evidence.** Require full unique-ID coverage, independently
+   rescore saved generations, and report both directions of answer flips.
+   Compare partial trends only on the intersection of completed question IDs.
+   Full-task closure is not numerical equivalence, significance, or automatic
+   default promotion. Publish the exact flags needed for the evaluated result.
+
+Worked example: [DSv4 closure](../../../../docs/dev/DSv4-accuracy-closure.md).
+The CPU full result reproduced while the fresh GPU score shifted with execution
+protocol; continuing to chase a historical single answer would not have answered
+the end-to-end question.
+
 Correctness is the non-negotiable gate. A plausible-but-wrong model is worse than
 an unenabled one, so prove parity numerically AND on task, and make failures
 localizable.

@@ -40,6 +40,22 @@ try:
 except Exception as _e:  # never block loading other models on this guard
     logger.warning("intel_cpu_models: CPU resolution guard not installed: %s", _e)
 
+# CONTAINMENT (reviewer-recommended): the CPU DeepseekV4 DSA/MLA compressed-state path does not
+# support prefix-cache HITS (compressor/overlap/indexer state is replaced, not restored, on resume),
+# which corrupts a reused prefix and flips confident tokens (net gsm8k 0.9329 radix-on -> 0.9397
+# radix-off). Force disable_radix_cache for DeepseekV4 on CPU, BEFORE arg resolution builds the radix
+# cache. Override (unsafe) with INTEL_CPU_DSV4_ALLOW_PREFIX_CACHE=1.
+try:
+    from intel_cpu_models._dsv4_cpu_infra import (
+        install_dsv4_prefix_cache_guard,
+        register_dsv4_cpu_radix_override,
+    )
+
+    register_dsv4_cpu_radix_override()  # layer 1: config-consistent disable at resolution
+    install_dsv4_prefix_cache_guard()  # layer 2: fail-closed backstop at build time
+except Exception as _e:  # never block loading other models on this guard
+    logger.warning("intel_cpu_models: DSV4 prefix-cache guard not installed: %s", _e)
+
 # Deterministic dummy weights (gated DETERMINISTIC_DUMMY=1) so a CPU dummy run is
 # bit-identical to the GPU dummy reference -> the per-layer parity diff is valid.
 try:
