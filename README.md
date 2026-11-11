@@ -168,6 +168,11 @@ on both backends: **CPU 1246 (95.04%), GPU 1245 (94.97%)**. CPU-only successes:
 This closes the aggregate accuracy-gap campaign, not every per-question numerical
 difference. It is not a published-score reproduction or a repeatability certificate.
 
+**Accuracy evidence for comparison across sessions:** [per-question CPU/GPU results (1311-row CSV)](plugin/validate/results/dsv4_latest_fullacc_20261109_questions.csv)
+· [combined summary](plugin/validate/results/dsv4_latest_fullacc_20261109.json)
+· [evidence index: full generations, shard scores, job logs and comparison instructions](docs/dev/DSv4-accuracy-closure.md#per-question-results-and-session-handoff).
+The CSV and summary are in git; full generations and raw logs require shared-cluster access.
+
 The historical GPU1250 run used batch64 and a different engine/cache lifecycle;
 the fresh comparison uses identical shard boundaries, batch32, prefill512,
 radix cache OFF, prompts, stops and scoring. CPU is TP1, GPU TP4. The earlier

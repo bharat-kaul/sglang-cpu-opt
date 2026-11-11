@@ -70,6 +70,61 @@ comparison, not an identical-build determinism test.
 
 ## Provenance and reproduction
 
+### Per-question results and session handoff
+
+**Start here to compare another run's accuracy progress.**
+
+| Collateral | Location / access |
+|---|---|
+| All 1311 paired question results | [CSV in git](../../plugin/validate/results/dsv4_latest_fullacc_20261109_questions.csv), viewable/downloadable from GitHub |
+| Final counts, paired difference IDs and shard-to-job mapping | [Summary JSON in git](../../plugin/validate/results/dsv4_latest_fullacc_20261109.json) |
+| Investigation and intermediate accuracy comparisons | [Chronological report](DSv4-shared-clamp-disposition-REVIEW.md) |
+| Scoring/coverage/source recheck | [Campaign audit](../../plugin/validate/close_latest_accuracy.py); command below |
+| Full CPU generations, token IDs and shard scores | Shared-cluster path: `/scratch/bkaul/dsv4_latest_fullacc_20261107/cpu/shard_{0..15}/` |
+| Full GPU generations, token IDs and shard scores | Shared-cluster path: `/scratch/bkaul/dsv4_latest_fullacc_20261107/gpu/shard_{0..15}/` |
+| CPU stdout/stderr logs | Shared-cluster paths: `/scratch/bkaul/dsv4_latest_acc_401042_<shard>.log` or `/scratch/bkaul/dsv4_latest_acc_401068_<shard>.log`; select the final job using the summary's `cpu_jobs` mapping |
+| GPU stdout/stderr log | Shared-cluster path: `/scratch/bkaul/dsv4_matched_gpu_acc_401058.log` |
+| Original protocol, source manifest and GPU image identity | Evidence root below: `plan.json`, `source_hashes.json`, `gpu/image_id.txt` |
+
+The CSV is a compact export of the retained CPU/GPU `gens.json` files, ordered
+by `q`. It includes gold and extracted answers, per-backend correctness (0/1),
+completion-token counts, finish types, shard and job IDs. Export validation
+rescored every text using the repository scorer, checked unique full coverage,
+and reconciled totals, paired successes and answer agreement to the summary.
+Question text, generated reasoning and token-ID arrays are **not in the CSV**;
+they remain in the external evidence. GitHub does not serve the shared-cluster
+paths: a session without that filesystem can compare answers using the CSV but
+cannot inspect raw generations or job logs.
+
+Each shard directory contains:
+
+- `gens.json`: a `gens` list with `q`, `gold`, `pred`, `text`,
+  `output_token_ids`, token counts and `finish_reason`.
+- `score.json`: cumulative shard counts and completion status.
+- `runtime.json` and `stamp.txt`: resolved settings and run provenance.
+- `complete`: the launcher's completion marker.
+
+**Comparison contract for the receiving session:**
+
+1. Baseline is CPU **1246/1311**, fresh matched GPU **1245/1311**.
+   `q=0..1310`; `dataset_row_0based=q+8` because the first eight dataset rows are
+   demonstrations. The original shard is `q // 82`; the last shard has 81 rows.
+2. Join by `q` only after confirming the dataset hash and shot exclusion match.
+   Check for duplicate IDs and gold mismatches; do not align by arrival order
+   or assume another run's shard numbering is the same.
+3. For a partial run, restrict BOTH scores to exactly its completed question IDs.
+   Report numerator/denominator, recoveries and regressions on that shared subset.
+   Do not compare a partial percentage with the full-set baseline percentage.
+4. Compare prompt, batch/order, prefill, cache/engine lifecycle, stops, token
+   budget and scorer before attributing a score change to a code fix. Use the
+   configuration above, not the historical GPU1250 protocol.
+5. To diagnose a changed answer, load the corresponding `gens.json` and inspect
+   `text`, actual output IDs and finish reason. The CSV alone cannot explain
+   a numerical divergence.
+
+Copy this page's GitHub URL into the receiving session: it links to the git
+results and records the external evidence paths without depending on chat history.
+
 Retained external evidence: `/scratch/bkaul/dsv4_latest_fullacc_20261107`.
 It contains frozen `source/`, `source_hashes.json`, `plan.json`, per-shard
 `gens.json` (texts and token IDs), `score.json`, `runtime.json`, `stamp.txt`,
