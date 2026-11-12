@@ -2,6 +2,8 @@
 """Matched real-weight EMR/GNR domain and concurrent-socket wall-time probes."""
 
 import argparse
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -9,14 +11,17 @@ import re
 import signal
 import subprocess
 import sys
+import tarfile
 import time
 
 from c4_accuracy_wave import (
     ENV, MODEL, PERF_POINTS, PERF_SAMPLING, case_events, performance_sample,
 )
-from screen_serving_opportunities import BASE_COMMIT, digest, write_json
+from screen_serving_opportunities import digest, write_json
 
 
+BASE_COMMIT = "1ac61ecacdc46ae4118bb2faa1109348961d8c86"
+ENV = {**ENV, "SGLANG_EXTERNAL_MODEL_PACKAGE": "dsv4_socket_models"}
 LAYOUTS = {
     "emr": ((0, 0), (0, 32)),
     "gnr": ((0, 0), (1, 42), (2, 85)),
@@ -25,7 +30,7 @@ ACCURACY_ROOT = Path("/scratch/bkaul/dsv4-c4-accuracy/wave-20261110-wJzAC6")
 ROUNDS = 3
 
 
-def cases(platform):
+def cases(platform, baseline_only=False):
     count = len(LAYOUTS[platform])
     groups = [(i,) for i in range(count)] + [tuple(range(count))]
     for ranks in groups:
@@ -34,6 +39,8 @@ def cases(platform):
             for repeat in range(-1, ROUNDS if group == "socket" else 1):
                 stage = "warm" if repeat == -1 else "measured"
                 arms = ("baseline", "candidate") if (ranks[0] + repeat) % 2 == 0 else ("candidate", "baseline")
+                if baseline_only:
+                    arms = ("baseline",)
                 for arm in arms:
                     name = f"{group}-b{batch}-s{length}-r{repeat}-{arm}"
                     yield {
@@ -44,25 +51,66 @@ def cases(platform):
 
 def plan(root):
     p = json.loads((root / "plan.json").read_text())
+    if type(p["baseline_only"]) is not bool or type(p["remote_cache"]) is not bool:
+        raise RuntimeError("Invalid socket probe mode")
     if (p["base_commit"] != BASE_COMMIT or p["rounds"] != ROUNDS
             or p["layouts"] != {k: [list(v) for v in rows] for k, rows in LAYOUTS.items()}
-            or p["cases"] != {k: list(cases(k)) for k in LAYOUTS}
+            or p["cases"] != {k: list(cases(k, p["baseline_only"])) for k in LAYOUTS}
             or p["sampling"] != PERF_SAMPLING or p["environment"] != ENV
             or p["driver_sha256"] != digest(__file__)
             or p["source_manifest_sha256"] != digest(root / "source-sha256.txt")
             or p["inputs_sha256"] != digest(root / "inputs.json")
             or p["model_config_sha256"] != digest(MODEL / "config.json")):
         raise RuntimeError("Socket comparison plan mismatch")
+    if (p["checkpoint_index_sha256"] != digest(MODEL / "model.safetensors.index.json")
+            or p["checkpoint_files"] != checkpoint_files()):
+        raise RuntimeError("Checkpoint files changed")
     for name, value in p["installed_sources"].items():
         if digest(name) != value:
             raise RuntimeError("Installed runtime changed")
     for name, value in p["compute_sources"].items():
         if digest(root / "source" / name) != value:
-            raise RuntimeError("Compute source differs from EMR accuracy wave")
+            raise RuntimeError("Compute source differs from pinned main")
     return p
 
 
-def prepare(root):
+def checkpoint_files():
+    index = json.loads((MODEL / "model.safetensors.index.json").read_text())
+    names = sorted(set(index["weight_map"].values()))
+    if not names or any(Path(n).name != n or not n.endswith(".safetensors") for n in names):
+        raise RuntimeError("Invalid checkpoint shard inventory")
+    records = {}
+    for name in names:
+        stat = (MODEL / name).stat()
+        records[name] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    return records
+
+
+def main_compute_sources(root):
+    repository = Path(__file__).resolve().parents[2]
+    archive = subprocess.check_output([
+        "git", "-C", str(repository), "archive", BASE_COMMIT,
+        "plugin/intel_cpu_models", "plugin/kernels",
+    ])
+    compute = {}
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        for member in source:
+            if not member.isfile():
+                continue
+            stream = source.extractfile(member)
+            if stream is None:
+                raise RuntimeError(f"Missing main source: {member.name}")
+            with stream:
+                value = hashlib.sha256(stream.read()).hexdigest()
+            if digest(root / "source" / member.name) != value:
+                raise RuntimeError(f"Compute source differs from main: {member.name}")
+            compute[member.name] = value
+    if not compute:
+        raise RuntimeError("Missing main compute-source identity")
+    return compute
+
+
+def prepare(root, baseline_only=False, remote_cache=False):
     if (root / "plan.json").exists():
         raise RuntimeError("Refusing to overwrite plan")
     if (root / "source-base.txt").read_text().strip() != BASE_COMMIT:
@@ -71,33 +119,69 @@ def prepare(root):
     inputs = ACCURACY_ROOT / "performance-inputs.json"
     if digest(inputs) != previous["performance_inputs_sha256"]:
         raise RuntimeError("Accuracy-wave performance inputs changed")
-    compute = {}
-    for line in (ACCURACY_ROOT / "source-sha256.txt").read_text().splitlines():
-        value, name = line.split("  ", 1)
-        name = name.removeprefix("./")
-        if name.startswith("plugin/intel_cpu_models/") or name == "plugin/dsv4_sparse_trial.py":
-            if digest(root / "source" / name) != value:
-                raise RuntimeError(f"Compute source differs from EMR: {name}")
-            compute[name] = value
-    if not compute:
-        raise RuntimeError("Missing EMR compute-source identity")
+    compute = main_compute_sources(root)
     write_json(root / "inputs.json", json.loads(inputs.read_text()))
     write_json(root / "plan.json", {
         "base_commit": BASE_COMMIT, "rounds": ROUNDS,
-        "layouts": LAYOUTS, "cases": {k: list(cases(k)) for k in LAYOUTS},
+        "baseline_only": baseline_only, "remote_cache": remote_cache,
+        "layouts": LAYOUTS, "cases": {k: list(cases(k, baseline_only)) for k in LAYOUTS},
         "sampling": PERF_SAMPLING, "environment": ENV,
         "driver_sha256": digest(__file__),
         "source_manifest_sha256": digest(root / "source-sha256.txt"),
         "inputs_sha256": digest(root / "inputs.json"),
         "model_config_sha256": digest(MODEL / "config.json"),
+        "checkpoint_index_sha256": digest(MODEL / "model.safetensors.index.json"),
+        "checkpoint_files": checkpoint_files(),
         "installed_sources": previous["installed_sources"],
         "compute_sources": compute,
         "emr_wave_root": str(ACCURACY_ROOT), "emr_plan_sha256": digest(ACCURACY_ROOT / "plan.json"),
-        "scope": "Native baseline and unpromoted C4 candidate separately. Fixed32 per replica. "
+        "scope": ("Native baseline only. " if baseline_only else
+                  "Native baseline and unpromoted C4 candidate separately. ") +
+                 "Fixed32 per replica. "
                  "One warm and one measured pair per point per isolated process; three measured "
                  "socket pairs after warmup, not independent reloads. Full43 real weights. Four decode steps: "
                  "not long steady-state decode. One socket per host, one host per platform.",
     })
+
+
+def prewarm(root):
+    p = plan(root)
+    target = root / "remote-cache.json"
+    if not p["remote_cache"] or target.exists():
+        raise RuntimeError("Remote-cache prewarm not authorized or already completed")
+    policy = subprocess.check_output(["numactl", "--show"], text=True)
+    if not (re.search(r"^policy: interleave$", policy, re.M)
+            and re.search(r"^membind: 3 4 5\s*$", policy, re.M)):
+        raise RuntimeError("Prewarm must interleave on socket1 NUMA domains3/4/5")
+
+    def domains():
+        return {str(n): Path(f"/sys/devices/system/node/node{n}/meminfo").read_text()
+                for n in range(6)}
+
+    record = {
+        "job": os.environ["SLURM_JOB_ID"], "node": os.uname().nodename,
+        "pid": os.getpid(), "plan_sha256": digest(root / "plan.json"),
+        "policy": policy, "before": domains(), "files": {},
+    }
+    started = time.monotonic()
+    try:
+        for name, expected in p["checkpoint_files"].items():
+            sha, size = hashlib.sha256(), 0
+            with (MODEL / name).open("rb") as stream:
+                while block := stream.read(16 * 1024 * 1024):
+                    sha.update(block)
+                    size += len(block)
+            if size != expected["size"]:
+                raise RuntimeError(f"Checkpoint size changed during prewarm: {name}")
+            record["files"][name] = {"bytes": size, "sha256": sha.hexdigest()}
+            write_json(root / "remote-cache-progress.json", record)
+            print(f"REMOTE_CACHE_PREFETCH {len(record['files'])}/{len(p['checkpoint_files'])} "
+                  f"elapsed_s={time.monotonic() - started:.1f}", flush=True)
+        plan(root)
+    finally:
+        record.update(after=domains(), elapsed_s=time.monotonic() - started)
+        write_json(root / "remote-cache-progress.json", record)
+    write_json(target, record)
 
 
 def memory(pid):
@@ -165,7 +249,7 @@ def worker(root, platform, rank):
     expected_env = {**ENV, "SGLANG_CPU_OMP_THREADS_BIND": f"{first}-{first + 31}"}
     if any(os.environ.get(k) != v for k, v in expected_env.items()):
         raise RuntimeError("Replica environment mismatch")
-    assigned = [s for s in cases(platform) if rank in s["ranks"]]
+    assigned = [s for s in cases(platform, p["baseline_only"]) if rank in s["ranks"]]
     write_json(out / "control-plan.json", {s["case"]: s["arm"] for s in assigned})
     write_json(out / "control.json", {"case": "initializing", "arm": "baseline"})
     (out / "events").mkdir()
@@ -314,7 +398,7 @@ def aggregate(packets, events, spec):
     }
 
 
-def run_case(root, platform, spec, children, identities, paired):
+def run_case(root, platform, spec, children, identities, paired, baseline_only=False):
     out = root / platform
     case = spec["case"]
     command = out / "commands" / case
@@ -335,25 +419,50 @@ def run_case(root, platform, spec, children, identities, paired):
         packets.append(packet)
         events.append(json.loads(ep.read_text()))
     result = aggregate(packets, events, spec)
-    coordinate = spec["group"], spec["batch"], spec["length"], spec["repeat"]
-    if coordinate in paired:
+    coordinate = (spec["group"], spec["batch"], spec["length"])
+    if baseline_only:
+        if spec["arm"] != "baseline":
+            raise RuntimeError("Candidate arm in native-only run")
+        # Hold the warmup's anchors and exact generated work across repetitions.
+        signature = [
+            (s["anchors"], s["schedule"], s["inference_pid"],
+             [r["output_ids"] for r in packet["responses"]])
+            for s, packet in zip(result["samples"], packets)
+        ]
+        if coordinate in paired and paired[coordinate] != signature:
+            raise RuntimeError("Native-only inputs, schedules or generated tokens changed")
+        paired[coordinate] = signature
+    elif (*coordinate, spec["repeat"]) in paired:
+        coordinate = (*coordinate, spec["repeat"])
         other = paired.pop(coordinate)
         for a, b in zip(result["samples"], other["samples"]):
             if any(a[k] != b[k] for k in ("anchors", "schedule", "inference_pid")):
                 raise RuntimeError("Baseline/candidate inputs, schedules or processes differ")
     else:
-        paired[coordinate] = result
+        paired[(*coordinate, spec["repeat"])] = result
     write_json(out / f"{case}.aggregate.json", result)
     print(f"SOCKET_GROUP_DONE platform={platform} case={case} wall_s={result['request_wall_s']:.3f}",
           flush=True)
 
 
 def coordinate(root, platform):
-    plan(root)
+    p = plan(root)
+    baseline_only = p["baseline_only"]
     out = root / platform
     out.mkdir()
     (out / "commands").mkdir()
     topology(platform, out)
+    if platform == "gnr" and p["remote_cache"]:
+        subprocess.run([
+            "numactl", "--cpunodebind=3,4,5", "--interleave=3,4,5",
+            sys.executable, "-u", __file__, "prewarm", "--root", str(root),
+        ], check=True)
+        cache = json.loads((root / "remote-cache.json").read_text())
+        if (cache["job"] != os.environ["SLURM_JOB_ID"]
+                or cache["node"] != os.uname().nodename
+                or cache["plan_sha256"] != digest(root / "plan.json")
+                or set(cache["files"]) != set(p["checkpoint_files"])):
+            raise RuntimeError("Remote-cache evidence identity or coverage mismatch")
     children, streams = [], []
     paired, identities = {}, []
     try:
@@ -376,13 +485,13 @@ def coordinate(root, platform):
             wait_file(out / f"rank{rank}" / "ready.json", children)
             identities.append(json.loads((out / f"rank{rank}" / "identity.json").read_text()))
             print(f"SOCKET_REPLICA_READY platform={platform} rank={rank}", flush=True)
-            for spec in cases(platform):
+            for spec in cases(platform, baseline_only):
                 if spec["group"] == f"single{rank}":
-                    run_case(root, platform, spec, children, identities, paired)
-        for spec in cases(platform):
+                    run_case(root, platform, spec, children, identities, paired, baseline_only)
+        for spec in cases(platform, baseline_only):
             if spec["group"] == "socket":
-                run_case(root, platform, spec, children, identities, paired)
-        if paired:
+                run_case(root, platform, spec, children, identities, paired, baseline_only)
+        if paired and not baseline_only:
             raise RuntimeError("Incomplete baseline/candidate pairs")
         write_json(out / "shutdown.json", {"shutdown": True})
         for child in children:
@@ -410,13 +519,17 @@ def coordinate(root, platform):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "worker", "coordinate"))
+    parser.add_argument("action", choices=("prepare", "prewarm", "worker", "coordinate"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--platform", choices=tuple(LAYOUTS))
     parser.add_argument("--rank", type=int)
+    parser.add_argument("--baseline-only", action="store_true")
+    parser.add_argument("--remote-cache", action="store_true")
     args = parser.parse_args()
     if args.action == "prepare":
-        prepare(args.root)
+        prepare(args.root, args.baseline_only, args.remote_cache)
+    elif args.action == "prewarm":
+        prewarm(args.root)
     elif args.action == "worker":
         worker(args.root, args.platform, args.rank)
     else:

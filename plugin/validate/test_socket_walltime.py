@@ -1,8 +1,10 @@
 import copy
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -43,6 +45,65 @@ def fixture(spec, platform="gnr"):
 
 
 class SocketTests(unittest.TestCase):
+    def test_main_source_binding_rejects_changed_compute(self):
+        name = "plugin/intel_cpu_models/model.py"
+        content = b"main implementation"
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as source:
+            member = tarfile.TarInfo(name)
+            member.size = len(content)
+            source.addfile(member, io.BytesIO(content))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "source" / name
+            path.parent.mkdir(parents=True)
+            path.write_bytes(content)
+            with patch.object(bench.subprocess, "check_output", return_value=archive.getvalue()) as git:
+                result = bench.main_compute_sources(root)
+                self.assertEqual(result, {name: bench.digest(path)})
+                self.assertIn(bench.BASE_COMMIT, git.call_args.args[0])
+                path.write_bytes(b"experimental implementation")
+                with self.assertRaisesRegex(RuntimeError, "differs from main"):
+                    bench.main_compute_sources(root)
+
+    def test_remote_cache_complete_and_failed_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model = root / "model"
+            model.mkdir()
+            (model / "a.safetensors").write_bytes(b"checkpoint")
+            bench.write_json(root / "plan.json", {"test": True})
+            config = {"remote_cache": True, "checkpoint_files": {"a.safetensors": {"size": 10}}}
+            original_read = Path.read_text
+
+            def read(path, *args, **kwargs):
+                if path.name == "meminfo":
+                    return "Node memory evidence"
+                return original_read(path, *args, **kwargs)
+
+            with patch.object(bench, "MODEL", model), patch.object(bench, "plan", return_value=config), \
+                    patch.object(Path, "read_text", read), \
+                    patch.dict(os.environ, SLURM_JOB_ID="123"), \
+                    patch.object(bench.subprocess, "check_output") as show:
+                show.return_value = "policy: bind\nmembind: 0\n"
+                with self.assertRaisesRegex(RuntimeError, "must interleave"):
+                    bench.prewarm(root)
+                self.assertFalse((root / "remote-cache.json").exists())
+                show.return_value = "policy: interleave\nmembind: 3 4 5 \n"
+                config["checkpoint_files"]["a.safetensors"]["size"] = 11
+                with self.assertRaisesRegex(RuntimeError, "size changed"):
+                    bench.prewarm(root)
+                self.assertFalse((root / "remote-cache.json").exists())
+                self.assertIn("after", json.loads((root / "remote-cache-progress.json").read_text()))
+                config["checkpoint_files"]["a.safetensors"]["size"] = 10
+                bench.prewarm(root)
+                record = json.loads((root / "remote-cache.json").read_text())
+                self.assertEqual(record["files"]["a.safetensors"]["sha256"],
+                                 bench.digest(model / "a.safetensors"))
+                self.assertEqual(record["job"], "123")
+                with self.assertRaisesRegex(RuntimeError, "already completed"):
+                    bench.prewarm(root)
+
     def test_memory_retains_rejected_values(self):
         for swap in (0, 2048):
             def read(path):
@@ -91,7 +152,7 @@ class SocketTests(unittest.TestCase):
                     packets[0]["events_sha256"] = bench.digest(ep)
                     bench.write_json(path, packets[0])
 
-            with patch.object(bench, "plan", return_value={}), \
+            with patch.object(bench, "plan", return_value={"baseline_only": False, "remote_cache": False}), \
                     patch.object(bench, "topology"), patch.object(bench, "cases", return_value=specs), \
                     patch.object(bench.subprocess, "Popen", return_value=Child()), \
                     patch.object(bench, "wait_file", side_effect=wait), patch.object(bench.os, "killpg"), \
@@ -99,6 +160,56 @@ class SocketTests(unittest.TestCase):
                 bench.coordinate(root, "gnr")
             self.assertTrue((root / "gnr" / "complete.json").exists())
             self.assertEqual(len(list((root / "gnr").glob("*.aggregate.json"))), 2)
+
+    def test_native_only_full_coordinate_and_repeat_guard(self):
+        specs = list(bench.cases("gnr", baseline_only=True))
+        self.assertEqual(len(specs), 30)
+        self.assertEqual({s["arm"] for s in specs}, {"baseline"})
+        for mutate in (False, True):
+            with self.subTest(mutate=mutate), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                bench.write_json(root / "plan.json", {"test": True})
+                fixtures = {s["case"]: fixture(s) for s in specs}
+
+                class Child:
+                    pid = 123456789
+
+                    def poll(self):
+                        return None
+
+                    def wait(self, timeout):
+                        return 0
+
+                def wait(path, children=(), timeout=3600):
+                    rank = int(path.parent.name.removeprefix("rank"))
+                    if path.name == "ready.json":
+                        path.parent.mkdir()
+                        identity = {"rank": rank, "platform": "gnr", "node": "host", "job": "123"}
+                        bench.write_json(path.parent / "identity.json", identity)
+                    elif path.suffix == ".json":
+                        packets, events = copy.deepcopy(fixtures[path.stem])
+                        index = packets[0]["ranks"].index(rank)
+                        packet, ev = packets[index], events[index]
+                        if mutate and packet["stage"] == "measured":
+                            packet["responses"][0]["output_ids"][0] = 2
+                        ep = path.with_name(path.stem + ".events.json")
+                        bench.write_json(ep, ev)
+                        packet["events_sha256"] = bench.digest(ep)
+                        bench.write_json(path, packet)
+
+                with patch.object(bench, "plan", return_value={"baseline_only": True, "remote_cache": False}), \
+                        patch.object(bench, "topology"), \
+                        patch.object(bench.subprocess, "Popen", return_value=Child()), \
+                        patch.object(bench, "wait_file", side_effect=wait), patch.object(bench.os, "killpg"), \
+                        patch.dict(os.environ, SLURM_JOB_ID="123"):
+                    if mutate:
+                        with self.assertRaisesRegex(RuntimeError, "generated tokens changed"):
+                            bench.coordinate(root, "gnr")
+                        self.assertFalse((root / "gnr" / "complete.json").exists())
+                    else:
+                        bench.coordinate(root, "gnr")
+                        self.assertTrue((root / "gnr" / "complete.json").exists())
+                        self.assertEqual(len(list((root / "gnr").glob("*.aggregate.json"))), 30)
 
     def test_schedule_and_aggregate(self):
         specs = list(bench.cases("gnr"))
@@ -169,7 +280,7 @@ class SocketTests(unittest.TestCase):
                     bad["identity"]["job"] = "wrong"
                     bench.write_json(path, bad)
 
-            with patch.object(bench, "plan", return_value={}), \
+            with patch.object(bench, "plan", return_value={"baseline_only": False, "remote_cache": False}), \
                     patch.object(bench, "topology"), patch.object(bench, "cases", return_value=[spec]), \
                     patch.object(bench.subprocess, "Popen", return_value=Child()) as popen, \
                     patch.object(bench, "wait_file", side_effect=wait), patch.object(bench.os, "killpg"):

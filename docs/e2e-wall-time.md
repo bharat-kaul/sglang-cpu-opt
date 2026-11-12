@@ -89,8 +89,37 @@ replicate samples and spread before adding measured speedup labels.
 
 ### Bounded measurement protocol
 
-This records the attempted protocol, not an active run plan. GNR investigation
-remains paused; the C4 integration decision above does not restart it.
+The original paired protocol below records the failed attempts. On 2026-11-11
+the user resumed GNR measurement as a **short native-only calibrated probe**,
+not a full benchmark or another accuracy evaluation:
+
+- Same real checkpoint, fixed32 threads and three existing workload points;
+  five output tokens, explicit warmup, no thread sweep or C4 candidate.
+- Pin main `1ac61ecacdc46ae4118bb2faa1109348961d8c86`, not the older
+  `dsv4-tree-pilot` branch. Its model code is unchanged from the `34fe50f`
+  accuracy-qualified baseline. Snapshot the main model and native-kernel trees
+  byte-for-byte; the separate `dsv4_socket_models` measurement registry installs
+  timing/state-reset observations without editing either tree. Run the same
+  short native-only panel on EMR and GNR; the old dummy-depth chart is not the
+  speedup denominator.
+- Three isolated domain processes supply three samples per point; then three
+  measured concurrent socket rounds after a socket warmup. Thirty request
+  groups total, with several requests per group where batch/replicas require it.
+- Prewarm checkpoint files under `numactl --cpunodebind=3,4,5 --interleave=3,4,5`
+  before loading socket0 replicas. Record shard bytes/hashes, effective policy,
+  domain memory before/after and job/plan identity. This uses the other socket
+  for **load-time page cache**, not inference compute; no eviction, swapoff,
+  checkpoint conversion, local copy or host-wide setting change.
+- Keep the no-swap/99%-local scheduler gates at load and after requests. Compare
+  repeated native inputs, schedules and output token IDs. If these fail, retain
+  the raw evidence and stop before loading more replicas.
+
+The cache-placement intervention is a hypothesis, not a demonstrated fit fix.
+The target remains matched GNR/EMR latency and bounded aggregate throughput;
+no speedup is accepted until these gates and measurements complete. Prepare
+the driver from the Git worktree with `prepare --baseline-only --remote-cache`
+(preparation checks the frozen compute files against the pinned Git archive); its original
+baseline/C4 mode remains available only for historical reproduction.
 
 The [socket driver](../plugin/validate/compare_socket_walltime.py) reuses the
 [accuracy wave's performance validator](../plugin/validate/c4_accuracy_wave.py),
