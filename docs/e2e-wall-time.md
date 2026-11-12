@@ -115,6 +115,12 @@ not a full benchmark or another accuracy evaluation:
   the raw evidence and stop before loading more replicas.
 
 The cache-placement intervention is a hypothesis, not a demonstrated fit fix.
+The first native-only GNR submission, job402061, stopped before any checkpoint
+read because the prewarm validator incorrectly checked `membind` rather than
+`interleavemask`. An on-node `numactl --show` check confirmed the requested
+interleave mask3/4/5 alongside an allowed `membind` set0-5. The validator now
+checks the effective policy, interleave mask and CPU-node binding and preserves
+raw policy output; no memory criterion is relaxed. EMR job402060 is unaffected.
 The target remains matched GNR/EMR latency and bounded aggregate throughput;
 no speedup is accepted until these gates and measurements complete. Prepare
 the driver from the Git worktree with `prepare --baseline-only --remote-cache`

@@ -144,15 +144,29 @@ def prepare(root, baseline_only=False, remote_cache=False):
     })
 
 
+def validate_cache_policy(policy):
+    expected = {
+        "policy": [["interleave"]],
+        "interleavemask": [["3", "4", "5"]],
+        "cpubind": [["3", "4", "5"]],
+    }
+    actual = {key: [] for key in expected}
+    for line in policy.splitlines():
+        key, separator, value = line.partition(":")
+        if separator and key in actual:
+            actual[key].append(value.split())
+    if actual != expected:
+        raise RuntimeError("Prewarm must interleave on socket1 NUMA domains3/4/5")
+
+
 def prewarm(root):
     p = plan(root)
     target = root / "remote-cache.json"
     if not p["remote_cache"] or target.exists():
         raise RuntimeError("Remote-cache prewarm not authorized or already completed")
     policy = subprocess.check_output(["numactl", "--show"], text=True)
-    if not (re.search(r"^policy: interleave$", policy, re.M)
-            and re.search(r"^membind: 3 4 5\s*$", policy, re.M)):
-        raise RuntimeError("Prewarm must interleave on socket1 NUMA domains3/4/5")
+    (root / "remote-cache-policy.txt").write_text(policy)
+    validate_cache_policy(policy)
 
     def domains():
         return {str(n): Path(f"/sys/devices/system/node/node{n}/meminfo").read_text()

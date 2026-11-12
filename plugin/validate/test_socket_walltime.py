@@ -89,7 +89,16 @@ class SocketTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "must interleave"):
                     bench.prewarm(root)
                 self.assertFalse((root / "remote-cache.json").exists())
-                show.return_value = "policy: interleave\nmembind: 3 4 5 \n"
+                show.return_value = ("policy: interleave\ninterleavemask: 3 4 5 \n"
+                                     "cpubind: 3 4 5 \nmembind: 0 1 2 3 4 5 \n")
+                for policy in (
+                    show.return_value.replace("interleavemask: 3 4 5", "interleavemask: 0 1 2"),
+                    show.return_value + "interleavemask: 3 4 5\n",
+                    show.return_value.replace("cpubind: 3 4 5", "cpubind: 0 1 2"),
+                    "policy: interleave\nmembind: 3 4 5\n",
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "must interleave"):
+                        bench.validate_cache_policy(policy)
                 config["checkpoint_files"]["a.safetensors"]["size"] = 11
                 with self.assertRaisesRegex(RuntimeError, "size changed"):
                     bench.prewarm(root)
