@@ -13,6 +13,17 @@ A reusable **spine-and-leaf playbook** (a phase-gated methodology **spine** + pe
 - **Thesis 2 — author new kernels:** **DeepSeek-V4-Flash** — novel DSA + MHC kernels authored & validated; **full matched GSM8K evaluation: CPU 1246/1311 (95.04%), GPU 1245/1311 (94.97%)**, with zero invalid answers. No aggregate CPU deficit in this run; not a claim of numerical equivalence or statistically significant superiority. **Baseline→optimized 2.19× prefill / 1.59× decode** remains a separate performance measurement. → [accuracy result and reproduction](docs/dev/DSv4-accuracy-closure.md)
 - **Dig deeper:** 📘 [methodology playbook](docs/methodology-playbook.md) · 📗 [kernel-optimization playbook](docs/standalone-kernel-optimization-playbook.md) · 🧩 [kernel performance journey](docs/kernel-pilot-performance.md) · ⏱️ [end-to-end wall time](docs/e2e-wall-time.md)
 
+**Follow-up campaign (2026-11-11):** the experimental C4 shared-GEMM path scored
+1252/1311 versus its matched native baseline's 1245/1311. Median paired request
+time fell 7.60% at B1/S3072, but rose 17.13% at B32/S128 and 48.66% at B64/S128
+(six process pairs per point, five generated tokens). **Recorded, not integrated:**
+the user declined further native-port/selector work; production defaults are
+unchanged. Batch and prompt length are confounded, so this is not a batch-only
+rule. [Findings and provenance](docs/dev/DSv4-serving-screen-401145-findings.md)
+include the crossover screen and earlier rejected leads. Matched real-weight
+GNR speedup is still unavailable: two attempts failed memory checks, not kernel
+correctness. See the [wall-time ledger](docs/e2e-wall-time.md).
+
 > **Start here:** [THESIS_SUMMARY.md](THESIS_SUMMARY.md) — the one-page summary.
 >
 > **Correctness & hygiene, up front:** every enablement clears a fixed gate set *before* any number is published — (1) **dtype hygiene** — each weight family's stored dtype is audited and mapped to a supported compute dtype (low-bit **moved**, bf16 **computed**), and every `stored ≠ compute` dequant bridge is **parity-checked, not assumed**; (2) **coverage-gate** — no novel op is silently dense-approximated; (3) **accuracy oracle** — per-op kernel parity → real-prompt coherence → per-layer parity → task accuracy; (4) **reference oracle (Thesis 2, wherever a GPU + the model are available)** — a GPU reference forward captures per-(layer,op) tensors/logits so CPU bring-up is diffed against ground truth; the first divergent layer localizes integration bugs that per-op checks can't; (5) **honest roofline** — target vs measured at one labeled machine config. Unproven numbers are labeled UNVALIDATED, never implied.

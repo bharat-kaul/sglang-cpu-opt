@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 
+import dsv4_serving_probe as _serving_probe
 import sglang.srt.mem_cache.kv_cache_configurator as kcc
 from sglang.srt.platforms import current_platform
 
@@ -802,6 +803,7 @@ def install() -> None:
     _install_wo_a_logical_unpack()
     _install_real_router_injection()
     _install_full_capture()
+    _serving_probe.install()
     _INSTALLED = True
     logger.info("intel_cpu_models: installed CPU DSV4 KV-pool configurator patch.")
 
@@ -2280,20 +2282,21 @@ def _batched_mla_attend(
                 _f.write(_msg + "\n")
         except Exception:  # noqa: BLE001
             pass
-    K_all = torch.cat(K_parts, 0) if len(K_parts) > 1 else K_parts[0]
-    mask = torch.cat(mask_parts, 1) if len(mask_parts) > 1 else mask_parts[0]
+    with _serving_probe.region("sparse.assemble"):
+        K_all = torch.cat(K_parts, 0) if len(K_parts) > 1 else K_parts[0]
+        mask = torch.cat(mask_parts, 1) if len(mask_parts) > 1 else mask_parts[0]
     if _TIMEIT_ON:
         _tacc("mla.b.mask", _ts, "framework")
         _ts = time.perf_counter()
     nk = K_all.shape[0]
-    qb = q[:, 0].to(torch.bfloat16).reshape(T * H, _Dq)[:, :D]
-    # K_all is already bf16 from the gather -> Kb/Vb are plain slices (contiguous for the AMX
-    # GEMMs); the old .to(bfloat16) round-trip is gone.
-    Kb = K_all[:, :D].contiguous()
-    Vb = K_all[:, :head_dim_v].contiguous()
-    _fused = os.environ.get("INTEL_CPU_DSV4_ATTN_FUSED") == "1"
-    if _fused:
-        qb = qb.contiguous()  # [:, :D] slice is strided -> matmul would copy each call
+    with _serving_probe.tensor_region("sparse.common_prepare", q, K_all):
+        qb = q[:, 0].to(torch.bfloat16).reshape(T * H, _Dq)[:, :D]
+        # Preserve the baseline preparation even when the native branch does not consume it.
+        Kb = K_all[:, :D].contiguous()
+        Vb = K_all[:, :head_dim_v].contiguous()
+        _fused = os.environ.get("INTEL_CPU_DSV4_ATTN_FUSED") == "1"
+        if _fused:
+            qb = qb.contiguous()  # [:, :D] slice is strided -> matmul would copy each call
     if _TIMEIT_ON:
         _tacc("mla.b.cvt", _ts, "framework")
         _ts = time.perf_counter()
@@ -2308,8 +2311,9 @@ def _batched_mla_attend(
         _use_ck_attn = False
     if _use_ck_attn:
         try:
-            q_in = q[:, 0, :, :D].to(torch.float32).contiguous()   # [T,H,D]
-            kv_sh = K_all[:, :D].to(torch.float32).contiguous()    # [nk,D] shared latent (k==v)
+            with _serving_probe.tensor_region("sparse.native_prepare", q, K_all, mask):
+                q_in = q[:, 0, :, :D].to(torch.float32).contiguous()   # [T,H,D]
+                kv_sh = K_all[:, :D].to(torch.float32).contiguous()    # [nk,D] shared latent (k==v)
 
             def _oracle():
                 sc = torch.matmul(q_in.reshape(T * H, D), kv_sh.t()).reshape(T, H, nk) * softmax_scale
@@ -4838,7 +4842,8 @@ def _cpu_forward_c4_indexer(self, x, q_lora, forward_batch, c4_indexer, *args, *
         _use_ck_idx = False
     if _use_ck_idx:
         try:
-            kv_bc = ck.unsqueeze(0).expand(q.shape[0], ck.shape[0], ck.shape[1]).contiguous()  # [N,S,chd]
+            with _serving_probe.tensor_region("indexer.shared_kv_expand", ck, q):
+                kv_bc = ck.unsqueeze(0).expand(q.shape[0], ck.shape[0], ck.shape[1]).contiguous()  # [N,S,chd]
             logits = _dix.indexer_logits(q, kv_bc, w)  # fused relu*weight*sum (C); marks c_kernel
         except Exception as _e:  # noqa: BLE001 — degenerate shapes (tiny S) -> eager oracle fallback
             if _ck.strict():

@@ -5,7 +5,146 @@ kernel is integrated into the serving path. This is the **Phase 2** deliverable 
 [methodology playbook](methodology-playbook.md#phase-2--north-star-end-to-end-wall-time); the per-kernel
 standalone results live on the [kernel-pilot performance page](kernel-pilot-performance.md).
 
-## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
+## Current real-weight C4 comparison on EMR (401687)
+
+Completed 2026-11-11, full 43-layer real model, fixed32 threads, six independent
+resident-process baseline/candidate pairs per point after separate warmups.
+All requests generated five tokens, ignoring EOS. The candidate scored
+1,252/1,311 versus the fresh native baseline's 1,245/1,311, with zero invalid
+answers; this meets the declared no-observed-loss criterion, not automatic
+promotion.
+
+| Operating point | Native request time, median | C4 request time, median | Median paired request-time change [min, max] |
+|---|---:|---:|---:|
+| B1 / S3072 | 30.622 s | 28.191 s | -7.60% [-8.35%, -6.90%] |
+| B32 / S128 | 35.741 s | 41.786 s | +17.13% [+16.32%, +21.53%] |
+| B64 / S128 | 75.553 s | 111.265 s | +48.66% [+41.91%, +51.31%] |
+
+Negative change is less time. Percentages are medians of paired changes,
+not ratios of marginal median times. The long-prefill point improves, but
+**short-prefill batch32/64 regress**: do not enable C4 unconditionally or mix
+these measured full-model results with the older dummy-depth chart below.
+The four decode steps are a bounded comparison, not steady-state decode.
+See the [accuracy, phase timing and provenance record](dev/DSv4-serving-screen-401145-findings.md#10-authorized-full-c4-accuracy-and-matched-performance-wave-401687).
+
+**Final C4 disposition, 2026-11-11:** retain these measurements as experimental
+findings, without production integration. The user declined further native-port,
+conditional-dispatch and accuracy-screen work. Existing production behavior
+remains unchanged. The benefit is geometry-dependent; these points do not prove
+that only batch 1 can benefit.
+
+## GNR versus EMR: real-weight comparison and socket scaling
+
+**Status, 2026-11-11: capacity checked; matched real-weight GNR speedup not yet
+measured.** The chart below is an older dummy-weight depth extrapolation, not a
+current full-model GNR/EMR comparison. Its pending GNR bars must not be filled
+with a bandwidth ratio or a three-domain throughput projection.
+
+Read-only topology checks on `pcl-gnrap01` and the running EMR accuracy worker
+on `pcl-sprh01` established:
+
+| Resource | EMR: Xeon Platinum 8592+ | GNR: Xeon 6980P |
+|---|---:|---:|
+| Physical cores per socket | 64 | 128 |
+| NUMA domains per socket | 1 | 3 |
+| Physical cores per domain | 64 | 42 or 43 |
+| Memory per domain, approximately | 503-504 GiB | 251.5-252 GiB |
+| Memory per socket, approximately | 503-504 GiB | 755.5-756 GiB |
+
+Both hosts have two sockets. Commands: `lscpu`, `lscpu -e=CPU,NODE,SOCKET,CORE`,
+and `numactl --hardware`. The latter reports memory in MiB despite its `MB`
+label. Earlier descriptions on this page of an "EMR" socket with 128 cores and
+three SNC domains do **not** describe the measured 8592+ host; do not use those
+historical labels to normalize this comparison.
+
+**Does the model fit one GNR domain?** The observed footprint suggests yes for
+the current workload, subject to a real GNR load and memory-locality check.
+Job 401687, worker 0 (Slurm job 401688), had scheduler PID 3354430 peak RSS
+199,022,732 KiB (**189.8 GiB**) and parent PID 3354321 peak RSS 884,720 KiB
+(**0.84 GiB**). The scheduler had no swap and almost all resident memory on
+EMR NUMA node 0. This leaves approximately **60 GiB** against a GNR domain's
+physical capacity, before other processes and workload growth. These are
+observed process high-water marks, not a guaranteed maximum or a measured GNR
+footprint. The checkpoint files total 159,617,149,040 bytes (**148.7 GiB**);
+checkpoint size alone excludes runtime tensors, caches and loading temporaries.
+
+The real-weight chart should distinguish:
+
+1. **One replica / one NUMA domain:** matched source, inputs, batch, generation
+   length, thread policy and cache lifecycle. Plot prefill, decode and complete
+   request wall time; compute latency speedup as `EMR time / GNR time`.
+2. **One complete socket:** independent TP1 replicas with local memory and
+   disjoint cores. Test three GNR replicas, one per domain. Compare against both
+   one and two EMR replicas: two copies appear to fit EMR's socket memory and
+   can use separate 32-core groups, but share that domain's memory bandwidth.
+   Record total batch/concurrency explicitly; throughput speedup is
+   `GNR completed tokens/s / EMR completed tokens/s` over a common wall interval.
+
+Three GNR replicas may approach three times **single-domain aggregate
+throughput**, not three times faster individual requests or automatically three
+times EMR socket throughput. Measure concurrent scaling rather than summing
+isolated rates. This is data parallelism, not TP=3. Keep the approved native
+path and the archived experimental C4 candidate separate, exclude warmup, and retain
+replicate samples and spread before adding measured speedup labels.
+
+### Bounded measurement protocol
+
+This records the attempted protocol, not an active run plan. GNR investigation
+remains paused; the C4 integration decision above does not restart it.
+
+The [socket driver](../plugin/validate/compare_socket_walltime.py) reuses the
+[accuracy wave's performance validator](../plugin/validate/c4_accuracy_wave.py),
+the same tokenized inputs, native baseline and C4 candidate. It does **not** rerun
+GSM8K. Both variants use real weights; the candidate remains unpromoted.
+Operating points are B1/S3072 and B32/B64/S128, each generating five tokens with
+EOS ignored (four decode steps). This bounds the run, but does not measure a
+complete C128 compression cycle or long steady-state decode.
+
+On GNR, three resident workers load sequentially, bind 32 disjoint physical cores
+each, and place memory in domains 0/1/2 of socket 0. Each worker must pass its
+load-time memory check and isolated measurements before the next model is loaded.
+Each worker first runs alone:
+one warm and one measured baseline/candidate pair per point, yielding three
+process samples. The socket phase then runs all three concurrently, with one
+warm pair and three measured pairs per point. Variant order alternates.
+Socket repetitions reuse the same resident processes, not independent reloads.
+This tests a fixed32 deployment, not a claim of optimal GNR thread tuning.
+
+| Question | Evidence and disposition |
+|---|---|
+| Does each replica fit locally? | Actual RSS/high-water marks, no swap, at least 99% resident NUMA pages local; reject a locality failure rather than label it domain-local performance. |
+| Is GNR faster for the same work? | Compare matched inputs, shapes, generation counts and source-bound per-phase/request timings against the EMR wave; retain slower results too. |
+| Does one socket scale across domains? | Measure concurrent replicas over their common elapsed interval, with launch skew retained; do not sum isolated rates. |
+| Does C4 help each workload? | Separate baseline/candidate pairs with state reset, identical initial input/cache anchors and forward schedules; report each point independently. |
+
+Phase throughput uses the span from the earliest to latest model forward of
+that phase across active replicas; request throughput uses total generated
+tokens divided by the common request interval. These are bounded cohort
+measurements, not serving TTFT/ITL or saturation throughput. The existing EMR
+wave supplies six isolated-process pairs per point; two-replica EMR socket
+throughput requires its own measurement and must not be inferred from them.
+
+The first attempt (job 401713) loaded three models but rejected rank 0's first
+warmup at the memory check. Its error combined missing residency and nonzero
+swap, without retaining those fields, so it does not identify which condition
+failed. No accepted timing pair or speedup resulted. The collector subsequently
+worked in a small GNR process, but that does not establish full-model fit.
+The retry retains load-time memory/domain information and rejected per-case raw
+records, reports the exact failing values, and validates the first replica
+before paying for the other two. The no-swap/99%-local criteria are unchanged.
+
+Retry 401720 stopped at the first load-time check: scheduler RSS was about
+181.4 GiB, with **1.19 GiB swapped**, despite more than 99.99% of its resident
+NUMA pages being local. Domain 0 had only 1.37 GiB free and approximately
+67.97 GiB of file pages alongside 182.69 GiB of anonymous pages. This points
+to domain-local loading/page-cache pressure; it is not proof that the steady
+model cannot fit or that a compute kernel failed. The earlier approximately
+60 GiB margin was a footprint estimate, **not demonstrated swap-free loading**.
+No GNR speedup has been accepted. The captured
+`/scratch/bkaul/dsv4-socket-walltime/retry-20261111-cAOoYp/gnr/rank0/load-memory.json`
+is the retained evidence; do not retry unchanged or relax the memory gate.
+
+## Historical proxy comparison — baseline vs optimized (EMR, GNR) vs roofline
 
 ![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v6.png)
 

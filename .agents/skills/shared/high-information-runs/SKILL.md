@@ -45,6 +45,22 @@ or precision variants to an accuracy run. A high-information accuracy wave
 already answers baseline reproduction, aggregate gap, paired recoveries,
 regressions and truncation/invalid rates from saved generations.
 
+## Reusing evidence without forcing integration
+
+- Compare partial accuracy on identical completed question IDs, not percentages
+  from different subsets. Keep fresh matched and historical baselines separate.
+- A bounded performance panel may reuse the resident accuracy engine, but reset
+  scheduler and plugin state, bind initial input/cache anchors and forward
+  schedules, and exclude warmup/capture work. Report the generation horizon;
+  a handful of decode steps is not sustained throughput.
+- Capture real operator operands once and sweep geometry without another model
+  load. Do not confuse query rows with request batch, or compare different prompt
+  lengths and call the effect batch scaling.
+- A scoped win with broader losses can close as **record, do not integrate**.
+  Do not automatically pay for a native port, selector and another accuracy
+  wave. Preserve source-bound samples and the decision; a future port must earn
+  its own numerical/task validation.
+
 ## ⛔ ASYNC-HEARTBEAT — never fire-and-forget a job then wait for a human to ask "is it done?"
 A recurring velocity leak: submit an sbatch (or a long download/decode), then STOP and idle until the
 operator prompts a status check. The submit→detach→human-prompt round-trip serializes the whole loop on
