@@ -1,5 +1,13 @@
 # sglang-cpu-opt — Automated CPU Model Enablement for SGLang
 
+**Experimental branch record:** see the
+[standalone follow-up findings](docs/dev/dsv4-standalone-meta-findings.md) and
+[native/serving inventory](docs/dev/dsv4-native-kernel-inventory.md).
+This branch retains a compile-gated Sinkhorn prototype and measurement tools;
+it does not promote a serving default or certify complete native coverage.
+The later accuracy-qualified serving campaign is published separately on
+[`dsv4-perf-main`](https://github.com/bharat-kaul/sglang-cpu-opt/tree/dsv4-perf-main).
+
 **North Star:** Deliver an AI Systems Performance Engineering Agentic Workflow along with skill files to automate day-0 support for new AI inference models with accuracy and performance.
 
 **How:** An **agentic workflow** (parameterized skill files + agents) that takes a newly

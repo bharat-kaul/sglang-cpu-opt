@@ -87,7 +87,15 @@ std::vector<torch::Tensor> mhc_sinkhorn(torch::Tensor mixes, torch::Tensor hc_sc
   return {pre, post, comb};
 }
 
+#if defined(SINK_SIMD_EXPERIMENT)
+#include "sinkhorn_simd4.h"
+#endif
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("mhc_sinkhorn", &mhc_sinkhorn,
         "MHC hash-split sinkhorn (fused per-row iters, hc x hc resident)");
+#if defined(SINK_SIMD_EXPERIMENT)
+  m.def("mhc_sinkhorn_simd4", &mhc_sinkhorn_simd4,
+        "Experimental hc=4 recurrence with interleaved independent matrices");
+#endif
 }
