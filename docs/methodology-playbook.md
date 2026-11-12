@@ -85,6 +85,41 @@ flowchart TD
 
 ## 2. The waterfall — phases, in order
 
+### Evidence and investment checkpoints
+
+- **Capture before spending another model load.** Save actual operator inputs,
+  masks, outputs and source/build identities; replay geometry and numerical
+  hypotheses cheaply. A query-count sweep is not a serving batch sweep.
+- **Pair partial accuracy by question identity.** Compare the same completed
+  IDs against both the fresh matched baseline and historical CPU/GPU results.
+  Publish recoveries, regressions and invalid answers; percentages from
+  different partial subsets cannot establish a gap.
+- **Reuse a resident load, not contaminated state.** A bounded performance
+  panel can follow accuracy in the same engine if warmups, scheduler/plugin
+  resets, input/cache anchors and forward schedules are explicit. Separate
+  clean timings from intrusive captures. Report paired estimators and process
+  spread; five generated tokens do not establish sustained decode.
+- **Keep closure separate from promotion.** A correctness-screened candidate
+  can have a worthwhile scoped gain yet not justify native integration and
+  selector maintenance. Retain its losses and final disposition; do not label
+  it a generic improvement or certify a future port using its old accuracy.
+- **Prove domain fit through loading as well as inference.** Checkpoint bytes,
+  resident model bytes and load-time page-cache/temporary bytes differ.
+  Node-wide free memory does not guarantee capacity under strict NUMA binding.
+  Save raw RSS/HWM/swap/locality and domain anonymous/file/free memory *before*
+  rejecting a run. Gate the first replica before loading the remaining replicas.
+- **Measure socket scaling, never multiply it into existence.** Extra domains
+  can host concurrent replicas; that is aggregate throughput, not lower
+  single-request latency. Compare viable replica counts on both platforms over
+  common intervals. Failed/warmup-only runs supply no speedup bar.
+
+These checkpoints were exercised by the
+[C4 serving campaign](https://github.com/bharat-kaul/sglang-cpu-opt/blob/042756fe2a7c11185a5b58fcc51b0f8dee907e23/docs/dev/DSv4-serving-screen-401145-findings.md) and
+[GNR/EMR measurement attempts](https://github.com/bharat-kaul/sglang-cpu-opt/blob/042756fe2a7c11185a5b58fcc51b0f8dee907e23/docs/e2e-wall-time.md#gnr-versus-emr-real-weight-comparison-and-socket-scaling).
+These pinned experimental records are evidence, not production-code promotion.
+
+### Phase sequence
+
 Each phase has a **purpose** (what it accomplishes), a **method** (how), and a **closing gate** (what makes
 its output trusted). The order is strict: a later phase may not start until the prior gate passes.
 

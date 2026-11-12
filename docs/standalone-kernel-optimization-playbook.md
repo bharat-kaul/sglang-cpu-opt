@@ -150,6 +150,22 @@ assumed — and "already at the ceiling" is a *valid* outcome (don't invent head
 
 ## Stage 1.5 — Validate a lever's upside before committing (cost-scaled)
 
+**Integration is a separate investment decision.** A valid isolated win and
+no observed task-accuracy loss do not require shipping a candidate. Measure
+preparation-inclusive whole-operation cost at the actual serving signature,
+then the relevant end-to-end workloads. A gathered `[N,K,D]` donor is not a
+shared `[K,D]` masked serving kernel. Query count, shared-key count, visibility,
+mask arrangement and cache state can jointly move the crossover; request batch
+alone is not the operator geometry. Hold prompt length fixed before attributing
+a difference to batch.
+
+Record a scoped win, a loss or a decision not to integrate as a legitimate
+outcome, without claiming the design space exhausted. Do not build a native
+port and selector merely because a Python composition passed a task screen:
+the final native/conditional path needs its own validation. Preserve immutable
+evidence so a future workload can reopen the question without repeating discovery.
+Worked example: [C4 campaign disposition](https://github.com/bharat-kaul/sglang-cpu-opt/blob/042756fe2a7c11185a5b58fcc51b0f8dee907e23/docs/dev/DSv4-serving-screen-401145-findings.md#archived-crossover-screen-401721-no-production-integration).
+
 Classifying the bound (Stage 1) tells you *which* lever; it does **not** prove the lever will *win*. A roofline
 that models **one component** (e.g. a GEMM's FLOPs) over-predicts when the op has other first-order costs the
 lever doesn't touch — or *worsens*. *(Real case: sparse-attend's bf16-AMX looked like 2.6–4× from the GEMM

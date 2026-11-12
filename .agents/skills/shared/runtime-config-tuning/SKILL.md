@@ -126,6 +126,22 @@ scheduling-only → **token-identical** (no accuracy gate needed, just confirm i
   ONCE at launch, never retuned per-forward.
 
 ## The knobs (in leverage order), each vs a uPP-measured budget
+
+**Capacity gate before a multi-replica load:** checkpoint size is not resident
+model size, and neither includes all loading temporaries/page cache. Under
+strict NUMA binding, domain-local memory can be exhausted while the node has
+ample free RAM. Preserve scheduler and parent RSS/HWM/swap, resident pages by
+domain, and domain free/anonymous/file memory before rejecting a sample.
+Validate the first replica's load and isolated run before loading the rest.
+Keep no-swap/locality criteria unchanged on retries; investigate the rejected
+values rather than retrying the same launch. Avoid host-wide cache eviction,
+swapoff or sysctl changes on shared machines. A failed load is not a kernel
+performance result or proof that the steady-state model cannot fit.
+
+Report replica latency separately from socket aggregate throughput; compare
+viable replica counts on both machines and use a common concurrent interval,
+not a sum of isolated rates or a domain-count multiplier.
+
 0. **OpenMP wait policy (set FIRST, at launch).** `OMP_WAIT_POLICY=passive` + `KMP_BLOCKTIME=0`
    so idle workers park instead of spinning. Highest-leverage, zero-code, token-identical; prevents
    the inter-region spin-contention that inflates every multi-forward run (Origin lesson 3). Must be
