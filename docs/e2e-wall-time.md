@@ -121,6 +121,22 @@ read because the prewarm validator incorrectly checked `membind` rather than
 interleave mask3/4/5 alongside an allowed `membind` set0-5. The validator now
 checks the effective policy, interleave mask and CPU-node binding and preserves
 raw policy output; no memory criterion is relaxed. EMR job402060 is unaffected.
+The corrected short probe is running as GNR **402075**, paired with EMR
+**402060**. Launch records:
+
+- EMR root: `/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU`,
+  harness commit `83f2917`, plan SHA256
+  `e265eb8a15286134f8386c85dfcce9520439ab122d9ce6aa860d501111d727e9`.
+- GNR root: `/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6`,
+  harness commit `4de0813`, plan SHA256
+  `fe015de5ccf911da8bbf4c43c983a06bd5a2123e9a9d5f4f41e84aa2ee3d62c6`.
+- Both plans have identical main-compute hashes, checkpoint inventory, inputs,
+  runtime, sampling and schedules. The worker, aggregation, request-timing,
+  memory-collection and locality-validation functions are AST-identical; the
+  retry changes only prewarm-policy validation and its raw diagnostics.
+- Startup was observed: GNR emitted checkpoint-prefetch progress, and EMR began
+  loading its first replica. This is **not** a completed fit or speedup result.
+
 The target remains matched GNR/EMR latency and bounded aggregate throughput;
 no speedup is accepted until these gates and measurements complete. Prepare
 the driver from the Git worktree with `prepare --baseline-only --remote-cache`
