@@ -16,9 +16,9 @@ measurement.** The baseline is a 4L/8L dummy-weight extrapolation; EMR optimized
 and GNR use the full 43-layer real model. Only the latter two are matched runs.
 
 <!-- dsv4-comparison:start -->
-![Baseline versus EMR optimized versus GNR, with run types labeled](plots/dsv4_baseline_emr_gnr_20261112.png)
+![Baseline versus EMR optimized versus GNR, with run types labeled](plots/dsv4_baseline_emr_gnr_20261112_v5.png)
 
-[Vector chart](plots/dsv4_baseline_emr_gnr_20261112.svg).
+[Vector chart](plots/dsv4_baseline_emr_gnr_20261112_v5.svg).
 
 | B32 / S128 | Historical naive baseline, dummy-weight proxy | EMR optimized, real weights, 2 replicas | GNR, real weights, 3 replicas |
 |---|---:|---:|---:|
@@ -31,6 +31,38 @@ estimator; it is not relabeled as a three-round median. Historical baseline and
 current runs also differ in host/configuration and timing protocol, not just
 weights. No baseline-to-current speedup factor or shared roofline is inferred.
 The historical optimized proxy remains in its own section below.
+
+### Matched achievable roofline targets
+
+The roofline is an **analytical workload-on-hardware prediction**, not a measured model
+ceiling. The chart adds conditional central/optimistic scenarios using matched hardware
+calibration and existing forward schedules. **No new full-model run was required.**
+
+| B32 / S128, five output tokens, fixed32 per replica | Measured socket tokens/s | Central analytical scenario, approx. tok/s | Optimistic analytical scenario, approx. tok/s |
+|---|---:|---:|---:|
+| EMR prefill, two replicas | 186.166 | 203 | 298 |
+| GNR prefill, three replicas | 315.278 | 321 | 473 |
+| EMR decode, two replicas | 53.321 | 88 | 129 |
+| GNR decode, three replicas | 63.034 | 125 | 180 |
+
+These are **not confidence intervals, measured ceilings or optimality certificates**.
+The existing runs used16 prefill forwards of256 tokens and four B32 decode forwards;
+a single M4096 prefill would model the wrong weight reuse. EMR replicas share NUMA0;
+GNR replicas use separate domains0/1/2. Calibrated aggregate resources are not multiplied
+again by replica count.
+
+Routing, native conversion/issue rate, fusion, tile occupancy and utilization are explicit
+assumptions. In particular, historical59 distinct experts at B32 is a scenario, not a
+measurement of the current inputs. Proximity to the central prefill estimate does **not**
+establish near-optimality. A cautious stress scenario is contradicted by existing measurements
+and retained with that disposition, not clamped or accepted.
+
+The pinned main publication contains the
+[complete derivation, hardware inputs, assumptions, per-op budgets, sensitivities and reproduce command](https://github.com/bharat-kaul/sglang-cpu-opt/blob/ca3b23d81d0e88be4e22092f3e6d47adb41f095e/docs/e2e-wall-time.md#matched-achievable-roofline-targets),
+[analytical record](https://github.com/bharat-kaul/sglang-cpu-opt/blob/ca3b23d81d0e88be4e22092f3e6d47adb41f095e/plugin/validate/results/dsv4_socket_roofline_analytical.json)
+and [updated playbook contract](https://github.com/bharat-kaul/sglang-cpu-opt/blob/ca3b23d81d0e88be4e22092f3e6d47adb41f095e/docs/methodology-playbook.md#matched-end-to-end-target-publication).
+Historical275 prefill and full-node678 decode lines below are not targets for these deployments.
+This branch receives documentation/assets only, not the main runtime or playbook history.
 
 ### Matched real-weight EMR versus GNR detail
 

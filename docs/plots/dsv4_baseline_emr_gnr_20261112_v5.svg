@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760">
+<rect width="1200" height="760" fill="white"/>
+<g font-family="sans-serif" fill="#17324d">
+<text x="35" y="35" font-size="23" text-anchor="start" fill="#17324d">DSv4: measured performance vs analytical roofline estimates</text>
+<text x="35" y="62" font-size="15" text-anchor="start" fill="#17324d">B32 / S128 per replica; five output tokens; fixed32 threads. Higher is better.</text>
+<rect x="35" y="78" width="1130" height="49" fill="#fff3d6"/>
+<text x="48" y="98" font-size="14" text-anchor="start" fill="#17324d">Cross-experiment baseline: dummy-weight proxy. EMR/GNR bars: matched real-weight measurements.</text>
+<text x="48" y="119" font-size="14" text-anchor="start" fill="#17324d">Targets are conditional analytical predictions, not measured ceilings or certificates of optimality.</text>
+<text x="35" y="156" font-size="14" text-anchor="start" fill="#17324d">Bars = measured / historical proxy</text>
+<text x="430" y="156" font-size="14" text-anchor="start" fill="#b05c00">Orange dash = central scenario</text>
+<text x="810" y="156" font-size="14" text-anchor="start" fill="#b05c00">Orange triangle = optimistic scenario</text>
+<text x="305" y="202" font-size="19" text-anchor="middle" fill="#17324d">Prefill tokens/s</text>
+<path d="M85 465.0h460" stroke="#e5eaf0"/>
+<text x="73" y="469.0" font-size="12" text-anchor="end" fill="#17324d">0</text>
+<path d="M85 407.5h460" stroke="#e5eaf0"/>
+<text x="73" y="411.5" font-size="12" text-anchor="end" fill="#17324d">150</text>
+<path d="M85 350.0h460" stroke="#e5eaf0"/>
+<text x="73" y="354.0" font-size="12" text-anchor="end" fill="#17324d">300</text>
+<path d="M85 292.5h460" stroke="#e5eaf0"/>
+<text x="73" y="296.5" font-size="12" text-anchor="end" fill="#17324d">450</text>
+<path d="M85 235.0h460" stroke="#e5eaf0"/>
+<text x="73" y="239.0" font-size="12" text-anchor="end" fill="#17324d">600</text>
+<rect x="120" y="434.40999999999997" width="88" height="30.590000000000003" fill="#8994a5"/>
+<text x="164" y="454.705" font-size="14" text-anchor="middle" fill="white">79.8</text>
+<text x="164" y="489" font-size="14" text-anchor="middle" fill="#17324d">Baseline</text>
+<text x="164" y="510" font-size="12" text-anchor="middle" fill="#17324d">Historical proxy</text>
+<rect x="270" y="393.636462456154" width="88" height="71.363537543846" fill="#2473ad"/>
+<text x="314" y="434.318231228077" font-size="14" text-anchor="middle" fill="white">186.2</text>
+<text x="314" y="489" font-size="14" text-anchor="middle" fill="#17324d">EMR</text>
+<text x="314" y="510" font-size="12" text-anchor="middle" fill="#17324d">2 replicas</text>
+<path d="M260 387.0615397889521h108" stroke="#b05c00" stroke-width="2" stroke-dasharray="6,3"/>
+<path d="M314 343.87972707905794l-6 12h12z" fill="#b05c00"/>
+<text x="314" y="378.0615397889521" font-size="13" text-anchor="middle" fill="#944c00">203</text>
+<text x="314" y="336.87972707905794" font-size="13" text-anchor="middle" fill="#944c00">298</text>
+<rect x="420" y="344.1435957763181" width="88" height="120.85640422368195" fill="#38835b"/>
+<text x="464" y="409.57179788815904" font-size="14" text-anchor="middle" fill="white">315.3</text>
+<text x="464" y="489" font-size="14" text-anchor="middle" fill="#17324d">GNR</text>
+<text x="464" y="510" font-size="12" text-anchor="middle" fill="#17324d">3 replicas</text>
+<path d="M410 341.87284770101h108" stroke="#b05c00" stroke-width="2" stroke-dasharray="6,3"/>
+<path d="M464 276.81380929365776l-6 12h12z" fill="#b05c00"/>
+<text x="464" y="332.87284770101" font-size="13" text-anchor="middle" fill="#944c00">321</text>
+<text x="464" y="269.81380929365776" font-size="13" text-anchor="middle" fill="#944c00">473</text>
+<text x="895" y="202" font-size="19" text-anchor="middle" fill="#17324d">Decode tokens/s</text>
+<path d="M675 465.0h460" stroke="#e5eaf0"/>
+<text x="663" y="469.0" font-size="12" text-anchor="end" fill="#17324d">0</text>
+<path d="M675 407.5h460" stroke="#e5eaf0"/>
+<text x="663" y="411.5" font-size="12" text-anchor="end" fill="#17324d">60</text>
+<path d="M675 350.0h460" stroke="#e5eaf0"/>
+<text x="663" y="354.0" font-size="12" text-anchor="end" fill="#17324d">120</text>
+<path d="M675 292.5h460" stroke="#e5eaf0"/>
+<text x="663" y="296.5" font-size="12" text-anchor="end" fill="#17324d">180</text>
+<path d="M675 235.0h460" stroke="#e5eaf0"/>
+<text x="663" y="239.0" font-size="12" text-anchor="end" fill="#17324d">240</text>
+<rect x="710" y="430.30833333333334" width="88" height="34.69166666666667" fill="#8994a5"/>
+<text x="754" y="452.65416666666664" font-size="14" text-anchor="middle" fill="white">36.2</text>
+<text x="754" y="489" font-size="14" text-anchor="middle" fill="#17324d">Baseline</text>
+<text x="754" y="510" font-size="12" text-anchor="middle" fill="#17324d">Historical proxy</text>
+<rect x="860" y="413.9011691834681" width="88" height="51.0988308165319" fill="#2473ad"/>
+<text x="904" y="444.45058459173407" font-size="14" text-anchor="middle" fill="white">53.3</text>
+<text x="904" y="489" font-size="14" text-anchor="middle" fill="#17324d">EMR</text>
+<text x="904" y="510" font-size="12" text-anchor="middle" fill="#17324d">2 replicas</text>
+<path d="M850 380.590851836937h108" stroke="#b05c00" stroke-width="2" stroke-dasharray="6,3"/>
+<path d="M904 334.7500754604511l-6 12h12z" fill="#b05c00"/>
+<text x="904" y="371.590851836937" font-size="13" text-anchor="middle" fill="#944c00">88</text>
+<text x="904" y="327.7500754604511" font-size="13" text-anchor="middle" fill="#944c00">129</text>
+<rect x="1010" y="404.5927061819122" width="88" height="60.407293818087794" fill="#38835b"/>
+<text x="1054" y="439.79635309095613" font-size="14" text-anchor="middle" fill="white">63.0</text>
+<text x="1054" y="489" font-size="14" text-anchor="middle" fill="#17324d">GNR</text>
+<text x="1054" y="510" font-size="12" text-anchor="middle" fill="#17324d">3 replicas</text>
+<path d="M1000 345.6746730455625h108" stroke="#b05c00" stroke-width="2" stroke-dasharray="6,3"/>
+<path d="M1054 285.18038635092864l-6 12h12z" fill="#b05c00"/>
+<text x="1054" y="336.6746730455625" font-size="13" text-anchor="middle" fill="#944c00">125</text>
+<text x="1054" y="278.18038635092864" font-size="13" text-anchor="middle" fill="#944c00">180</text>
+<text x="35" y="557" font-size="13" text-anchor="start" fill="#17324d">Bars: existing measurements, jobs EMR402060 / GNR402075; baseline: dummy-weight 4L/8L extrapolation.</text>
+<text x="35" y="587" font-size="13" text-anchor="start" fill="#17324d">Not a controlled baseline speedup comparison. EMR uses 64 cores; GNR uses 96 of 128 cores.</text>
+<text x="35" y="617" font-size="13" text-anchor="start" fill="#17324d">Targets are conditional predictions, not measured ceilings, confidence intervals or optimality certificates.</text>
+<text x="35" y="647" font-size="13" text-anchor="start" fill="#17324d">Source-derived native bytes and observed forward shapes + hardware calibration402525/402526;</text>
+<text x="35" y="677" font-size="13" text-anchor="start" fill="#17324d">assumed routing, SIMD conversion/issue rate, fusion and utilization. No new full-model runs.</text>
+<text x="35" y="707" font-size="13" text-anchor="start" fill="#17324d">A cautious stress scenario is contradicted by existing throughput; retained in the detailed report.</text>
+</g></svg>
