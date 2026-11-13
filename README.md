@@ -191,7 +191,7 @@ separates operator evidence, selected-case experiments and full-task results.
 
 **(B) Accuracy recovery required multiple corrections: attention layout/state, cache lifecycle, and routed/shared SwiGLU clamping.**
 
-![DSV4-Flash final matched full-set CPU/GPU accuracy](docs/plots/dsv4_accuracy_full_20261109.svg)
+![DSV4-Flash final matched full-set CPU/GPU accuracy](docs/plots/dsv4_accuracy_full_20261109.png)
 
 | Row | gsm8k | Note |
 |---|---|---|
@@ -287,23 +287,28 @@ end-to-end wall-time roofline-vs-measured chart** (the full enablement, not just
 
   Full per-kernel ledger, M-sweep, and GNR-vs-EMR: **[kernel performance journey](docs/kernel-pilot-performance.md)**.
 
-  **(b) End-to-end wall time — roofline vs baseline vs optimized** (the whole-model view, unique to the full
-  enablement): baseline → optimized **2.19× prefill / 1.59× decode** (43L, B=32, real-router guard), at
-  **43% / 8%** of the roofline — but **both rooflines are IDEALIZED**: the prefill 409 counts only the
-  **dense-GEMM (linear-layer) FLOPs at AMX peak** (attention/DSA/MHC/norms/glue assumed free), and the decode 678
-  assumes pure **BW-bound** streaming. Decode is **BW-bound by nature but latency-bound by implementation** —
-  measured 57.5 is **12× below the BW floor** (M=1 is 62× below), a per-step overhead/threading gap that **is the
-  opportunity** (thread right-sizing + BRGEMM expert-grouping + dispatch reduction — the Kimi-K3 single-stream
-  levers), not a ceiling. **The prefill *achievable* is being re-derived by counterfactual** after a clean
-  interleaved A/B showed our region-timer attribution over-predicted a lever (the mask) that gave **0%**
-  end-to-end — a measurement-reliability lesson, see **[end-to-end wall time](docs/e2e-wall-time.md)**:
+  **(b) End-to-end: baseline versus EMR optimized versus GNR.**
+  The historical dummy-weight baseline and current full-real-weight socket
+  measurements are shown together, with run types and replica counts labeled.
+  This is not a controlled baseline-to-current speedup measurement.
 
-  ![DeepSeek-V4-Flash end-to-end wall time — baseline vs optimized vs idealized roofline (EMR; GNR pending)](docs/plots/dsv4_node_walltime_v6.png)
+  <!-- dsv4-comparison:start -->
+  ![Baseline versus EMR optimized versus GNR, with run types labeled](docs/plots/dsv4_baseline_emr_gnr_20261112.png)
 
-  Full ledger + roofline calculation + the decode reassessment: **[end-to-end wall time](docs/e2e-wall-time.md)**.
-  *(An earlier "75% of DRAM-BW roofline" figure was a MoE
-  mode-collapse artifact — a dummy-random router under-counted expert bytes; the real-router `W_active`=40 GB
-  number supersedes it.)*
+  The second chart compares only matched real-weight EMR/GNR runs. These are
+  short fixed32 probes, not tuned-platform or steady-state benchmarks. Isolated
+  GNR requests were slower; socket request throughput improved, but the B64
+  decode median did not. Socket concurrency differs: two EMR versus three GNR
+  replicas, with the same batch per replica.
+
+  ![Measured short real-weight GNR versus EMR comparison](docs/plots/dsv4_socket_walltime_402060_402075.png)
+  <!-- dsv4-comparison:end -->
+
+  **[Canonical timing tables, spread, protocol and provenance](docs/e2e-wall-time.md#node-comparison--baseline-vs-optimized-emr-gnr-vs-roofline).**
+  Both pages embed the same PNG files; the image gate checks their references
+  remain synchronized. Numeric tables are maintained on the detailed page,
+  not duplicated here. Historical proxy/idealized-roofline charts remain there;
+  no shared roofline is claimed for this cross-experiment comparison.
 - Regenerate from a `model-profile-hotspots` run: `python plugin/validate/roofline_vs_measured.py
   --in <profile.json> --out-prefix plugin/validate/results/<name>`.
 

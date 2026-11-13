@@ -3,7 +3,7 @@
 
 GitHub caches repo images by URL; a content change under the SAME filename keeps serving the OLD
 image. The fix is to rename foo_vN.png -> foo_v(N+1).png and update every markdown reference, so the
-URL changes and the image renders fresh. This does that atomically (rename + update all docs refs),
+URL changes and the image renders fresh. This renames and updates README and docs references,
 then refreshes the render-guard manifest.
 
 Use it whenever a chart's CONTENT changed, or to force a stale chart to re-render:
@@ -17,6 +17,8 @@ import os
 import re
 import subprocess
 import sys
+
+from check_doc_images import _iter_md_files
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -35,15 +37,13 @@ def _next_name(fname: str) -> str:
 def _referenced_images() -> set[str]:
     pat = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?\s*(?:\"[^\"]*\")?\)|<img\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
     out: set[str] = set()
-    for root, _d, files in os.walk(DOCS):
-        for fn in files:
-            if not fn.endswith(".md"):
-                continue
-            md = os.path.join(root, fn)
-            for m in pat.finditer(open(md, encoding="utf-8").read()):
-                ref = m.group(1) or m.group(2)
-                if ref and not ref.startswith(("http://", "https://", "data:", "//")):
-                    out.add(os.path.normpath(os.path.join(os.path.dirname(md), ref.split("#")[0].split("?")[0])))
+    for md in _iter_md_files():
+        with open(md, encoding="utf-8") as f:
+            text = f.read()
+        for m in pat.finditer(text):
+            ref = m.group(1) or m.group(2)
+            if ref and not ref.startswith(("http://", "https://", "data:", "//")):
+                out.add(os.path.normpath(os.path.join(os.path.dirname(md), ref.split("#")[0].split("?")[0])))
     return {p for p in out if p.lower().endswith(".png")}
 
 
@@ -61,15 +61,13 @@ def _bump_one(abs_png: str) -> bool:
         os.rename(abs_png, new_abs)
     # update every markdown reference old_fname -> new_fname
     n_refs = 0
-    for root, _d, files in os.walk(DOCS):
-        for fn in files:
-            if not fn.endswith(".md"):
-                continue
-            md = os.path.join(root, fn)
-            txt = open(md, encoding="utf-8").read()
-            if fname in txt:
-                open(md, "w", encoding="utf-8").write(txt.replace(fname, new_fname))
-                n_refs += 1
+    for md in _iter_md_files():
+        with open(md, encoding="utf-8") as f:
+            txt = f.read()
+        if fname in txt:
+            with open(md, "w", encoding="utf-8") as f:
+                f.write(txt.replace(fname, new_fname))
+            n_refs += 1
     print(f"  {fname} -> {new_fname}  ({n_refs} md file(s) updated)")
     return True
 
@@ -89,9 +87,12 @@ def main() -> int:
         return 1
     print(f"Bumping {len(targets)} chart(s):")
     results = [_bump_one(p) for p in targets]
-    if any(results):
-        subprocess.run([sys.executable, os.path.join(HERE, "check_doc_images.py"), "--update"], check=False)
-    return 0
+    if not all(results):
+        return 1
+    return subprocess.run(
+        [sys.executable, os.path.join(HERE, "check_doc_images.py"), "--update"],
+        check=False,
+    ).returncode
 
 
 if __name__ == "__main__":

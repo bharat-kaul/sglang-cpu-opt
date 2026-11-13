@@ -7,6 +7,90 @@ standalone results live on the [kernel-pilot performance page](kernel-pilot-perf
 
 ## Node comparison — baseline vs optimized (EMR, GNR) vs roofline
 
+### Baseline versus EMR optimized versus GNR (2026-11-12)
+
+The historical naive baseline and current real-weight results are shown
+together below, with their different protocols labeled. **This is a
+cross-experiment comparison, not a controlled baseline-to-optimized speedup
+measurement.** The baseline is a 4L/8L dummy-weight extrapolation; EMR optimized
+and GNR use the full 43-layer real model. Only the latter two are matched runs.
+
+<!-- dsv4-comparison:start -->
+![Baseline versus EMR optimized versus GNR, with run types labeled](plots/dsv4_baseline_emr_gnr_20261112.png)
+
+[Vector chart](plots/dsv4_baseline_emr_gnr_20261112.svg).
+
+| B32 / S128 | Historical naive baseline, dummy-weight proxy | EMR optimized, real weights, 2 replicas | GNR, real weights, 3 replicas |
+|---|---:|---:|---:|
+| Prefill tokens/s | 79.8 | 186.166 [184.982, 186.807] | 315.278 [315.095, 315.304] |
+| Decode tokens/s | 36.2 | 53.321 [51.911, 53.456] | 63.034 [62.990, 67.491] |
+
+Real-weight columns report socket medians [min, max] from three rounds, five
+output tokens per request. The proxy baseline retains its originally reported
+estimator; it is not relabeled as a three-round median. Historical baseline and
+current runs also differ in host/configuration and timing protocol, not just
+weights. No baseline-to-current speedup factor or shared roofline is inferred.
+The historical optimized proxy remains in its own section below.
+
+### Matched real-weight EMR versus GNR detail
+
+| B32 / S128, five output tokens | EMR, current native path | GNR, same native path |
+|---|---:|---:|
+| Isolated request time, median [min, max], s | 39.305 [39.186, 39.423] | 48.779 [48.371, 50.882] |
+| Socket complete-request generated tokens/s, median [min, max] | 6.571 [6.522, 6.604] | 11.134 [11.131, 11.227] |
+
+Here "optimized" names the existing native implementation, **not** a claim of
+best achievable performance. Both platforms ran main computation pinned to
+`1ac61ec`; the later main `8109a40` commit changes documentation/skills only.
+These results do not measure the older runtime on this `dsv4-tree-pilot` branch.
+This publication changes documentation and the plot only.
+
+![Measured short real-weight GNR versus EMR comparison](plots/dsv4_socket_walltime_402060_402075.png)
+<!-- dsv4-comparison:end -->
+
+| Per-replica point | Isolated latency speedup | Socket request throughput ratio | Socket prefill throughput ratio | Socket decode throughput ratio |
+|---|---:|---:|---:|---:|
+| B1 / S3072 | 0.825x | 1.729x | 1.745x | 1.544x |
+| B32 / S128 | 0.806x | 1.695x | 1.694x | 1.182x |
+| B64 / S128 | 0.766x | 1.668x | 1.672x | 0.949x |
+
+Above 1 favors GNR: latency speedup is EMR time / GNR time; throughput ratios
+are GNR rate / EMR rate. Ratios use platform medians, not paired-trial ratios.
+**GNR delivers 1.67–1.73x socket request throughput, but isolated requests are
+slower at fixed32.** B64 socket decode has a lower GNR median with widely
+overlapping sample ranges, not an established repeatable regression.
+
+- **Deployment:** EMR has two TP1 replicas using 64 socket cores; GNR has three
+  using 96 of 128 socket cores, each on a separate NUMA domain. Both use 32
+  threads per replica. Batch is per replica, so socket concurrency is `2B`
+  versus `3B`, not identical total concurrency.
+- **Sampling:** two EMR / three GNR isolated-process samples; three socket rounds
+  reuse those resident processes. Warmups excluded. Five output tokens means
+  one prefill and four decode steps, not steady-state throughput or TTFT/ITL.
+  No C4 candidate, full accuracy rerun, thread sweep or new kernel optimization.
+- **Timing:** complete-request rate is `replicas * B * 5 / common_request_wall`;
+  phase rates divide `replicas * B * S` (prefill) or `replicas * B * 4` (decode)
+  by the earliest-to-latest forward span across replicas for that phase.
+- **Evidence:** jobs EMR **402060** / GNR **402075**, source-bound raw
+  reconciliation and exact generated-token agreement for these short probes.
+  Recorded scheduler load/post-request samples passed no-swap/99%-local gates.
+  GNR used remote-socket checkpoint page-cache prewarming for loading, not
+  inference compute. This establishes fit only for the tested arrangement.
+- **Unexplained observation:** GNR socket requests were faster than its earlier
+  isolated requests. No measured mechanism supports a frequency/cache
+  explanation or an ideal three-domain scaling claim.
+
+See the pinned [full protocol, all sample ranges and provenance](https://github.com/bharat-kaul/sglang-cpu-opt/blob/d2dfa30625ee35bc1516fd5e1c1de2794dfe94fe/docs/e2e-wall-time.md#gnr-versus-emr-real-weight-comparison-and-socket-scaling),
+[unrounded samples and run identities](https://github.com/bharat-kaul/sglang-cpu-opt/blob/d2dfa30625ee35bc1516fd5e1c1de2794dfe94fe/plugin/validate/results/dsv4_socket_walltime_402060_402075.json),
+and [reconciler/chart generator](https://github.com/bharat-kaul/sglang-cpu-opt/blob/d2dfa30625ee35bc1516fd5e1c1de2794dfe94fe/plugin/validate/summarize_socket_walltime.py).
+
+### Historical naive baseline versus optimized: dummy-weight proxy
+
+**Historical record, not the denominator for the real-weight chart above.**
+The following configuration, accuracy statements and roofline estimates belong
+to the older experiment; they do not certify the current main runtime or supply
+a matched real-weight naive baseline.
+
 ![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v6.png)
 
 **43L two-depth extrapolation** (4L+8L dummy-weight proxy, **real-router guard ON** so routing matches the
@@ -22,7 +106,7 @@ above. See [accuracy closure and evaluated flags](dev/DSv4-accuracy-closure.md).
 | **prefill** tok/s | 79.8 | 174.5 | **2.19×** |
 | **decode** tok/s | 36.2 | 57.5 | **1.59×** |
 
-*(GNR column pending node availability — ghost bars; filled when `pcl-gnrap01` frees.)* Matched-depth ratios
+*(Historical GNR proxy column remains unmeasured — ghost bars. The completed real-weight GNR results above use a different protocol and do not fill these bars.)* Matched-depth ratios
 (4L and 8L, directly measured) agree with the extrapolation: prefill 2.18× at both depths, decode 1.32× (4L) /
 1.44× (8L). Harness: [run_dsv4_perf_matrix.sbatch](../plugin/validate/run_dsv4_perf_matrix.sbatch), attribution
 [run_dsv4_perf_attrib.sbatch](../plugin/validate/run_dsv4_perf_attrib.sbatch) (job 392780).

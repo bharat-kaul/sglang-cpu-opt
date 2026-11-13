@@ -9,7 +9,7 @@ Completed **2026-11-09** (the retained evidence directory was named on November 
 | CPU TP1, accuracy-fix configuration | 1246 / 1311 | 95.04% | 0 |
 | Fresh native GPU TP4 | 1245 / 1311 | 94.97% | 0 |
 
-![Matched full accuracy](../plots/dsv4_accuracy_full_20261109.svg)
+![Matched full accuracy](../plots/dsv4_accuracy_full_20261109.png)
 
 **No aggregate CPU deficit in this run. Close the task-accuracy campaign.**
 The one-answer difference is not evidence of statistical superiority, numerical
