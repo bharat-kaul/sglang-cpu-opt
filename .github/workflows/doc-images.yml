@@ -8,12 +8,20 @@ name: doc-images
 on:
   push:
     paths:
+      - "README.md"
       - "docs/**"
       - "plugin/validate/check_doc_images.py"
+      - "plugin/validate/bump_chart.py"
+      - "plugin/validate/test_doc_images.py"
+      - ".github/workflows/doc-images.yml"
   pull_request:
     paths:
+      - "README.md"
       - "docs/**"
       - "plugin/validate/check_doc_images.py"
+      - "plugin/validate/bump_chart.py"
+      - "plugin/validate/test_doc_images.py"
+      - ".github/workflows/doc-images.yml"
 
 jobs:
   check-doc-images:
@@ -25,3 +33,5 @@ jobs:
           python-version: "3.12"
       - name: Validate doc image references (exist + raster + no stale-cache)
         run: python plugin/validate/check_doc_images.py
+      - name: Test chart synchronization and publication failures
+        run: python -m unittest discover -s plugin/validate -p test_doc_images.py

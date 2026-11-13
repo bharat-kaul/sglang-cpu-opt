@@ -15,6 +15,7 @@ cross-experiment comparison, not a controlled baseline-to-optimized speedup
 measurement.** The baseline is a 4L/8L dummy-weight extrapolation; EMR optimized
 and GNR use the full 43-layer real model. Only the latter two are matched runs.
 
+<!-- dsv4-comparison:start -->
 ![Baseline versus EMR optimized versus GNR, with run types labeled](plots/dsv4_baseline_emr_gnr_20261112.png)
 
 [Vector chart](plots/dsv4_baseline_emr_gnr_20261112.svg).
@@ -45,6 +46,7 @@ These results do not measure the older runtime on this `dsv4-tree-pilot` branch.
 This publication changes documentation and the plot only.
 
 ![Measured short real-weight GNR versus EMR comparison](plots/dsv4_socket_walltime_402060_402075.png)
+<!-- dsv4-comparison:end -->
 
 | Per-replica point | Isolated latency speedup | Socket request throughput ratio | Socket prefill throughput ratio | Socket decode throughput ratio |
 |---|---:|---:|---:|---:|

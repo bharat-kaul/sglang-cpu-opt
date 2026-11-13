@@ -523,12 +523,32 @@ never hand-edited pixels. No separate prompt is required to publish.
 > versioned filename** (`foo_v4.png → foo_v5.png`) and update every markdown reference — a new URL forces a
 > fresh fetch. This is mechanized, not manual:
 > - `python plugin/validate/bump_chart.py docs/plots/<chart>.png` (or `--all`) renames to the next `_vN`,
->   rewrites all `docs/**/*.md` references, and refreshes the render-guard manifest.
+>   rewrites `README.md` and non-archive `docs/**/*.md` references together, and
+>   refreshes the render-guard manifest. A failed render check exits nonzero.
 > - `python plugin/validate/check_doc_images.py` is the **gate**: it fails if any doc image is missing, is an
 >   **SVG** (GitHub blanks inline `<img>` SVGs — always rasterize to PNG), is a git-LFS pointer / 0-byte stub /
 >   non-raster, **or** if a referenced chart's bytes changed without a filename bump (the stale-camo trap). It
 >   runs locally via the `.githooks/pre-commit` hook (`git config core.hooksPath .githooks`) and in CI
->   (`.github/workflows/doc-images.yml`) on every `docs/**` change. Never reference a `.svg` from a docs page.
+>   (`.github/workflows/doc-images.yml`) on README, docs, and image-tool changes.
+>   Embed PNGs; SVG source/download links may remain, but do not embed SVGs.
+> - **Single chart, multiple embeddings:** README and the detailed wall-time page use
+>   the same versioned PNGs, not separately generated copies. Their
+>   `dsv4-comparison` marker blocks are checked for the same two image paths.
+>   Keep numeric tables on the detailed page and link from the README. A missing
+>   chart, one-page-only filename bump or removed marker fails the gate.
+> - **Validate the destination, not just the local file:** identify the exact URL's
+>   branch (the repository homepage uses the default branch), commit the image
+>   bytes and reference together, push that branch, and confirm its remote commit.
+>   Separate branches do not synchronize automatically: promote the same chart
+>   assets/references and run the gate on each requested publication branch.
+> - Render with `rsvg-convert input.svg -o output_vN.png`, inspect the PNG, then
+>   run the image gate. After pushing, fetch the exact published image and check
+>   HTTP success, raster content type and byte hash against the local artifact.
+>   In a browser, confirm the embedded image loads with nonzero `naturalWidth`
+>   and `naturalHeight`; a Markdown alt label or HTTP 200 alone is not visual
+>   verification. If browser verification is unavailable or fails, report that
+>   limitation rather than claiming the plot renders. Do not assume a format or
+>   cache explanation without checking the failed image request.
 
 
 ---

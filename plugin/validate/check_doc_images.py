@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Doc-image render guard — keeps every chart/image in docs/ RENDERABLE on GitHub.
+"""Doc-image render guard for README.md and docs/, including shared comparison references.
 
 Two failure classes break GitHub rendering, and this guard catches BOTH:
 
@@ -48,6 +48,7 @@ _RASTER_MAGIC = {
 
 
 def _iter_md_files():
+    yield os.path.join(REPO, "README.md")
     for root, _dirs, files in os.walk(DOCS):
         # Skip the archive: snapshots are static historical copies whose relative image paths are
         # intentionally not resolvable from their new location (git history is the real archive).
@@ -99,6 +100,29 @@ def _sha(path: str) -> str:
     return h.hexdigest()
 
 
+def _comparison_sync_errors() -> list[str]:
+    images = []
+    for relative in ("README.md", "docs/e2e-wall-time.md"):
+        path = os.path.join(REPO, relative)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        start, end = "<!-- dsv4-comparison:start -->", "<!-- dsv4-comparison:end -->"
+        if text.count(start) != 1 or text.count(end) != 1 or text.index(start) > text.index(end):
+            return [f"  {relative}: missing, duplicate or reversed comparison markers"]
+        block = text.split(start)[1].split(end)[0]
+        refs = [m.group(1) for m in _MD_IMG.finditer(block)]
+        families = ("dsv4_baseline_emr_gnr_", "dsv4_socket_walltime_")
+        if len(refs) != 2 or any(
+            _is_external(ref) or not os.path.basename(ref).startswith(family)
+            or not ref.endswith(".png") for ref, family in zip(refs, families)
+        ):
+            return [f"  {relative}: expected both shared local comparison PNGs"]
+        images.append([os.path.normpath(os.path.join(os.path.dirname(path), ref)) for ref in refs])
+    if images[0] != images[1]:
+        return ["  README.md and docs/e2e-wall-time.md reference different comparison charts"]
+    return []
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--update", action="store_true",
@@ -106,7 +130,7 @@ def main() -> int:
     args = ap.parse_args()
 
     referenced: dict[str, str] = {}   # repo-relative image path -> absolute path
-    broken: list[str] = []
+    broken = _comparison_sync_errors()
 
     for md in _iter_md_files():
         for ref in _refs(md):
@@ -135,15 +159,12 @@ def main() -> int:
         if old is not None and old != digest:
             stale.append(f"  {rel}  (content changed, filename unchanged)")
 
-    if args.update:
+    if args.update and not broken and not stale:
         os.makedirs(os.path.dirname(MANIFEST), exist_ok=True)
         with open(MANIFEST, "w") as f:
             json.dump(current, f, indent=1, sort_keys=True)
             f.write("\n")
         print(f"[check_doc_images] manifest updated: {len(current)} referenced images")
-        if broken:
-            print("WARNING: broken references still present:\n" + "\n".join(broken))
-            return 1
         return 0
 
     ok = True

@@ -1,4 +1,6 @@
 {
+ "docs/agentic-workflow-slide.png": "49d6a36061ab34f1bc6865f0c0f40b8d47b8f330061b982454c77e52300328ff",
+ "docs/plots/dsv4_accuracy_progression_v1.png": "7c76f766a589ee6f30855ce91763955a0260acc2d98f581b7c5d05188b6c45ba",
  "docs/plots/dsv4_baseline_emr_gnr_20261112.png": "1bfb9235b56673db729ae5c689eaf6268fa6882c89273682eadbf43ba3585ac1",
  "docs/plots/dsv4_node_walltime_v5.png": "b58eb27d3b5d1e5251f0d28b56cabd9e88bdc1d898f943b54218c32a9dbce98d",
  "docs/plots/dsv4_socket_walltime_402060_402075.png": "fd6db7a74f41583540f571753e487748c3f5da02e69bb063fc3e18aebe3dae75",
@@ -8,5 +10,6 @@
  "docs/plots/kernel_journeys_v3.png": "54839a28c2403ddb4c0cbf944d8fd202c086ca9397fb8b1b51cdec90e7989e13",
  "docs/plots/operating_point_v6.png": "320e572c8cfd78be781770b5f6770aea6f40581ea225fe878f38724d8e2a225d",
  "docs/plots/roofline_msweep_v6.png": "24972d2708bb526d70c24def18df0381f356315fa640e8b22a46c67e1d0cc117",
- "docs/spine-leaf-slide_v2.png": "c6175672e5611ca4aede7d69ac1cb9c8e20d281444e1c734b68339cc68e3b483"
+ "docs/spine-leaf-slide_v2.png": "c6175672e5611ca4aede7d69ac1cb9c8e20d281444e1c734b68339cc68e3b483",
+ "plugin/validate/results/olmo2_7b_donor_roofline.png": "b1455b5bbd99c4b9e4c3cf507cf942f392205c9db13d310477b7dd72313bd95a"
 }
