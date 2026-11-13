@@ -1,0 +1,1522 @@
+{
+  "main_commit": "1ac61ecacdc46ae4118bb2faa1109348961d8c86",
+  "aggregator_sha256": "df283a1348dfbbaefcc72fb6e4d88bfdcb6ca475bc57b30505f46137b79eb826",
+  "runs": {
+    "emr": {
+      "job": "402060",
+      "root": "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU",
+      "plan_sha256": "e265eb8a15286134f8386c85dfcce9520439ab122d9ce6aa860d501111d727e9",
+      "source_manifest_sha256": "7eafbfe1881fa05e51b755c401980525b7b9ab963a7cddcb7f2f1dccba274034",
+      "groups": 24,
+      "replicas": 2,
+      "identities": {
+        "0": {
+          "platform": "emr",
+          "rank": 0,
+          "node": "pcl-sprh01.sc.intel.com",
+          "numa": 0,
+          "cpus": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31
+          ],
+          "job": "402060",
+          "pid": 3388956,
+          "plan_sha256": "e265eb8a15286134f8386c85dfcce9520439ab122d9ce6aa860d501111d727e9",
+          "environment": {
+            "SGLANG_USE_CPU_ENGINE": "1",
+            "SGLANG_EXTERNAL_MODEL_PACKAGE": "dsv4_socket_models",
+            "INTEL_CPU_DSV4_DSA_CPU": "1",
+            "INTEL_CPU_DSV4_MXFP4_MOE": "1",
+            "INTEL_CPU_DSV4_DSA_CKERNEL": "1",
+            "INTEL_CPU_DSV4_CHUNK_ACCUM": "1",
+            "INTEL_CPU_DSV4_MXFP4_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_QUANT_DIAGNOSTIC": "0",
+            "INTEL_CPU_DSV4_COOP_MHC": "0",
+            "INTEL_CPU_DSV4_DECODE_THREADS": "32",
+            "INTEL_CPU_DSV4_DECODE_THREADS_STICKY": "0",
+            "OMP_WAIT_POLICY": "active",
+            "GOMP_SPINCOUNT": "1000000",
+            "OMP_NUM_THREADS": "32",
+            "SGLANG_CPU_OMP_THREADS_BIND": "0-31",
+            "INTEL_CPU_DSV4_CK_STRICT": "1"
+          },
+          "common_ops_sha256": "17e9ce14200b13d7eef358c27c1568bc87c7394dc550d18939102b0b9bd01fb4",
+          "torch": "2.12.0+cpu",
+          "sglang": "0.5.20.dev373+g5aab054ec"
+        },
+        "1": {
+          "platform": "emr",
+          "rank": 1,
+          "node": "pcl-sprh01.sc.intel.com",
+          "numa": 0,
+          "cpus": [
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63
+          ],
+          "job": "402060",
+          "pid": 3390623,
+          "plan_sha256": "e265eb8a15286134f8386c85dfcce9520439ab122d9ce6aa860d501111d727e9",
+          "environment": {
+            "SGLANG_USE_CPU_ENGINE": "1",
+            "SGLANG_EXTERNAL_MODEL_PACKAGE": "dsv4_socket_models",
+            "INTEL_CPU_DSV4_DSA_CPU": "1",
+            "INTEL_CPU_DSV4_MXFP4_MOE": "1",
+            "INTEL_CPU_DSV4_DSA_CKERNEL": "1",
+            "INTEL_CPU_DSV4_CHUNK_ACCUM": "1",
+            "INTEL_CPU_DSV4_MXFP4_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_QUANT_DIAGNOSTIC": "0",
+            "INTEL_CPU_DSV4_COOP_MHC": "0",
+            "INTEL_CPU_DSV4_DECODE_THREADS": "32",
+            "INTEL_CPU_DSV4_DECODE_THREADS_STICKY": "0",
+            "OMP_WAIT_POLICY": "active",
+            "GOMP_SPINCOUNT": "1000000",
+            "OMP_NUM_THREADS": "32",
+            "SGLANG_CPU_OMP_THREADS_BIND": "32-63",
+            "INTEL_CPU_DSV4_CK_STRICT": "1"
+          },
+          "common_ops_sha256": "17e9ce14200b13d7eef358c27c1568bc87c7394dc550d18939102b0b9bd01fb4",
+          "torch": "2.12.0+cpu",
+          "sglang": "0.5.20.dev373+g5aab054ec"
+        }
+      },
+      "native_builds": {
+        "0": {
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4_moe_clamp_cff811f04c196e41/dsv4_moe_clamp_cff811f04c196e41.so": "b1891625808a0fb9f0a9bcd7c724390277dbb54245e24dd8eba1d7c696829623",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4_shared_clamp_a98978ba7739f6e3/dsv4_shared_clamp_a98978ba7739f6e3.so": "95e82c287186a8019b326654068d9dda5c34882ea8781069c5ef2fcaebb70b62",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4ck_cb/dsv4ck_cb.so": "865e8319a69d8dee306246aacd18e244eb1f7903a423e8df7abe4a914234aadb",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4ck_cp/dsv4ck_cp.so": "ff1061148145071e703232297636c67b1ea2cedc0fdc8a68bae5a52594e72efa",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4ck_il/dsv4ck_il.so": "65181d242a9092663e65a27bf26cf9db065b6db9a6c3585ac4c0a6913e9945ce",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4ck_sa/dsv4ck_sa.so": "cbf470563942c0e3c519c72136f54793a7195562c5e05c0521750de79eed4596",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4ck_sk/dsv4ck_sk.so": "8467d84171b8a7b88b13a4adeaee53c5083b2253113dad11a09a172c897d254c",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions0/dsv4ck_tk/dsv4ck_tk.so": "c841a63fcc42633691ad2e73ee440617ac8db5003f2856346e21361da4a20170"
+        },
+        "1": {
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4_moe_clamp_cff811f04c196e41/dsv4_moe_clamp_cff811f04c196e41.so": "487e7298f1b17a02f7a63437f8379c94d43f4b00baec04dc072d7d7492951253",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4_shared_clamp_a98978ba7739f6e3/dsv4_shared_clamp_a98978ba7739f6e3.so": "a512f38526a9c4b9116e19fce83cafd065e7558cb1495dba1ee00b5ac3f99cdd",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4ck_cb/dsv4ck_cb.so": "865e8319a69d8dee306246aacd18e244eb1f7903a423e8df7abe4a914234aadb",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4ck_cp/dsv4ck_cp.so": "ff1061148145071e703232297636c67b1ea2cedc0fdc8a68bae5a52594e72efa",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4ck_il/dsv4ck_il.so": "65181d242a9092663e65a27bf26cf9db065b6db9a6c3585ac4c0a6913e9945ce",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4ck_sa/dsv4ck_sa.so": "cbf470563942c0e3c519c72136f54793a7195562c5e05c0521750de79eed4596",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4ck_sk/dsv4ck_sk.so": "8467d84171b8a7b88b13a4adeaee53c5083b2253113dad11a09a172c897d254c",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU/emr/extensions1/dsv4ck_tk/dsv4ck_tk.so": "c841a63fcc42633691ad2e73ee440617ac8db5003f2856346e21361da4a20170"
+        }
+      },
+      "memory": [
+        {
+          "rank": 0,
+          "rss_gib": 182.74456787109375,
+          "hwm_gib": 183.6911163330078,
+          "swap_kib": 0,
+          "local_percent": 99.99347463824009
+        },
+        {
+          "rank": 1,
+          "rss_gib": 182.73130798339844,
+          "hwm_gib": 183.68671035766602,
+          "swap_kib": 0,
+          "local_percent": 99.9934658143305
+        },
+        {
+          "rank": 0,
+          "rss_gib": 183.15159606933594,
+          "hwm_gib": 183.6911163330078,
+          "swap_kib": 0,
+          "local_percent": 99.99348913992289
+        },
+        {
+          "rank": 0,
+          "rss_gib": 183.1517448425293,
+          "hwm_gib": 183.6911163330078,
+          "swap_kib": 0,
+          "local_percent": 99.99348914521163
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.46252822875977,
+          "hwm_gib": 184.54468154907227,
+          "swap_kib": 0,
+          "local_percent": 99.9935354110886
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.4871940612793,
+          "hwm_gib": 184.54468154907227,
+          "swap_kib": 0,
+          "local_percent": 99.99353627540049
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.65110778808594,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.993576798822
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.6187744140625,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99357567994933
+        },
+        {
+          "rank": 1,
+          "rss_gib": 183.13922882080078,
+          "hwm_gib": 183.68671035766602,
+          "swap_kib": 0,
+          "local_percent": 99.99348036845208
+        },
+        {
+          "rank": 1,
+          "rss_gib": 183.1440544128418,
+          "hwm_gib": 183.68671035766602,
+          "swap_kib": 0,
+          "local_percent": 99.99348054023534
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.5060691833496,
+          "hwm_gib": 184.55065155029297,
+          "swap_kib": 0,
+          "local_percent": 99.99352866657017
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.3805809020996,
+          "hwm_gib": 184.55065155029297,
+          "swap_kib": 0,
+          "local_percent": 99.99352426222055
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.49969100952148,
+          "hwm_gib": 185.59153747558594,
+          "swap_kib": 0,
+          "local_percent": 99.99356333001553
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.60026168823242,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99356681783549
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.60032653808594,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99354023670011
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.56151580810547,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353061071118
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.60032653808594,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99354023670011
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.56151580810547,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353061071118
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.60032653808594,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99354023670011
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.56151580810547,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353061071118
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.60032653808594,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99354023670011
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.56151580810547,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353061071118
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.61891555786133,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99354088712465
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.70362854003906,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353558832115
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.68356704711914,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99354314824235
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.59264755249023,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353170178054
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.71481704711914,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99354424061073
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.6411247253418,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353340001988
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.65071487426758,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.9935419994701
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.67237854003906,
+          "hwm_gib": 185.72246551513672,
+          "swap_kib": 0,
+          "local_percent": 99.99353449442246
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.56097793579102,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99357367897319
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.71735382080078,
+          "hwm_gib": 185.7651824951172,
+          "swap_kib": 0,
+          "local_percent": 99.9935708738649
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.57225799560547,
+          "hwm_gib": 185.7461280822754,
+          "swap_kib": 0,
+          "local_percent": 99.99357406959886
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.79751586914062,
+          "hwm_gib": 185.83255767822266,
+          "swap_kib": 0,
+          "local_percent": 99.99357364770145
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.67596817016602,
+          "hwm_gib": 185.80318450927734,
+          "swap_kib": 0,
+          "local_percent": 99.9935776588323
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.81109237670898,
+          "hwm_gib": 185.85757446289062,
+          "swap_kib": 0,
+          "local_percent": 99.99357411725052
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.66602325439453,
+          "hwm_gib": 185.80318450927734,
+          "swap_kib": 0,
+          "local_percent": 99.99357731482942
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.7018280029297,
+          "hwm_gib": 185.85757446289062,
+          "swap_kib": 0,
+          "local_percent": 99.99357033635029
+        }
+      ],
+      "points": {
+        "b1-s3072": {
+          "isolated_request_s": {
+            "samples": [
+              30.469532079,
+              31.333357178
+            ],
+            "median": 30.901444628500002,
+            "min": 30.469532079,
+            "max": 31.333357178
+          },
+          "socket_request_s": {
+            "samples": [
+              36.133543274,
+              36.476797382,
+              36.397792393
+            ],
+            "median": 36.397792393,
+            "min": 36.133543274,
+            "max": 36.476797382
+          },
+          "socket_generated_tokens_s": {
+            "samples": [
+              0.2767511595574833,
+              0.2741468746632522,
+              0.2747419374237431
+            ],
+            "median": 0.2747419374237431,
+            "min": 0.2741468746632522,
+            "max": 0.2767511595574833
+          },
+          "socket_prefill_tokens_s": {
+            "samples": [
+              174.33190194252148,
+              172.44153631573118,
+              172.56726494764953
+            ],
+            "median": 172.56726494764953,
+            "min": 172.44153631573118,
+            "max": 174.33190194252148
+          },
+          "socket_decode_tokens_s": {
+            "samples": [
+              5.5581146504935095,
+              4.207700036893377,
+              4.36569297968563
+            ],
+            "median": 4.36569297968563,
+            "min": 4.207700036893377,
+            "max": 5.5581146504935095
+          },
+          "isolated_prefill_s": {
+            "samples": [
+              29.542041891,
+              30.433190783
+            ],
+            "median": 29.987616337,
+            "min": 29.542041891,
+            "max": 30.433190783
+          },
+          "isolated_decode_s": {
+            "samples": [
+              0.895836626,
+              0.868963632
+            ],
+            "median": 0.8824001290000001,
+            "min": 0.868963632,
+            "max": 0.895836626
+          }
+        },
+        "b32-s128": {
+          "isolated_request_s": {
+            "samples": [
+              39.186496504,
+              39.422576561
+            ],
+            "median": 39.304536532499995,
+            "min": 39.186496504,
+            "max": 39.422576561
+          },
+          "socket_request_s": {
+            "samples": [
+              48.702111524,
+              49.065308375,
+              48.452959012
+            ],
+            "median": 48.702111524,
+            "min": 48.452959012,
+            "max": 49.065308375
+          },
+          "socket_generated_tokens_s": {
+            "samples": [
+              6.570557004336591,
+              6.521919673963529,
+              6.604343811504843
+            ],
+            "median": 6.570557004336591,
+            "min": 6.521919673963529,
+            "max": 6.604343811504843
+          },
+          "socket_prefill_tokens_s": {
+            "samples": [
+              186.16575011438087,
+              184.98212033164145,
+              186.80699512426142
+            ],
+            "median": 186.16575011438087,
+            "min": 184.98212033164145,
+            "max": 186.80699512426142
+          },
+          "socket_decode_tokens_s": {
+            "samples": [
+              51.9106992715222,
+              53.456499368643144,
+              53.32051911290285
+            ],
+            "median": 53.32051911290285,
+            "min": 51.9106992715222,
+            "max": 53.456499368643144
+          },
+          "isolated_prefill_s": {
+            "samples": [
+              35.408548417,
+              35.913514957
+            ],
+            "median": 35.661031687,
+            "min": 35.408548417,
+            "max": 35.913514957
+          },
+          "isolated_decode_s": {
+            "samples": [
+              3.696082316,
+              3.427941983
+            ],
+            "median": 3.5620121495,
+            "min": 3.427941983,
+            "max": 3.696082316
+          }
+        },
+        "b64-s128": {
+          "isolated_request_s": {
+            "samples": [
+              75.821391184,
+              76.403380818
+            ],
+            "median": 76.112386001,
+            "min": 75.821391184,
+            "max": 76.403380818
+          },
+          "socket_request_s": {
+            "samples": [
+              102.607329961,
+              101.115513001,
+              102.040395251
+            ],
+            "median": 102.040395251,
+            "min": 101.115513001,
+            "max": 102.607329961
+          },
+          "socket_generated_tokens_s": {
+            "samples": [
+              6.237371153145272,
+              6.329394778362748,
+              6.272025881766936
+            ],
+            "median": 6.272025881766936,
+            "min": 6.237371153145272,
+            "max": 6.329394778362748
+          },
+          "socket_prefill_tokens_s": {
+            "samples": [
+              172.3464423241967,
+              174.55336119471346,
+              170.47269819061162
+            ],
+            "median": 172.3464423241967,
+            "min": 170.47269819061162,
+            "max": 174.55336119471346
+          },
+          "socket_decode_tokens_s": {
+            "samples": [
+              68.11056440013013,
+              65.6258005226129,
+              39.7670104573834
+            ],
+            "median": 65.6258005226129,
+            "min": 39.7670104573834,
+            "max": 68.11056440013013
+          },
+          "isolated_prefill_s": {
+            "samples": [
+              69.805757948,
+              70.585123077
+            ],
+            "median": 70.1954405125,
+            "min": 69.805757948,
+            "max": 70.585123077
+          },
+          "isolated_decode_s": {
+            "samples": [
+              5.865944615,
+              5.67481768
+            ],
+            "median": 5.7703811475,
+            "min": 5.67481768,
+            "max": 5.865944615
+          }
+        }
+      }
+    },
+    "gnr": {
+      "job": "402075",
+      "root": "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6",
+      "plan_sha256": "fe015de5ccf911da8bbf4c43c983a06bd5a2123e9a9d5f4f41e84aa2ee3d62c6",
+      "source_manifest_sha256": "17e4ab082c671a407f08ba72aaee7470b2c719b43f98ac16cd525ee3273e9569",
+      "groups": 30,
+      "replicas": 3,
+      "identities": {
+        "0": {
+          "platform": "gnr",
+          "rank": 0,
+          "node": "pcl-gnrap01.sc.intel.com",
+          "numa": 0,
+          "cpus": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31
+          ],
+          "job": "402075",
+          "pid": 1824334,
+          "plan_sha256": "fe015de5ccf911da8bbf4c43c983a06bd5a2123e9a9d5f4f41e84aa2ee3d62c6",
+          "environment": {
+            "SGLANG_USE_CPU_ENGINE": "1",
+            "SGLANG_EXTERNAL_MODEL_PACKAGE": "dsv4_socket_models",
+            "INTEL_CPU_DSV4_DSA_CPU": "1",
+            "INTEL_CPU_DSV4_MXFP4_MOE": "1",
+            "INTEL_CPU_DSV4_DSA_CKERNEL": "1",
+            "INTEL_CPU_DSV4_CHUNK_ACCUM": "1",
+            "INTEL_CPU_DSV4_MXFP4_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_QUANT_DIAGNOSTIC": "0",
+            "INTEL_CPU_DSV4_COOP_MHC": "0",
+            "INTEL_CPU_DSV4_DECODE_THREADS": "32",
+            "INTEL_CPU_DSV4_DECODE_THREADS_STICKY": "0",
+            "OMP_WAIT_POLICY": "active",
+            "GOMP_SPINCOUNT": "1000000",
+            "OMP_NUM_THREADS": "32",
+            "SGLANG_CPU_OMP_THREADS_BIND": "0-31",
+            "INTEL_CPU_DSV4_CK_STRICT": "1"
+          },
+          "common_ops_sha256": "17e9ce14200b13d7eef358c27c1568bc87c7394dc550d18939102b0b9bd01fb4",
+          "torch": "2.12.0+cpu",
+          "sglang": "0.5.20.dev373+g5aab054ec"
+        },
+        "1": {
+          "platform": "gnr",
+          "rank": 1,
+          "node": "pcl-gnrap01.sc.intel.com",
+          "numa": 1,
+          "cpus": [
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61,
+            62,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72,
+            73
+          ],
+          "job": "402075",
+          "pid": 1825969,
+          "plan_sha256": "fe015de5ccf911da8bbf4c43c983a06bd5a2123e9a9d5f4f41e84aa2ee3d62c6",
+          "environment": {
+            "SGLANG_USE_CPU_ENGINE": "1",
+            "SGLANG_EXTERNAL_MODEL_PACKAGE": "dsv4_socket_models",
+            "INTEL_CPU_DSV4_DSA_CPU": "1",
+            "INTEL_CPU_DSV4_MXFP4_MOE": "1",
+            "INTEL_CPU_DSV4_DSA_CKERNEL": "1",
+            "INTEL_CPU_DSV4_CHUNK_ACCUM": "1",
+            "INTEL_CPU_DSV4_MXFP4_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_QUANT_DIAGNOSTIC": "0",
+            "INTEL_CPU_DSV4_COOP_MHC": "0",
+            "INTEL_CPU_DSV4_DECODE_THREADS": "32",
+            "INTEL_CPU_DSV4_DECODE_THREADS_STICKY": "0",
+            "OMP_WAIT_POLICY": "active",
+            "GOMP_SPINCOUNT": "1000000",
+            "OMP_NUM_THREADS": "32",
+            "SGLANG_CPU_OMP_THREADS_BIND": "42-73",
+            "INTEL_CPU_DSV4_CK_STRICT": "1"
+          },
+          "common_ops_sha256": "17e9ce14200b13d7eef358c27c1568bc87c7394dc550d18939102b0b9bd01fb4",
+          "torch": "2.12.0+cpu",
+          "sglang": "0.5.20.dev373+g5aab054ec"
+        },
+        "2": {
+          "platform": "gnr",
+          "rank": 2,
+          "node": "pcl-gnrap01.sc.intel.com",
+          "numa": 2,
+          "cpus": [
+            85,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            99,
+            100,
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115,
+            116
+          ],
+          "job": "402075",
+          "pid": 1827464,
+          "plan_sha256": "fe015de5ccf911da8bbf4c43c983a06bd5a2123e9a9d5f4f41e84aa2ee3d62c6",
+          "environment": {
+            "SGLANG_USE_CPU_ENGINE": "1",
+            "SGLANG_EXTERNAL_MODEL_PACKAGE": "dsv4_socket_models",
+            "INTEL_CPU_DSV4_DSA_CPU": "1",
+            "INTEL_CPU_DSV4_MXFP4_MOE": "1",
+            "INTEL_CPU_DSV4_DSA_CKERNEL": "1",
+            "INTEL_CPU_DSV4_CHUNK_ACCUM": "1",
+            "INTEL_CPU_DSV4_MXFP4_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_CLAMP": "1",
+            "INTEL_CPU_DSV4_SHARED_QUANT_DIAGNOSTIC": "0",
+            "INTEL_CPU_DSV4_COOP_MHC": "0",
+            "INTEL_CPU_DSV4_DECODE_THREADS": "32",
+            "INTEL_CPU_DSV4_DECODE_THREADS_STICKY": "0",
+            "OMP_WAIT_POLICY": "active",
+            "GOMP_SPINCOUNT": "1000000",
+            "OMP_NUM_THREADS": "32",
+            "SGLANG_CPU_OMP_THREADS_BIND": "85-116",
+            "INTEL_CPU_DSV4_CK_STRICT": "1"
+          },
+          "common_ops_sha256": "17e9ce14200b13d7eef358c27c1568bc87c7394dc550d18939102b0b9bd01fb4",
+          "torch": "2.12.0+cpu",
+          "sglang": "0.5.20.dev373+g5aab054ec"
+        }
+      },
+      "native_builds": {
+        "0": {
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4_moe_clamp_cff811f04c196e41/dsv4_moe_clamp_cff811f04c196e41.so": "dc015891772c36c55f86c248e902d6f2cbaae8d3470ba9b15cf3c59b692a1d8b",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4_shared_clamp_a98978ba7739f6e3/dsv4_shared_clamp_a98978ba7739f6e3.so": "afb3e64ce9089a220f9f68da78b9a30407a8c82fc84f0571e2489e968fd9dbea",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4ck_cb/dsv4ck_cb.so": "3a858dc53ac927f7b8a9ba0b2b79fe9bc1341b0dabccf3b68431dc02246667df",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4ck_cp/dsv4ck_cp.so": "394c05f478a9de60d61eecb52d06768e249074b0df9f4ee95f4f55840e160247",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4ck_il/dsv4ck_il.so": "c7d6e4601682d03e9ec845094e0a282fef0c9ce6bc3239f4c90a8a90158c8182",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4ck_sa/dsv4ck_sa.so": "5fbb763be2bba7db0f72b3c803ad88b90c74bb6ab2107d39cd9cc9cd0c300949",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4ck_sk/dsv4ck_sk.so": "c13819714e645195e42aac59e7685761a025f271f272dc837850e02f3f8b4b0f",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions0/dsv4ck_tk/dsv4ck_tk.so": "93219aba6a8f9f4a5e0638c393ec03ca2bb6fdf976bd8efaef8d9411b72ca310"
+        },
+        "1": {
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4_moe_clamp_cff811f04c196e41/dsv4_moe_clamp_cff811f04c196e41.so": "816299b322e2f5ab948421cf1e2ae5e6f89bb084398587b9cc38ce8a6a1d3648",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4_shared_clamp_a98978ba7739f6e3/dsv4_shared_clamp_a98978ba7739f6e3.so": "e94be3ee3d77a449e1c23f3106705daa47f634f3a1d2ccf8886614630b1ebd77",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4ck_cb/dsv4ck_cb.so": "3a858dc53ac927f7b8a9ba0b2b79fe9bc1341b0dabccf3b68431dc02246667df",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4ck_cp/dsv4ck_cp.so": "394c05f478a9de60d61eecb52d06768e249074b0df9f4ee95f4f55840e160247",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4ck_il/dsv4ck_il.so": "c7d6e4601682d03e9ec845094e0a282fef0c9ce6bc3239f4c90a8a90158c8182",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4ck_sa/dsv4ck_sa.so": "5fbb763be2bba7db0f72b3c803ad88b90c74bb6ab2107d39cd9cc9cd0c300949",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4ck_sk/dsv4ck_sk.so": "c13819714e645195e42aac59e7685761a025f271f272dc837850e02f3f8b4b0f",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions1/dsv4ck_tk/dsv4ck_tk.so": "93219aba6a8f9f4a5e0638c393ec03ca2bb6fdf976bd8efaef8d9411b72ca310"
+        },
+        "2": {
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4_moe_clamp_cff811f04c196e41/dsv4_moe_clamp_cff811f04c196e41.so": "4ba98ca9f95142e04726f4fea2d52a629000f47986173cc43170770e6010a727",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4_shared_clamp_a98978ba7739f6e3/dsv4_shared_clamp_a98978ba7739f6e3.so": "cfbb4223bc8f73b23cb433165e7c4cbef2eb01c59406773ea8554268a8956d4d",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4ck_cb/dsv4ck_cb.so": "3a858dc53ac927f7b8a9ba0b2b79fe9bc1341b0dabccf3b68431dc02246667df",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4ck_cp/dsv4ck_cp.so": "394c05f478a9de60d61eecb52d06768e249074b0df9f4ee95f4f55840e160247",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4ck_il/dsv4ck_il.so": "c7d6e4601682d03e9ec845094e0a282fef0c9ce6bc3239f4c90a8a90158c8182",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4ck_sa/dsv4ck_sa.so": "5fbb763be2bba7db0f72b3c803ad88b90c74bb6ab2107d39cd9cc9cd0c300949",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4ck_sk/dsv4ck_sk.so": "c13819714e645195e42aac59e7685761a025f271f272dc837850e02f3f8b4b0f",
+          "/scratch/bkaul/dsv4-socket-walltime/main-short-retry-20261112-Dg8eC6/gnr/extensions2/dsv4ck_tk/dsv4ck_tk.so": "93219aba6a8f9f4a5e0638c393ec03ca2bb6fdf976bd8efaef8d9411b72ca310"
+        }
+      },
+      "memory": [
+        {
+          "rank": 0,
+          "rss_gib": 182.61294174194336,
+          "hwm_gib": 183.60596084594727,
+          "swap_kib": 0,
+          "local_percent": 99.99344261487391
+        },
+        {
+          "rank": 1,
+          "rss_gib": 182.60671615600586,
+          "hwm_gib": 183.60528945922852,
+          "swap_kib": 0,
+          "local_percent": 99.89508452701352
+        },
+        {
+          "rank": 2,
+          "rss_gib": 182.6258087158203,
+          "hwm_gib": 183.62042236328125,
+          "swap_kib": 0,
+          "local_percent": 99.89865089625904
+        },
+        {
+          "rank": 0,
+          "rss_gib": 183.0367088317871,
+          "hwm_gib": 183.60596084594727,
+          "swap_kib": 0,
+          "local_percent": 99.99345743692999
+        },
+        {
+          "rank": 0,
+          "rss_gib": 183.03954696655273,
+          "hwm_gib": 183.60596084594727,
+          "swap_kib": 0,
+          "local_percent": 99.99345736919878
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.32740783691406,
+          "hwm_gib": 184.4299659729004,
+          "swap_kib": 0,
+          "local_percent": 99.99350313852601
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.39213180541992,
+          "hwm_gib": 184.48973846435547,
+          "swap_kib": 0,
+          "local_percent": 99.9935056597524
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.51334762573242,
+          "hwm_gib": 185.54987716674805,
+          "swap_kib": 0,
+          "local_percent": 99.99354448744238
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.66345596313477,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99354993954685
+        },
+        {
+          "rank": 1,
+          "rss_gib": 183.05697631835938,
+          "hwm_gib": 183.60528945922852,
+          "swap_kib": 0,
+          "local_percent": 99.88951207630632
+        },
+        {
+          "rank": 1,
+          "rss_gib": 183.04721069335938,
+          "hwm_gib": 183.60528945922852,
+          "swap_kib": 0,
+          "local_percent": 99.88951210852358
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.29201126098633,
+          "hwm_gib": 184.377197265625,
+          "swap_kib": 0,
+          "local_percent": 99.89025178121558
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.37513732910156,
+          "hwm_gib": 184.48521423339844,
+          "swap_kib": 0,
+          "local_percent": 99.89030290546552
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.47943115234375,
+          "hwm_gib": 185.55195236206055,
+          "swap_kib": 0,
+          "local_percent": 99.89095800590296
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.5432472229004,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.89099578050437
+        },
+        {
+          "rank": 2,
+          "rss_gib": 183.0508270263672,
+          "hwm_gib": 183.62042236328125,
+          "swap_kib": 0,
+          "local_percent": 99.89309406934538
+        },
+        {
+          "rank": 2,
+          "rss_gib": 183.04576873779297,
+          "hwm_gib": 183.62042236328125,
+          "swap_kib": 0,
+          "local_percent": 99.89309354826938
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.33232879638672,
+          "hwm_gib": 184.41159057617188,
+          "swap_kib": 0,
+          "local_percent": 99.89384079490749
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.3732452392578,
+          "hwm_gib": 184.46151733398438,
+          "swap_kib": 0,
+          "local_percent": 99.89385611067024
+        },
+        {
+          "rank": 2,
+          "rss_gib": 185.38851928710938,
+          "hwm_gib": 185.45101928710938,
+          "swap_kib": 0,
+          "local_percent": 99.89444237152806
+        },
+        {
+          "rank": 2,
+          "rss_gib": 185.4730339050293,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.8944951523972
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.44646453857422,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99350728691803
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.45075607299805,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.8903502176594
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.4168357849121,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89388811108743
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.44646453857422,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99350728691803
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.45075607299805,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.8903502176594
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.4168357849121,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89388811108743
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.44646453857422,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99350728691803
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.45075607299805,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.8903502176594
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.4168357849121,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89388811108743
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.44646453857422,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99350728691803
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.45075607299805,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.8903502176594
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.4168357849121,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89388811108743
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.48129653930664,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99350898785096
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.49751663208008,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.89037833485088
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.49346923828125,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89393387705964
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.51059341430664,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99350953724013
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.4362907409668,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.89034120777228
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.5294647216797,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89395183056757
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.65317153930664,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99351447756092
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.53554916381836,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.89039784005564
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.57745361328125,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89397874943634
+        },
+        {
+          "rank": 0,
+          "rss_gib": 184.5386848449707,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99351057929495
+        },
+        {
+          "rank": 1,
+          "rss_gib": 184.48587036132812,
+          "hwm_gib": 185.6184844970703,
+          "swap_kib": 0,
+          "local_percent": 99.89036905543831
+        },
+        {
+          "rank": 2,
+          "rss_gib": 184.59713745117188,
+          "hwm_gib": 185.5530891418457,
+          "swap_kib": 0,
+          "local_percent": 99.89398679965866
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.55805206298828,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99354599469177
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.60260391235352,
+          "hwm_gib": 185.6798553466797,
+          "swap_kib": 0,
+          "local_percent": 99.89103300294171
+        },
+        {
+          "rank": 2,
+          "rss_gib": 185.4847640991211,
+          "hwm_gib": 185.56693267822266,
+          "swap_kib": 0,
+          "local_percent": 99.89450404382666
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.51060485839844,
+          "hwm_gib": 185.73951721191406,
+          "swap_kib": 0,
+          "local_percent": 99.99354442388977
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.57322692871094,
+          "hwm_gib": 185.6798553466797,
+          "swap_kib": 0,
+          "local_percent": 99.89101440609662
+        },
+        {
+          "rank": 2,
+          "rss_gib": 185.53870010375977,
+          "hwm_gib": 185.64097595214844,
+          "swap_kib": 0,
+          "local_percent": 99.89453042736754
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.66497039794922,
+          "hwm_gib": 185.76343536376953,
+          "swap_kib": 0,
+          "local_percent": 99.99354985451133
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.5782928466797,
+          "hwm_gib": 185.6798553466797,
+          "swap_kib": 0,
+          "local_percent": 99.89101566892184
+        },
+        {
+          "rank": 2,
+          "rss_gib": 185.4429473876953,
+          "hwm_gib": 185.64097595214844,
+          "swap_kib": 0,
+          "local_percent": 99.89447266123524
+        },
+        {
+          "rank": 0,
+          "rss_gib": 185.59033203125,
+          "hwm_gib": 185.76343536376953,
+          "swap_kib": 0,
+          "local_percent": 99.99354715552205
+        },
+        {
+          "rank": 1,
+          "rss_gib": 185.59403228759766,
+          "hwm_gib": 185.74800491333008,
+          "swap_kib": 0,
+          "local_percent": 99.89102390791413
+        },
+        {
+          "rank": 2,
+          "rss_gib": 185.41096878051758,
+          "hwm_gib": 185.64097595214844,
+          "swap_kib": 0,
+          "local_percent": 99.8944596042408
+        }
+      ],
+      "points": {
+        "b1-s3072": {
+          "isolated_request_s": {
+            "samples": [
+              37.438469798,
+              37.3935709,
+              37.970970122
+            ],
+            "median": 37.438469798,
+            "min": 37.3935709,
+            "max": 37.970970122
+          },
+          "socket_request_s": {
+            "samples": [
+              31.583493309,
+              31.568150492,
+              31.66587901
+            ],
+            "median": 31.583493309,
+            "min": 31.568150492,
+            "max": 31.66587901
+          },
+          "socket_generated_tokens_s": {
+            "samples": [
+              0.47493163131912375,
+              0.47516245856092515,
+              0.4736959929412678
+            ],
+            "median": 0.47493163131912375,
+            "min": 0.4736959929412678,
+            "max": 0.47516245856092515
+          },
+          "socket_prefill_tokens_s": {
+            "samples": [
+              301.20590168265863,
+              301.40654556138213,
+              300.393873484043
+            ],
+            "median": 301.20590168265863,
+            "min": 300.393873484043,
+            "max": 301.40654556138213
+          },
+          "socket_decode_tokens_s": {
+            "samples": [
+              6.7400602120470685,
+              7.028454219558701,
+              6.375001382379207
+            ],
+            "median": 6.7400602120470685,
+            "min": 6.375001382379207,
+            "max": 7.028454219558701
+          },
+          "isolated_prefill_s": {
+            "samples": [
+              36.399104735,
+              36.311995715,
+              36.840371898
+            ],
+            "median": 36.399104735,
+            "min": 36.311995715,
+            "max": 36.840371898
+          },
+          "isolated_decode_s": {
+            "samples": [
+              0.999057255,
+              1.041714355,
+              1.093991121
+            ],
+            "median": 1.041714355,
+            "min": 0.999057255,
+            "max": 1.093991121
+          }
+        },
+        "b32-s128": {
+          "isolated_request_s": {
+            "samples": [
+              48.371159411,
+              48.778906618,
+              50.88215681
+            ],
+            "median": 48.778906618,
+            "min": 48.371159411,
+            "max": 50.88215681
+          },
+          "socket_request_s": {
+            "samples": [
+              43.124167317,
+              42.752811041,
+              43.10976195
+            ],
+            "median": 43.10976195,
+            "min": 42.752811041,
+            "max": 43.124167317
+          },
+          "socket_generated_tokens_s": {
+            "samples": [
+              11.1306496997747,
+              11.227331918354547,
+              11.134369068349727
+            ],
+            "median": 11.134369068349727,
+            "min": 11.1306496997747,
+            "max": 11.227331918354547
+          },
+          "socket_prefill_tokens_s": {
+            "samples": [
+              315.27757623569204,
+              315.30395442307986,
+              315.0948120274005
+            ],
+            "median": 315.27757623569204,
+            "min": 315.0948120274005,
+            "max": 315.30395442307986
+          },
+          "socket_decode_tokens_s": {
+            "samples": [
+              62.99019408863888,
+              67.49078449719443,
+              63.03369789713509
+            ],
+            "median": 63.03369789713509,
+            "min": 62.99019408863888,
+            "max": 67.49078449719443
+          },
+          "isolated_prefill_s": {
+            "samples": [
+              44.389931318,
+              44.593547136,
+              46.672259787
+            ],
+            "median": 44.593547136,
+            "min": 44.389931318,
+            "max": 46.672259787
+          },
+          "isolated_decode_s": {
+            "samples": [
+              3.885118233,
+              4.093984523,
+              4.118305694
+            ],
+            "median": 4.093984523,
+            "min": 3.885118233,
+            "max": 4.118305694
+          }
+        },
+        "b64-s128": {
+          "isolated_request_s": {
+            "samples": [
+              94.959323861,
+              99.416283395,
+              99.778172004
+            ],
+            "median": 99.416283395,
+            "min": 94.959323861,
+            "max": 99.778172004
+          },
+          "socket_request_s": {
+            "samples": [
+              93.576476189,
+              91.781109106,
+              89.652291356
+            ],
+            "median": 91.781109106,
+            "min": 89.652291356,
+            "max": 93.576476189
+          },
+          "socket_generated_tokens_s": {
+            "samples": [
+              10.25898857380621,
+              10.45966876354997,
+              10.708036409107928
+            ],
+            "median": 10.45966876354997,
+            "min": 10.25898857380621,
+            "max": 10.708036409107928
+          },
+          "socket_prefill_tokens_s": {
+            "samples": [
+              282.36343233075684,
+              288.1333987538777,
+              295.44344916214686
+            ],
+            "median": 288.1333987538777,
+            "min": 282.36343233075684,
+            "max": 295.44344916214686
+          },
+          "socket_decode_tokens_s": {
+            "samples": [
+              54.74551853971131,
+              62.25662830173716,
+              91.26147122930767
+            ],
+            "median": 62.25662830173716,
+            "min": 54.74551853971131,
+            "max": 91.26147122930767
+          },
+          "isolated_prefill_s": {
+            "samples": [
+              88.573374861,
+              92.732965101,
+              93.050957174
+            ],
+            "median": 92.732965101,
+            "min": 88.573374861,
+            "max": 93.050957174
+          },
+          "isolated_decode_s": {
+            "samples": [
+              6.213101642,
+              6.512055797,
+              6.554600306
+            ],
+            "median": 6.512055797,
+            "min": 6.213101642,
+            "max": 6.554600306
+          }
+        }
+      }
+    }
+  },
+  "gnr_over_emr": {
+    "b1-s3072": {
+      "isolated_request": 0.8253928324322376,
+      "socket_request_throughput": 1.7286462917622285,
+      "socket_prefill_throughput": 1.7454405490753606,
+      "socket_decode_throughput": 1.5438694941237978
+    },
+    "b32-s128": {
+      "isolated_request": 0.8057691173831303,
+      "socket_request_throughput": 1.6945852628629512,
+      "socket_prefill_throughput": 1.6935315762538727,
+      "socket_decode_throughput": 1.1821658705847404
+    },
+    "b64-s128": {
+      "isolated_request": 0.7655927520302773,
+      "socket_request_throughput": 1.667669898167465,
+      "socket_prefill_throughput": 1.6718267860260034,
+      "socket_decode_throughput": 0.9486608590821712
+    }
+  },
+  "scope": "Short real-weight native-only fixed32 probe, five generated tokens. Ratios of platform medians, not paired-trial ratios or confidence intervals. EMR two isolated processes / two concurrent replicas; GNR three / three. Three socket rounds reuse those resident processes. No tuned-platform-optimum, steady-state decode or universal scaling claim. GNR socket samples are faster than its earlier isolated samples; the mechanism is not measured."
+}

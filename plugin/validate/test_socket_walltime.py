@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 import compare_socket_walltime as bench
+import summarize_socket_walltime as report
 from test_c4_accuracy_wave import dispatch
 
 
@@ -45,6 +46,68 @@ def fixture(spec, platform="gnr"):
 
 
 class SocketTests(unittest.TestCase):
+    def test_publication_rejects_changed_plan_without_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "plan.json").write_text('{"baseline_only": false}')
+            out = root / "summary.json"
+            spec = {**report.RUNS["emr"], "root": str(root)}
+            with patch.dict(report.RUNS, emr=spec):
+                with self.assertRaisesRegex(RuntimeError, "Unexpected plan identity"):
+                    report.publish(out)
+            self.assertFalse(out.exists())
+
+    def test_summary_rejects_invalid_samples(self):
+        self.assertEqual(report.distribution([2, 4])["median"], 3)
+        for values in ([], [0], [-1], [float("nan")], [float("inf")], [True]):
+            with self.subTest(values=values), self.assertRaisesRegex(RuntimeError, "Invalid"):
+                report.distribution(values)
+
+    def test_cross_platform_publication_rejects_unmatched_evidence(self):
+        plan = {k: "matched" for k in (
+            "base_commit", "compute_sources", "installed_sources", "environment",
+            "inputs_sha256", "sampling", "checkpoint_files", "model_config_sha256",
+            "checkpoint_index_sha256", "cases",
+        )}
+        functions = {k: "same function" for k in (
+            "worker", "aggregate", "run_case", "cases", "memory", "validate_locality",
+        )}
+        runs = {}
+        for platform in ("emr", "gnr"):
+            points = {k: {"median": (4 if platform == "emr" else 2)}
+                      for k in ("isolated_request_s", "socket_generated_tokens_s",
+                                "socket_prefill_tokens_s", "socket_decode_tokens_s")}
+            runs[platform] = [
+                {"identities": {0: {"torch": "torch", "sglang": "sglang", "common_ops_sha256": "same"}},
+                 "points": {"b1-s3072": points}},
+                copy.deepcopy(plan), copy.deepcopy(functions),
+                {"b1-s3072": {"anchors": ["same"], "schedule": ["same"], "output_ids": [[1, 2]]}},
+            ]
+        for mutation in (
+            None,
+            lambda x: x[1].update(compute_sources="other"),
+            lambda x: x[1].update(inputs_sha256="other"),
+            lambda x: x[2].update(aggregate="other"),
+            lambda x: x[3]["b1-s3072"].update(output_ids=[[1, 3]]),
+            lambda x: x[0]["identities"][0].update(common_ops_sha256="other"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                values = copy.deepcopy(runs)
+                if mutation:
+                    mutation(values["gnr"])
+                out = Path(tmp) / "summary.json"
+                with patch.object(report, "load_run", side_effect=lambda platform, spec: values[platform]):
+                    if mutation:
+                        with self.assertRaises(RuntimeError):
+                            report.publish(out)
+                        self.assertFalse(out.exists())
+                    else:
+                        result = report.publish(out)
+                        self.assertEqual(result["gnr_over_emr"]["b1-s3072"]["isolated_request"], 2)
+                        self.assertTrue(out.exists())
+                        with self.assertRaisesRegex(RuntimeError, "overwrite"):
+                            report.publish(out)
+
     def test_main_source_binding_rejects_changed_compute(self):
         name = "plugin/intel_cpu_models/model.py"
         content = b"main implementation"

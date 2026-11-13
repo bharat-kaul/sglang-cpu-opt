@@ -35,10 +35,96 @@ that only batch 1 can benefit.
 
 ## GNR versus EMR: real-weight comparison and socket scaling
 
-**Status, 2026-11-11: capacity checked; matched real-weight GNR speedup not yet
-measured.** The chart below is an older dummy-weight depth extrapolation, not a
-current full-model GNR/EMR comparison. Its pending GNR bars must not be filled
-with a bandwidth ratio or a three-domain throughput projection.
+**Completed, 2026-11-12: EMR 402060 and GNR 402075.** This is a calibrated
+**short performance probe**, not a full benchmark or another accuracy evaluation.
+The 43-layer real model uses main computation pinned to `1ac61ec`; main's later
+`8109a40` promotion changes documentation/skills only. No C4 candidate was used.
+
+![Short real-weight GNR/EMR comparison](plots/dsv4_socket_walltime_402060_402075.svg)
+
+**GNR socket complete-request throughput is 1.67–1.73x EMR for these short
+requests, but isolated GNR requests are slower at fixed32.** B64 socket decode
+has a lower median on GNR. Do not turn the complete-request result, dominated
+by prefill here, into a generic decode speedup or a tuned-platform claim.
+
+| Per-replica point | Isolated latency speedup | Socket request throughput ratio | Socket prefill throughput ratio | Socket decode throughput ratio |
+|---|---:|---:|---:|---:|
+| B1 / S3072 | 0.825x | 1.729x | 1.745x | 1.544x |
+| B32 / S128 | 0.806x | 1.695x | 1.694x | 1.182x |
+| B64 / S128 | 0.766x | 1.668x | 1.672x | 0.949x |
+
+Above 1 favors GNR. Latency speedup is EMR time / GNR time; throughput ratios
+are GNR rate / EMR rate. These are **ratios of platform medians**, not medians
+of paired ratios or confidence intervals.
+
+#### Request times: median [min, max], seconds
+
+| Point | EMR isolated (2 processes) | GNR isolated (3 processes) | EMR socket (3 rounds) | GNR socket (3 rounds) |
+|---|---:|---:|---:|---:|
+| B1 / S3072 | 30.901 [30.470, 31.333] | 37.438 [37.394, 37.971] | 36.398 [36.134, 36.477] | 31.583 [31.568, 31.666] |
+| B32 / S128 | 39.305 [39.186, 39.423] | 48.779 [48.371, 50.882] | 48.702 [48.453, 49.065] | 43.110 [42.753, 43.124] |
+| B64 / S128 | 76.112 [75.821, 76.403] | 99.416 [94.959, 99.778] | 102.040 [101.116, 102.607] | 91.781 [89.652, 93.576] |
+
+#### Socket rates: median [min, max], tokens/s
+
+| Point | Metric | EMR, 2 replicas | GNR, 3 replicas |
+|---|---|---:|---:|
+| B1 / S3072 | Complete-request generated tokens | 0.275 [0.274, 0.277] | 0.475 [0.474, 0.475] |
+| B1 / S3072 | Prefill | 172.567 [172.442, 174.332] | 301.206 [300.394, 301.407] |
+| B1 / S3072 | Decode | 4.366 [4.208, 5.558] | 6.740 [6.375, 7.028] |
+| B32 / S128 | Complete-request generated tokens | 6.571 [6.522, 6.604] | 11.134 [11.131, 11.227] |
+| B32 / S128 | Prefill | 186.166 [184.982, 186.807] | 315.278 [315.095, 315.304] |
+| B32 / S128 | Decode | 53.321 [51.911, 53.456] | 63.034 [62.990, 67.491] |
+| B64 / S128 | Complete-request generated tokens | 6.272 [6.237, 6.329] | 10.460 [10.259, 10.708] |
+| B64 / S128 | Prefill | 172.346 [170.473, 174.553] | 288.133 [282.363, 295.443] |
+| B64 / S128 | Decode | 65.626 [39.767, 68.111] | 62.257 [54.746, 91.261] |
+
+**Boundaries and limitations**
+
+- Same batch **per replica**, hence total socket concurrency is EMR `2B` versus
+  GNR `3B`; this is not same-total-concurrency latency. Fixed32 uses 64/64 EMR
+  socket cores and 96/128 GNR socket cores. No thread/configuration sweep.
+- One prefill produces the first of five output tokens, followed by four decode
+  steps. Complete-request rate is `replicas * B * 5 / common_request_wall_s`;
+  prefill/decode rates use `replicas * B * S` / `replicas * B * 4`, respectively,
+  divided by their common phase-forward spans. Not TTFT/ITL or steady state.
+- Explicit warmups are excluded. The three socket rounds reuse the same resident
+  processes; they are not three independent loads. Isolated sampling has only
+  two EMR processes and three GNR processes.
+- GNR socket requests were faster than its earlier isolated requests. The
+  mechanism was not measured; do not infer ideal three-domain scaling or
+  attribute this to frequency/cache behavior. B64 decode ranges overlap widely;
+  the 0.949x median is descriptive, not proof of a repeatable regression.
+- Reconciliation checks frozen source/plan hashes, job/completion/build identities,
+  matched inputs and forward schedules, exact generated token IDs, and raw
+  packet/event aggregates for 24 EMR and 30 GNR groups including warmups.
+  Token equality covers only these short probes, not general CPU/GPU accuracy.
+- Recorded scheduler load/post-request samples have zero swap. Minimum local
+  resident pages: EMR 99.993%, GNR 99.890%. Maximum RSS: 185.811 / 185.665 GiB;
+  maximum recorded high-water mark: 185.858 / 185.763 GiB. GNR fit under the
+  tested remote-cache loading arrangement; this is not a universal capacity
+  guarantee or an independent causal test of cache placement.
+
+The [self-identifying result JSON](../plugin/validate/results/dsv4_socket_walltime_402060_402075.json)
+retains unrounded samples, spread, source/build identities and memory observations.
+The [reconciler and chart generator](../plugin/validate/summarize_socket_walltime.py)
+recomputes from the frozen raw evidence listed below. It rejects mismatched plans,
+cross-platform computation/inputs/runtime/functions/output tokens, and incomplete
+evidence before writing a comparison. Reproduce on the shared evidence filesystem,
+using fresh output paths (existing comparison files are deliberately not overwritten):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=plugin:plugin/validate \
+  /scratch/bkaul/venvs/sglang-cpu/bin/python \
+  plugin/validate/summarize_socket_walltime.py \
+  --output /tmp/dsv4-socket-comparison.json --svg /tmp/dsv4-socket-comparison.svg
+```
+
+The older dummy-weight depth-extrapolation chart below remains historical.
+Its unmeasured GNR bars are **not** filled using this incompatible real-weight
+panel, a bandwidth ratio, or a three-domain projection.
+
+### Topology and original capacity assessment
 
 Read-only topology checks on `pcl-gnrap01` and the running EMR accuracy worker
 on `pcl-sprh01` established:
@@ -57,7 +143,7 @@ label. Earlier descriptions on this page of an "EMR" socket with 128 cores and
 three SNC domains do **not** describe the measured 8592+ host; do not use those
 historical labels to normalize this comparison.
 
-**Does the model fit one GNR domain?** The observed footprint suggests yes for
+**Pre-launch assessment (superseded by the measured fit above):** The observed footprint suggested yes for
 the current workload, subject to a real GNR load and memory-locality check.
 Job 401687, worker 0 (Slurm job 401688), had scheduler PID 3354430 peak RSS
 199,022,732 KiB (**189.8 GiB**) and parent PID 3354321 peak RSS 884,720 KiB
@@ -68,7 +154,7 @@ observed process high-water marks, not a guaranteed maximum or a measured GNR
 footprint. The checkpoint files total 159,617,149,040 bytes (**148.7 GiB**);
 checkpoint size alone excludes runtime tensors, caches and loading temporaries.
 
-The real-weight chart should distinguish:
+The measurement plan distinguished:
 
 1. **One replica / one NUMA domain:** matched source, inputs, batch, generation
    length, thread policy and cache lifecycle. Plot prefill, decode and complete
@@ -80,12 +166,9 @@ The real-weight chart should distinguish:
    Record total batch/concurrency explicitly; throughput speedup is
    `GNR completed tokens/s / EMR completed tokens/s` over a common wall interval.
 
-Three GNR replicas may approach three times **single-domain aggregate
-throughput**, not three times faster individual requests or automatically three
-times EMR socket throughput. Measure concurrent scaling rather than summing
-isolated rates. This is data parallelism, not TP=3. Keep the approved native
-path and the archived experimental C4 candidate separate, exclude warmup, and retain
-replicate samples and spread before adding measured speedup labels.
+The completed socket result uses measured concurrent intervals, not a sum of
+isolated rates or a three-domain projection. This is data parallelism, not TP=3.
+The approved native path remains separate from the archived C4 candidate.
 
 ### Bounded measurement protocol
 
@@ -102,9 +185,10 @@ not a full benchmark or another accuracy evaluation:
   timing/state-reset observations without editing either tree. Run the same
   short native-only panel on EMR and GNR; the old dummy-depth chart is not the
   speedup denominator.
-- Three isolated domain processes supply three samples per point; then three
-  measured concurrent socket rounds after a socket warmup. Thirty request
-  groups total, with several requests per group where batch/replicas require it.
+- GNR has three isolated processes, EMR two, supplying three/two samples per
+  point; then three measured concurrent socket rounds after a socket warmup.
+  Thirty GNR / twenty-four EMR request groups total, with several requests per
+  group where batch/replicas require it.
 - Prewarm checkpoint files under `numactl --cpunodebind=3,4,5 --interleave=3,4,5`
   before loading socket0 replicas. Record shard bytes/hashes, effective policy,
   domain memory before/after and job/plan identity. This uses the other socket
@@ -121,7 +205,7 @@ read because the prewarm validator incorrectly checked `membind` rather than
 interleave mask3/4/5 alongside an allowed `membind` set0-5. The validator now
 checks the effective policy, interleave mask and CPU-node binding and preserves
 raw policy output; no memory criterion is relaxed. EMR job402060 is unaffected.
-The corrected short probe is running as GNR **402075**, paired with EMR
+The corrected short probe completed as GNR **402075**, paired with completed EMR
 **402060**. Launch records:
 
 - EMR root: `/scratch/bkaul/dsv4-socket-walltime/main-short-20261112-I8TNCU`,
@@ -134,14 +218,20 @@ The corrected short probe is running as GNR **402075**, paired with EMR
   runtime, sampling and schedules. The worker, aggregation, request-timing,
   memory-collection and locality-validation functions are AST-identical; the
   retry changes only prewarm-policy validation and its raw diagnostics.
-- Startup was observed: GNR emitted checkpoint-prefetch progress, and EMR began
-  loading its first replica. This is **not** a completed fit or speedup result.
+- Both launchers exited zero and emitted matching completion identities. GNR
+  prewarmed 46 unchanged checkpoint shards in approximately 263 seconds, then
+  loaded all three local replicas. The reconciled results are above.
 
-The target remains matched GNR/EMR latency and bounded aggregate throughput;
-no speedup is accepted until these gates and measurements complete. Prepare
+The completed result measures matched GNR/EMR latency and bounded aggregate
+throughput, not a new optimized kernel or an accuracy campaign. Prepare
 the driver from the Git worktree with `prepare --baseline-only --remote-cache`
 (preparation checks the frozen compute files against the pinned Git archive); its original
 baseline/C4 mode remains available only for historical reproduction.
+
+### Historical paired protocol and failed attempts (401713 / 401720)
+
+The following baseline/C4 protocol is retained for those failed attempts,
+**not** the completed native-only 402060/402075 runs above.
 
 The [socket driver](../plugin/validate/compare_socket_walltime.py) reuses the
 [accuracy wave's performance validator](../plugin/validate/c4_accuracy_wave.py),
@@ -191,7 +281,7 @@ NUMA pages being local. Domain 0 had only 1.37 GiB free and approximately
 to domain-local loading/page-cache pressure; it is not proof that the steady
 model cannot fit or that a compute kernel failed. The earlier approximately
 60 GiB margin was a footprint estimate, **not demonstrated swap-free loading**.
-No GNR speedup has been accepted. The captured
+No GNR speedup was accepted from this failed attempt. The captured
 `/scratch/bkaul/dsv4-socket-walltime/retry-20261111-cAOoYp/gnr/rank0/load-memory.json`
 is the retained evidence; do not retry unchanged or relax the memory gate.
 
@@ -212,7 +302,7 @@ above. See [accuracy closure and evaluated flags](dev/DSv4-accuracy-closure.md).
 | **prefill** tok/s | 79.8 | 174.5 | **2.19×** |
 | **decode** tok/s | 36.2 | 57.5 | **1.59×** |
 
-*(GNR column pending node availability — ghost bars; filled when `pcl-gnrap01` frees.)* Matched-depth ratios
+*(Historical GNR proxy column unmeasured — ghost bars; the real-weight result above is a separate protocol.)* Matched-depth ratios
 (4L and 8L, directly measured) agree with the extrapolation: prefill 2.18× at both depths, decode 1.32× (4L) /
 1.44× (8L). Harness: [run_dsv4_perf_matrix.sbatch](../plugin/validate/run_dsv4_perf_matrix.sbatch), attribution
 [run_dsv4_perf_attrib.sbatch](../plugin/validate/run_dsv4_perf_attrib.sbatch) (job 392780).
