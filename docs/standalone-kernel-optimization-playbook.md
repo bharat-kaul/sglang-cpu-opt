@@ -10,6 +10,14 @@ through, in the order it routes them.
 > Worked results for the six DSv4 DSA kernels are on [kernel-pilot-performance.md](kernel-pilot-performance.md).
 
 **Rules of the road** (apply to every stage):
+- Follow the [canonical acceptance policy](methodology-playbook.md#canonical-acceptance-policy):
+  every kernel must be C/C++ (authored or optimized native library), with measured optimization and
+  fusion exploration. Low end-to-end ROI changes priority, not scope. A percentage pass alone is not done.
+- **Audit every phase exit, then run the executable prefix gate.** Follow the
+  [phase-exit rule](methodology-playbook.md#every-phase-exits-through-an-adversarial-audit-and-executable-gate):
+  falsify the result, bind the audit to evaluated evidence and verify alignment with Xeon request-batch
+  1..64 performance. Unresolved findings block advancement; self-audit does not replace tests or
+  human approval. Individual technique-stage records feed the enclosing standalone phase's evidence.
 - **Keep operator agreement separate from task recovery.** A more accurate
   standalone operator need not improve autoregressive answers. Match actual
   native operands, numerical boundaries and consumed prefixes before attributing
@@ -21,14 +29,14 @@ through, in the order it routes them.
   from cosine improvements or full-task aggregate parity alone.
 - **Work the stages in order.** Each is more complex and *less portable* than the last; only advance when the
   earlier stage is exhausted or clearly cannot help. **Re-run the roofline after every stage.**
-- **Keep the reference runnable.** The torch/library op the kernel replaces is the baseline *and* the
-  correctness oracle — never delete it; A/B every change against it.
+- **Keep the reference runnable.** Bind the retained oracle to the published numerical contract;
+  a convenient torch/library baseline is not automatically a source-faithful oracle. A/B each change.
 - **Measure correctly or not at all** (Stage 0): streaming/cold-cache, right build flags, `objdump`-verified
   ISA, replicated. A speedup measured wrong is worse than none.
 - **Target per component, not the total %.** Decompose each kernel into **data-movement + compute +
   dispatch/overhead** by measured attribution and target *each*: data-movement ≥ 75% of the **operative** BW
-  (DRAM if the working set exceeds cache; **cache BW if it fits** — not nominal DRAM), compute ≥ its ISA/dtype
-  peak, overhead → 0. The roofline-% of the *total* latency is a diagnostic of which component dominates, not
+  (DRAM if the working set exceeds cache; **cache BW if it fits** — not nominal DRAM), compute against a
+  calibrated shape/dtype target, overhead measured and minimized. The roofline-% of *total* latency is diagnostic, not
   the target — and the nominal roofline can be the **wrong ceiling** (cache-resident / dispatch-bound ops).
 - **A bound is a tested hypothesis, not a wall.** A measured bound prompts a **config sweep** (tiles / grain /
   effective-threads, via `grain_size`/task-count — **never per-forward `set_num_threads`**, an affinity cliff):
@@ -92,10 +100,10 @@ flowchart LR
 | 0 Baseline & measurement | a trustworthy number to optimize against | `establish-achievable-performance`, `high-information-runs` | streaming + flags + `objdump` ISA + sensitive correctness |
 | 1 Classify (roofline) | name the bound; pick the right lever | `roofline-validation`, `model-roofline-analysis` | floor computed at the **right** hierarchy level |
 | 1.5 Validate upside | prove the lever *wins* before committing (cost-scaled) | `kernel-feasibility-gate`, `overhead-attribution` | whole-op component model; predicted≠measured; Tier-1 microbench before an expensive pass |
-| 2 Donor-first | never re-implement a library primitive | `kernel-authoring` (+ `assets/donor-kernel-map.md`) | donor used where it exists; author only the glue |
-| 3 Parallelize & tile | fill the cores; keep the working set in cache | `openmp-parallelization`, `cache-blocking-tiling`, `sub-numa-clustering` | all cores used at small M; one rank/NUMA domain |
+| 2 Donor-first | reuse native primitives before replacing them | `kernel-authoring` (+ `assets/donor-kernel-map.md`) | replacements require measured justification against the best donor |
+| 3 Parallelize & tile | fill the cores; keep the working set in cache | `openmp-parallelization`, `cache-blocking-tiling`, `sub-numa-clustering` | measured shape-specific thread count and NUMA placement |
 | 4 Fuse | eliminate avoidable DRAM round-trips | `inter-kernel-fusion` + **FUSION GATE** | no materialized intermediate; residual justified |
-| 5 Precision / BW | move fewer bytes at the reference's tolerance | `compute-from-native-precision`, `quantization-amx-int8` + **PRECISION/BW GATE** | fp32-accumulate; dtype change is a *conformance* decision |
+| 5 Precision / BW | move fewer bytes at the reference's tolerance | `compute-from-native-precision`, `quantization-amx-int8` + **PRECISION/BW GATE** | source-conformed accumulation/rounding; additional lossy changes require approval |
 | 6 Vectorize / AMX / intrinsics | use the full ISA; inline transcendentals | `amx-vectorization`, `cpu-gemm-amx-bf16` + **TRANSCENDENTAL RULE** | 512-bit confirmed; ULP measured; both exact+approx kept |
 | 7 Prepack / BRGEMM | amortize layout; AMX-efficient contraction | `weight-prepacking-brgemm` | pack once; brgemm dispatched (`ONEDNN_VERBOSE`) |
 | 8 Validate & publish | prove correct + record vs roofline | `roofline-validation`, `accuracy-oracle`/`f4_acceptance` | no-regression floor; F4 gates; the kernel page |
@@ -189,25 +197,27 @@ three bf16 configs all measured **slower** than the fp32 donor.)* Two rules and 
 4. **Tier 3 — full:** optimized variant + tolerance + replicate.
 
 **When to run which — the ladder's cost scales with the *full pass's* cost.** **Cheap pass** (hours — most
-standalone kernels): skip the formal gate, *measurement is the smoke test* — but still do Tier 0 (free) and obey
-Rule 2. **Expensive pass** (multi-day port, net-new kernel from scratch, scarce-HW time): **Tier 1 is mandatory**
-before committing. **Emergent levers** (cross-op fusion, cache-residency, dispatch restructuring) have **no
-faithful cheap proxy** — the integrated measurement *is* the test; don't fake a Tier-1 for them.
+standalone kernels): the cost screen can go from Tier 0 to a minimal measured variant after
+the user-reviewed baseline/feasibility gate; cheap does not waive correctness, review or final
+acceptance. **Expensive pass** (multi-day port, net-new kernel from scratch, scarce-HW time):
+use Tier 1 before committing when it represents the proposed lever. **Emergent levers**
+(cross-op fusion, cache-residency, dispatch restructuring) may have no faithful isolated proxy;
+use the smallest matched pair/region experiment and document why it is the appropriate test.
 
-**Gate:** no upside is published as a *result* without a measurement (Rule 2); for an expensive pass, Tier 1
-passes before the full authoring is committed.
+**Gate:** no upside is published as a result without measurement; choose and record a representative
+cost screen before committing expensive work. All kernels retain the canonical completion obligations.
 
 ## Stage 2 — Donor-first
 
-**Purpose.** Never re-implement a matmul/softmax a tuned library already provides.
+**Purpose.** Reuse a tuned library before spending effort on a replacement.
 
 **How:** where an optimized primitive exists — OneDNN (eltwise/softmax/reorder), ATen **cpublas BRGEMM** +
 VNNI `pack`, `at::bmm`, MKL, LIBXSMM/TPP — **use it** and author only the irreducible glue (fused epilogue,
-dispatch, tiling, gather, online-softmax composition). Author a net-new kernel only when no donor covers the
-contract (`kernel-authoring` + `assets/donor-kernel-map.md`); even then build from the nearest donor. *In the
+dispatch, tiling, gather, online-softmax composition). Author a net-new kernel when no donor covers the
+contract or measured attribution justifies a replacement; compare against the best donor. *In the
 DSv4 set, indexer-logits and sparse keep their GEMMs on the oneDNN/`at::bmm` donor and author only the epilogue.*
 
-**Gate:** the donor is used wherever it exists; the authored code is the missing glue, not a re-rolled library.
+**Gate:** donor reuse is the starting point, not proof of optimality; replacements need measured evidence.
 
 ## Stage 3 — Parallelize & tile
 
@@ -252,20 +262,19 @@ residual and *why* (e.g. keeping it would forfeit a near-roofline library GEMM).
 **Purpose.** Move fewer bytes by storing/reading at the lowest precision the *reference* tolerates.
 
 **How (`compute-from-native-precision` + PRECISION/BW GATE):**
-- **FREE-BW rule:** if the kernel's own compute *already rounds* an operand (a bf16 GEMM rounds the fp32 KV it
-  reads), then storing that operand at compute precision is **numerically identical** to what the kernel
-  consumes while halving the dominant read — take it (a caller/cache-format knob). *E.g. indexer bf16-KV is a
-  bit-exact free win.*
-- **ACCUMULATE-IN-FP32:** reductions/softmax/normalize accumulators stay fp32 for stability; downconvert only
-  the final store.
+- **Reduced-movement candidate:** if compute already rounds an operand, storing that rounded form may
+  remove bytes without changing what it consumes. Verify rounding/scale identity, all shared consumers
+  and serving state before making that claim; include conversion/packing costs in the measurement.
+- **SOURCE-CONFORMED ACCUMULATION:** use FP32 where the source contract permits, and preserve every
+  published intermediate-rounding boundary. Final-only downconversion is not universally valid.
 - **Conformance, not free:** a precision that changes the *reference* dtype (bf16 where the oracle is fp32) is
   a **conformance decision**, not a free lever — gate on the reference precision. *Ground it in the source:
   "run the compressor pool in bf16" contradicts `model.py` (`x = x.float()  # compression need fp32`) and
   measured a non-win (same speed, 4-orders-worse error, since `exp` must be fp32 regardless).*
 
-**Gate (PRECISION/BW GATE):** fp32-accumulate preserved; any reference-dtype change is surfaced as a
-conformance decision, not shipped as a silent "win"; measure before assuming (a precision lever only helps a
-*read-BW-bound* op).
+**Gate (PRECISION/BW GATE):** original numerical boundaries and native packed storage preserved;
+additional lossy changes require approval and numerical/task validation. Measure benefits and
+conversion costs; movement precision can affect capacity, cache/operand feeding and DRAM traffic.
 
 ## Stage 6 — Vectorize / AMX / intrinsics
 

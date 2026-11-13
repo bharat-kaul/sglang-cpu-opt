@@ -22,8 +22,13 @@ SUCCESS CRITERION — AUTONOMY + VELOCITY:
   INCLUDED building the playbook; this GLM run is the clean "playbook-applied" run.
 
 USE THE PLAYBOOK (do not reinvent the method):
-- Read FIRST: .agents/skills/README.md, then the model-enablement-playbook and
+- Read FIRST: [canonical acceptance policy](../../docs/methodology-playbook.md#canonical-acceptance-policy),
+  then .agents/skills/README.md, the model-enablement-playbook and
   cpu-optimization-playbook skills; load the other skills as their triggers fire.
+- Apply the [startup infrastructure gate](../../docs/methodology-playbook.md#mandatory-startup-infrastructure-gate)
+  before choosing nodes/TP or launching work. Discover eligible CPU/GPU pools, scheduler limits,
+  actual mounts/cache locations and software; budget per-rank peak and load-slot concurrency.
+  Plan CPU work, GPU oracle and independent shards together; refresh availability before every submit.
 - Also read user memory /memories/debugging-discipline.md (carries the hard-won lessons:
   spin-wait/canonical-CPU-config, compute-from-native-precision, don't-decompose-fused-op,
   validate-the-measurement-first).
@@ -32,7 +37,11 @@ USE THE PLAYBOOK (do not reinvent the method):
   -> up-front dtype hygiene (census STORED dtype from the real checkpoint, map to a
      HW-supported COMPUTE dtype, keep native low-bit nibbles — never up-convert —
      parity-check EVERY stored!=compute bridge)
-  -> reference-first, parity-gated authoring of any genuine GAP op (vs in-tree oracles)
+  -> source-faithful reference bring-up of genuine GAP ops (temporary fallbacks are not completion)
+  -> standalone optimization of EVERY kernel in C/C++ (authored or optimized native library),
+     including measured ISA/tiling/threading/packing/precision and producer-consumer fusion exploration;
+     low end-to-end share changes priority, not scope; complete the opportunity ledger and human review
+  -> production integration, one accepted native kernel at a time, with actual dispatch proof
   -> accuracy-oracle ladder: per-op kernel parity -> real-prompt coherence -> per-LAYER
      parity (GPU/reference forward if available) -> task accuracy (gsm8k)
   -> perf ladder, in ORDER: (0) rule out systemic-config pathology FIRST
@@ -49,9 +58,10 @@ CAPTURE NEW LEARNINGS (a PRIMARY output — the skills are the product):
 - Treat "what did GLM teach us that DSv4-Flash didn't" as an explicit deliverable, not an
   afterthought. The point of the clean test is to both USE and IMPROVE the playbook.
 
-MODEL SOURCE: pull GLM-5.3 Flash config + weights from Hugging Face (as we did for
-DSv4-Flash) into /scratch/bkaul/models/<name>. It is NOT on the cluster yet. If the repo
-is gated, that's the one thing to ask me for (HF token / license acceptance).
+MODEL SOURCE: resolve the exact GLM-5.3 Flash checkpoint/revision and inspect existing local
+config/weight caches before downloading from Hugging Face. Do not assume the checkpoint is absent
+because an old kickoff said so. Confirm capacity and access before download; request any required
+license/access action through the approved channel, never record credentials in evidence.
 
 ENVIRONMENT (site-specific bootstrap):
 - venv: source /scratch/bkaul/venvs/sglang-cpu/bin/activate (torch CPU; links libgomp).
@@ -61,17 +71,43 @@ ENVIRONMENT (site-specific bootstrap):
   KMP_BLOCKTIME=0 (libgomp reads OMP at load -> MUST be in the launch env, not in-process).
 - Plugin code: plugin/intel_cpu_models/ ; validators + sbatch harnesses: plugin/validate/
   (already parameterized — reuse them: throughput, timeit, gsm8k, parity).
-- Cluster: EMR partition `emr` (FREE farm, 24 nodes ~1TB, 2 sockets x 64c, 226 GB/s/domain)
-  for all iteration; GNR partition `gnrap` (1 scarce node, 6 SNC domains) only for a final
-  perf-node run if needed. De-risk on the free farm before any scarce-node run.
+- Candidate site resources: CPU partitions historically include `emr` and `gnrap`; GPU reference
+  work has used `h200`. Discover ALL currently accessible candidates and verify their hardware,
+  topology, software, limits and availability; these names are hints, not an exhaustive inventory
+  or a claim that nodes are free. Match each run to capabilities and completion-time needs.
+
+ACCEPTANCE REHEARSAL:
+- Frozen baseline ref: `refs/tags/glm-5.3-flash-pilot-playbook-v1`, published only after CI passes
+  and the tested commit is merged into `main`. Resolve it with
+  `git rev-parse 'refs/tags/glm-5.3-flash-pilot-playbook-v1^{commit}'`, record the full SHA in pilot
+  evidence, and check out that SHA in the fresh worktree. Do not follow moving `main` or move this tag.
+- Start from the reviewed, committed playbook/runtime/test revision in a fresh session, with a clean
+  source worktree and new output/run directories. Freeze that baseline before the first job.
+- Record existing GLM code, captures and prior results as prior art. This is a clean end-to-end
+  workflow rehearsal, not evidence that all GLM enablement work began from zero.
+- Exercise Slurm submission/job-ID reconciliation, interruption/restart and approval boundaries
+  on the actual launch adapter; local subprocess tests alone do not validate remote recovery.
+- Record playbook fixes as explicit revisions during the pilot; do not silently change the frozen
+  baseline or declare the playbook fully validated before the complete evidence/certificate passes.
 
 GOVERNANCE (same as DSv4-Flash):
+- At every phase exit, record an evidence-bound adversarial self-audit and run the
+  [executable prefix gate](../skills/throughput-enablement/enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate).
+  Check correctness and best demonstrated Xeon performance at request batch1-64.
+  Required standalone/final human approvals take precedence over the interruption budget above;
+  never self-approve or continue past a blocked gate.
 - Correctness gates BEFORE any perf claim; never dense-approximate a novel op.
+- Full-model multi-GPU dummy parity uses the
+  [shared checkpoint oracle](../skills/throughput-enablement/accuracy-oracle/SKILL.md#tp-consistent-shared-checkpoint-path),
+  not the legacy TP1 dummy launchers. Source-review the global tensor inventory and memory budget;
+  capture matching explicit input IDs and compare every declared layer plus logits.
 - Parallel DISCOVERY of opts is fine; INTEGRATION serial, one-by-one, each validated vs an
   immutable reference before locking in. Env-gate each opt for A/B + rollback.
 - NEVER edit plugin source while jobs are pending (jobs read the live tree at launch).
 - Honest roofline: always compare measured vs target at the SAME labeled machine config;
-  label anything unvalidated as UNVALIDATED.
+  distinguish resident/theoretical bounds, calibrated targets and provisional baselines;
+  use max(compute time, memory time), and label anything unvalidated as UNVALIDATED.
+  A percentage pass alone does not establish fully optimized completion.
 - Checkpoint progress to /memories/session/ as you go (survives compaction).
 
 DELIVERABLE + GITHUB INTEGRITY:

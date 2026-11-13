@@ -12,12 +12,17 @@ kernel**. The rule is: never invent from a blank file — **adapt the nearest do
 kernel** in the SGLang CPU corpus (see `assets/donor-kernel-map.md`) and change only
 the layer that must change.
 
-> **⛔ DONOR-FIRST, AUTHOR-ONLY-WHEN-MISSING.** Before authoring ANYTHING, check for an existing optimized
+> **⛔ DONOR-FIRST, MEASURE BEFORE REPLACING.** Before authoring, check for an existing optimized
 > library primitive: **OneDNN** (eltwise/softmax/reorder/matmul), ATen **cpublas** brgemm + VNNI `pack`
 > (oneDNN/MKL-backed), `at::bmm`, MKL, LIBXSMM/TPP. If one covers the compute contract, USE IT and author
 > only the missing GLUE around it (fused epilogue, dispatch, tiling, gather, online-softmax composition).
-> Hand-write a net-new compute kernel ONLY when NO donor primitive fits — and then build it from the
-> nearest donor, not a blank file. A hand-rolled matmul/softmax that duplicates a library is a defect.
+> Replace a donor's inner loop only when no primitive fits or measured attribution justifies it;
+> compare against the best matched donor. Existence alone does not prove optimal performance.
+
+Follow the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Minimal source-faithful functional bring-up may precede profiling, but is not optimized completion.
+Every standalone kernel needs native C/C++, source-conformed correctness, measured alternatives
+and opportunity dispositions including producer-consumer fusion, regardless of end-to-end share.
 
 ## The one building block
 Every dense-math CPU kernel is a **batch-reduce GEMM (BRGEMM)**: a register-resident

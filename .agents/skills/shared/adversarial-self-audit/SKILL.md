@@ -178,6 +178,28 @@ clean review = make all three moves YOURSELF first. The audit question is not "d
 
 ## Pre-submit checklist (run before handing any artifact to review)
 
+- [ ] **Every phase exit:** audit discovery, reference bring-up, standalone optimization,
+      serving integration and final validation, not just the final write-up. State what could
+      falsify this phase's output and its alignment with best demonstrated Xeon performance at
+      request batch **1..64** (B1 latency plus declared throughput points). Do not confuse request
+      batch with prefill token M or exempt low-share standalone kernels.
+- [ ] **Executable evidence binding:** follow the
+      [phase/certificate contract](../../throughput-enablement/enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate).
+      Record `checks_sha256`, reviewer, goal alignment and resolved findings with hashed evidence.
+      Keep unresolved findings explicit: they block phase acceptance.
+- [ ] **Replay before advancing:** run `plugin/validate/enablement_gate.py --through <phase>`
+      with the externally approved plan hash and required approval hashes. Each phase revalidates
+      its entire prefix, actual artifacts and negative controls; zero exit is required.
+      A child crash/timeout is failure, not a successful adversarial rejection test.
+- [ ] **No self-approval:** the executor cannot turn its own plan hash or reviewer string into
+      human authorization. Preserve standalone/final approval boundaries. This audit does not
+      replace numerical tests, source-faithful adapters or external review.
+- [ ] **Failure/restart rehearsal:** use the
+      [local recovery contract](../../throughput-enablement/enablement-certificate/SKILL.md#local-failure-restart-and-approval-handling).
+      Exercise child crash/timeout, interrupted controls, retained ownership after parent death,
+      stale prior-phase evidence, bounded explicit retries and missing/rejected/renewed approval.
+      Assert no duplicate live attempt or overwritten accepted report. Local tests do not certify
+      Slurm; reconcile ambiguous remote submissions before any resubmission.
 - [ ] For each change: the **invariant** it must guarantee is written, and enforced
       by a whitelist / exact-binding — not a patch for the shown input.
 - [ ] Sibling-instance list enumerated and tested (unseen spellings/mutations).

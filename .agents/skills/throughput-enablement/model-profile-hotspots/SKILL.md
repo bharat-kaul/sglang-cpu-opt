@@ -1,6 +1,6 @@
 ---
 name: model-profile-hotspots
-description: "EMPIRICAL roofline tier — runs the ACTUAL model on the target node (random/dummy weights are fine; timing not accuracy) and collects a per-kernel wall-time profile, then compares each kernel's MEASURED time against its own kernel-level roofline floor to compute recoverable headroom. Ranks kernels by RoI = measured_share × (1 − measured/roofline_floor): the recoverable fraction of end-to-end time. Runs AFTER the analytical `model-roofline-analysis` and BEFORE `kernel-feasibility-gate`. Catches the cases where analysis is wrong (a kernel far below its roofline for a reason the analytical model didn't predict — e.g. issue/conversion-bound, register spill, bad blocking) and prevents authoring kernels that are already near their ceiling or too small a share to matter."
+description: "Use after source-faithful bring-up makes the model runnable. Profile per-kernel wall time on the target node and rank estimated recoverable share as measured_share * (1 - roofline_floor / measured_time). Apply the canonical max(compute time, memory time) floor. ROI orders optimization; it never exempts a standalone kernel from native C/C++ completion."
 ---
 
 # Model Profile Hotspots (measured, RoI-ranked)
@@ -13,11 +13,11 @@ roofline, and rank by recoverable time.** This tier turns the analytical ranking
 a measured, defensible hotlist.
 
 ## Pipeline position
-`model-op-decomposition → fusion-analysis → model-roofline-analysis →
-model-profile-hotspots → coverage-gate → (wire | kernel-feasibility-gate →
-kernel-authoring)`. This is the bridge between the analytical model tier (WHAT should
-dominate) and the kernel tier (HOW/whether): it confirms with real numbers WHERE time
-actually goes and which kernels have room to improve.
+Discovery/coverage → source-faithful reference bring-up → this profile →
+standalone optimization → reviewed serving integration, per the
+[canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Missing functional paths must be implemented before a full-model profile is possible.
+Use isolated baselines in the meantime; profile priority is not a coverage exemption.
 
 ## Why both roofline tiers exist
 - `model-roofline-analysis` = **analytical, top-down**. Cheap, needs no run, gives the
@@ -92,29 +92,32 @@ irrelevant — do the systemic sweep FIRST.**
    `model-roofline-analysis`; flag any op-class whose measured share differs
    materially from the analytical prediction (a modeling gap to explain).
 4. **Per-kernel efficiency vs roofline.** For each hot kernel compute its roofline
-   floor (min over compute-bound and memory-bound times on the node's achievable
+   floor (max of compute and memory times on the node's justified
    ceilings for the ACTUAL dtype/ISA). `efficiency = roofline_floor / measured_time`
-   (∈(0,1]). High efficiency ⇒ near ceiling ⇒ little to gain even if it's a big share.
+   (expected ∈(0,1]). Reject invalid metrics; values above 1 require investigation of
+   the model/measurement, not clamping. High efficiency alone does not establish completion.
 5. **RoI = recoverable end-to-end fraction.**
    `roi = measured_share × (1 − efficiency)` = the fraction of phase time you could
-   recover if this kernel hit its roofline. Rank kernels by `roi` descending.
+   recover if this kernel hit its roofline, assuming non-overlapped work.
+   Rank by `roi`, then verify causal end-to-end gains with controlled A/B runs.
 6. **Classify each hot kernel:**
    - Route by the `overhead-attribution` bucket FIRST: **torch** (unoptimized) → author/route
      a kernel or co-design; **kernel far below its floor** → kernel-isolation (config: threads,
      prepack, dtype path, verify ISA) NOT a new kernel; **kernel at floor** → accept; **framework**
-     → fusion / fewer ops / bf16-end-to-end, no kernel. Then within that:
+     → fusion / fewer ops / source-conformed layout changes. Then within that:
    - big share **and** low efficiency → **top RoI**, descend to `kernel-feasibility-gate`.
    - big share **and** high efficiency → already near ceiling; the only lever left is
      a *different roofline* (e.g. lower precision to cut the memory-bound floor) — note it.
-   - small share → **SKIP** regardless of efficiency (Amdahl caps the payoff).
+   - small share → lower priority; retain the full standalone optimization obligation.
 7. **Present the measured hotlist to the user** (table: phase, kernel/op-class,
    measured_share%, measured time, roofline floor, efficiency, roi, covered/new,
    action). This, not the analytical table alone, is what commits kernel budget.
 
 ## Output — measured RoI-ranked hotlist
 `[{phase, kernel, op_class, measured_share_pct, measured_ms, roofline_floor_ms,
-efficiency, roi, mapping: donor|new-kernel|config, action: author|tune|skip}]`.
-Only `author`/`tune` items with meaningful `roi` descend to `kernel-feasibility-gate`.
+efficiency, roi, mapping: donor|new-kernel|config, action: author|tune|investigate|complete}]`.
+`complete` requires the canonical standalone evidence, not just a high efficiency.
+Every incomplete kernel remains in the feasibility/optimization queue.
 
 **Publish it — BOTH artifacts, as the CLOSING STEP of the cycle (not deferred).** Emit the same data as:
 (1) a roofline-TARGET-vs-MEASURED artifact (model level + per op) via
@@ -133,8 +136,8 @@ reachable target** — publish it but caption the realistic floor (fused-kernel)
 achievable" number is read as "where FLOP-throughput is lost," not as failure.
 
 ## Gate
-No kernel enters `kernel-feasibility-gate` unless this tier measured it as a high-RoI
-hotspot (meaningful share AND headroom below its roofline). If the profile contradicts
+This profile prioritizes the queue; it is not a prerequisite for authoring a missing
+functional path or a reason to omit low-share standalone kernels. If the profile contradicts
 the analytical `model-roofline-analysis` ranking, the measured result wins — and the
 discrepancy is recorded (it usually points at a real effect the analytical model
 missed, like the DSA issue/conversion bound).
@@ -149,11 +152,10 @@ missed, like the DSA issue/conversion bound).
   so the decode profile reflects real per-token work.
 - `efficiency` uses the *achievable* ceiling, not the marketing peak — otherwise every
   kernel looks like it has headroom.
-- **Shape-correct stubs unblock the profile.** If make-it-work is blocked on an
-  un-ported authoring-gap kernel, stub it to return correctly-shaped tensors so the
-  full model runs and every OTHER op gets measured. The stubbed op shows as ~0 time
-  (flag it as "not yet implemented", not "free"); everything else is real signal that
-  ranks where to spend kernel effort first.
+- **Shape-only stubs are diagnostic, not representative evidence.** They can change
+  downstream routing, sparsity and cache behavior. Mark the missing op and affected
+  downstream costs unknown; do not use that run for acceptance or a model throughput claim.
+  Establish source-faithful reference execution before treating its profile as representative.
 
 ## Fast iterative profiling loop + scaling traps (HW/model/framework-agnostic)
 Validated end-to-end this way; reuse it to keep the optimize→measure loop at seconds, not an hour.

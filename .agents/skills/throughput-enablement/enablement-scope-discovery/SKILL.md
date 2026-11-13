@@ -60,13 +60,16 @@ the allocator; grep access to the whole repo.
      / mxfp4 / int4 do NOT compute natively). Such experts/linears are a GAP even though
      they "load": the CPU GEMM/MoE kernel rejects the packed sub-8-bit layout
      (DSV4: `fused_experts_cpu` `packed_w1 3588 vs 7168` = fp4 K/2 packing). Enablement =
-     dequant-to-supported-compute-dtype; accuracy-parity target is bf16 (no new quant
-     error), memory permitting — see `quantization-amx-int8`'s storage≠compute section.
-5. **Classify each leaf** (drives the cost): **CPU-ready** (no work) / **routing**
+     a compatible packed-input kernel with per-tile decode to a supported compute dtype,
+     matching the original numerical contract. Do not widen production weights to fit an
+     existing kernel; see the [canonical policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+5. **Classify each leaf for bring-up** (not final native acceptance): **CPU-ready** / **routing**
    (a CPU/torch path exists behind a predicate/flag — flip it) / **mechanical-port**
    (Triton index/bookkeeping kernel, no fallback, pure math → torch) / **authoring**
    (accelerator-only compute, no CPU-viable reference → real kernel; author a torch
-   reference first). See `cpu-model-wiring` for the taxonomy.
+   reference first). Temporary torch paths do not close standalone coverage: every kernel
+   subsequently needs native C/C++ execution and the canonical optimization evidence.
+   See `cpu-model-wiring` for the taxonomy.
 6. **Emit the scope manifest + cost.** Group by family/subsystem; list every leaf with
    its classification and the CPU lever; sum the cost (routing≈cheap, port≈medium,
    authoring≈dominant). This is the scope you commit to and show the user BEFORE
@@ -82,8 +85,8 @@ expectations for `cpu-model-wiring`'s bring-up ladder.
 The runtime-substrate scope MUST include a **memory footprint estimate** for the full-model
 parity/profile runs and a fit-check against the planned node(s). The GLM real-weight capture burned
 3 load-to-failure round-trips that an upfront budget would have avoided. Estimate: **weights** resident
-(a low-bit ckpt dequanted to bf16 at load ≈ 2×, + an AMX-prepack transient → load PEAK ~2–3× the
-on-disk low-bit bytes; divide by TP + check PER-GPU) + **KV pool** (`context_length × max_total_tokens
+(retain native packed weights, scales and measured prepack transients; reference-only widening
+costs 2× for fp8→bf16 or 4× for fp4→bf16 payload, excluding metadata; check each TP rank) + **KV pool** (`context_length × max_total_tokens
 × per-token-KV` — a native ~1M context over-reserves) + **state cache** (mamba/linear-attn =
 `max_running × per-req-state`, LARGE) + activations. If it does not fit the planned node: apply the
 reduction levers (cap `context_length`, `max_running=1`, correct `mem_fraction` — CPU = total engine

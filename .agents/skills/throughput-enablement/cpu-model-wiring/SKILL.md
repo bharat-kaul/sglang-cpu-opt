@@ -11,6 +11,11 @@ existing kernel. All code lands in the Intel plugin package and integrates via
 files under `sglang/` — this keeps the demo upstream-clean and lets a human cut a
 community PR from the same diff.
 
+Follow the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Reference bring-up and native production completion are distinct. Every final compute kernel
+must be C/C++ with measured optimization evidence; temporary torch paths do not satisfy that gate.
+Prepack the original stored dtype without whole-weight widening and preserve its numerical contract.
+
 ## The wiring surface (per op kind)
 1. **Linear weights (qkv, o, gate/up/down, lm_head).** Attach
    `PackWeightMethod` (`sglang.srt.layers.amx_utils`) so weights convert to
@@ -27,18 +32,20 @@ community PR from the same diff.
 4. **Norm / RoPE / activation.** Reuse `RMSNorm`, `rotary_embedding`,
    `SiluAndMul`/`GeluAndMul` as-is — no wiring beyond correct placement (QK-norm
    applies RMSNorm to q,k before attention).
-5. **Precision variants (inherit ALL the donor supports).** Precision is a donor
+5. **Precision variants (source contract first, additional variants approved separately).** Precision is a donor
    capability: the CPU dense/MoE kernels expose BOTH an AMX BF16 path and an AMX
    INT8 (`w8a8_int8`) path (~2x compute peak, `amx_int8_ops_per_cycle_per_core`).
-   Generate EVERY precision the donor supports, each as its own config + certificate:
-   - **BF16** — no checkpoint change; primary, accuracy-tight.
+   Keep the original checkpoint precision; explore additional reduced-movement options.
+   Generate only approved lossy variants, each with its own validation/config/certificate:
+   - **BF16** — no checkpoint change only when the original weights are BF16;
+     never widen a packed checkpoint just to use this path.
    - **INT8 (w8a8)** — needs an int8 checkpoint (int8 weights + per-channel
      `weight_scale`); `--quantization w8a8_int8` does NOT quantize a plain bf16
      checkpoint online. If the release is unquantized, first run an automated,
      calibration-free pass (per-channel weight int8 + dynamic per-token activation
      = RTN) to emit a compressed-tensors int8 checkpoint, THEN serve with
      `--quantization w8a8_int8`. Validate at the INT8 budget (looser) and gate perf
-     against the INT8 ceiling. Skip only if no accuracy budget allows it.
+     against a matched INT8 target. Donor support does not itself authorize quantization.
 6. **Registration.** Expose the model class through the external package so the
    registry discovers it without touching core; keep the class a thin subclass of
    the upstream model that only overrides load-time prepack + CPU forward paths.
@@ -177,8 +184,6 @@ core edits) so `enablement-certificate` can attach it for PR review.
 - **A "fallback" is not automatically a CPU fallback.** HIP/XPU/NPU paths are
   non-CUDA but still call that accelerator's Triton/custom ops. Confirm the fallback
   is pure torch (or a CPU sgl_kernel) before routing CPU to it.
-- **With dummy weights, a shape-correct stub can unblock profiling.** For an
-  authoring-gap op you haven't ported yet, a stub that returns correctly-shaped
-  tensors lets the WHOLE model run so `model-profile-hotspots` can rank where the
-  real kernel effort belongs — then author the RoI-ranked ops for real (numeric
-  correctness is validated later, with real weights).
+- **Shape-only stubs are diagnostic only.** A bypass can change downstream routing,
+  sparsity and cache traffic. Mark affected costs unknown; establish a source-faithful
+  runnable path before representative profiling. No stub closes native/correctness acceptance.

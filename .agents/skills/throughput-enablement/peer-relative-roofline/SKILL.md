@@ -10,6 +10,16 @@ Because we reuse kernels that ALREADY hit their roofline on enabled models, a
 correct enablement must REPRODUCE that efficiency. This gate adds the missing
 half: measure the new model against the donor that shares its kernel.
 
+Follow the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+This wiring comparison supplements, not replaces, every kernel's standalone completion.
+Target selection is shape/config-specific; thresholds alone do not prove full optimization.
+
+`plugin/validate/peer_roofline.py` is a **raw-GEMM threshold report**, not this entire
+model gate. It now requires both thresholds, finite positive measurements, a non-provisional
+target and exact M/K/N donor matching; missing/proxy donors and failed benchmark children
+exit nonzero. Use the [full certificate gate](../enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate)
+for independently bound identities, process samples, actual dispatch, all operators and end-to-end evidence.
+
 ## Why two proofs
 | Proof | Answers | Catches |
 |-------|---------|---------|
@@ -54,9 +64,11 @@ Per hot op, PASS requires BOTH:
 End-to-end PASS: normalized prefill AND decode throughput ≥ 0.90 of the peer.
 - Any op `eff_rel < 0.90` while `eff_abs` is high → **WIRING BUG**: check prepack
   first, then ISA dispatch, then NUMA/thread binding — return to `cpu-model-wiring`.
-- Any op `eff_abs < 0.70` with `eff_rel ≈ 1.0` → the donor is ALSO below the
-  ceiling: this is a kernel-optimization opportunity (route to `cpu-optimizer`),
-  not an enablement defect — record it, do not block the enablement on it.
+- Any op `eff_abs < 0.70` with `eff_rel ≈ 1.0` → the donor also misses the agreed
+  absolute target. Investigate the target and kernel; do not waive the failure because
+  both paths are slow. The performance gate remains blocked pending resolution.
+- Missing donor/target or non-finite/nonpositive measurements → missing/invalid evidence,
+  not PASS. A genuinely donorless new op needs an explicitly approved alternative route.
 - `eff_rel > 1.0` materially → suspect a stale/cross-node donor baseline; re-measure
   the donor before claiming a win.
 

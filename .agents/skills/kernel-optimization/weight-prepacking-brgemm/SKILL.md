@@ -10,6 +10,10 @@ Kalamkar, …, **Heinecke**, "High-Performance Deep Learning via a Single Buildi
 Block" (arXiv:1906.06440) and Tensor Processing Primitives (arXiv:2104.05755),
 realized in LIBXSMM/TPP.
 
+Use the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy)
+for target selection and completion. Retain native packed precision when prepacking;
+the BF16 layout below applies to BF16 operands, not a reason to widen a low-bit checkpoint.
+
 ## The batch-reduce GEMM building block
 Express a large GEMM as a reduction over a **batch** of small block-GEMMs that all
 accumulate into the same C block, kept resident in tile registers:
@@ -36,7 +40,7 @@ Procedure:
 3. Verify the pack cost is amortized (excluded from the steady-state timing).
 
 ## Measured evidence (GNR 6980P, 8Kx8Kx8K BF16, single socket)
-- Resident compute PEAK (`amx_peak.c`): ~350 TF/socket (unreachable by streamed GEMM).
+- Resident compute probe (`amx_peak.c`): ~350 TF/socket (not a guaranteed streamed target).
 - Stock `torch.matmul` (repacks each call): ~60.6 TF.
 - MKL `cblas_gemm_bf16bf16f32`, per-call pack: ~42.4 TF.
 - MKL with **weights pre-packed once** (`cblas_gemm_bf16bf16f32_pack` +
@@ -44,17 +48,14 @@ Procedure:
 - So pre-packing recovered **+29% over per-call MKL** (42.4 -> 54.8) — real, but
   NOT the dominant factor: even the best library path (~55-61 TF) reaches only
   ~16-17% of the resident peak.
-Conclusion: the apparent "5.8x gap" is mostly measuring against the RESIDENT peak,
-which no streamed library GEMM approaches. Pre-packing is necessary but not
-sufficient. Establishing the true streamed-achievable ceiling requires a
-cache-blocked BRGEMM (LIBXSMM/TPP), not installed here — see Next steps.
+These measurements compare particular library paths to a resident probe; they do not
+identify the whole gap's cause or establish a final streamed ceiling.
 
 ## Next steps to actually close the gap
 1. Build LIBXSMM (or TPP-PyTorch-extension) and run its JIT BRGEMM for 8Kx8Kx8K
-   BF16; that number is the real `streamed_gemm` ceiling.
-2. If it too lands far below the resident peak, the streamed ceiling IS the ~15-25%
-   regime for a lone square GEMM and the profile should record that honestly
-   (the resident peak stays a theoretical bound only).
+   BF16 at matched conditions; record it as another best-observed baseline.
+2. Use counters and blocking/thread/layout sweeps to justify an operation-specific target.
+   Agreement between libraries alone does not prove that the remaining gap is unavoidable.
 3. Cross-check the AMX all-core frequency under a *streamed* GEMM (vs the resident
    microkernel's 2.68 GHz) — memory traffic may pull the clock down further.
 
@@ -63,18 +64,18 @@ YES. oneDNN dispatched `brg_matmul:avx10_1_512_amx` — `brg` = batch-reduce GEM
 So torch.matmul's 60.6 TF is ALREADY a BRGEMM result; BRGEMM is the baseline, not
 an untried lever. The amx_peak.c microkernel (4-accumulator TDPBF16PS, C resident)
 is itself a BRGEMM kernel and hits ~350 TF cache-resident (~100% of AMX peak).
-Conclusion for a lone streamed 8Kx8Kx8K GEMM: the ~60 TF wall is data movement,
-not kernel quality; a different BRGEMM library (LIBXSMM) is expected to land in the
-same ~55-90 TF band, NOT near 350. LIBXSMM/TPP wins show up in end-to-end DL
-(fused epilogues, persisted blocked layouts, small/odd shapes, batched throughput),
-not in one isolated large square GEMM. A standalone LIBXSMM number was not obtained
+The historical hypothesis was that operand movement limited the ~60 TF result.
+It is not a validated ceiling or a reason to exclude standalone alternatives.
+Explore fused epilogues, persisted layouts and call geometry as well as the inner GEMM.
+A standalone LIBXSMM number was not obtained
 (sample driver does a per-thread scalar reference = unusably slow; a custom tiled
 shared-B BRGEMM needs careful VNNI/layout work — deferred to a batch job).
 
 ## Gate
-Set the profile's `achievable.streamed_gemm_tflops_per_socket` to the pre-packed
-BRGEMM result and re-run `roofline-validation` at ≥70% of THAT. If still short,
-return to `cache-blocking-tiling` (panel not L2-resident) or `openmp-parallelization`.
+Record the pre-packed result with its source/config and provisional status.
+Use a justified matched target for `roofline-validation`, not an automatic 70% of
+whichever library was measured first. Complete the canonical opportunity ledger;
+test tiling, threading and fusion where applicable even after a threshold passes.
 
 ## Reference implementation options
 - LIBXSMM (JIT BRGEMM microkernel) or the TPP-PyTorch-extension (both Heinecke et al.).

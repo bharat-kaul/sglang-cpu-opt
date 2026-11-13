@@ -159,26 +159,130 @@ Shrinking the config is the parity analog of the truncated-model perf proxy, and
   campaign, and the SAME fast parity then regression-guards each optimization (optimize → per-layer
   re-diff → integrate). Mirrors the DSV4 methodology.
   - **The one extra requirement: the GPU reference needs MULTI-GPU (the full model >> one GPU), so the
-    deterministic dummy must be TP-CONSISTENT** — each GPU rank's weight SHARD must equal the matching
-    slice of the CPU's (tp=1) full name-seeded weight. `_dummy_determinism.py` currently fills the LOCAL
-    `param.shape` (correct only at tp=1). To go full-model: either (a) make the fill TP-aware (generate
-    the GLOBAL name-seeded array per param, copy the rank's shard using the param's sharding metadata —
-    output_dim/input_dim, tp_rank, tp_size), or (b) generate a deterministic dummy CHECKPOINT once and
-    load it on both sides (the real loader shards it identically — sidesteps TP-aware fill). Do NOT
-    default to a single-GPU tiny run when multi-GPU (e.g. H200 ×8) is available — that under-scopes the
-    gate to op-type coverage instead of all-layer correctness.
+    deterministic dummy must be TP-CONSISTENT**. Use the
+    [shared checkpoint path below](#tp-consistent-shared-checkpoint-path), not a rank-local RNG.
+    `_dummy_determinism.py` now rejects TP>1; its unchanged TP1 sequence remains a legacy tiny-config
+    diagnostic. The new checkpoint is a different dummy fixture: regenerate BOTH reference and
+    candidate captures, never compare it against an old name-seeded TP1 golden.
+    Do NOT default to a single-GPU tiny run when the reviewed full-model configuration requires
+    multiple GPUs: that would reduce the gate to op-type coverage.
 - **REAL weights (final):** the dtype bridge + task accuracy, per the WEIGHT AXIS above.
 Net: tiny-dummy (bring-up, op-type) → full-model-dummy (all-layer correctness gate + opt regression
 guard, multi-GPU ref) → real (bridge + task). The middle rung is the one that proves the whole model.
+
+### TP-consistent shared checkpoint path
+
+Use [make_dummy_checkpoint.py](../../../../plugin/validate/make_dummy_checkpoint.py) to generate
+one **oracle-only** safetensors checkpoint. Both engines load the SAME files with their normal
+checkpoint loaders (`LOAD_FORMAT=safetensors`, `DETERMINISTIC_DUMMY` unset). The existing loaders
+own column/row sharding, fused QKV/gate-up, replicated KV heads, expert mapping, vocabulary padding
+and tied weights; do not reconstruct those layouts with a guessed `rank * local_size`.
+
+**Source inventory first.** Supply an independently reviewed JSON inventory of checkpoint names,
+GLOBAL shapes, dtypes and initialization roles, derived from the model's actual loader/source.
+It must cover every layer/parameter at the intended full shape. Names are checkpoint names, not
+fused local `state_dict` names. Respect tied-weight aliases (one canonical tensor where the loader
+ties storage); do not generate unrelated values for two names of the same logical weight.
+The builder validates the declared inventory; it cannot discover omitted model parameters.
+Example schema fragment, NOT a complete model inventory:
+
+```json
+{
+  "schema_version": 1,
+  "config_sha256": "SHA256_OF_EXACT_CONFIG_BYTES",
+  "source_revision": "PINNED_MODEL_LOADER_REVISION",
+  "tensors": [
+    {"name": "model.layers.0.self_attn.q_proj.weight", "shape": [4096, 4096],
+     "dtype": "bfloat16", "fill": "uniform"},
+    {"name": "model.layers.0.input_layernorm.weight", "shape": [4096],
+     "dtype": "bfloat16", "fill": "ones"}
+  ]
+}
+```
+
+Supported dtypes are `float32`, `float16`, `bfloat16`; fills are `uniform` ([-1e-3,1e-3]),
+`ones`, `zeros`. The fixture is seeded by global checkpoint name, independent of TP or file packing.
+This path deliberately **rejects quantized configs and packed/integer tensors**. For a quantized
+model, source-review a separate unquantized oracle config/inventory and its memory budget first;
+never infer unpacked dimensions from packed storage, silently strip quantization, or use this
+widened fixture as production/performance/real-weight accuracy evidence.
+
+```bash
+python plugin/validate/make_dummy_checkpoint.py create \
+  --config /approved/oracle-config.json --spec /approved/global-tensors.json \
+  --spec-sha256 APPROVED_SPEC_SHA256 --output /scratch/model-oracle \
+  --max-bytes APPROVED_TOTAL_DISK_BYTES --shard-bytes APPROVED_SHARD_PAYLOAD_BYTES
+python plugin/validate/make_dummy_checkpoint.py verify /scratch/model-oracle \
+  --manifest-sha256 GENERATED_MANIFEST_SHA256
+```
+
+`--max-bytes` is a hard disk budget, not a RAM claim. A tensor must fit the shard budget;
+reserve shard payload plus serialization copies and generator temporaries in the RAM budget.
+Generation is shard-bounded, never a full-model in-memory allocation. Existing output directories
+are not overwritten. Archive the emitted manifest hash: verify it on BOTH hosts before and after
+capture. Hashes cover config, inventory, tensor index and every shard. Keep tokenizer assets
+separate (`TOKENIZER_PATH`); no real checkpoint payload is read by the generator.
+
+**Capture through the existing runner, with identity binding enabled.** In addition to the
+model-specific CPU/GPU capture hook, set these on each side (only DEVICE/TP/hook/output path differ):
+
+```bash
+MODEL_PATH=/scratch/model-oracle LOAD_FORMAT=safetensors \
+ORACLE_CHECKPOINT_SHA256=GENERATED_MANIFEST_SHA256 \
+TOKENIZER_PATH=/models/original-tokenizer DTYPE=bfloat16 \
+TOKEN_IDS=1,17,42,9 MAX_NEW=1 MAX_RUNNING=1 CONTEXT_LEN=128 CHUNKED_PREFILL_SIZE=128 \
+DISABLE_RADIX=1 DISABLE_CUDA_GRAPH=1 FULLCAP_RANK=0 \
+FULLCAP_FILE=/scratch/UNIQUE_RUN.pt DEVICE=cpu TP=1 \
+python plugin/validate/_smoke.py
+```
+
+Select the reference's reviewed GPU TP count and source-faithful hook, not a dummy CPU emulator.
+The opt-in runner rejects depth overrides, local dummy initialization, existing capture paths and
+missing output. It verifies checkpoint hashes again after shutdown and writes
+`UNIQUE_RUN.pt.oracle.json`, binding the captured bytes to the actual request IDs and resolved
+TP/dtype/context/chunking settings. `FULLCAP_RANK=0` makes the GLM/DSv4 CPU/GPU fullcap writers
+single-writer; it does NOT turn rank-local intermediate tensors into global tensors.
+Capture actual requests only, excluding warm-up; review the model-specific hook's boundaries.
+
+**Compare all declared layers AND final logits, not the intersection.** Pass
+[diff_fullcap.py](../../../../plugin/validate/diff_fullcap.py) an independently reviewed inventory:
+`{schema_version:1, tensors:{normalized_key:{shape:[...],dtype:"float32",layout:"replicated"}}, run:{...}}`.
+`tensors` must include every required layer/op/pass and logits. `run` has exactly:
+`checkpoint_sha256`, `runner_sha256` (hash of `_smoke.py`), `input_ids`, `max_new_tokens`, `dtype`,
+`context_length`, `chunked_prefill_size`, `disable_radix_cache` (true). Use resolved, approved
+settings shared by both engines; TP/device may differ. Do not derive expected keys from the captures.
+
+```bash
+python plugin/validate/diff_fullcap.py /scratch/gpu.pt /scratch/cpu.pt \
+  --expected /approved/capture-contract.json --expected-sha256 APPROVED_CAPTURE_CONTRACT_SHA256 \
+  --atol APPROVED_ATOL --rtol APPROVED_RTOL --cos-thresh APPROVED_COSINE
+```
+
+This checks both sidecars and hashes, exact coverage, shape/dtype, finite values, elementwise
+`abs(candidate-reference) <= atol + rtol*abs(reference)` AND cosine. Duplicate rank-normalized
+keys, missing tensors even on BOTH sides, wrong inputs/checkpoint and nonzero child exits block.
+Only already-global replicated signals are supported directly. Sharded head/expert tensors need
+a source-reviewed reconstruction adapter before comparison; never silently strip/concatenate ranks.
+Without a pinned inventory and tolerances the tool is diagnostic only; without `run` it establishes
+tensor agreement only, not input/weight provenance. The full phase gate still checks source/capture
+conformance, inventory completeness and approval.
+
+**Validation scope:** automated tests exercise artifact generation/rejection, capture metadata and
+real SGLang CPU column/row/fused-gate-up/GQA weight loaders at TP1/2/4 with exact shard equality and
+assembled numerical outputs. These are CPU loader tests, not multi-process collectives, GPU execution,
+MoE/EP acceptance or a full-model parity result. Run the source-faithful full-model CPU/GPU comparison
+before accepting a particular model; real-weight bridge/task accuracy remains mandatory afterward.
 
 ### ⛔ CAPACITY BUDGET — size the FULL memory footprint BEFORE launching ANY full-model parity/capture run
 Do this UP FRONT (part of scope/infra planning), not via load-to-OOM. A wrong guess costs a chain of
 ~15-min load-to-failure round-trips (GLM real-weight capture burned 3: mem_frac 0.15 → state-cache
 NEGATIVE, 0.9 → OOM-killed, then context-cap 8192 + mem_frac 0.5 fit). Before the run, COMPUTE
 resident + load-PEAK memory and confirm it fits the planned node(s):
-- **Weights (and the dtype bridge DOUBLES or more).** fp8/fp4 ckpt dequanted to bf16 at load ≈ 2× the
-  on-disk size; add an AMX-prepack transient copy → load PEAK can be ~2–3× the on-disk low-bit bytes
-  (GLM: 306 GB fp8 → ~600 GB bf16 resident, higher peak). Multi-GPU: divide by TP and check PER-GPU.
+- **Weights:** keep production weights natively packed, including scales and prepack transients.
+  A widened reference-only fixture needs a separate budget: fp8→bf16 payload is 2×,
+  fp4→bf16 is 4×, excluding metadata/transients. It is not production coverage or performance
+  evidence. Follow the [canonical precision contract](../../../../docs/methodology-playbook.md#canonical-acceptance-policy);
+  check actual per-rank allocations for multi-GPU rather than assuming uniform division.
 - **KV pool (attention)** = `context_length × max_total_tokens × per-token-KV`. A model's NATIVE context
   (GLM ~1M) over-reserves massively — this is usually the biggest single pool.
 - **State cache (mamba / linear-attn, e.g. KDA)** = `max_running_requests × per-req-state` — LARGE for
@@ -387,11 +491,11 @@ SwiGLU gate/up split) sits in between and fails SILENTLY (plausible garbage, not
 it before trusting end-to-end output:
 - **Independent oracle from the SAME packed bytes.** Compare the real kernel output to a torch
   dequant+compute reference derived from the checkpoint's own packed weights + scales — decode the
-  low-bit values per the KERNEL's exact convention (read the kernel source, e.g. csrc/cpu/vec.h
-  `cvt_mxfp4_e2m1_bf16`: standard OCP e2m1 LUT, low-nibble-first, per-32 e8m0 scale = 2^(byte−127)),
-  NOT via a different quant path that may use another scale layout. Assert cosine ≥ 0.99 and small
-  relative error (bf16 accumulation vs fp32 reference → tolerate ~1e-2, but a wiring bug blows past
-  it by orders of magnitude).
+  low-bit values per the pinned PUBLISHED FORMAT and model contract, then check the kernel's
+  decoder against them. Include actual scale ranges, nibble/group layout and special values.
+  Do not derive both sides from the candidate's convention or substitute a differently rounded
+  FP32 reference. Apply source-conformed, approved tolerances and reject non-finite evidence;
+  weight-value equality alone does not validate accumulation or intermediate rounding.
 - **Two complementary forms.** (1) A STANDALONE synthetic test (random packed weights → prepack →
   kernel vs oracle) proves the kernel + packing math, is CI-able, and needs no model load — but must
   run on real ISA hardware (AMX). (2) An IN-SITU probe gated by an env flag stashes the first layer's

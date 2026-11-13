@@ -15,6 +15,7 @@ donor model) that the enablement-certificate tool records as provenance.
 """
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 logger.info(
@@ -63,6 +64,8 @@ try:
 
     install_deterministic_dummy()
 except Exception as _e:  # noqa: BLE001
+    if os.environ.get("DETERMINISTIC_DUMMY") == "1":
+        raise
     logger.warning("intel_cpu_models: deterministic dummy not installed: %s", _e)
 
 # Per-layer hidden-state capture (gated INTEL_CPU_DSV4_LAYER_CAPTURE=<file>): the DEBUGGER that

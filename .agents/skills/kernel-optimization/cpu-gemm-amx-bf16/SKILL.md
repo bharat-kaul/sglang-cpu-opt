@@ -38,22 +38,22 @@ next-best path and record the gap. Do NOT emit code the ISA/toolchain cannot run
 ## Optimization sequence (ordered — calibrate → memory layout → tile → parallel → clock)
 
 0. **Calibrate the ACHIEVABLE ceiling first (do this before optimizing anything).**
-   Peak (paper) FLOP/s is not the target — the *achievable* ceiling a saturating
-   microkernel sustains on the actual silicon is. Run the bundled microbenchmarks
+   Follow the [canonical target rules](../../../../docs/methodology-playbook.md#canonical-acceptance-policy):
+   theoretical/resident bounds and full-kernel achievable targets are distinct. Run the bundled microbenchmarks
    once per hardware profile and store the results in the profile's `achievable`
    block:
    - `tools/microbench/amx_peak.c` — resident-tile TDPBF16PS loop (4 accumulators,
      zero memory traffic) → per-core and per-socket **achievable compute TFLOP/s**.
      This also empirically fixes the FLOP/cycle constant instead of assuming it.
    - `tools/microbench/stream_triad.c` — STREAM triad → **achievable DRAM GB/s**.
-   All later gates compare against these measured numbers, not the paper peak.
+   Establish a matched full-kernel target as well; these probes do not establish it alone.
    On Granite Rapids 6980P the microkernel yields ~350 TF/socket (~=100% of AMX
-   peak) and STREAM ~631 GB/s/socket; treat 350 TF/socket as the GEMM target.
+   peak) and STREAM ~631 GB/s/socket; label 350 TF/socket a resident reference bound.
 1. **Classify & roofline-gate.** Compute arithmetic intensity `AI = 2*M*N*K /
    bytes_moved`. Compare to the profile ridge point (`peak_bf16_flops /
    peak_mem_bw`). If `AI > ridge` the kernel is **compute-bound** → target the
-   AMX FLOP ceiling. If below, stop and switch to the memory-optimization skill.
-   (A large square BF16 GEMM such as 8Kx8Kx8K is firmly compute-bound.)
+   modeled compute bound. If below, prioritize data movement while checking whether
+   compute/feed overhead prevents reaching bandwidth. Confirm the bottleneck empirically.
 2. **Precision & accumulation.** Inputs BF16, accumulate in FP32 (AMX TDPBF16PS
    accumulates FP32 natively). Never accumulate in BF16.
 3. **Tile to the AMX unit.** Register tiles are fixed by the ISA:
@@ -89,17 +89,17 @@ next-best path and record the gap. Do NOT emit code the ISA/toolchain cannot run
 
 ## Performance gate (roofline)
 
-- Gate against the **achievable** ceiling from step 0, not the paper peak.
+- Gate against the justified shape/config-specific target from step 0.
   `efficiency = achieved_tflops / achievable_ceiling_tflops`.
-- Target: **>= 70%** of the *achievable* AMX ceiling for a large square GEMM on a
+- Target: **>= 70%** of that calibrated target for a large square GEMM on a
   single socket. Below target -> return to step 4/6/7 (blocking, threads, NUMA)
-  with the gap as feedback. `efficiency > 100%` means the measured ceiling or
-  frequency is wrong — re-run the microkernel, do not report.
+  with the gap as feedback. A threshold pass still requires the complete opportunity
+  ledger, including producer-consumer fusion. Values above 100% require target/model review.
 - Known baseline (GNR 6980P, 8Kx8Kx8K): stock `torch.matmul` ~60 TF and MKL
   `cblas_gemm_bf16bf16f32` ~42 TF both land at only ~12-17% of the 350 TF/socket
-  achievable ceiling — i.e. off-the-shelf libraries FAIL this gate for a lone
-  large GEMM. Closing it needs weight pre-packing + explicit cache blocking
-  (steps 4-5) or a custom brgemm microkernel scaled from `amx_peak.c`.
+  resident reference bound. Those ratios alone establish neither a library defect nor
+  a data-movement ceiling. Measure blocking, packing, threading and alternative native
+  implementations before assigning the cause or declaring standalone completion.
 
 ## Retargeting to a new Xeon (Day-0 intent)
 
@@ -130,7 +130,7 @@ rather than emit unrunnable code.
 ## Bundled tools
 
 - `../../../../tools/calibrate.py` — Day-0 profile generator (probes node + runs microbench).
-- `../../../../tools/microbench/amx_peak.c` — AMX BF16 compute-peak microkernel (achievable ceiling).
+- `../../../../tools/microbench/amx_peak.c` — AMX BF16 resident compute reference probe.
 - `../../../../tools/microbench/stream_triad.c` — memory-bandwidth microbenchmark (achievable BW).
 - `../../../../tools/gemm_amx_bf16.py` — BF16 AMX GEMM benchmark + FP32 correctness check.
 - `../../../../tools/mkl_gemm_bf16.c` — tuned MKL AMX BF16 GEMM (headroom-chase baseline).

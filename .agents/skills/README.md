@@ -5,6 +5,16 @@ Two legs share one plugin. Skills are grouped so it is obvious which belong to t
 **new-kernel leg** (write/optimize a kernel). `shared/` skills are used by both.
 
 ## Operating principles (the skills are framework- AND hardware-agnostic)
+- **Acceptance authority:** [canonical policy](../../docs/methodology-playbook.md#canonical-acceptance-policy).
+  Every standalone kernel must be native C/C++ with measured optimization and fusion exploration.
+  ROI orders work, not coverage. Preserve source precision and packed production weights; additional
+  lossy movement/compute requires approval and validation. Separate idealized bounds from calibrated
+  targets. A threshold pass alone does not establish completion.
+- **Every phase has an adversarial exit audit and executable prefix gate.**
+  Use [enablement_gate.py](../../plugin/validate/enablement_gate.py) and the
+  [certificate contract](throughput-enablement/enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate).
+  Bind the audit to evaluated evidence; resolve findings and replay negative controls before advancing.
+  Preserve the Xeon batch1-64 goal and required external approvals. Historical GREEN labels are not gate results.
 - **The METHOD is the skill; the framework/HW/scheduler are the current concrete INSTANCE.**
   Today the instance is SGLang + x86 CPU (AMX) + Slurm (EMR/GNR/H200). The methods —
   op-decomposition, reference-oracle parity, multi-vector differential debugging, roofline
@@ -13,7 +23,7 @@ Two legs share one plugin. Skills are grouped so it is obvious which belong to t
   like `Fp8LinearMethod`, `bench_one_batch`, `sinfo`, `gnrap` are examples, not dependencies.
   Read framework/HW specifics as "the equivalent in your stack," and keep new skill prose
   instance-neutral (state the principle, cite the current tool in parentheses).
-- **Step 0 of any session = DISCOVER the compute inventory, before planning any runs.** Probe
+- **Step 0 = the [mandatory startup infrastructure gate](../../docs/methodology-playbook.md#mandatory-startup-infrastructure-gate).** Probe
   what the scheduler/cloud actually offers RIGHT NOW and classify it by run shape:
   (a) a **parallel farm** (many idle nodes) for independent bisection waves,
   (b) the **fastest single node** for one decisive run,
@@ -21,8 +31,13 @@ Two legs share one plugin. Skills are grouped so it is obvious which belong to t
   Concretely: enumerate partitions/queues and idle counts (`sinfo`/cloud API), accelerator
   availability and how to request partial devices, per-node-class load time and ISA. This
   inventory determines the run strategy (`high-information-runs`: wave vs single, where the
-  oracle lives) and the portability gate (correctness runs anywhere idle; perf only on target HW).
-  Record it once at session start; re-check availability before each submit (queue wait is run_cost).
+  oracle lives) and the portability gate (portable checks on compatible allocated nodes;
+  ISA-specific checks and final performance on the target capability/configuration).
+  Record CPU/GPU topology, per-domain/rank memory, scheduler limits, actual storage and software
+  alongside timestamped availability. Budget peak memory and shared-checkpoint readers, then assign
+  CPU work, GPU oracle and parallel shards. Re-check before each submit and verify the allocation
+  before loading. The discovery gate requires `inventory` + `execution_plan` evidence; missing,
+  stale or overcommitted plans block. This is separate from discovering the model's code dependencies.
 
 ## `throughput-enablement/` — THE THROUGHPUT THESIS
 Enable a new all-known-kernels model on CPU, no fork. Load in this order:
@@ -32,18 +47,19 @@ Enable a new all-known-kernels model on CPU, no fork. Load in this order:
    donor fused-kernel or a new-fused-kernel task; cross-checks external impls/claims
    (vLLM, TRT-LLM, FlashInfer, authors' report, blogs) — code = oracle, claim = hint
 2c. `model-roofline-analysis` — TOP roofline tier: whole-model, per-phase (prefill/decode),
-   Amdahl-ranked high-ROI plan; gates entry to the kernel-level roofline (feasibility-gate)
+   Amdahl-ranked plan; orders all required standalone work without low-ROI exemptions
 2c2. `enablement-scope-discovery` — dependency-closure scan of the ACTUAL forward + backend +
    KV/memory-pool code to the sub-op leaf; enumerates ALL novel kernel families (across every
    subsystem, not just attention) + the runtime substrate; classifies routing/port/authoring;
    honest scope BEFORE the first bring-up (catches second families like DSV4 MHC + the infra layer)
-2d. `model-profile-hotspots` — EMPIRICAL tier: run the model (random weights ok), per-kernel
-   measured time vs kernel roofline floor, rank by RoI = share*(1-efficiency); measured
-   hotlist wins over the analytical ranking and commits kernel budget
 3. `kernel-capability-registry` — op → existing kernel contracts (+ donors, precisions)
 4. `coverage-gate` — 100% covered? else route the gap to the new-kernel leg
-5. `cpu-model-wiring` — wire in the plugin (prepack, intel_amx, FusedMoE, BF16 + INT8)
-6. `accuracy-oracle` — per-layer parity + task (gsm8k/mmlu), per precision
+5. `cpu-model-wiring` / `cpu-serving-integration` — source-faithful reference bring-up;
+   missing functional paths may need authoring before a model profile exists
+6. `accuracy-oracle` — bring-up parity, then full-shape/depth parity before optimization
+6b. `model-profile-hotspots` — representative profile, rank by share*(1-floor/measured)
+6c. `cpu-optimization-playbook` — complete every standalone kernel and fusion ledger; human review
+6d. `cpu-serving-integration` / `accuracy-oracle` — native integration, dispatch and final real-weight/task checks
 7. `peer-relative-roofline` — perf vs the donor running the identical kernel
 8. `enablement-certificate` — machine-checkable pass/fail + PR-ready diff
 
@@ -86,8 +102,8 @@ The throughput thesis needs `throughput-enablement/` **plus** `shared/`.
 ## `kernel-optimization/` — NEW-KERNEL LEG (write/optimize a kernel)
 For a coverage GAP (e.g. DeepSeek-V4 DSA indexer). Driven by the `cpu-optimizer` agent.
 - `cpu-optimization-playbook` — orchestrator index for this leg
-- `kernel-feasibility-gate` — MANDATORY go/no-go BEFORE authoring: user-reviewed roofline
-  walk-through + baseline microbenchmark + Amdahl; prevents building the wrong kernel
+- `kernel-feasibility-gate` — MANDATORY before optimization: user-reviewed roofline
+  walk-through + baseline microbenchmark; Amdahl sets priority, not exemption
 - `kernel-authoring` — GENERATIVE: write a new kernel by adapting a donor (SGLang corpus
   map + LIBXSMM/TPP + oneDNN); load first when authoring, before the tuning skills
 - `cpu-serving-integration` — MAKE IT RUN: wire authored kernels into the model's serving
@@ -95,9 +111,8 @@ For a coverage GAP (e.g. DeepSeek-V4 DSA indexer). Driven by the `cpu-optimizer`
   proof deliverable (model runs + accuracy + roofline-vs-measured)
 - `openmp-parallelization`, `cache-blocking-tiling`, `amx-vectorization`,
   `weight-prepacking-brgemm`, `quantization-amx-int8`
-- `inter-kernel-fusion` — Phase-B glue lever: once each op is isolation-certified, kill the
-  dtype/layout conversions, staging copies, and serialization BETWEEN kernels (the e2e residual
-  that isn't framework/config). Complements `fusion-analysis` (graph-level, up front).
+- `inter-kernel-fusion` — explore producer-consumer fusion during standalone work and recheck
+  serving seams during integration; fused regions get their own correctness and cost model.
 - `cpu-gemm-amx-bf16` — worked example composing the above
 
 ## Cross-cutting / org-reusable plug-ins (used by ANY workflow)

@@ -5,7 +5,8 @@ starts with discovery + provenance and ends with a running, accurate, roofline-v
 by a **spine-leaf** set of skills, where **every phase is closed by a gate** so the output of one phase is
 *trusted* before the next begins.
 
-> This page documents the *method*. The executable rules live in `.agents/skills/`; a worked application is
+> This page defines the acceptance policy; `.agents/skills/` supplies the procedures. Prose is not executable
+> enforcement: validator coverage must be demonstrated separately. A worked application is
 > [kernel-pilot-performance.md](kernel-pilot-performance.md) (the DSv4-Flash DSA standalone-kernel results).
 > The **Phase-1 "how-to"** — the staged way to optimize one kernel — is the
 > [Standalone Kernel Optimization Playbook](standalone-kernel-optimization-playbook.md).
@@ -13,12 +14,203 @@ by a **spine-leaf** set of skills, where **every phase is closed by a gate** so 
 > ## ⛔ NON-NEGOTIABLE — consult this playbook step-by-step BEFORE any kernel-optimization implementation.
 > Every kernel/op optimization pass **must** walk the Phase-1/Phase-2 kernel rules below *before* writing code
 > and **bear them in mind throughout**. In particular, before an implementation starts, confirm on paper:
-> (1) the op's **regime at the target M** (compute vs BW, via the resident-ridge + reuse law); (2) that the hot
-> path is an **authored C/C++ AMX/AVX-512 kernel** (BRGEMM/grouped-BRGEMM) — never a torch fallback — **tiled +
-> double-buffered + fusion-folded** so compute hides under the stream (BW-bound is the ceiling, NOT a license to
-> skip AMX); (3) the plan is **adaptive in M** (streaming layout + thread count); (4) the lever's ROI is bounded
-> by a **drift-robust interleaved counterfactual** (region-timer shares only *nominate*); (5) **dispatch-provenance**
+> (1) the op's **regime at the target M** (compute vs BW, using the matching ceilings); (2) that the compute
+> path is **C/C++**, authored or an optimized native library, with measured ISA/tiling/threading/packing
+> and fusion choices; (3) the plan is **adaptive in M** where measurement warrants it; (4) end-to-end ROI
+> ranks work but never exempts a standalone kernel from optimization; (5) **dispatch-provenance**
 > will prove zero eager ops in the hot chain. Skipping this walk is a process defect, not a shortcut.
+
+## Canonical acceptance policy
+
+This section is the single authority for phase order, standalone completion, precision and performance
+math in both legs. Dependent skills reference it rather than define competing rules. Historical results
+are evidence for their recorded configuration, not permanent ceilings or exemptions.
+
+### Phase boundaries
+
+1. **Discovery:** bind the source numerical contract, complete op/fused-op graph, actual shapes,
+   dispatch branches and target hardware. Start with the infrastructure gate below; calibrate and
+   agree on the operating points and review gates.
+2. **Correct reference / bring-up:** establish a source-faithful runnable path and correctness fixtures.
+   Temporary Python/torch fallbacks are allowed only here and as retained oracles. If a missing op prevents
+   execution, implement its minimal source-conformed path before demanding a full-model profile.
+   Mark unmeasured costs unknown; synthetic bypasses are not performance or correctness acceptance.
+3. **Standalone optimization:** every kernel must meet the completion requirements below. Rank by ROI,
+   but low end-to-end share is not permission to skip a kernel. Review this phase before production
+   integration; an early diagnostic model run is not that integration or a completion claim.
+4. **Serving integration:** wire accepted kernels one at a time, prove actual native dispatch and
+   preserve state/request identity. Realize the recorded producer-consumer fusion and layout opportunities;
+   any resulting fused kernel re-enters standalone correctness and performance acceptance.
+5. **Final validation and approval:** validate real-weight numerics/task accuracy, measured end-to-end
+   performance and evidence completeness. Existing human review and tolerance approvals remain required.
+
+### Mandatory startup infrastructure gate
+
+At the start of either workflow leg, frame the KPI (Xeon request batch 1..64, latency/throughput
+points), then **discover actual infrastructure before choosing a node, TP count or parallel wave**.
+This is deployment-resource discovery, distinct from `enablement-scope-discovery`'s model-code walk.
+Historical profiles and site-specific kickoff notes are candidates to verify, not live availability.
+
+**1. Discover and record a timestamped inventory.**
+
+| Area | Required observations |
+|---|---|
+| CPUs | Eligible node classes, ISA support, sockets, physical/SMT cores, NUMA/SNC topology, RAM per domain, current allocations; calibrated bandwidth/compute profiles or explicit calibration gaps |
+| GPUs | Eligible types/counts, VRAM per device, device partitioning/MIG if applicable, interconnect/topology, driver/runtime compatibility and permissible TP layouts |
+| Scheduler | Accessible partitions/accounts/QoS, job/array/concurrency limits, wall limits, pending/running allocations, reservations and GPU request mechanism |
+| Storage | Actual mount type/locality, free space/quota, checkpoint/cache locations and revisions, staging capacity, shared-reader bandwidth constraints; `/scratch` is not proof of local storage |
+| Software/access | Python/framework/plugin revisions, compiler/native libraries, CPU ISA dispatch support, GPU/container/collective stack, offline caches and model-access availability; never store credentials |
+
+Use read-only scheduler queries first (for example `sinfo`, `squeue`, `scontrol show partition/node`,
+and permitted account/QoS queries). Probe `lscpu`, `numactl --hardware`, GPU inventory/topology,
+mounts and software on the relevant node class, **not just the login host**. Use short, explicitly
+budgeted allocations when compute-node probes are required. No unauthorized SSH, GPU use or
+benchmarking on login/shared unallocated resources. An inaccessible required fact is unknown, not zero.
+
+**2. Budget before allocation or loading.** From the actual source/config/weight inventory, account
+for resident weights, load/prepack transients, KV/state caches, activations and capture buffers.
+Compute the peak per CPU NUMA domain and per GPU rank; never assume total bytes divide evenly by TP.
+Budget separately for widened oracle-only fixtures, disk staging and container pulls. Preserve native
+production checkpoint precision. Record TP divisibility/replication constraints, compatible collectives
+and the minimum resource configuration that fits with justified headroom. Early hardware/calibration
+probes need their own small budgets; they do not require a model run or a completed model calibration.
+
+**3. Produce a resource-aware execution plan.**
+- Map CPU correctness/bring-up, standalone sweeps, target-node performance, GPU reference capture
+  and final accuracy shards to eligible resources. A portable check may use a compatible idle node;
+  ISA-specific correctness and final performance still need the actual target capability/configuration.
+- Co-plan independent CPU and GPU work; overlap it when dependency, memory and storage budgets permit.
+  Select a legal GPU/TP configuration by fit, topology and expected completion time, not GPU count alone.
+  Use the TP-consistent oracle path; an unavailable reference requires an approved alternative or a blocker,
+  never silently reduced model depth or omitted parity.
+- Define shard-to-job mapping, dependencies, concurrency caps, unique immutable outputs, retry/approval
+  boundaries and monitoring before launch. Separate **loading slots** from **running engines**:
+  stagger/rate-limit shared-checkpoint readers (CPU AND GPU), release a slot only after engine-ready
+  confirmation, and do not infer storage capacity from idle node count.
+- Minimize total enablement wall time, including queue, load and reference readiness, without competing
+  experiments contaminating final performance measurements. Do not treat every idle node as automatically
+  eligible or every independent compute job as an independent storage reader.
+
+**4. Refresh and reconcile before every submission/retry.** Recheck availability, quotas, storage
+capacity and outstanding job identities. A snapshot is not a reservation. After allocation/queue wait,
+verify the actual assigned CPU/GPU IDs, topology, memory and software before loading. If they differ
+from the plan, re-budget/replan; renew affected audits/approvals rather than relabel old evidence.
+If submission outcome is ambiguous, reconcile with the scheduler before resubmitting.
+
+**Required evidence:** timestamped `inventory` and `execution_plan` artifacts with raw probe/queue
+sources, selected resource identities, budgets, concurrency limits, freshness policy and blockers.
+Bind selected hardware/runtime manifests to the phase plan's identity. The discovery
+`infrastructure` adapter must validate both artifacts and report zero `missing`, `stale` and
+`overcommitted` obligations; a missing check or input blocks the executable gate.
+Freshness is evaluated against the relevant plan/submission/allocation event, not today's wall clock
+when replaying historical evidence. The launch adapter performs the live refresh; the certificate
+checker does not reserve nodes or guarantee future availability. Source/site-specific probe validation
+must be implemented and reviewed before claiming a real infrastructure PASS.
+
+Complete the discovery prefix before model/proxy/oracle jobs; only the budgeted discovery/calibration
+probes above precede it. Keep its adversarial audit explicit: try a stale queue snapshot, an unsupported
+TP layout, an underestimated per-rank peak and simultaneous shared-storage readers. The
+[high-information-runs procedures](../.agents/skills/shared/high-information-runs/SKILL.md) supply the
+wave/placement details; local process recovery is not a substitute for Slurm reconciliation.
+
+### Every phase exits through an adversarial audit and executable gate
+
+At discovery, reference bring-up, standalone completion, integration and final validation:
+1. Try to falsify the phase's result: missing branches, wrong source/config/operands, invalid numbers,
+   unmeasured assumptions and misleading performance targets. Exercise positive and negative controls.
+2. Check alignment with **best demonstrated Xeon model performance at request batch 1..64**:
+   retain B1 latency and declared throughput points, source correctness, complete native standalone
+   optimization and fusion exploration. Low model ROI affects priority, never kernel coverage.
+3. Record the audit against the exact evidence manifest, with findings, resolutions and supporting
+   artifacts. An unresolved finding blocks phase acceptance. A loss/neutral result may resolve an
+   optimization proposal honestly; it does not excuse a failing correctness or coverage requirement.
+4. Run [enablement_gate.py](../plugin/validate/enablement_gate.py) with `--through` for that phase.
+   It replays all required prefix checks and their negative controls, verifies source/artifact identity,
+   and rejects incomplete evidence. Do not advance on a narrative PASS or an old certificate.
+
+The [executable contract and commands](../.agents/skills/throughput-enablement/enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate)
+define the independently approved plan, source-faithful replay adapters, evidence and approvals.
+Every phase requires a bound self-audit; standalone and final additionally require external human
+approval. A self-audit supplements tests and approval, never substitutes for them.
+Before a new model has reviewed adapters/complete evidence, the correct result is BLOCKED.
+These checks enforce acceptance; they do not establish universal optimality or implement scheduler
+restart/resume orchestration.
+
+For automation, use the
+[local phase recovery runner](../.agents/skills/throughput-enablement/enablement-certificate/SKILL.md#local-failure-restart-and-approval-handling):
+one owner, persistent bounded attempts, explicit restart, immutable accepted reports and an approval
+pause that launches no checks. Restart revalidates the entire evidence prefix; never adopt a partial
+PASS or blindly relaunch while an earlier child owns the lease. Model/Slurm launch recovery remains
+a separate acceptance-rehearsal check, not something local subprocess tests establish.
+
+For distributed dummy parity, use the
+[TP-consistent shared checkpoint path](../.agents/skills/throughput-enablement/accuracy-oracle/SKILL.md#tp-consistent-shared-checkpoint-path).
+Generate one source-reviewed global fixture and let normal checkpoint loaders shard it; rank-local
+dummy RNG is restricted to TP1. Bind captures to the same checkpoint and explicit input IDs, compare
+the complete declared layer/logit inventory, and keep oracle-only fixtures separate from native
+production precision and real-weight task accuracy. CPU loader tests do not replace a model's GPU gate.
+
+### Standalone completion
+
+- **Every compute kernel is C/C++**, either authored or an optimized native library. Python may orchestrate
+  and test it; an eager multi-op replacement does not satisfy native kernel coverage. Verify the binary
+  and actual dispatched implementation, not just the wrapper language.
+- Define the source-derived domain: shape/M/KV ranges, layouts, distributions and dispatch branches.
+  Perform measured sweeps of applicable ISA/intrinsics, algorithm, tiling, threading, packing,
+  reduced-precision movement and fusion choices. Include producer-consumer fusion and shared operands.
+  AMX and fusion are candidates to test, not compulsory choices when another native path measures better.
+- Preserve source-conformed correctness and a no-regression floor against the same-contract baseline
+  across the declared domain. Use at least three independent process samples, order-varied comparisons,
+  median plus spread, and source/build/config/input identity. Unresolved noise is not proof of a tie.
+- Record each opportunity as **adopted**, **measured loss/neutral**, **not applicable with evidence**, or
+  **unresolved**. An unresolved applicable standalone opportunity blocks an unqualified "fully optimized"
+  claim. Integration-only opportunities retain an owner and block final closure until dispositioned.
+- A threshold pass is necessary where specified, but never sufficient for completion. Report **best
+  demonstrated within the declared search/domain**, the tested alternatives and remaining limits;
+  neither C/C++ nor a percentage proves a universal "best possible" implementation.
+
+### Precision contract
+
+- Preserve the original model's storage, compute, accumulation and intermediate-rounding semantics,
+  including QAT boundaries. Higher precision is not automatically more correct.
+- Keep native reduced/packed weights in production. Prepack without widening the whole tensor;
+  decode to a supported compute dtype inside the kernel in bounded tiles when necessary. A widened
+  reference-only fixture must be explicitly labeled, capacity-budgeted and excluded from production
+  coverage and performance acceptance.
+- Explore reduced-precision movement for weights, activations, KV and intermediates where legal.
+  Include scales, conversion, packing and reuse costs in measurements. Additional lossy reductions
+  require explicit accuracy-budget approval and numerical/task validation before promotion.
+- Lossless storage conversion proves only value preservation over its tested domain. It never waives
+  validation of the consuming kernel, accumulation order, intermediate rounding or serving behavior.
+
+### Performance math and target selection
+
+Use consistent units and the actual compute dtype/ISA and memory level:
+
+```text
+AI = FLOPs / bytes
+ridge = compute_rate / bandwidth
+floor_time = max(FLOPs / compute_rate, bytes / bandwidth)
+efficiency = floor_time / measured_time
+recoverable_share = measured_share * (1 - floor_time / measured_time)
+```
+
+The recoverable-share expression is an estimate for non-overlapped work, not causal attribution.
+Confirm end-to-end gains with controlled A/B measurements. Reject non-finite/nonpositive evidence;
+if measured time beats the modeled floor, investigate the model/measurement instead of clamping it.
+
+Publish separately:
+- **Idealized bound:** theoretical or resident-probe compute plus relevant bandwidth, with assumptions.
+  A resident-tile rate is not automatically achievable by a full streamed kernel.
+- **Calibrated achievable target:** supported by matched shape, dtype, locality, threading, cache regime
+  and operation-specific measurements/costs. A best-observed library result is a provisional baseline,
+  not proof that no better kernel exists. A low rate alone does not identify the bottleneck.
+
+Set thresholds against the justified target before evaluating a candidate. Both agreed absolute and
+peer-relative checks remain required where applicable; a slow donor cannot waive an absolute failure.
+An unavailable donor/target is missing evidence, not a pass; any alternative acceptance route needs
+explicit approval. For serialized op classes, sum their time budgets; for overlapping/fused work,
+model the actual dependency/resource schedule rather than assuming either a sum or a maximum.
 
 ---
 
@@ -155,7 +347,7 @@ flowchart LR
   inputs, what consumes its outputs, which operands it shares, what dimension it scales with). *A
   config-inferred shape — or a kernel scoped in isolation from its verified graph context — is flagged
   UNVERIFIED and cannot carry a perf claim.*
-- **Gate (trust): REFERENCE+ORACLE HANDSHAKE — run it BEFORE any kernel code is written.** Establish the two
+- **Gate (trust): REFERENCE+ORACLE HANDSHAKE — bind the source BEFORE porting; validate anchors BEFORE acceptance.** Establish the two
   correctness anchors *up front*, so every op is ported against an authoritative contract and a frozen
   per-layer target from day one (not reverse-engineered after an accuracy miss). The ordered handshake:
   1. **Authors' reference = PRIMARY provenance.** Locate the authors' reference inference code
@@ -171,9 +363,11 @@ flowchart LR
      inherits the GPU's deviation.
   3. **Only if they match, RUN the GPU implementation to produce the frozen anchors:** **(a)** certify it hits
      the **published accuracy** on the right checkpoint+protocol (this certifies the oracle *before* it judges
-     anything); **(b)** capture **per-(layer, sub-op) fingerprints** (logits/tensors) once, reused for all later
+     task claims; use the explicitly approved matched-reference route when no applicable published score
+     exists); **(b)** capture **per-(layer, sub-op) fingerprints** (logits/tensors) once, reused for later
      CPU A/Bs.
-  4. **Before porting EACH op, read the reference op and match its contract;** validate the port against the
+  4. **Before porting EACH op, read the reference op and match its contract;** minimal reference bring-up
+     may precede full-model capture if needed to run at all. It is not optimized acceptance. Validate the port against the
      reference math (a cheap op-level `cos` on random inputs, **no model load**) — not only a self-oracle (a
      self-oracle derived from your own reading **inherits your blindspot**).
 
@@ -193,7 +387,7 @@ flowchart LR
 
 ### Phase 1 — All kernels in optimized C/C++ (the hard prerequisite)
 
-- **Accomplishes:** every op/fused-op has an **authored C/C++ kernel**, each optimized across its knobs
+- **Accomplishes:** every op/fused-op has a **C/C++ kernel (authored or optimized native library)**, each optimized across its knobs
   (full M-sweep + KV) **toward roofline**, with a published per-kernel roofline-target-vs-measured record.
 - **Standing practice (exhaust in-phase + publish):** every legitimate **kernel-authoring** optimization for a
   kernel is **attempted in this phase** — not deferred, not left as a "could try." Attempt it, **measure it
@@ -204,19 +398,20 @@ flowchart LR
   dtype / layout) are handed to Phase 2; everything that lives **inside the kernel** is exhausted here.
 - **Method (donor-first, parallel wave):** reuse an existing optimized primitive wherever one exists
   (OneDNN, ATen cpublas BRGEMM + VNNI pack, `at::bmm`, MKL, LIBXSMM) and author only the irreducible glue;
-  author a net-new kernel only when no donor covers the contract (`kernel-authoring`). The per-kernel
+  author a net-new kernel when no donor covers the contract or measurements justify replacing its
+  implementation/composition (`kernel-authoring`). The per-kernel
   optimizations are **independent work items → fan them out in parallel**, ranked by ROI. Apply techniques
   in order (parallelize → tile → vectorize/AMX → prepack → quantize → fuse), **re-running `roofline-validation`
   after each step** and classifying the regime (BW / compute / selection / dispatch / cache-resident) before
   assuming headroom. The staged how-to is the
   [Standalone Kernel Optimization Playbook](standalone-kernel-optimization-playbook.md).
 - **Gates (trust), all required per kernel:**
-  - **`kernel-feasibility-gate`** (before authoring a net-new kernel): user-reviewed roofline + measured
-    baseline → go/no-go.
+  - **`kernel-feasibility-gate`** (before optimization): user-reviewed roofline + measured
+    baseline → design go/no-go. Minimal functional reference bring-up can precede the profile.
   - **No-regression floor** vs the same-contract torch fallback at *every* M (faster or at worst a tie; else
     dispatch to the library path at that M).
   - **Fusion gate** — no avoidable intermediate DRAM round-trip (record the irreducible residual + why).
-  - **Precision/BW gate** — store/read at the lowest precision the *reference* tolerates; fp32-accumulate;
+  - **Precision/BW gate** — preserve native packed storage and the source accumulation/rounding boundaries;
     a precision that changes the reference dtype is a *conformance decision*, not a free lever.
   - **`accuracy-oracle` / `f4_acceptance`** — per-op acceptance: output contract (shape/dtype/device),
     finiteness, run-to-run **determinism**, selection membership (`tie_eps=0`), and a *screened* continuous
@@ -340,57 +535,17 @@ flowchart LR
   roofline → attribute the gap (kernel / framework / **dispatch & parallelization overhead**) → clear the
   overhead (bind-once, fewer/bigger parallel regions, one rank per NUMA domain, prepack) → re-measure, so
   **every integration step updates measured-vs-roofline** until the 70–75% target holds at every M.
-- **COMPUTE-BOUND IS A MACHINE-SPEC VERDICT (the ridge) — the compute ceiling is the RESIDENT (L2-fed) peak,
-  NOT a DRAM-streamed GEMM number.** Whether an op is compute- or memory-bound is decided by the **roofline
-  ridge** = `resident_compute_peak / DRAM_BW`, and the compute asymptote MUST be the **resident-tile peak**
-  (operands fed from L2/registers under cache-blocking), measured **per socket** (one rank/domain is the serving
-  unit). Derive/measure it from spec: EMR ≈ **64 cores × 1024 bf16 FLOP/cycle × ~1.9 GHz ≈ 125 TF/socket**
-  (theoretical; measure with `tools/microbench/amx_peak.c`, pinned + thread-swept). **Corollary (the rule we
-  missed): a GEMM that only reaches the DRAM-STREAMED rate is BY THAT FACT memory/latency-bound, not
-  compute-bound** — the streamed number is a *diagnosis of memory-boundedness* (the op sits on the memory slope
-  below the ridge), NEVER the compute ceiling. So the compute roofline for a **cache-blockable** op (prefill
-  large-M GEMM: the reused weight panel fits L2 and is reused across all M tokens → huge arithmetic intensity →
-  L2-fed → compute-bound) uses the **resident peak**; the **streamed-achievable** rate is the ceiling only for
-  ops you genuinely cannot block (decode M=1, each weight byte used once → DRAM-streamed → BW-bound). *Worked
-  miss (DSv4): we used the uPP **streamed** `compute_peak.bfloat16` = 12.4 TF (also measured thread-collapsed at
-  128 threads; the probe's own sweep peaks at ~30 TF @ 32 threads) AS the prefill compute ceiling → "prefill 43%
-  of a 409 tok/s roofline." But 12.4/30 TF are DRAM-streamed rates, so by the corollary that GEMM was never
-  compute-bound at that number. The real compute ceiling is the L2-fed ~125 TF/socket → prefill roofline
-  ~3000+ tok/s → 174.5 ≈ 5%: prefill is NOT near its compute ceiling, it is thread-collapse + unblocked-GEMM +
-  glue/dispatch bound (all recoverable).* **Fix:** measure the resident peak (amx_peak.c), use it for the ridge
-  and as the compute roofline; `compute_peak_*` (resident) and `streamed_gemm_*` are DIFFERENT numbers with
-  DIFFERENT uses — never substitute one for the other.
-- **REGIME IS SET BY `M` (reuse), SO IT IS OPERATING-POINT-SPECIFIC — and at the low-`M` CPU-serving range
-  EVERYTHING is usually BW-bound.** For a weight-stationary GEMM `AI = M·(2/elsize)` (AI *is* the reuse factor
-  M, scaled by pack density), so the compute/BW verdict flips at the **crossover M = ridge·elsize/2**
-  (EMR bf16 ≈ 190, fp8 ≈ 95, fp4 ≈ 48). **Compute the regime AT THE TARGET `M`, not at a convenient large M.**
-  CPU serving is low-batch (M ≤ ~64), which is **below crossover for every DSv4 GEMM → the whole model is
-  BW-bound in its real operating range** (the compute-bound, L2-tiled regime is a large-batch-only contrast).
-  Two consequences: **(1)** the optimization goal across the serving range is *reach the DRAM-BW ceiling*
-  (see the next rule — this REQUIRES maximal AMX, not less), and MoE **routed** experts are BW-bound at EVERY M
-  because top-k/N routing fragments the batch to ~1–4 tokens/active-expert (batching the request ≠ batching the
-  expert), so their only ceiling is DRAM BW. **Optimize ADAPTIVELY in M:** thread-count must scale with M (M=1
-  wants ≤4–8 threads — barrier spin-up ≫ the tiny work, the measured inverse thread scaling; M=64 wants all cores
-  to saturate BW), and the big kernel lever is a **grouped batch-reduce GEMM** over active experts (one
-  back-to-back weight stream vs hundreds of tiny per-expert launches) to turn a latency-bound step into a
-  BW-bound one. A single fixed thread count / non-grouped path is wrong at one end of the range. (Worked analysis:
-  `docs/dsv4-gemm-regime-analysis.md`.)
-- **BW-BOUND IS THE CEILING, NOT A LICENSE TO SKIP AMX — reaching it REQUIRES maximal effective AMX (C/C++ with
-  AMX/AVX-512 intrinsics), tiling, and fusion.** "BW-bound" never means "fall back to vanilla torch / skip
-  tiling." The roofline is `t = max(FLOPs/P_compute, Bytes/BW)`; the op is only *actually* BW-bound when the
-  compute term **hides under** the memory stream, which demands: **(a)** the compute runs at the AMX peak — a
-  torch fallback drops `P_compute` so far that `FLOPs/P_compute` DOMINATES and the op becomes *compute-bound on a
-  slow path* (DSv4 one routed expert @M=32: 38 µs DRAM stream, AMX clears it in 13 µs = hidden, **vanilla torch =
-  805 µs = 21× ABOVE the BW floor**); **(b)** **tiling + double-buffering** so AMX consumes the resident weight
-  tile *while the next tile streams* (overlap compute with the DRAM read) and the M activations are reused from
-  registers — without it, stream-then-compute serializes to ~2× the floor; **(c)** **fusion** to cut the `Bytes`
-  term itself (keep intermediates in registers/L2, never materialize → lowers the binding memory time, raises
-  effective AI toward the ridge); **(d)** kill launch/barrier/dispatch overhead. **Mandate:** every hot GEMM/op
-  in the serving path is an **authored C/C++ AMX/AVX-512 kernel** (BRGEMM/grouped-BRGEMM building block), tiled,
-  double-buffered, and fusion-folded — *regardless* of whether it is compute- or BW-bound; the regime only
-  changes the *streaming/threading* strategy (adaptive in M), never the decision to use AMX maximally. A
-  vanilla-torch or untiled path in the hot loop is a DEFECT, caught by dispatch-provenance + a roofline check
-  that the op sits at its BW floor (not 20×+ above it). (Worked analysis: `docs/dsv4-gemm-regime-analysis.md`.)
+- **BOUND vs TARGET:** apply the [canonical formulas](#canonical-acceptance-policy). Resident-probe
+  compute and streamed-GEMM observations have different meanings. A low rate alone does not prove
+  memory boundedness; cache blocking alone does not prove resident-peak utilization.
+- **REGIME IS OPERATING-POINT-SPECIFIC.** The weight-only approximation `AI = 2*M/elsize` gives
+  crossover `M = ridge*elsize/2`; include activation/KV/scale traffic in the full model.
+  Routed MoE uses per-expert token counts, not request batch. Sweep actual shapes and threads
+  rather than declaring every CPU-serving op memory-bound or prescribing one thread rule.
+- **NATIVE OPTIMIZATION IS REQUIRED IN EVERY REGIME.** Test supported ISA/intrinsics, tiling,
+  packing, threading, double-buffering and fusion where applicable. AMX may help reach bandwidth
+  by reducing compute/feed costs, but AVX or another native path can win at small shapes.
+  Choose by source-conformed measurement, not an unconditional mandate to use AMX.
 - **ROOFLINE HONESTY — publish the IDEALIZED ceiling AND the ACHIEVABLE time-budget; score against the latter.**
   A single `FLOPs/peak` (or `bytes/BW`) roofline is an **idealized upper bound**: it counts only the *modeled*
   resource (dense-GEMM FLOPs, or weight-streaming bytes) and implicitly assumes **every other op-class is free**
@@ -400,14 +555,11 @@ flowchart LR
   elementwise/attention math (~24%), and fallback matmul (~10%) the roofline assumes free — so "43% of roofline"
   **overstates the gap** and hides where it is. **Rule: publish TWO ceilings** — (1) the **idealized**
   single-resource roofline (loose upper bound), and (2) an **ACHIEVABLE time-budget roofline**
-  = `Σ_class Work_class / AchievableRate_class` (compute-bound **cache-blockable** GEMM at the **resident
-  (L2-fed) peak** — it is fed from L2 under blocking, *not* the DRAM-streamed rate; genuinely un-blockable
-  memory-bound classes at bytes/BW; glue at memcpy-BW or an explicit irreducible floor). Score
-  efficiency as **measured ÷ achievable**, and report **achievable ÷ idealized** = the **structural** fraction of
-  the gap (unreachable without changing the op graph). The modeled GEMMs are usually already near their own roof,
-  so the headroom lives in the work the idealized roofline pretends is free — `inter-kernel-fusion` (glue) +
-  kernelizing the eager math, not faster GEMMs. Chart both as lines (idealized + achievable); label the idealized
-  one *idealized*.
+  using matched operation-specific targets and explicitly modeled extra costs. Sum time budgets only
+  for serialized classes; model overlap/fusion separately. Time efficiency is **target time / measured
+  time** (equivalently measured throughput / target throughput); the structural fraction is
+  **idealized time / target time**. Attribute headroom before assigning it to GEMMs or glue.
+  Chart both bounds/targets with their assumptions; provisional baselines are not ceilings.
 - **COMPUTE-BOUND vs LATENCY-BOUND — and "DISPATCHED to a C kernel ≠ RUNNING at its roofline."** At small M a
   memory-bound op can sit far below its `bytes/BW` ceiling because the per-step **fixed cost** (kernel launch,
   parallel-region entry/barriers, non-overlapped tiny GEMMs, thread-oversubscription) dominates — it is
@@ -435,9 +587,9 @@ flowchart LR
   on faith. In a **timing-only** run (dummy weights, depth-proxy — output correctness irrelevant), **no-op /
   pass-through the suspected-recoverable op-class** (glue copies → preallocated reuse; eager math → identity
   stand-in; fallback matmul → route to the kernel) and measure the delta: it is the **MAX** recoverable (you
-  fully removed the cost), so it **bounds the ROI before a kernel is written** (<~15% → skip; 30–40% → build).
-  This is also how the **achievable time-budget** above is firmed up — the ablation replaces assumed recoverable
-  fractions with measured floors. Complement with env-gated **boundary timers** (wall-clock, to correct
+  removed the targeted work). It bounds recoverable time only if downstream execution and scheduling
+  remain comparable; changed routing/cache state invalidates that inference. Use it to prioritize designs,
+  not to exempt low-share kernels or declare an achievable ceiling. Complement with env-gated **boundary timers** (wall-clock, to correct
   `self_cpu` over-weighting of many-call small ops) and gate each lever on the **Amdahl bound**
   `share·(1−floor/measured)`. (overhead-attribution + kernel-feasibility-gate + inter-kernel-fusion.)
 - **A REGION-TIMER (or `self_cpu`) LEAF SHARE IS NOT A CRITICAL-PATH ATTRIBUTION — only a drift-robust
@@ -524,7 +676,7 @@ flowchart LR
 
 | phase | closing gate | what it guarantees |
 |---|---|---|
-| 0 Discovery | shape-provenance gate **+ reference+oracle handshake** | shapes/dtypes/contract *captured from source*, not assumed; authors' reference + published-accuracy GPU oracle bound and per-layer fingerprints frozen **before any kernel is written** |
+| 0 Discovery / reference bring-up | shape-provenance gate **+ reference+oracle handshake** | source contract bound before porting; runnable reference and validated anchors before optimized acceptance; temporary fallbacks are not native completion |
 | 1 Author (per kernel) | feasibility → no-regression floor → fusion → precision → `f4_acceptance` → page | correct (contract/finite/deterministic/selection), never slower than torch, no wasted DRAM traffic, published roofline record |
 | 1 exit | adversarial self-audit + **human review** | falsified not just confirmed; tolerances ratified by a human, not the executor |
 | 2 E2E | kosher-baseline freeze/tag/env-gate + per-toggle fingerprint + **dispatch-provenance (zero eager in hot chain)** + two-depth validation | every speedup is bisectable to one op; baseline is one `git checkout` away; **the serving path is proven to dispatch to each authored kernel**; extrapolation is validated |
@@ -652,8 +804,8 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
 
 **8. Target each component, not the total %.** Split the latency into **data-movement / compute / dispatch** and
    give each its own target: data-movement ≥ 75% of the **operative** bandwidth (DRAM if the working set spills
-   cache, **cache bandwidth if it fits** — not nominal DRAM); compute ≥ its ISA/dtype peak (AMX or AVX-512);
-   overhead → 0. The roofline-% of the *total* is only a **diagnostic** of which component dominates — not the
+   cache, **cache bandwidth if it fits** — not nominal DRAM); compute against a calibrated shape/dtype target;
+   overhead measured and minimized. The roofline-% of the *total* is only a **diagnostic** of which component dominates — not the
    target — and the nominal roofline can be the **wrong ceiling** (an op at 24% of the nominal DRAM roof but
    ~52% of its measured *operative* floor is already near its real ceiling).
 
@@ -739,11 +891,12 @@ the standalone-kernel page** so the gap analysis ships alongside the speedup —
 
 **13. The roofline compute ceiling is the NATIVE-dtype peak; a sub-native low-bit dtype is a DATA-MOVEMENT
    optimization, not a ceiling.** The roofline has exactly two HW ceilings: the **BW slope** and the **compute
-   peak of the dtypes the HW computes *natively*** (e.g. AMX bf16/int8/fp32 — *not* fp8/fp4 on GNR/EMR, which
+   peak of the dtypes the HW computes *natively*** (e.g. AMX bf16/int8 or AVX FP32 — *not* fp8/fp4 on GNR/EMR, which
    have no tile). A dtype the HW lacks a compute unit for is **never a compute-roofline point**: it is used for
-   **storage/movement** only — store low-bit, **upcast to the nearest native dtype** (bf16), compute native. Its
-   benefit is therefore **data-movement (fewer DRAM bytes) only**, realized **only when the op is BW-bound** (not
-   dispatch- or compute-bound). Keep the roofline at **native-compute + BW**, compute `%roof` against it, and put
+   **storage/movement** — retain packed storage and decode bounded tiles into a source-conformed supported
+   compute dtype. Benefits can include capacity, cache residency, operand feeding and DRAM traffic;
+   measure conversion costs and the effect on the actual bottleneck rather than assuming a speedup.
+   Keep the roofline at **native-compute + BW**, compute `%roof` against it, and put
    the low-bit down-conversion in the **optimization/upside ledger** as a traffic cut — **do not relabel a
    storage optimization as a lower roofline** (that implies a compute capability the HW lacks and over-credits
    the win). *Worked: the indexer "fp8 ceiling" was this error — fp8 has no AMX tile, so it is a BW-only lever

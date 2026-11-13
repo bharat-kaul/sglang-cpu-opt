@@ -1265,7 +1265,9 @@ def _install_full_capture() -> None:
                     if lg is not None:
                         n = sum(1 for kk in _CAP if kk.startswith("logits"))
                         _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
-                        torch.save(_CAP, _F)
+                        from _fullcap_io import save_fullcap
+
+                        save_fullcap(_CAP, _F)
                 except Exception:  # noqa: BLE001
                     pass
                 return r

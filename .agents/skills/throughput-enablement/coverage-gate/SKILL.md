@@ -11,12 +11,19 @@ gap). Being strict here is the whole point: an over-eager "covered" that silentl
 approximates a novel op produces a model that fails accuracy or defeats its own
 design.
 
-> **⛔ PHASE-1 REQUIREMENT — 100% AUTHORED-C/C++ COVERAGE BEFORE THE NORTH-STAR WALL-TIME PHASE.**
+> **⛔ PHASE-1 REQUIREMENT — 100% NATIVE C/C++ COVERAGE BEFORE PRODUCTION INTEGRATION.**
 > Every op / fused-op MUST end up on a C/C++ kernel (donor or newly authored) — NO op left on a torch/
 > Python fallback. "A torch ref exists" is coverage-with-fallback, NOT the Phase-1 gate. Per
 > `cpu-optimization-playbook`'s MANDATORY PHASE ORDER, Phase 2 (wall-time) does not start until this is
 > 100% and each kernel is optimized across the M-sweep + KV-cache knob to its roofline with a
 > no-regression floor vs torch (see `kernel-feasibility-gate`).
+
+Follow the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Discovery coverage and standalone completion are distinct: a registered kernel must still
+carry measured optimization evidence, including fusion exploration, for the actual domain.
+Diagnostic reference bring-up may run earlier. A temporary eager/torch fallback can unblock
+investigation but never final native coverage. Native library fallbacks remain eligible only
+after the same correctness, sweep and no-regression checks; low end-to-end ROI is no exemption.
 
 ## Inputs
 - The normalized op graph (`model-op-decomposition`).

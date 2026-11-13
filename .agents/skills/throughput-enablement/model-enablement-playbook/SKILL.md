@@ -13,19 +13,41 @@ level). Enablement reuses kernels; optimization writes/improves them.
 
 ## The skill library (progressive order)
 
+Use the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Reference bring-up may precede optimization; production completion requires every standalone
+kernel's native C/C++ acceptance, regardless of its end-to-end share.
+
+At **each** phase exit, run the evidence-bound adversarial self-audit and
+[executable prefix gate](../enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate).
+Keep the Xeon request-batch **1..64** goal explicit (B1 latency plus declared throughput points).
+Missing evidence or an unresolved finding blocks progression; self-audit never replaces human approval.
+
+Use the [local recovery runner](../enablement-certificate/SKILL.md#local-failure-restart-and-approval-handling)
+for automated phase replay: no blind retry loops, no duplicate owner, no reuse of partial PASS.
+Pause for missing/rejected approval. Changed evidence requires renewed approval, not an edited
+journal. Validate Slurm-specific recovery during the model acceptance rehearsal.
+
+When the reference needs TP>1, use the
+[shared deterministic checkpoint oracle](../accuracy-oracle/SKILL.md#tp-consistent-shared-checkpoint-path).
+Do not use rank-local dummy RNG or compare only shared capture keys. Require matched checkpoint,
+request/numerical settings and complete layer/logit evidence before accepting model parity.
+
 | # | Skill | Load when | Gate |
 |---|-------|-----------|------|
 | 0a | **FRAME THE KPI (see below)** | ALWAYS first, before ceilings | user-confirmed operating point + headline metric |
-| 0 | `establish-achievable-performance` | after the KPI is framed | sets ceilings FOR THAT operating point |
+| 0b | **[Startup infrastructure gate](../../../../docs/methodology-playbook.md#mandatory-startup-infrastructure-gate)** | before selecting resources or launching probes | timestamped CPU/GPU/scheduler/storage/software inventory + budgeted execution plan |
+| 0 | `establish-achievable-performance` | after KPI and infrastructure preflight | sets ceilings FOR THAT operating point on allocated, verified resources |
 | 1 | `model-op-decomposition` | new model config in hand | complete op graph |
 | 1b | `fusion-analysis` | after decomposition | fusion plan (BW/AI, roofline-gated) |
 | 1c | `model-roofline-analysis` | after fusion-analysis | per-phase Amdahl-ranked high-ROI plan |
 | 1c2 | `enablement-scope-discovery` | after roofline, BEFORE first run | complete kernel-family + infra scope (dependency-closure) |
-| 1d | `model-profile-hotspots` | model runnable on node | measured RoI-ranked kernel hotlist |
 | 2 | `kernel-capability-registry` | after decomposition | contracts loaded |
-| 3 | `coverage-gate` | graph + registry ready | 100% covered, else HAND OFF |
-| 4 | `cpu-model-wiring` | coverage clean | loads + forward pass on CPU |
-| 5 | `accuracy-oracle` | model runs on CPU | FULL-MODEL dummy ALL-LAYER parity (NOT the tiny bring-up proxy) → then real-weight task |
+| 3 | `coverage-gate` | graph + registry ready | enumerate native coverage and functional gaps; hand gaps to new-kernel leg |
+| 4 | `cpu-model-wiring` / `cpu-serving-integration` | scope known | source-faithful reference bring-up; temporary fallback is not completion |
+| 5a | `accuracy-oracle` | reference path runnable | bring-up parity, then full-shape/depth parity before optimization |
+| 5b | `model-profile-hotspots` | representative model runnable | measured priority; no low-ROI exemptions |
+| 5c | `cpu-optimization-playbook` | baseline available | every standalone kernel accepted, including fusion exploration; human review |
+| 5d | `cpu-serving-integration` / `accuracy-oracle` | standalone gate reviewed | native integration, actual dispatch and real-weight numerical/task checks |
 | 6 | `peer-relative-roofline` | accuracy passed | ≥ absolute AND peer bar |
 | 7 | `enablement-certificate` | all gates green | PR-ready report + diff |
 
@@ -87,7 +109,9 @@ confirm; the E2E ledger tracks the chosen operating point.
 
 ```
 0a. FRAME THE KPI (ask the user)     -> (S, B, G) operating point + headline metric (throughput vs latency)
-0. establish-achievable-performance  -> compute/stream/mem ceilings for THIS node
+0b. startup infrastructure gate      -> live resource inventory, per-rank budgets, CPU/GPU placement,
+                                        safe shard/load concurrency; refresh before each submit
+0. establish-achievable-performance  -> compute/stream/mem ceilings for THIS allocated, verified node
 1. model-op-decomposition            -> normalized op graph + UPFRONT DATA-TYPE AUDIT
                                         (each op's ACTUAL stored ckpt dtype -> best target-HW
                                         compute dtype; flag missing-native-compute dequant paths,
@@ -98,33 +122,27 @@ confirm; the E2E ledger tracks the chosen operating point.
                                         (vLLM, TRT-LLM, FlashInfer, authors, blogs)
 1c. model-roofline-analysis           -> per-phase (prefill/decode) roofline; Amdahl-rank
                                         op-classes; high-ROI plan (memory-bound->precision,
-                                        compute-bound->AMX); gates entry to the kernel tier
+                                        compute-bound->AMX); orders the complete kernel queue
 1c2. enablement-scope-discovery       -> dependency-closure walk of the ACTUAL forward + backend
                                         + KV/memory-pool code to the sub-op leaf; enumerate ALL
                                         kernel families (attention+norm+routing+...) AND the
                                         runtime substrate; classify each (routing/port/authoring);
                                         honest scope BEFORE the first run (no reactive cascade)
-1d. model-profile-hotspots            -> RUN the model (random weights ok); per-kernel measured
-                                        time vs kernel roofline floor; RoI = share*(1-efficiency);
-                                        measured hotlist wins over analytical ranking
-                                        NOTE: random/dummy weights are OK for TIMING profiling ONLY
-                                        -- NOT correctness (a fast run on random inputs can be
-                                        numerically garbage; see accuracy-oracle Layer 0), and a
-                                        thread/config value tuned on a dummy-weight proxy must be
-                                        RE-TUNED on the real weights (the real MoE dominates and
-                                        shifts the optimum; see runtime-config-tuning)
 2. kernel-capability-registry        -> load op->kernel contracts + peer donors
 3. coverage-gate:
-     all ops covered      -> continue
-     any GAP (novel op)   -> route to cpu-optimizer (new-kernel leg); STOP here
-4. cpu-model-wiring (plugin only)    -> prepack + intel_amx attn + FusedMoE CPU
-5. accuracy-oracle                   -> CORRECTNESS LADDER (do NOT stop at the bring-up proxy):
-                                        tiny-dummy parity = op-TYPE coverage ONLY; the GATE is
-                                        FULL-MODEL DUMMY all-layer parity (real shapes/depth,
-                                        MULTI-GPU reference e.g. H200xN, deterministic dummy so NO
-                                        real-weight load) -- established BEFORE optimizing and used
-                                        to regression-guard EACH optimization; REAL-weight parity +
-                                        task score = the finale (dtype bridge + accuracy)
+     all ops covered      -> reference bring-up
+     any GAP (novel op)   -> new-kernel leg establishes source-faithful functional path;
+                            no performance acceptance while coverage is incomplete
+4. cpu-model-wiring / cpu-serving-integration (plugin only)
+                                     -> reference bring-up; temporary fallbacks explicitly labeled
+5a. accuracy-oracle                  -> tiny bring-up parity, then full-shape/depth parity;
+                                        deterministic weights must match across reference/target
+5b. model-profile-hotspots           -> representative profiling orders all required kernel work;
+                                        dummy routing must be validated; recheck on real weights
+5c. cpu-optimization-playbook         -> every standalone kernel native and optimized; measured
+                                        alternatives including fusion; no-regression; human review
+5d. cpu-serving-integration          -> integrate accepted kernels, prove dispatch, validate
+                                        fused regions; accuracy-oracle real-weight/task finale
 6. peer-relative-roofline            -> per-op % vs achievable AND vs peer model;
                                         end-to-end tok/s vs peer; loop on the gap
 7. enablement-certificate            -> machine-checkable pass/fail + reviewable diff

@@ -37,16 +37,17 @@ emits a **fusion plan** (per fusion: kind, benefit, mapping).
 Anything NOT in this table with a real benefit is a **new-fused-kernel** candidate.
 
 ## Benefit model (roofline-gated — never fuse on faith)
+Apply the [canonical standalone policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy):
+fusion exploration is required for every kernel's graph context, not only high-share memory-bound ops.
 For each candidate estimate:
 - `bytes_saved` = size of the removed intermediate × (1 store + 1 load).
 - `AI_before → AI_after` = FLOPs / (bytes after fusion); does it cross the ridge
   (memory-bound → compute-bound)?
-- **Gate: fuse only if** it raises AI on a **memory-bound** op AND the fused
-  intermediate/working set stays **L2-resident**. Do NOT fuse when the intermediate
-  is position-indexed (RoPE cache), reused by an unrelated op, or spills L2 — the
-  corpus keeps GEMMs separate exactly there (`qkv_proj.cpp` staged, not monolithic).
-- Compute-bound GEMMs gain little from fusing an element-wise epilogue (already
-  bandwidth-cheap) — prioritize the memory-bound tail.
+- Include saved dispatch, barriers and conversions as well as bytes. Check register/cache
+  pressure, other consumers and source rounding/state boundaries. Position indexing or a
+  compute-bound classification is not an automatic exclusion; prove legality and measure cost.
+- Test a bounded fused prototype when feasible. Retain separate kernels if fusion loses,
+  and record the measured result or a source-grounded reason it is not applicable.
 
 ## External-reference cross-check (idea source + numerical oracle)
 Do NOT restrict to SGLang. When a model is hot, many groups race to showcase it and
@@ -73,7 +74,8 @@ Per viable fusion, emit one of:
 - **COVERED** — a donor fused-kernel already implements it → mark for `coverage-gate`.
 - **NEW-FUSED-KERNEL** — beneficial, no donor → hand a task to `kernel-authoring`
   (donor to adapt + the 4-layer plan; the epilogue/gather-fuse patterns apply).
-- **SKIP** — benefit below threshold or violates the fusion-boundary gate; record why.
+- **SKIP** — measured loss/neutral or source-grounded non-applicability; record evidence.
+  An untested applicable candidate remains **UNRESOLVED**, not silently skipped for low model ROI.
 
 ## Procedure
 1. Take the op graph; enumerate adjacent op-groups by the taxonomy.
@@ -84,7 +86,7 @@ Per viable fusion, emit one of:
 5. Emit the fusion plan; feed COVERED to coverage-gate, NEW to kernel-authoring.
 
 ## Gate
-A fusion is in the plan only with a quantified benefit (bytes_saved + AI lift) that
-clears the roofline gate, a resident-working-set check, and — when a GPU reference
-exists — a numerical cross-check target. No hand-wave fusions; each carries its
-measured justification so the certificate can audit it.
+Every candidate has a source-conformed boundary, quantified cost hypothesis and
+working-set check. Adoption requires numerical validation and measured performance,
+not just an AI increase. Preserve losses, justified exclusions and unresolved items
+in the standalone opportunity ledger; production fused regions re-enter acceptance.

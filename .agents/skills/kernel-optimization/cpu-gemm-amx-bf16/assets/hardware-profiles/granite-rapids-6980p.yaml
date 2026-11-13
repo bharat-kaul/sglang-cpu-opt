@@ -53,8 +53,8 @@ mem_bytes_per_transfer: 8
 # --- ACHIEVABLE ceilings (measured on pcl-gnrap01, 2026-09-09) ---
 # TWO distinct compute ceilings (see establish-achievable-performance skill):
 #   compute_peak   = resident-tile microkernel, zero mem traffic -> UPPER BOUND.
-#   streamed_gemm  = realistic ceiling for a streamed GEMM (pre-packed BRGEMM);
-#                    THIS is what the optimization loop gates against.
+#   streamed_gemm  = best-observed streamed baseline; provisional, not proof of a ceiling.
+# Follow docs/methodology-playbook.md#canonical-acceptance-policy for matched target selection.
 achievable:
   measured_by: "tools/microbench (amx_peak.c, stream_triad.c)"
   single_core_bf16_tflops: 3.67          # ~1024 FLOP/cyc @ ~3.58 GHz single-core turbo
@@ -65,7 +65,8 @@ achievable:
   # = 60.6; a true cache-blocked LIBXSMM/TPP BRGEMM ceiling is still TBD (see skill).
   streamed_gemm_tflops_per_socket: 60.6   # provisional floor; not yet a tuned ceiling
   streamed_gemm_estimated: true
-  # kept for backward-compat with roofline.py --use-profile-achievable:
+  # Legacy consumer field: resident rate, NOT an automatically achievable full-kernel target.
+  # Kept for backward-compat with roofline.py --use-profile-achievable:
   bf16_compute_tflops_per_socket: 350.8
   mem_bw_gbs_per_socket: 630.7           # STREAM triad = 74.6% of 844.8 peak
   # Full-node aggregate BW is usable ONLY with NUMA-local weight sharding (TP=2 or

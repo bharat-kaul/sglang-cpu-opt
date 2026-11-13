@@ -7,37 +7,32 @@ description: "Proactive, EARLY discipline to split a model run's time into optim
 
 A model that RUNS but is slow has its time in one of four buckets, and the fix is
 different for each:
-- **KERNEL** — an optimized (AMX/BRGEMM) kernel doing real compute. Near its
-  roofline floor → *not* the lever (don't re-author it). Far from the floor →
-  a kernel-config problem (threading, weight prepack, dtype path), *not* a new kernel.
+- **KERNEL** — native compute, not necessarily optimized. Check threads, packing,
+  dtype and ISA first; remaining costs may justify algorithm/composition changes.
 - **TORCH** — unoptimized torch/reference compute (fp32 matmuls, softmax, `.float()`
   churn). The classic co-design/kernel-authoring or route-to-existing-kernel lever.
 - **FRAMEWORK** — orchestration: dispatch, python loops, copies, casts, gather/scatter,
   routing/topk, metadata. Fixed by fusion / fewer ops / bf16-end-to-end / vectorizing
-  python — *no kernel needed*.
+  python orchestration; compute sub-ops still require native acceptance.
 - **INTER-KERNEL DEPENDENCY** — the *glue* between two individually-optimal kernels:
   layout/dtype conversions, re-pack, staging/copies to hand off data, serialization
   (no overlap), missing cross-op fusion. Only visible END-TO-END (each kernel is fine
   in isolation). Fixed by unifying layouts/dtypes across adjacent ops, fusing, or
-  pipelining — again *no kernel authoring*.
+  pipelining; a new fused kernel re-enters standalone acceptance.
 
 ## Two-phase method (isolate-certify, then attribute the e2e residual)
 The decomposition that makes the buckets clean (per the operator-roofline discipline).
-**Core reasoning — certification is ELIMINATION:** optimizing each operator against its
-*measured* roofline in isolation and certifying it at its floor *removes that operator
-from the suspect list*. Once every kernel is eliminated as a source of slowdown, the
-end-to-end gap can only be the non-kernel components — so attention is forced onto
-framework and inter-kernel dependency. You don't guess what's slow; you eliminate the
-kernels one by one until only the glue remains.
+**Certification is condition-bound, not elimination.** Follow the
+[canonical policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+An isolated result does not establish the same cache residency, input distribution,
+threading or contention in serving. Reconcile those conditions before assigning the residual.
 1. **Phase A — per-operator, in ISOLATION.** For each operator: operator-level roofline
    → optimize/author → measure vs that roofline **standalone** → **certify** it at (or
-   near) its floor. A certified kernel is a *fixed point* (its isolated time is its floor)
-   and is thereby ELIMINATED as an e2e suspect.
-2. **Phase B — plug all certified kernels into the END-TO-END run.** Because each kernel
-   is individually optimal, the e2e residual is *by construction* NOT the kernels:
-   `residual = measured_e2e − Σ(isolated_kernel_floors)` = **FRAMEWORK + INTER-KERNEL
-   DEPENDENCY**. That residual is the second-order target, attacked with fusion / layout
-   unification / threading-config / pipelining — never more kernel authoring.
+   near) its matched target, with the complete optimization/fusion opportunity ledger.
+2. **Phase B — integrate accepted kernels.** `measured_e2e - sum(isolated_times)` is
+   diagnostic only: changed kernel conditions, overlap and glue can all contribute.
+   Attribute with matching traces and controlled A/B runs. Newly fused/reworked kernels
+   require their own standalone validation.
 This is exactly the MoE finding: isolated floor ≈ 1 ms, e2e ≈ 1920 ms → the ~1919 ms
 residual is framework/config (thread binding), not the kernel. Isolation-certify first
 so the e2e gap is unambiguously attributable.

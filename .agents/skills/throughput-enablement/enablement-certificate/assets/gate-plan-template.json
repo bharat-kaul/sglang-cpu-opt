@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "gate_sha256": null,
+  "identity": {
+    "model": null,
+    "source_commit": null,
+    "config_sha256": null,
+    "checkpoint_revision": null,
+    "reference_revision": null,
+    "hardware_sha256": null,
+    "runtime_sha256": null,
+    "dtype": null,
+    "node": null
+  },
+  "batches": [1, 2, 4, 8, 16, 32, 64],
+  "ops": [],
+  "kernel_cases": [],
+  "checks": {
+    "discovery": {
+      "scope": null,
+      "source_contract": null,
+      "infrastructure": null,
+      "calibration": null,
+      "capacity": null
+    },
+    "bringup": {
+      "reference": null,
+      "correctness": null
+    },
+    "standalone": {
+      "native": null,
+      "correctness": null,
+      "performance": null,
+      "optimization": null,
+      "fusion": null,
+      "precision": null,
+      "determinism": null
+    },
+    "integration": {
+      "dispatch": null,
+      "serving": null,
+      "correctness": null,
+      "performance": null
+    },
+    "final": {
+      "accuracy": null,
+      "performance": null,
+      "peer": null,
+      "determinism": null,
+      "publication": null,
+      "diff": null
+    }
+  }
+}

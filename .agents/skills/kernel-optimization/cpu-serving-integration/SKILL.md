@@ -1,6 +1,6 @@
 ---
 name: cpu-serving-integration
-description: "Use in the new-kernel leg AFTER the novel compute kernels are authored + parity-validated (kernel-authoring) and BEFORE the enablement-certificate. Captures how to wire authored CPU kernels into the model's SERVING RUNTIME so it actually runs end-to-end: the attention BACKEND forward, the paged KV-cache (exact packed byte layout + pack/unpack), the forward-batch metadata, and absorbed-attention specifics. Distinguishes the (smaller) novel-compute authoring from the (larger) serving-runtime port, and ends at the workflow's north-star PROOF: model runs + accuracy vs a trusted reference + roofline-target-vs-measured published. Learnings distilled from the DeepSeek-V4 DSA/MLA CPU bring-up."
+description: "Use for two distinct stages: source-faithful reference serving bring-up before optimization, then production integration after every standalone kernel passes native C/C++ acceptance and review. Covers attention backend forward, paged KV layout, metadata and request identity. Temporary reference paths do not satisfy optimized completion."
 ---
 
 # CPU Serving Integration (make the model actually run)
@@ -12,14 +12,16 @@ KV cache**, driven by per-query indices + metadata. Getting a running model mean
 porting THAT layer to CPU — a larger, distinct effort from the compute kernels it calls.
 
 ## Pipeline position
-`kernel-authoring (novel compute, parity-validated) → cpu-serving-integration →
-accuracy-oracle → roofline-vs-measured → enablement-certificate`. This is the "make it
-serve" phase; its gate is the workflow's proof deliverable.
+Per the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy):
+discovery → reference bring-up → correctness/profile → standalone optimization and review →
+production integration → final validation/certificate. This skill serves both bring-up and
+integration, with separate acceptance states. A missing feature may need a minimal reference
+implementation before profiling; final compute kernels must all be C/C++.
 
 ## The serving-runtime surface (what to port)
 1. **Attention backend forward.** The arch's backend (`<arch>_backend.py`) `forward`
-   calls the CUDA serving kernel over the paged cache. Reimplement it in torch/CPU,
-   REUSING the already-authored compute kernels. Know the attention form:
+   calls the CUDA serving kernel over the paged cache. Establish a source-faithful CPU reference,
+   then dispatch accepted native C/C++ kernels in production. Know the attention form:
    - **MLA-absorbed** (DeepSeek): value == key (one latent), so
      `out = softmax(q·kᵀ·scale ⊕ per_head_sink)·k` — the per-head attention *sink* is a
      virtual key column dropped after softmax. `head_dim_v == head_dim`.
@@ -66,9 +68,8 @@ reference serving path catches those. This ordering also surfaces the whole INFR
 (NUMA/TP, config adjustment, allocator, KV pool) that static analysis misses — reactively,
 one break at a time, is how DSV4 revealed ~24 breaks; doing it deliberately front-loads them.
 
-**So the phase order is:** roofline + `enablement-scope-discovery` → **reference-wiring
-bring-up (this)** → author/optimize each kernel against the now-running reference →
-real-weights accuracy + perf. The reference path is your oracle for every later optimization.
+The reference path supplies source-conformed fixtures, not optimized completion. After
+standalone acceptance and review, integrate native kernels and revalidate actual serving dispatch.
 
 ### The tiny-faithful config (makes it practical at any model size)
 The user's fair objection — "the real model is 100s of GB, you can't iterate on it" — is

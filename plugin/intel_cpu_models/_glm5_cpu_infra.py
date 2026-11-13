@@ -481,6 +481,7 @@ def _install_fullcap_glm_cpu() -> None:
 
     if _os.environ.get("INTEL_CPU_GLM_FULLCAP") != "1":
         return
+    from _fullcap_io import save_fullcap
     try:
         import sglang.srt.models.glm5_next as _glm
     except Exception as _e:  # noqa: BLE001
@@ -565,7 +566,7 @@ def _install_fullcap_glm_cpu() -> None:
                     if lg is not None:
                         n = sum(1 for kk in _CAP if kk.startswith("logits"))
                         _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
-                        torch.save(_CAP, _F)
+                        save_fullcap(_CAP, _F)
                 except Exception:  # noqa: BLE001
                     pass
                 return r

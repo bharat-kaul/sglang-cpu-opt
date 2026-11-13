@@ -46,14 +46,16 @@ MXFP4 is just today's instance; the rule holds for int4/int8/fp8/nf4/AWQ/GPTQ.
    "dequant it to bf16/fp8 so kernel X accepts it," STOP and wire the native path instead.
 
 ## Validation (keyed on LOSSLESS vs LOSSY, not on compute precision)
-Up-converting for compute does NOT recover bits dropped at downconvert — accuracy is set by
-the *operand* values entering the matmul.
-- **Lossless** (native format kept, or an exact re-encoding: fp4 e2m1 × pow2 e8m0 → bf16 is
-  bit-exact) → zero accuracy loss; just CONFIRM it, no eval needed.
-- **Lossy** (you quantized a higher-precision checkpoint DOWN to fit) → MUST run
-  `accuracy-oracle`; the loss is at the downconvert and no compute precision undoes it.
-- Two axes still cost accuracy even with lossless weights and need a check: **activation
-  precision** (WxA16 vs WxA8) and any **scale/group re-encoding** done to match a kernel.
+Follow the [canonical precision contract](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Preserve the published compute/accumulation and intermediate-rounding boundaries as well as storage.
+- **Lossless storage:** demonstrate decoded value equality over the source format's actual domain,
+  including scale ranges and special values. This proves no additional storage loss, not kernel
+  equivalence. Validate the consuming arithmetic and serving behavior even when weights match.
+- **Lossy reduction:** obtain accuracy-budget approval and run numerical/task validation before promotion.
+  Up-converting later cannot recover discarded bits.
+- Validate activation precision, scale/group encoding, accumulation order and intermediate rounding.
+  A bounded widened oracle fixture is reference-only, explicitly labeled and capacity-budgeted;
+  it never satisfies production coverage or performance acceptance.
 
 ## Anti-patterns (each one is this skill being violated)
 - A separate dequant pass that materializes bf16/fp32 weights before the matmul.

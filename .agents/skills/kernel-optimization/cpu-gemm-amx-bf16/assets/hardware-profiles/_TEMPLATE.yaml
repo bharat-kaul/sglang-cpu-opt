@@ -56,13 +56,15 @@ mem_speed_mts: 0                   # [SPEC] datasheet (dmidecode needs root)
 mem_channels_per_socket: 0         # [SPEC]
 mem_bytes_per_transfer: 8          # [SPEC]
 
-# --- ACHIEVABLE ceilings (what the optimization loop actually gates against) ---
+# --- Calibration observations (justify matched acceptance targets separately) ---
+# Resident microkernel rates are reference bounds, not automatic streamed-kernel targets.
+# Follow docs/methodology-playbook.md#canonical-acceptance-policy.
 # Filled by calibrate.py from tools/microbench. If projected (mode B), set
 # estimated:true so the roofline verdict labels the ceiling as unvalidated.
 achievable:
   estimated: false                       # [AUTO=false, MANUAL-projection=true]
   measured_by: ""                        # [AUTO]
   single_core_bf16_tflops: 0.0           # [AUTO] amx_peak.c, 1 thread
-  bf16_compute_tflops_per_socket: 0.0    # [AUTO] amx_peak.c, 1 socket  <-- PRIMARY GEMM target
+  bf16_compute_tflops_per_socket: 0.0    # [AUTO] amx_peak.c, 1 socket; resident reference
   bf16_compute_tflops_full_node: 0.0     # [AUTO] amx_peak.c, all cores
   mem_bw_gbs_per_socket: 0.0             # [AUTO] stream_triad.c, 1 socket

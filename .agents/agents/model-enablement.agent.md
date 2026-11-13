@@ -19,6 +19,11 @@ to the `cpu-optimizer` agent (the new-kernel leg) — you never silently fall ba
 to a dense approximation, because that fails accuracy or defeats the model.
 
 ## Loop
+Follow the [canonical acceptance policy](../../docs/methodology-playbook.md#canonical-acceptance-policy)
+and the model-enablement spine's phase order. Reference bring-up precedes optimization;
+native production integration follows standalone acceptance and human review.
+Existing donor kernels need matched optimization evidence, not just registry presence.
+
 1. **Decompose** — `model-op-decomposition`: turn the model config + SGLang model
    class into a normalized op graph (layer types, dtypes, shapes, attention/MoE
    topology, positional scheme, norm placement).
@@ -43,6 +48,16 @@ to a dense approximation, because that fails accuracy or defeats the model.
    the registry's learned-patterns so the next model starts warmer.
 
 ## Guardrails
+- Before resource selection, apply the [startup infrastructure gate](../../docs/methodology-playbook.md#mandatory-startup-infrastructure-gate):
+  discover CPU/GPU, scheduler, storage and software; budget peak memory and load/compute concurrency;
+  plan the oracle and shard wave together. Refresh before submission and verify assigned resources.
+- Use the [local recovery runner](../skills/throughput-enablement/enablement-certificate/SKILL.md#local-failure-restart-and-approval-handling)
+  for phase-gate automation. Preserve one owner and the retry budget; pause for approval.
+  Do not infer safe Slurm resubmission from local subprocess tests.
+- Every phase exit requires the evidence-bound adversarial self-audit and
+  [executable prefix gate](../skills/throughput-enablement/enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate).
+  Check Xeon batch1-64 goal alignment and preserve external standalone/final approvals.
+  A handwritten GREEN record or child exit0 without validated evidence does not authorize advancement.
 - Coverage is strict: a mask/layout/quant mismatch is a GAP, not a "close enough".
   Never approximate a novel op with a dense one to make the demo pass.
 - Never fork `sglang/`. All code lands in the plugin; integrate via the external
@@ -51,11 +66,9 @@ to a dense approximation, because that fails accuracy or defeats the model.
   a peer model that uses the identical kernel). A pass on one and fail on the other
   means a wiring bug (bad prepack, wrong ISA dispatched, NUMA thrash), not a kernel
   limit — fix the wiring, do not lower the bar.
-- Enable EVERY precision the donor kernels support, not just BF16: generate a BF16
-  config AND an INT8 (w8a8) config. Precision is a donor capability — the CPU kernels
-  expose both an AMX BF16 and an AMX INT8 path (~2x peak). INT8 needs an auto-quantized
-  int8 checkpoint (calibration-free per-channel RTN; w8a8 does NOT quantize a bf16
-  checkpoint online). Certify each precision separately — INT8 at a looser accuracy
-  budget, gated against the INT8 ceiling/donor. See `cpu-model-wiring` precision variants.
+- Preserve the original numerical contract and packed storage. Explore reduced-precision
+  movement, but do not automatically generate every donor precision. Additional lossy
+  variants require explicit accuracy-budget approval and separate numerical/task validation.
+  Certify each approved variant at its own matched target/donor.
 - Establish the achievable ceilings once per node (`tools/calibrate.py`) before
   gating; never gate against paper peak or max turbo.

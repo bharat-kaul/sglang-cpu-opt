@@ -9,6 +9,11 @@ BF16 tuning maximizes efficiency at a fixed ceiling; quantization **raises the
 ceiling**. AMX INT8 (`amx_int8`) does ~2x the ops/cycle of AMX BF16
 (`amx_int8_ops_per_cycle_per_core` ≈ 2048 vs 1024).
 
+Follow the [canonical precision and target policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Start from the original model's numerical contract, not an assumed BF16 baseline.
+Explore reduced-precision movement for weights, KV, activations and intermediates;
+measure conversion/scale/packing costs rather than assuming they are hidden.
+
 ## Two INDEPENDENT benefits (they decouple — pick by regime)
 Low precision helps in two separate ways; a target may have one without the other:
 1. **Raises the COMPUTE ceiling** — only when the HW has the low-precision matmul
@@ -46,20 +51,13 @@ manufacture the domain overflow yourself. (This is the precision-agnostic
    the GEMM — no bf16 materialization, which is what makes a naive per-token Python dequant
    ~100× too slow). Mirror the framework's own low-bit method (load-time prepack + scale pack
    + the fused apply) rather than authoring a kernel.
-3. **Accuracy is keyed on whether the SHRINK is LOSSLESS — not on the compute precision.**
-   Accuracy is fixed by the *operand* precision (the weight values entering the matmul);
-   upconvert-to-bf16-for-compute does NOT recover bits thrown away at downconvert. So:
-   - **Lossless shrink = zero accuracy loss, no eval needed** (just confirm it): the resident
-     low-bit is an *exact re-encoding* of the source — either the checkpoint is **native** in
-     that format (keeping it discards nothing), or the format represents every value exactly
-     (fp4 e2m1 × power-of-2 e8m0 → bf16 is bit-exact; fp8 captures fp4 levels exactly). Here a
-     W4A16 path and the higher-precision path compute on IDENTICAL weight values.
-   - **Lossy shrink = MUST validate** (`accuracy-oracle`): if you shrink by *quantizing a
-     higher-precision checkpoint down* (bf16/fp8 → int4/fp4 to fit), the loss is incurred at
-     the downconvert and no compute precision undoes it.
-   - Even with lossless weights, two axes still cost accuracy and need a check: **activation
-     precision** (W4A16 vs W4A8) and any **scale/group re-encoding** to match a kernel (a
-     de-replication is exact; a real group-size change or fp4→int4 scale requant is lossy).
+3. **Separate storage loss from compute conformance.**
+   - **Lossless storage:** verify exact decoding over the real format/scale domain.
+     Equal weight values do not waive validation of the consuming kernel.
+   - **Lossy shrink:** obtain an explicit accuracy budget and validate numerical/task
+     outcomes before promotion. Up-conversion cannot restore discarded bits.
+   - In both cases validate activation precision, scales/groups, accumulation and published
+     intermediate-rounding boundaries. Higher precision is not automatically source-conformed.
 
 Real case (DeepSeek-V4-Flash, GNR): the routed experts ship **native MXFP4** (~137 GB). A
 Plan-A dequant to fp8 inflated them to ~275 GB, which exceeds one 258 GB SNC domain and forced
@@ -96,43 +94,45 @@ INT32. Pack constraints shift accordingly (`IC % 64 == 0`).
   distributional. Block on accuracy regression.
 
 ## Performance gate
-Re-establish the achievable ceiling for INT8 (`amx_peak.c` with INT8 tiles) and
-gate the INT8 GEMM at ≥70% of the INT8 streamed-achievable, same as BF16.
+Measure the actual INT8 path and justify its matched target separately from the resident
+probe. Apply the agreed threshold plus the complete standalone opportunity ledger.
 
 ## Order
-Apply LAST in the playbook — after parallelization/tiling/BRGEMM — because it
-changes the correctness contract and should be evaluated against a fully-tuned
-BF16 baseline.
+Preserve native packed storage from bring-up. Evaluate movement precision throughout
+optimization; additional lossy compute/storage variants require their own approval and
+comparison against a tuned source-conformed baseline, not necessarily BF16.
 
 ## Storage dtype ≠ compute dtype (sub-8-bit checkpoints, e.g. fp4/nvfp4/mxfp4)
-GNR AMX computes in **bf16 and int8 ONLY — there is no native 4-bit (fp4/int4) matmul**.
+Probe the target's supported compute ISA; do not assume native fp4/int4 matmul.
 A checkpoint's weight dtype (fp4 experts in DeepSeek-V4-Pro; nvfp4/mxfp4/int4 GGUF) is a
 **storage/quantization format**, not a compute path on this ISA. So a sub-8-bit checkpoint
-is an ENABLEMENT GAP, not a ready kernel: the GEMM MUST upconvert the weights to a
+requires a compatible packed-input kernel: if absent, it is an ENABLEMENT GAP. The GEMM decodes tiles to a
 supported compute dtype. The framework's CPU MoE/GEMM kernel will reject the packed
 sub-8-bit layout (DSV4: `fused_experts_cpu` asserts `packed_w1.size(2)==packed_K`; fp4's
 2-per-byte packing gives K/2 → `3588 vs 7168`). Route it to a supported path:
-- **Accuracy-parity FIRST target = bf16 compute.** Dequant `fp4_level × block_scale → bf16`
-  adds NO new quantization (bf16 represents the few fp4 levels exactly) → true parity vs the
-  fp4 reference. w8a8-int8 adds ACTIVATION quant error → parity risk; do it later.
+- **Accuracy-parity FIRST target = the published numerical contract.** A BF16 compute
+  path is eligible only when its decode, accumulation and rounding conform to that contract.
+  Validate scaled values, not just the unscaled fp4 levels. Extra activation quantization
+  requires separate approval and validation.
 - **Memory: upconvert is 4× (fp4→bf16), 2× (fp4→int8).** Check it FITS. DSV4-Pro experts
-  ≈735 GB fp4 → ≈2.9 TB bf16 > a 1.5 TB node. Two bf16-compute paths:
-  1. **Dequant-at-load → bf16 in RAM:** uses the EXISTING bf16 `fused_experts_cpu` (unquant
-     path), zero new kernel — but only where 4× fits (tiny-faithful, smaller/flash models).
-  2. **fp4 in RAM, dequant-per-tile IN-KERNEL → bf16 AMX:** memory stays 1× (fp4), same
-     numerics as (1) — a NEW kernel to author (sub-8-bit-weight, bf16-compute grouped GEMM).
-     This is the real large-model path. **Note: this is ALSO the PERFORMANT decode path**,
+  ≈735 GB fp4 → ≈2.9 TB bf16 > a 1.5 TB node. Distinguish reference from production:
+  1. **Reference-only widened fixture:** allowed for an explicitly labeled, capacity-budgeted
+     oracle comparison; never a production fallback, even when it fits.
+  2. **Production: fp4 in RAM, per-tile decode IN-KERNEL to supported compute dtype.**
+     Retain packed weights plus scales; reuse a compatible kernel or author the missing path.
+     Prove source conformance rather than assuming identical arithmetic to the widened fixture.
+     This is also a candidate performance lever,
      not just a capacity fix — decode is weight-streaming-bound, so keeping weights fp4
      (1/4 the bytes of bf16) directly raises the memory-bound throughput ceiling; the
      in-kernel dequant is cheap relative to the bytes saved (benefit 2 above).
-- **Sequence:** bf16 parity (reference) → int8 → int4-storage/int8-compute, each diffed vs the
-  bf16 result. Same as the playbook's correctness-first rule; int4-storage on GNR is ALSO
-  dequant-to-int8/bf16 (no int4 compute).
+- **Sequence:** source-conformed native-storage baseline → approved additional precision
+  variants, each validated independently. Do not replace the original contract with a
+  higher-precision baseline by default.
 - **The dequant bridge is UNVERIFIED until a numeric parity gate passes.** Whether you dequant at
-  load (path 1) or per-tile in-kernel (path 2), the fp4→bf16 decode (scale layout, nibble order,
+  load for an oracle fixture or per-tile in production, the fp4→bf16 decode (scale layout, nibble order,
   group/block size, VNNI prepack, SwiGLU gate/up split) fails SILENTLY when wrong — plausible
   garbage, not a crash. Do NOT treat "the bf16 kernel exists and it ran" as correct. Emit the
   per-kernel parity gate from `accuracy-oracle` §low-bit parity gate: kernel output vs an
-  independent torch dequant oracle from the SAME packed bytes, decoded per the KERNEL's exact
+  independent torch dequant oracle from the SAME packed bytes, decoded per the PUBLISHED FORMAT's exact
   convention (read the kernel source, not a different quant path). Worked example:
   `plugin/validate/test_mxfp4_moe_cpu.py` + the `INTEL_CPU_DSV4_MOE_PARITY` in-situ probe.

@@ -1,6 +1,15 @@
 # Learned patterns — CPU GEMM AMX/BF16
 # Appended by the cpu-optimizer workflow after each validated run. Newest first.
 
+## Policy status
+
+The entries below are historical observations and hypotheses, not current acceptance rules.
+In particular, neither the "60 TF data-movement wall" nor the opposite "350 TF must be reached"
+conclusion establishes a full-kernel ceiling from these measurements alone. Their old actions/stop
+rules are superseded by the [canonical policy](../../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Retain the measurements and unresolved experiments; use matched calibration and measured alternatives
+to establish today's target and standalone completion.
+
 ## 2026-09-09 — LIBXSMM/BRGEMM investigation conclusion
 - torch.matmul's 60.6 TF is ALREADY a BRGEMM (oneDNN `brg_matmul:avx10_1_512_amx`).
   BRGEMM is the baseline here, not an untried optimization.

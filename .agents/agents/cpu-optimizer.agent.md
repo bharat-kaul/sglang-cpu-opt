@@ -12,12 +12,11 @@ package and integrates via `SGLANG_EXTERNAL_MODEL_PACKAGE` and the attention
 backend registry. You never edit files under `sglang/`.
 
 ## Loop
-0. **Feasibility gate (new/PARTIAL kernels — MANDATORY, before any code)** — first
-   confirm the op cleared BOTH model tiers: ranked high-ROI by `model-roofline-analysis`
-   (analytical) and confirmed a high-RoI hotspot by `model-profile-hotspots` (measured
-   per-kernel time vs roofline floor — meaningful share AND headroom; don't
-   kernel-optimize what the profile shows is already near its ceiling or a rounding
-   error). Then load `kernel-feasibility-gate`: WALK THE USER through the roofline model (FLOPs, real
+0. **Follow the [canonical acceptance policy](../../docs/methodology-playbook.md#canonical-acceptance-policy).**
+   Every standalone kernel must be native C/C++ with measured optimization, including fusion.
+   ROI orders work, never exempts a kernel. Establish minimal source-faithful bring-up
+   before requesting a model profile if a functional gap prevents execution.
+   Before optimization load `kernel-feasibility-gate`: WALK THE USER through the roofline model (FLOPs, real
    stream-vs-gather bytes, AI, ceilings for the ACTUAL dtype/ISA, ridge, regime, and
    whether the intended lever addresses the bottleneck), THEN run a baseline
    microbenchmark on the target node with perf counters + an Amdahl check. Get
@@ -40,20 +39,30 @@ backend registry. You never edit files under `sglang/`.
    ordered list to apply for THIS op + hardware profile.
 5. **Implement** — apply in the plugin only. Respect the capability contract;
    fall back + flag if an ISA/kernel is unavailable.
-6. **Validate correctness** — diff against the FP32 / `forward_native` reference.
-   Block on regression.
+6. **Validate correctness** — use the published source's dtype/rounding boundaries,
+   not an automatically higher-precision FP32 oracle. Block on regression.
 7. **Validate performance** — run `roofline-validation` against the ACHIEVABLE
-   ceiling. If below target, return to step 4 with the gap as feedback.
-8. **Record** — append the winning pattern to the skill's learned-patterns asset
-   so the next op/model benefits.
+   target. If below target, return to step 4. Passing a percentage alone is not completion.
+8. **Record** — dispose of each applicable ISA/tiling/threading/packing/precision/fusion
+   opportunity with measured evidence or justified exclusion. Record losses as well as wins;
+   retain unresolved work and existing human review requirements.
 
 ## Guardrails
-- Before authoring ANY new kernel, pass `kernel-feasibility-gate`: a user-reviewed
-  roofline model AND a measured baseline microbenchmark on the target node. Never
-  write kernel code on the model alone, and never apply a compute lever (AMX) to a
-  memory/gather-bound op — confirm the lever moves the MEASURED bottleneck.
-- Establish the achievable ceiling with a microkernel before optimizing; gate
-  against it, never against paper peak.
+- Apply the [startup infrastructure gate](../../docs/methodology-playbook.md#mandatory-startup-infrastructure-gate)
+  before selecting a node or running probes. Plan CPU sweeps and GPU oracle work against verified
+  capabilities, per-domain/rank budgets and shared-reader limits, not historical idle-node counts.
+- Use the [local recovery runner](../skills/throughput-enablement/enablement-certificate/SKILL.md#local-failure-restart-and-approval-handling)
+  for phase-gate automation. Never bypass a live lease, reuse a partial PASS or reset the retry
+  budget. Scheduler/model-job restart behavior needs its own acceptance rehearsal.
+- Every phase exit requires the evidence-bound adversarial self-audit and
+  [executable prefix gate](../skills/throughput-enablement/enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate).
+  Check Xeon batch1-64 goal alignment without exempting standalone kernels.
+  Do not advance on missing evidence, unresolved findings or missing external approval.
+- Before optimizing, pass `kernel-feasibility-gate`: a user-reviewed roofline and a
+  measured baseline on the target node. Functional reference bring-up is not optimized acceptance.
+  Confirm each lever moves the measured bottleneck; do not require or reject AMX by regime alone.
+- Separate resident/theoretical bounds, calibrated shape-specific targets and provisional
+  best-observed baselines; follow the canonical formulas and target-selection rules.
 - Measure the AMX all-core frequency; never assume max turbo.
 - Verify the intended ISA actually dispatched before trusting throughput.
 - Prefer single-socket binding for a lone GEMM; honor SNC/NUMA layout.

@@ -13,6 +13,7 @@ the param NAME, so both engines produce identical weights regardless of device,
 torch version, or tp-rank-0 layout (both sides run tp=1, full params). Matches
 sglang's convention of filling ``weight_scale_inv`` with 1.0. Gated by
 DETERMINISTIC_DUMMY=1; no-op otherwise.
+TP>1 is rejected: use make_dummy_checkpoint.py and the normal checkpoint loaders.
 """
 import hashlib
 import logging
@@ -24,13 +25,11 @@ logger = logging.getLogger(__name__)
 def install_deterministic_dummy() -> None:
     if os.environ.get("DETERMINISTIC_DUMMY") != "1":
         return
-    try:
-        import numpy as np
-        import torch
-        import sglang.srt.model_loader.weight_utils as _wu
-    except Exception as _e:  # noqa: BLE001
-        logger.warning("deterministic dummy not installed (import): %s", _e)
-        return
+    import numpy as np
+    import torch
+    import sglang.srt.model_loader.weight_utils as _wu
+    import sglang.srt.model_loader.loader as _ld
+    from sglang.srt.distributed import get_tensor_model_parallel_world_size
     if getattr(_wu.initialize_dummy_weights, "_deterministic", False):
         return
 
@@ -38,6 +37,11 @@ def install_deterministic_dummy() -> None:
         return int(hashlib.sha256(name.encode()).hexdigest()[:8], 16)
 
     def _init(model, low: float = -1e-3, high: float = 1e-3, seed: int = 1234) -> None:
+        if get_tensor_model_parallel_world_size() != 1:
+            raise RuntimeError(
+                "DETERMINISTIC_DUMMY is TP=1 only; generate a shared oracle checkpoint "
+                "with make_dummy_checkpoint.py and use load_format=safetensors on both sides"
+            )
         for name, param in model.state_dict().items():
             if not torch.is_floating_point(param):
                 continue
@@ -53,11 +57,5 @@ def install_deterministic_dummy() -> None:
     _wu.initialize_dummy_weights = _init
     # DummyModelLoader imported the symbol by value (loader.py `from ... import
     # initialize_dummy_weights`), so patch the binding it actually calls too.
-    try:
-        import sglang.srt.model_loader.loader as _ld
-
-        if hasattr(_ld, "initialize_dummy_weights"):
-            _ld.initialize_dummy_weights = _init
-    except Exception:  # noqa: BLE001
-        pass
+    _ld.initialize_dummy_weights = _init
     logger.info("deterministic dummy weights installed (numpy name-seeded, CPU/GPU bit-identical).")

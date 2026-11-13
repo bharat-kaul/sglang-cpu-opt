@@ -107,16 +107,11 @@ size, and it decides tp vs interleave. Compute up front:
        bytes, and — crucially here — lets a too-big model become a **single-domain tp=1** model,
        side-stepping every placement hack below. Precision-to-fit is a CAPACITY lever applied
        FIRST, not a throughput lever applied last.
-     - **Accuracy: keyed on whether the SHRINK is lossless, NOT on the compute precision.**
-       Accuracy is set by the *operand* precision (the weight values fed to the matmul); a
-       higher-precision accumulator/upconvert-for-compute does NOT restore bits discarded when
-       the weights were downconverted. So:
-       · **Lossless shrink → zero accuracy loss, no eval needed (just a sanity check).** This is
-         the case when the low-bit resident is an *exact re-encoding* of the source: (a) the
-         checkpoint is **native** in that format (keeping fp4 you already have throws nothing
-         away — our MXFP4 case), or (b) the target dtype represents every source value exactly
-         (fp4 e2m1 × power-of-2 e8m0 → bf16 is bit-exact; fp8 captures fp4 levels exactly, which
-         is why the old fp8 path and MXFP4 compute on *identical* weight values).
+     - **Accuracy follows the [canonical precision contract](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).**
+       Lossless storage and compute conformance are separate obligations.
+       · **Lossless shrink:** prove decoded value equality over the actual format and scale
+         domain. This does not waive validation of the consuming kernel, intermediate
+         rounding, accumulation or serving behavior.
        · **Lossy shrink → you MUST validate (`accuracy-oracle`).** If you shrink by *quantizing a
          higher-precision checkpoint down* (bf16/fp8 → int4/fp4 to make it fit), the loss is
          baked in at the downconvert and no compute precision undoes it.

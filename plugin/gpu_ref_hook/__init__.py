@@ -333,6 +333,7 @@ def _install():
 
 
 def _install_fullcap():
+    from _fullcap_io import save_fullcap
     # Comprehensive full-tensor per-layer capture (prefill AND decode) on the GPU oracle, matching the
     # CPU plugin, for offline cosine-per-layer diff. Saves each layer OUTPUT hidden + logits (fp32) to FULLCAP_FILE.
     try:
@@ -489,7 +490,7 @@ def _install_fullcap():
                     if lg is not None:
                         n = sum(1 for kk in _CAP if kk.startswith("logits"))
                         _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
-                        torch.save(_CAP, _F)
+                        save_fullcap(_CAP, _F)
                 except Exception:  # noqa: BLE001
                     pass
                 return r
@@ -501,6 +502,7 @@ def _install_fullcap():
 
 
 def _install_fullcap_glm():
+    from _fullcap_io import save_fullcap
     # Full-tensor per-(pass,op,layer,rank) capture on the native-GPU GLM-5.3 reference, for an
     # offline cosine-per-layer diff vs the CPU build. Saves each decoder-layer OUTPUT hidden, the
     # MHC hc_post output (the DSV4-port break class), and the final logits (all fp32) to FULLCAP_FILE.
@@ -528,7 +530,7 @@ def _install_fullcap_glm():
     def _save_atexit():
         try:
             if _CAP:
-                torch.save(_CAP, _F)
+                save_fullcap(_CAP, _F)
                 print(f"[fullcap_glm] atexit saved {len(_CAP)} tensors -> {_F}", flush=True)
             else:
                 print("[fullcap_glm] atexit: _CAP EMPTY (decoder-layer forward hook never tagged a pass)", flush=True)
@@ -579,7 +581,7 @@ def _install_fullcap_glm():
                         # Save HERE (scheduler process, during forward): atexit runs in the
                         # wrong process / is skipped on hard shutdown, and LogitsProcessor may
                         # not fire — an in-forward save is the only reliable persistence.
-                        torch.save(_CAP, _F)
+                        save_fullcap(_CAP, _F)
                         print(f"[fullcap_glm] SAVED {len(_CAP)} -> {_F} pid={os.getpid()} key={key}", flush=True)
                     if tg.startswith("dc"):
                         _ST["dc"] += 1
@@ -606,7 +608,7 @@ def _install_fullcap_glm():
                         if key not in _CAP:
                             _CAP[key] = o.detach().float().reshape(-1, o.shape[-1]).cpu()
                             try:
-                                torch.save(_CAP, _F)
+                                save_fullcap(_CAP, _F)
                             except Exception:  # noqa: BLE001
                                 pass
             except Exception:  # noqa: BLE001
@@ -629,7 +631,7 @@ def _install_fullcap_glm():
                     if lg is not None:
                         n = sum(1 for kk in _CAP if kk.startswith("logits"))
                         _CAP[f"logits.{n}.r{_rk()}"] = lg.detach().float().cpu()
-                        torch.save(_CAP, _F)
+                        save_fullcap(_CAP, _F)
                 except Exception:  # noqa: BLE001
                     pass
                 return r
@@ -647,6 +649,8 @@ try:
 
     install_deterministic_dummy()
 except Exception:  # noqa: BLE001
+    if os.environ.get("DETERMINISTIC_DUMMY") == "1":
+        raise
     pass
 
 if os.environ.get("GPU_REF_HID_DEBUG") == "1":

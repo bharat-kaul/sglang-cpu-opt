@@ -5,10 +5,31 @@ description: "Master index + decision flow for optimizing an SGLang model op on 
 
 # CPU Optimization Playbook (orchestrator index)
 
+Before selecting a node or running calibration, apply the
+[mandatory startup infrastructure gate](../../../../docs/methodology-playbook.md#mandatory-startup-infrastructure-gate).
+Discover CPU/GPU resources and scheduler/storage/software constraints, budget per node/rank, then
+plan reference captures and parallel sweeps within safe load/compute concurrency. Recheck availability
+before each submission; a saved profile is not a reservation or proof of current software compatibility.
+
 This is the entry point the agentic workflow loads first for any CPU optimization
 task. It does not itself optimize; it **routes** the op through a progressive,
 composable library of per-technique skills, loading each only when its trigger
 condition is met and gating every step against the measured roofline.
+
+Follow the [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy):
+every standalone kernel is native C/C++ and receives measured optimization, including fusion exploration.
+ROI orders work; it does not remove kernels from scope. Thresholds alone do not establish completion.
+
+At every phase exit use the
+[executable prefix gate](../../throughput-enablement/enablement-certificate/SKILL.md#executable-phase-exits-and-final-certificate)
+after an evidence-bound adversarial self-audit. Verify correctness and alignment with Xeon
+request-batch **1..64**, retaining B1 latency and the declared throughput points.
+Unresolved findings block progression; existing standalone/final human approvals remain mandatory.
+
+Automated phase replay uses the
+[local recovery runner](../../throughput-enablement/enablement-certificate/SKILL.md#local-failure-restart-and-approval-handling).
+Retries are explicit and bounded, previous live owners block resubmission, and partial reports
+cannot authorize progress. Remote/model job recovery needs its own scheduler rehearsal.
 
 **Residual accuracy is a separate routing decision.** For an already-running
 model, repeated improvements in an isolated operator's cosine/error do not prove
@@ -20,8 +41,7 @@ evaluation. Do not spend kernel budget chasing a historical reference answer
 whose execution protocol or repeat stability is unbound. A closed task-gap
 campaign does not promote a numerical variant or waive per-op correctness.
 
-> **⛔⛔ USER-MANDATED CAMPAIGN REQUIREMENTS — NON-NEGOTIABLE (do NOT relax, defer, or dilute; any
-> model-agnostic / adapter refactor MUST preserve these verbatim as campaign policy).** These are hard
+> **⛔⛔ ACCEPTANCE REQUIREMENTS — NON-NEGOTIABLE.** These implement the canonical policy above and are hard
 > gates the user has explicitly required for this enablement; treat each as a blocking prerequisite, not a
 > recommendation:
 > 1. **SCOPE / SHAPE DISCOVERY FIRST.** Discover the model's real op graph, per-op tensor SHAPES/dtypes, the
@@ -35,18 +55,19 @@ campaign does not promote a numerical variant or waive per-op correctness.
 > 3. **IDENTIFY OPS *AND* FUSED OPS.** Enumerate every op and every FUSED op in the graph
 >    (`model-op-decomposition` + `fusion-analysis`); a fused op is a first-class kernel target. Coverage is
 >    over the full op/fused-op set, declared independently of what happened to be tested.
-> 4. **ALL KERNELS IN OPTIMIZED C/C++ *BEFORE* END-TO-END (the hard phase gate).** Every op / fused-op has a
+> 4. **ALL KERNELS IN OPTIMIZED C/C++ BEFORE PRODUCTION INTEGRATION.** Every op / fused-op has a
 >    C/C++ kernel, each optimized across its knobs (M-sweep + KV) toward roofline, with a no-regression
 >    floor vs the SAME-CONTRACT torch fallback (replicated, order-varied, identity-bound) and correctness
->    held by the per-op gate (`tie_eps=0` selection / source-conformed continuous). 100% authored-C/C++
->    coverage + recorded perf-vs-roofline is the gate; ONLY THEN the North-Star end-to-end wall-time phase.
+>    held by the per-op gate (`tie_eps=0` selection / source-conformed continuous). 100% native C/C++
+>    coverage (authored or optimized library), completed opportunity dispositions and recorded
+>    perf-vs-roofline are required. Reference bring-up and diagnostic model runs may precede this gate;
+>    they do not count as optimized completion.
 > 5. **PAUSE FOR REVIEW at the Phase-1 exit**, after the pre-submit self-audit (below). Do NOT auto-advance
 >    to end-to-end integration. Policy/tolerance ratification is the human reviewer's, never the executor's
 >    (never silently widen a tolerance, drop a case, swap a comparator, or relabel uncertainty as parity).
 >
 > The sections below (phase order, donor-first, fusion/precision gates, pre-review falsification pass) are
-> the mechanized enforcement of these mandates. A model-agnostic redesign may re-house them into adapters,
-> but the REQUIREMENTS stay as the DSv4 campaign policy and the executable gates must still enforce them.
+> procedures for these mandates. Executable enforcement must be verified separately; prose alone is not a gate.
 
 > **STANDING DISCIPLINE — load `shared/adversarial-self-audit` before submitting ANY gate/validator/
 > record/review-response.** Fix the vulnerability CLASS not the shown instance; validate by
@@ -107,8 +128,8 @@ campaign does not promote a numerical variant or waive per-op correctness.
 > Star is end-to-end WALL TIME — but it is gated behind a hard prerequisite:
 >
 > **PHASE 1 — ALL-KERNELS-IN-OPTIMIZED-C/C++ (a REQUIREMENT, not a nicety).**
-> - EVERY op / fused-op in the model's op graph MUST have a C/C++ kernel (no op left on a torch/
->   Python fallback). "A torch ref exists" is NOT coverage; authored-C/C++ coverage is the gate
+> - EVERY op / fused-op in the model's op graph MUST have a C/C++ kernel (authored or optimized library;
+>   no eager/Python compute fallback). "A torch ref exists" is NOT coverage; native-C/C++ coverage is the gate
 >   (`coverage-gate` must be 100% in C/C++ before Phase 2).
 > - Each kernel is OPTIMIZED AGAINST ITS KNOBS — the batch/token count **M** AND the **KV-cache**
 >   context (S / topk / page length) — **across the full M-sweep**, toward **as close to roofline as
@@ -116,12 +137,14 @@ campaign does not promote a numerical variant or waive per-op correctness.
 > - **NO-REGRESSION FLOOR vs the torch fallback (hard):** at EVERY M the C/C++ kernel must be **≥ the
 >   torch fallback** (faster, or at worst a TIE). At small M (e.g. M=1/M=8) a kernel may not beat
 >   torch — that is acceptable — but it must **never be slower**. A kernel that regresses vs torch at
->   any M is NOT done; dispatch it (best-of / fall through to the library path at that M) so the floor
+>   any M is NOT done; dispatch it to a validated native library path at that M so the floor
 >   holds. Correctness is held throughout by the per-op acceptance gate (`accuracy-oracle` /
 >   `f4_acceptance.py`, tie_eps=0) — a speedup that changes tokens is worthless.
 > - RANK the Phase-1 order by ROI (standalone median × call-count, e.g. `f7_roi_ledger.py`); optimize
 >   the heaviest / farthest-from-roofline kernel first. This is STANDALONE kernel work (microbench +
 >   roofline), the only phase where per-op roofline — not wall time — is the target.
+> - COMPLETE the canonical opportunity ledger for every kernel, including measured ISA/tiling/threading/
+>   packing/precision alternatives and producer-consumer fusion. Small end-to-end share is not an exemption.
 >
 > **PHASE 2 — NORTH-STAR WALL TIME (only after Phase 1 is complete + reviewed).**
 > - **FRAME THE KPI FIRST (ask the user):** fix the operating point **(input S, batch B=M, output G)** +
@@ -153,22 +176,17 @@ campaign does not promote a numerical variant or waive per-op correctness.
 > Do NOT jump to Phase-2 wall-time optimization while any op is still on a torch fallback or any
 > kernel is below its no-regression floor — fix Phase 1 first.
 >
-> **BW-BOUND ≠ "SKIP AMX."** A low-M (CPU-serving) op being bandwidth-bound sets its *ceiling* (DRAM BW); it
-> does NOT excuse a torch fallback or an untiled path. The op only *reaches* `Bytes/BW` when AMX compute HIDES
-> under the stream (`t = max(FLOPs/P_compute, Bytes/BW)`) — a torch `P_compute` makes the compute term dominate
-> (DSv4 routed expert @M=32: 38 µs stream, AMX = 13 µs hidden, **torch = 805 µs = 21× above the BW floor**). So
-> every hot GEMM/op is an authored **C/C++ AMX/AVX-512** kernel (BRGEMM/grouped-BRGEMM), **tiled + double-buffered**
-> (AMX consumes the resident tile while the next streams) and **fusion-folded** (cut the `Bytes` term) regardless
-> of regime; the regime only changes the *streaming + thread-count* strategy, **adaptive in M** (M=1 → ≤4–8
-> threads, GEMV+prefetch; M→64 → all cores, grouped BRGEMM). See the methodology playbook "BW-bound is the ceiling,
-> not a license to skip AMX" rule + `docs/dsv4-gemm-regime-analysis.md`.
+> **BW-BOUND DOES NOT WAIVE NATIVE OPTIMIZATION.** Evaluate supported ISA, tiling, threading,
+> double-buffering and fusion. AMX may reduce compute/feed overhead enough to reach bandwidth;
+> AVX or a different native call shape may win at small M. Measure the choice rather than
+> mandating AMX or a fixed thread count. Use the canonical resource model and target rules.
 >
 > **DONOR-FIRST (do NOT hand-roll what a library already provides).** Wherever an existing optimized
 > primitive exists — **OneDNN** (eltwise/softmax/reorder), ATen **cpublas** brgemm + VNNI `pack` (oneDNN/
 > MKL-backed), `at::bmm`, MKL, LIBXSMM/TPP — USE IT and author only the irreducible missing GLUE (fused
 > epilogue, dispatch, tiling, gather, online-softmax composition). Never re-implement a matmul/softmax a
-> library gives you. Author a net-new kernel ONLY when no donor primitive covers the contract
-> (`kernel-authoring` + `assets/donor-kernel-map.md`); even then, build it from the nearest donor.
+> library gives you without measured justification. Author a net-new kernel when no donor covers
+> the contract or attribution supports replacing its composition/inner loop; compare to the best donor.
 >
 > **RUN PHASE 1 AS A PARALLEL WAVE.** The per-kernel standalone optimizations are INDEPENDENT work items
 > (distinct source, distinct roofline) — fan them out in parallel (analysis + author + measure), ranked by
@@ -181,16 +199,17 @@ campaign does not promote a numerical variant or waive per-op correctness.
 > math as ONE streaming pass (online-softmax, accumulate-once) so no full weight/score/prob tensor is
 > materialized. Record, per kernel, which intermediates are fused-away vs. which residual round-trip
 > remains and WHY it is irreducible (e.g. keeping it would forfeit a near-roofline library GEMM). Also
-> flag CROSS-OP (adjacent-kernel) fusion candidates for Phase-2 integration (they need the caller context).
+> explore CROSS-OP fusion using source-derived caller context during standalone work. Record
+> integration-only realization separately, with an owner; fused regions re-enter standalone acceptance.
 >
 > **⛔ PRECISION / BANDWIDTH GATE (every kernel, before it is "done").** Exploit precision to cut the DRAM
 > wall on BW-bound ops: STORE/READ the heavy operands (KV cache, activations, weights) in the LOWEST
 > precision the reference tolerates, UPCONVERT in-cache for compute (bf16 AMX / fp16 with FP32 ACCUMULATE),
-> and DOWNCONVERT on write-out. Two rules make this safe and free:
+> and preserve source rounding on write-out. Two checks govern acceptance:
 >   1. **Free-BW rule:** if the kernel's compute ALREADY rounds an operand (e.g. a bf16 AMX GEMM rounds the
 >      fp32 KV it reads), then STORING that operand at the compute precision is numerically IDENTICAL to
->      what the kernel already consumes while HALVING its dominant read — take it (gated only on the
->      cache/operand format, a caller/integration knob). Never read fp32 only to immediately round to bf16.
+>      what that consumer receives only if rounding/scale semantics match. Verify every consumer
+>      of shared storage, preserve state semantics and measure conversion costs; it is not automatically free.
 >   2. **Accumulate-in-fp32 rule (SOURCE-STAGE semantics govern):** keep reductions/softmax/normalization
 >      accumulators in FP32 for numerical stability even when inputs/outputs are low-precision, and downconvert
 >      only the final store — UNLESS the published op rounds at INTERMEDIATE stage boundaries (e.g. the DSv4
@@ -339,8 +358,8 @@ campaign does not promote a numerical variant or waive per-op correctness.
 
 | # | Technique skill | Load when | Gates on |
 |---|-----------------|-----------|----------|
-| G | `kernel-feasibility-gate` | BEFORE authoring a net-new kernel | user-reviewed roofline + measured baseline; go/no-go |
-| A | `kernel-authoring` | writing a NET-NEW kernel (not just tuning) | draft matches FP32 ref |
+| G | `kernel-feasibility-gate` | before optimization; minimal reference bring-up allowed earlier | user-reviewed roofline + measured baseline; design go/no-go |
+| A | `kernel-authoring` | writing a NET-NEW kernel (not just tuning) | draft matches source-conformed reference |
 | S | `cpu-serving-integration` | novel kernels authored+validated; make the model actually RUN | model runs end-to-end + accuracy + roofline-vs-measured |
 | 0 | `establish-achievable-performance` | ALWAYS first, once per hardware profile | sets the ceilings |
 | D | `sub-numa-clustering` | after 0, BEFORE the tile/vectorize loop; multi-socket / SNC node | per-domain scaling + capacity fit |
@@ -369,6 +388,7 @@ skill folders without touching the others.
 4. if weights reused (inference) -> weight-prepacking-brgemm  (usually the biggest
    single win for a lone large GEMM; see that skill's measured evidence)
 5. if accuracy budget allows -> quantization-amx-int8
+5b. explore producer-consumer fusion and shared-operand layouts; measure applicable alternatives
 6. roofline-validation after each step; loop on the gap; record learned pattern
 ```
 
@@ -379,10 +399,11 @@ Also **re-check numerical parity against the persistent reference oracle after e
 step** (see `kernel-authoring` 1b): a slow-but-correct reference is authored/kept as
 the correctness fallback, and any optimized variant that drifts from it is a
 regression, not a speedup. Speed is only valid on top of correctness.
-Stop when efficiency ≥ target (70% of the *streamed achievable* ceiling, not the
-resident compute peak — see `establish-achievable-performance`). Record which
-technique closed the gap in the skill's learned-patterns so the next op starts
-from the winning combination.
+Stop only when the canonical standalone completion requirements hold: native coverage,
+source-conformed correctness, no-regression across the declared domain, justified target
+checks and dispositions for every applicable optimization/fusion opportunity.
+A percentage alone does not close the kernel. Record wins and losses with their scope;
+unresolved applicable opportunities prevent an unqualified fully-optimized claim.
 
 ## Worked composition
 

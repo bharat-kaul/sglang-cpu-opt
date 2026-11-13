@@ -5,8 +5,9 @@ description: "Use when validating whether a measured CPU kernel (GEMM, attention
 
 # Roofline Validation
 
-Turn a raw throughput number into a defensible verdict. Gate against the
-**achievable** ceiling measured by a saturating microkernel, not the paper peak.
+Turn a raw throughput number into a defensible verdict using the
+[canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
+Report idealized bounds separately from calibrated operation-specific targets.
 
 ## Peak vs achievable (measure the ceiling, don't assume it)
 Before judging any kernel, establish the achievable ceilings on the target
@@ -15,9 +16,10 @@ silicon with microbenchmarks (run once per hardware profile, cache in its
 - **Compute**: `tools/microbench/amx_peak.c` — resident-tile TDPBF16PS loop, zero
   memory traffic → achievable AMX compute TFLOP/s (also fixes FLOP/cycle empirically).
 - **Memory**: `tools/microbench/stream_triad.c` → achievable DRAM GB/s.
-Example (GNR 6980P): achievable = 350.8 TF/socket compute, 630.7 GB/s BW;
+Example (GNR 6980P): resident compute probe = 350.8 TF/socket, STREAM = 630.7 GB/s;
 paper peak compute is ~351 TF/socket and 844.8 GB/s — so AMX compute is ~100%
-achievable while DRAM tops out at ~75% of peak.
+utilized in that probe while STREAM reaches ~75% of theoretical bandwidth.
+Neither observation alone certifies a full kernel's achievable rate.
 
 ## Inputs
 - A hardware profile (`hardware-profiles/<part>.yaml`) with its `achievable` block.
@@ -26,20 +28,25 @@ achievable while DRAM tops out at ~75% of peak.
 
 ## Procedure
 1. `peak_compute = cores * flops_per_cycle_per_core * freq` (sanity only).
-2. `achievable_compute` = microkernel result from the profile (PRIMARY ceiling).
-3. `peak_bw`, `achievable_bw` similarly.
-4. `ridge = achievable_compute / achievable_bw` (FLOP/byte).
-5. `AI = 2*M*N*K / bytes_moved`. If `AI >= ridge` → compute-bound (gate against
-   `achievable_compute`), else memory-bound (gate against `AI * achievable_bw`).
-6. `efficiency = achieved / applicable_achievable_ceiling`.
+2. Record the resident probe as a reference bound; justify the operation-specific
+   compute target at matching shape, dtype, locality, threads and cache conditions.
+3. Record theoretical and measured bandwidth for the relevant memory level separately.
+4. `ridge = compute_rate / bandwidth` (FLOP/byte), naming which bound/target is used.
+5. `AI = FLOPs / bytes_moved`; `floor_time = max(FLOPs/compute_rate, bytes/bandwidth)`.
+   Include non-GEMM work and additional costs explicitly where this model is incomplete.
+6. `efficiency = target_time / measured_time`, equivalently measured throughput /
+   target throughput. Do not silently compare mismatched roofline definitions.
 
 ## Verdict rules
-- `efficiency >= 0.70` on a single socket, large square GEMM → **PASS**.
+- For a justified single-socket large-square-GEMM target, `efficiency >= 0.70` → threshold **PASS**.
+  This does not close standalone optimization without the canonical opportunity ledger.
 - `0.70 > efficiency >= 0.5` → **MARGINAL**: revisit blocking/threads/NUMA.
-- `efficiency < 0.5` → **FAIL**: structural issue (wrong ISA dispatched, NUMA
-  thrash, under-threaded).
-- `efficiency > 1.0` → **INVALID CEILING**: the achievable measurement or the
-  frequency is wrong; re-run the microkernel before reporting anything.
+- `efficiency < 0.5` → threshold **FAIL**; investigate the target and implementation,
+  rather than assigning a cause from the ratio.
+- Non-finite/nonpositive inputs → **INVALID EVIDENCE**.
+- `efficiency > 1.0` → **TARGET/MODEL REVIEW REQUIRED**: check cache residency,
+  work/byte counts, timing, frequency and whether a provisional baseline was surpassed.
+  Do not clamp or silently certify.
 
 ## A low % is a tested hypothesis, not a verdict (a bound is not a wall)
 A sub-ceiling efficiency is **not** automatically a failure *or* a wall — it is a hypothesis to test before
@@ -49,12 +56,13 @@ you either keep optimizing or declare "at ceiling":
    **operative floor** (what is achievable given the op's regime) and report % of *that*. An op reading at the
    bare `memcpy`/`sum` bandwidth, or a small-batch GEMM at the library-microkernel floor, is **at its real
    ceiling** even at a low % of the nominal roof — the low % is a diagnostic, not owed work. Decompose per
-   component (data-movement ≥75% of **operative** BW, compute ≥ ISA/dtype peak, overhead→0); the roofline-% of
+   component (data-movement against **operative** BW, compute against calibrated shape/dtype targets,
+   overhead measured and minimized); the roofline-% of
    the *total* just names the dominant component.
 2. **Config sweep before "at ceiling."** A measured bound prompts a **sweep** over tiles / grain /
    effective-threads (via `grain_size`/task-count — **never per-forward `set_num_threads`**, an affinity
    cliff). If the % rises, the bound was *config* (fix it; ship the per-M optimum). If the sweep moves nothing,
-   it is *fundamental* — only now is "at ceiling" earned.
+   retain a bounded "best demonstrated" claim; a finite sweep does not prove a fundamental limit.
 3. **Knob before closing.** Where compute dominates, test the **precision** lever (bf16/fp8 — may win *or*
    lose; publish either); where measurement localizes the bottleneck **inside the donor's inner loop**,
    consider **authoring your own contraction**. Closing on assertion is the anti-pattern; a measured loss is a

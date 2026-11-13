@@ -5,6 +5,11 @@ description: "Experiment-design discipline for when the RUN is the bottleneck (l
 
 # High-Information Runs (maximize dispositions per expensive run)
 
+Start with the [mandatory infrastructure gate](../../../../docs/methodology-playbook.md#mandatory-startup-infrastructure-gate).
+The timestamped inventory and per-node/rank/load-slot budget determine which parallel waves are
+safe. This leaf implements that resource-aware plan; it does not override scheduler allocation,
+source precision, oracle validity or publication configuration requirements.
+
 ## Full-accuracy waves: optimize completion time, not loader count
 
 - Distinguish **allocated / waiting-to-load / loading / generating / complete**.
@@ -131,9 +136,9 @@ answer one yes/no question, STOP and widen it.
    dispositioned as designed, ADD the instrument or don't submit.
 4. **Fold in every "check next" caveat.** If you write "if X looks clean, next check Y", instrument Y in
    the SAME run. Deferring a follow-up to a later run is THE anti-pattern this skill exists to kill.
-5. **Parallelize by default:** independent hypotheses → a WAVE across idle nodes; CPU + GPU reference →
-   launch CONCURRENTLY (different partitions); one decisive run → the fastest idle single node. Check
-   `sinfo`/`squeue` first. Only serialize jobs that share mutable global state.
+5. **Parallelize within the resource plan:** independent hypotheses → a WAVE across eligible nodes;
+   co-plan CPU + GPU reference and overlap computation when budgets permit. Check `sinfo`/`squeue`
+   first; serialize dependencies/shared mutable state and throttle shared-storage loading independently.
 6. **Independence due-diligence BEFORE co-running/parallelizing** (a hidden dependency wastes the run):
    - **No shared mutable state:** each hypothesis's instrument/variant must not alter state the others
      read — env flags, weights, KV/caches, global counters, output-file keys, RNG, thread count.
@@ -175,20 +180,22 @@ answer one yes/no question, STOP and widen it.
 ## Match the node to the run SHAPE (infra awareness cuts wall-time as much as instrumentation)
 `num_runs × run_cost` also depends on WHERE you run. **MANDATORY PRE-LAUNCH GATE — execute every single
 launch, no reflex `--partition=` default:**
-1. **Classify the task:** correctness / weight-dump / capture / bisection = ISA-PORTABLE (any idle node,
-   prefer the farm); perf/roofline FINAL = target HW only; GPU oracle = GPU box. A dump/capture is NEVER
-   a reason to take the scarce fast single node.
+1. **Classify the task:** portable correctness / weight-dump / capture / bisection can use compatible
+   idle nodes; an ISA-specific path still needs the actual target capability. Perf/roofline FINAL =
+   target HW/config only; GPU oracle = a compatible reference GPU allocation. Do not consume a scarce
+   final-performance node for a portable capture when suitable alternatives are available.
 2. **Check availability across ALL candidate partitions in one shot** before deciding:
-   `sinfo -p emr,gnrap -h -o "%P %t %D"` + `squeue -p gnrap -h` (is the single fast node busy/queued?).
+   Discover accessible CPU AND GPU partitions first; then query their node/GRES availability and
+   queues together. EMR/GNR/H200 names are site examples, never the complete hard-coded inventory.
 3. **Pick by (task-class × availability × wave-count)**, then launch. Catching yourself send a portable
    capture to the scarce fast node — or waiting in its queue behind others — is the bug.
-4. **GPU-centric rule (when the plan needs BOTH CPU and GPU runs):** they sit on different partitions, so
-   ALWAYS co-run them in parallel (CPU job + GPU job at once), never CPU-then-GPU. Before firing the GPU
-   side: (a) SIZE it to the FEWEST GPUs that fit the need (a capture/oracle only needs enough to LOAD;
-   `tp` must divide the head count; fit by memory/GB-per-GPU — don't grab the whole box out of habit);
-   (b) check the free GPU count and request only that many (by UUID); (c) fewer GPUs/job ⇒ more concurrent
-   GPU jobs fit ⇒ parallel GPU waves; (d) serialize only jobs sharing mutable global state (e.g. a shared
-   CDI spec). Net: assess need → size GPUs minimally → check free → fire CPU + GPU (and GPU waves) at once.
+4. **GPU-centric rule (when the plan needs BOTH CPU and GPU runs):** co-plan them from startup.
+   Size a legal TP configuration against per-rank load peak, KV/state/capture memory and topology;
+   a reference must fit the forward, not merely the weights. Request devices through the scheduler,
+   using its assigned IDs/visibility rather than claiming GPUs that only look idle in `nvidia-smi`.
+   Prefer efficient allocations, not necessarily the fewest GPUs if that harms completion time.
+   Overlap independent CPU/GPU computation while respecting quotas, shared mutable state and the
+   combined checkpoint-reader budget. Different partitions can still contend on the same NFS mount.
 Route by run shape:
 - **Independent hypotheses (bisection, a variant sweep that can't be merged into one load) → fan out a
   WAVE across the many-node partition** (e.g. EMR/SPR with 7-8 idle nodes): N runs finish in ~1 run of
@@ -197,8 +204,9 @@ Route by run shape:
 - **A single decisive run → the FASTEST single node** (e.g. GNR), not the parallel farm. Don't default
   to the farm out of habit for a one-shot; but if the fast node is `alloc`/busy, a job already RUNNING
   on a slower node beats a PENDING job on the fast one — queue wait is part of run_cost.
-- **The reference oracle lives on its own node class** (e.g. GPU box). Request only what fits (partial
-  GPUs / `--tp N` by UUID); don't block on the whole node. Serialize jobs that share mutable global
+- **The reference oracle lives on its own node class** (e.g. GPU box). Request a fitting scheduler
+  allocation with legal TP and record the assigned GPU IDs; don't demand a whole node unnecessarily.
+  Serialize jobs that share mutable global
   state (e.g. concurrent `nvidia-ctk cdi generate` clobber a shared spec → "unresolvable CDI devices").
 - **Portability gates the choice.** CORRECTNESS is ISA-portable → run it anywhere idle (the farm).
   PERF is NOT → final numbers must be on the target HW, so a perf run can't be parallelized onto the
