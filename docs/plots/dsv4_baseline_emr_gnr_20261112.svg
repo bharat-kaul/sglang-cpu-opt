@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="580" viewBox="0 0 1100 580">
+<rect width="1100" height="580" fill="white"/>
+<g font-family="sans-serif" fill="#17324d">
+<text x="40" y="34" font-size="22" font-weight="bold">DSv4: Baseline vs EMR optimized vs GNR</text>
+<text x="40" y="59" font-size="14">B32 / S128 per replica. Higher throughput is better.</text>
+<rect x="40" y="76" width="1020" height="45" fill="#fff3d6"/>
+<text x="52" y="95" font-size="13" font-weight="bold">Cross-experiment comparison: baseline is a dummy-weight proxy; current EMR/GNR use real weights.</text>
+<text x="52" y="113" font-size="12">Different host/configuration and timing protocols. Do not read baseline-to-current bar ratios as controlled speedups.</text>
+<rect x="50" y="138" width="14" height="14" fill="#8994a5"/>
+<text x="72" y="150" font-size="13">Naive baseline (historical proxy)</text>
+<rect x="405" y="138" width="14" height="14" fill="#2473ad"/>
+<text x="427" y="150" font-size="13">EMR optimized (real, 2 replicas)</text>
+<rect x="750" y="138" width="14" height="14" fill="#38835b"/>
+<text x="772" y="150" font-size="13">GNR (real, 3 replicas)</text>
+<text x="285" y="190" text-anchor="middle" font-size="18" font-weight="bold">Prefill tokens/s</text>
+<text x="815" y="190" text-anchor="middle" font-size="18" font-weight="bold">Decode tokens/s</text>
+<g stroke="#e5eaf0">
+<path d="M80 420H515 M80 370H515 M80 320H515 M80 270H515 M80 220H515"/>
+<path d="M610 420H1045 M610 370H1045 M610 320H1045 M610 270H1045 M610 220H1045"/>
+</g>
+<g font-size="12" text-anchor="end">
+<text x="70" y="424">0</text><text x="70" y="374">100</text><text x="70" y="324">200</text><text x="70" y="274">300</text><text x="70" y="224">400</text>
+<text x="600" y="424">0</text><text x="600" y="374">20</text><text x="600" y="324">40</text><text x="600" y="274">60</text><text x="600" y="224">80</text>
+</g>
+<rect x="125" y="380.100" width="85" height="39.900" fill="#8994a5"/>
+<rect x="265" y="326.917" width="85" height="93.083" fill="#2473ad"/>
+<rect x="405" y="262.361" width="85" height="157.639" fill="#38835b"/>
+<rect x="655" y="329.500" width="85" height="90.500" fill="#8994a5"/>
+<rect x="795" y="286.699" width="85" height="133.301" fill="#2473ad"/>
+<rect x="935" y="262.416" width="85" height="157.584" fill="#38835b"/>
+<g font-size="15" text-anchor="middle" font-weight="bold">
+<text x="167.5" y="371">79.8</text><text x="307.5" y="318">186.2</text><text x="447.5" y="253">315.3</text>
+<text x="697.5" y="320">36.2</text><text x="837.5" y="278">53.3</text><text x="977.5" y="253">63.0</text>
+</g>
+<g font-size="13" text-anchor="middle">
+<text x="167.5" y="442">Baseline</text><text x="307.5" y="442">EMR optimized</text><text x="447.5" y="442">GNR</text>
+<text x="697.5" y="442">Baseline</text><text x="837.5" y="442">EMR optimized</text><text x="977.5" y="442">GNR</text>
+</g>
+<text x="40" y="480" font-size="13">Current EMR/GNR: 43 real layers, fixed32 threads per replica, five output tokens (four decode steps).</text>
+<text x="40" y="501" font-size="13">Real-weight bars: three socket-round medians; ranges are in the table. Not steady-state or tuned-optimum rates.</text>
+<text x="40" y="522" font-size="13">EMR: 64 cores / total B64. GNR: 96 of 128 cores / total B96. Same native main computation, no C4.</text>
+<text x="40" y="543" font-size="13">Baseline: original 4L/8L-to-43L extrapolation, not a current measured median. Historical record: job 392780.</text>
+<text x="40" y="564" font-size="12">Current jobs: EMR 402060 / GNR 402075. Matched GNR/EMR phase ratios: prefill 1.694x, decode 1.182x.</text>
+</g>
+</svg>

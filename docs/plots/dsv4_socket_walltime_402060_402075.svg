@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="490" viewBox="0 0 1100 490">
+<rect width="1100" height="490" fill="white"/>
+<g font-family="sans-serif" fill="#17324d">
+<text x="45" y="32" font-size="20" font-weight="bold">DSv4: measured GNR / EMR performance</text>
+<text x="45" y="55" font-size="13">Above 1.0x favors GNR. Short real-weight probe; no C4 candidate.</text>
+<rect x="45" y="75" width="12" height="12" fill="#92506b"/>
+<text x="63" y="86" font-size="12">Single-replica request</text>
+<rect x="310" y="75" width="12" height="12" fill="#2473ad"/>
+<text x="328" y="86" font-size="12">Socket request throughput</text>
+<rect x="575" y="75" width="12" height="12" fill="#38835b"/>
+<text x="593" y="86" font-size="12">Socket prefill throughput</text>
+<rect x="840" y="75" width="12" height="12" fill="#c08020"/>
+<text x="858" y="86" font-size="12">Socket decode throughput</text>
+<line x1="65" y1="385" x2="1060" y2="385" stroke="#e5eaf0" stroke-dasharray="5 4"/>
+<text x="55" y="389" text-anchor="end" font-size="12">0.0x</text>
+<line x1="65" y1="322.5" x2="1060" y2="322.5" stroke="#e5eaf0" stroke-dasharray="5 4"/>
+<text x="55" y="326.5" text-anchor="end" font-size="12">0.5x</text>
+<line x1="65" y1="260" x2="1060" y2="260" stroke="#526577" stroke-dasharray="5 4"/>
+<text x="55" y="264" text-anchor="end" font-size="12">1.0x</text>
+<line x1="65" y1="197.5" x2="1060" y2="197.5" stroke="#e5eaf0" stroke-dasharray="5 4"/>
+<text x="55" y="201.5" text-anchor="end" font-size="12">1.5x</text>
+<line x1="65" y1="135" x2="1060" y2="135" stroke="#e5eaf0" stroke-dasharray="5 4"/>
+<text x="55" y="139" text-anchor="end" font-size="12">2.0x</text>
+<rect x="120" y="281.83" width="40" height="103.17" fill="#92506b"/>
+<text x="140" y="273.83" text-anchor="middle" font-size="12">0.83x</text>
+<rect x="173" y="168.92" width="40" height="216.08" fill="#2473ad"/>
+<text x="193" y="160.92" text-anchor="middle" font-size="12">1.73x</text>
+<rect x="226" y="166.82" width="40" height="218.18" fill="#38835b"/>
+<text x="246" y="158.82" text-anchor="middle" font-size="12">1.75x</text>
+<rect x="279" y="192.02" width="40" height="192.98" fill="#c08020"/>
+<text x="299" y="184.02" text-anchor="middle" font-size="12">1.54x</text>
+<text x="220" y="410" text-anchor="middle" font-size="14">B1 / S3072</text>
+<rect x="450" y="284.28" width="40" height="100.72" fill="#92506b"/>
+<text x="470" y="276.28" text-anchor="middle" font-size="12">0.81x</text>
+<rect x="503" y="173.18" width="40" height="211.82" fill="#2473ad"/>
+<text x="523" y="165.18" text-anchor="middle" font-size="12">1.69x</text>
+<rect x="556" y="173.31" width="40" height="211.69" fill="#38835b"/>
+<text x="576" y="165.31" text-anchor="middle" font-size="12">1.69x</text>
+<rect x="609" y="237.23" width="40" height="147.77" fill="#c08020"/>
+<text x="629" y="229.23" text-anchor="middle" font-size="12">1.18x</text>
+<text x="550" y="410" text-anchor="middle" font-size="14">B32 / S128</text>
+<rect x="780" y="289.30" width="40" height="95.70" fill="#92506b"/>
+<text x="800" y="281.30" text-anchor="middle" font-size="12">0.77x</text>
+<rect x="833" y="176.54" width="40" height="208.46" fill="#2473ad"/>
+<text x="853" y="168.54" text-anchor="middle" font-size="12">1.67x</text>
+<rect x="886" y="176.02" width="40" height="208.98" fill="#38835b"/>
+<text x="906" y="168.02" text-anchor="middle" font-size="12">1.67x</text>
+<rect x="939" y="266.42" width="40" height="118.58" fill="#c08020"/>
+<text x="959" y="258.42" text-anchor="middle" font-size="12">0.95x</text>
+<text x="880" y="410" text-anchor="middle" font-size="14">B64 / S128</text>
+<text x="45" y="445" font-size="12">Fixed32 per replica. Socket: EMR 2 replicas / 64 cores; GNR 3 replicas / 96 cores.</text>
+<text x="45" y="465" font-size="12">Ratios of medians. Five output tokens (four decode steps), not steady state. Jobs 402060 / 402075.</text>
+</g></svg>

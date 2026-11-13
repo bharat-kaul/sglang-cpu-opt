@@ -1,5 +1,7 @@
 {
+ "docs/plots/dsv4_baseline_emr_gnr_20261112.png": "1bfb9235b56673db729ae5c689eaf6268fa6882c89273682eadbf43ba3585ac1",
  "docs/plots/dsv4_node_walltime_v5.png": "b58eb27d3b5d1e5251f0d28b56cabd9e88bdc1d898f943b54218c32a9dbce98d",
+ "docs/plots/dsv4_socket_walltime_402060_402075.png": "fd6db7a74f41583540f571753e487748c3f5da02e69bb063fc3e18aebe3dae75",
  "docs/plots/e2e_decode_progression_v7.png": "20cd6a97765e77ee2003716c702ed22b1ba60804d39821ac830a74bd059c743a",
  "docs/plots/e2e_walltime_v3.png": "47313d452ade1a85d9cf7e03aa17ce7476ec60529c92b88aa4bec5547c712b93",
  "docs/plots/kernel_journeys_msweep_v2.png": "0ecdfcbeaefd1c41f729f7fffbaca150a6590b86fa66e4f41eab788c517b93e0",
