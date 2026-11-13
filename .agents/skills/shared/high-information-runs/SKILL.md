@@ -10,6 +10,15 @@ The timestamped inventory and per-node/rank/load-slot budget determine which par
 safe. This leaf implements that resource-aware plan; it does not override scheduler allocation,
 source precision, oracle validity or publication configuration requirements.
 
+An analytical end-to-end target does not require an expensive model run. First derive work
+from source, reuse hardware calibration, and publish routing/reuse/utilization assumptions
+with sensitivity ranges. Use short targeted microbenchmarks to refine material uncertainties.
+Only propose a model run for a distinct validation question that cannot be answered cheaply.
+If approved, collect clean timings and separate diagnostic observations in one resident-model
+load where possible. Profiling alone is not an achievable floor. Preserve native execution and
+check identical inputs/state/generated work across diagnostic and clean requests. Shared-resource
+calibration must reproduce the replica layout, not merely the same node name.
+
 ## Full-accuracy waves: optimize completion time, not loader count
 
 - Distinguish **allocated / waiting-to-load / loading / generating / complete**.

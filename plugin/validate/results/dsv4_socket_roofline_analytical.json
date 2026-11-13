@@ -1,0 +1,872 @@
+{
+  "status": "ANALYTICAL_ESTIMATE_NOT_MEASURED_CEILING",
+  "compute_commit": "1ac61ecacdc46ae4118bb2faa1109348961d8c86",
+  "calibration_sha256": {
+    "emr": "213568112928ae8f3ce6a9e99a4f757c41b22d515e33e0370b95d68d013e1b92",
+    "gnr": "718af274ac660a1e3425c1404fac45ad10f8eab45fc39d99e75eeaa44951c18d"
+  },
+  "scenarios": {
+    "central": {
+      "routing": "historical59",
+      "compute_fraction": 0.75,
+      "vector_fraction": 0.5,
+      "launch_us": 5,
+      "weight_passes": 1,
+      "dequant_lane_ops": 4
+    },
+    "optimistic": {
+      "routing": "historical59",
+      "compute_fraction": 1.0,
+      "vector_fraction": 0.75,
+      "launch_us": 1,
+      "weight_passes": 1,
+      "dequant_lane_ops": 4
+    },
+    "cautious": {
+      "routing": "uniform",
+      "compute_fraction": 0.5,
+      "vector_fraction": 0.25,
+      "launch_us": 20,
+      "weight_passes": 2,
+      "dequant_lane_ops": 4
+    }
+  },
+  "assumptions": [
+    "Conditional analytical predictions, not measured ceilings, acceptance thresholds or proof of optimality.",
+    "Same 16x256-token prefill forwards and four B32 decode forwards as all 15 archived socket samples.",
+    "EMR 2x32 cores share NUMA0; GNR 3x32 cores use NUMA0/1/2. Work scales by replicas, calibrated aggregate rates do not.",
+    "Historical59 is a coverage-curve scenario fitted to old B32 routing, not a current-input measurement.",
+    "Uniform routing is a stress scenario, not an upper bound on all possible routing distributions.",
+    "Balanced token-per-expert occupancy; routed AMX work padded to M16. No padding of useful token counts.",
+    "Native MXFP4/FP8 weights plus scales; current CPU wo_a is retained BF16. No widened whole-expert temporaries.",
+    "AMX matrix throughput transfers the warm M512/K4096/N4096 calibration with the declared fraction; dense decode uses M32.",
+    "Nominal clocks EMR1.9/GNR2.0 GHz, 64 FP32 FLOP/core/cycle and 16 vector lanes/core/cycle, scaled by declared utilization.",
+    "Four SIMD lane operations per converted weight is an instruction-budget assumption, not a measured conversion rate.",
+    "Fused SIMD dequant, AMX contraction and weight streaming are pipelined: their maximum, not their sum, limits a contraction.",
+    "Separate op classes are serialized. No overlap is credited between replicas' duplicated byte counts or consecutive layers.",
+    "FP32 compressor/MHC and attention budgets preserve FP32 math; softmax/exp/div use explicit approximate vector-operation budgets.",
+    "Fused norms/RoPE/quant/MHC/route/SiLU use logical traffic and operation budgets; exp is not treated as one FLOP.",
+    "Attention shares KV across heads and avoids intermediate score DRAM; assumes BF16 working KV after packed-cache decode.",
+    "Active experts stream once or twice per forward, no cross-layer/forward cache reuse. Replica-local weights are not shared.",
+    "Native call overhead is an assumed 1/5/20us per modeled call, not the current Python scheduler overhead.",
+    "Target is phase-forward work. Loading, tokenization, sampling/network and current framework gaps are outside the target.",
+    "Calibration is cross-run (Nov13 versus Nov12 model timing), turbo enabled; no frequency-pinned or steady-state claim.",
+    "Scenarios are not confidence intervals. A scenario slower than observed is contradicted for that workload; do not clamp its ratio."
+  ],
+  "model_source_sha256": "36e9f4865ae8a85473ba68bf1efa0d2c768de24d727d85f61c9ba96c8385b634",
+  "input_sha256": "c1b86ec5c058effa65be35bf4f400edcc217aa7f8ab8f4e7edec152f0923e262",
+  "results": {
+    "emr_prefill": {
+      "central": {
+        "tokens_per_second": 203.31772228969018,
+        "phase_seconds": 40.291618004297305,
+        "socket_tokens": 8192,
+        "distinct_experts_per_forward": 225,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.20379862686289793,
+            "flops": 554050781184.0,
+            "logical_bytes": 50567053312.0
+          },
+          "dense_and_shared": {
+            "seconds": 4.858415519290434,
+            "flops": 96795677949952.0,
+            "logical_bytes": 325680599040.0
+          },
+          "routed_mxfp4": {
+            "seconds": 32.0401962105263,
+            "flops": 249322851532800.0,
+            "logical_bytes": 4182434119680.0
+          },
+          "attention_fp32": {
+            "seconds": 0.8868429136842103,
+            "flops": 3333330829312.0,
+            "logical_bytes": 72573255680.0
+          },
+          "vector_fusions": {
+            "seconds": 0.8183498018635452,
+            "flops": 0.0,
+            "logical_bytes": 133462753280.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 1.2902864842105262,
+            "flops": 4982162063360.0,
+            "logical_bytes": 38537265152.0
+          },
+          "indexer": {
+            "seconds": 0.02907651654098931,
+            "flops": 45801799680.0,
+            "logical_bytes": 3545407488.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.02847864073484492,
+            "flops": 0.0,
+            "logical_bytes": 4865392640.0
+          },
+          "head_embedding": {
+            "seconds": 0.13252483647292218,
+            "flops": 67779952640.0,
+            "logical_bytes": 33990180864.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.0036484541106379226,
+            "flops": 1073741824.0,
+            "logical_bytes": 612368384.0
+          }
+        }
+      },
+      "optimistic": {
+        "tokens_per_second": 297.7050597937619,
+        "phase_seconds": 27.517167513629392,
+        "socket_tokens": 8192,
+        "distinct_experts_per_forward": 225,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.19829462686289745,
+            "flops": 554050781184.0,
+            "logical_bytes": 50567053312.0
+          },
+          "dense_and_shared": {
+            "seconds": 3.6266720938856585,
+            "flops": 96795677949952.0,
+            "logical_bytes": 325680599040.0
+          },
+          "routed_mxfp4": {
+            "seconds": 21.35852547368421,
+            "flops": 249322851532800.0,
+            "logical_bytes": 4182434119680.0
+          },
+          "attention_fp32": {
+            "seconds": 0.5896232757894736,
+            "flops": 3333330829312.0,
+            "logical_bytes": 72573255680.0
+          },
+          "vector_fusions": {
+            "seconds": 0.7059677780038968,
+            "flops": 0.0,
+            "logical_bytes": 133462753280.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.8555616561403513,
+            "flops": 4982162063360.0,
+            "logical_bytes": 38537265152.0
+          },
+          "indexer": {
+            "seconds": 0.023202529172568268,
+            "flops": 45801799680.0,
+            "logical_bytes": 3545407488.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.023770710910283502,
+            "flops": 0.0,
+            "logical_bytes": 4865392640.0
+          },
+          "head_embedding": {
+            "seconds": 0.1323968364729222,
+            "flops": 67779952640.0,
+            "logical_bytes": 33990180864.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.003152532707129151,
+            "flops": 1073741824.0,
+            "logical_bytes": 612368384.0
+          }
+        }
+      },
+      "cautious": {
+        "tokens_per_second": 51.43068613142901,
+        "phase_seconds": 159.28233932298082,
+        "socket_tokens": 8192,
+        "distinct_experts_per_forward": 256,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.31229116631578946,
+            "flops": 554050781184.0,
+            "logical_bytes": 50567053312.0
+          },
+          "dense_and_shared": {
+            "seconds": 7.369950370099982,
+            "flops": 96795677949952.0,
+            "logical_bytes": 325680599040.0
+          },
+          "routed_mxfp4": {
+            "seconds": 145.8165971536842,
+            "flops": 283673999966208.0,
+            "logical_bytes": 9462148497408.0
+          },
+          "attention_fp32": {
+            "seconds": 1.78056582736842,
+            "flops": 3333330829312.0,
+            "logical_bytes": 72573255680.0
+          },
+          "vector_fusions": {
+            "seconds": 1.1720078734424932,
+            "flops": 0.0,
+            "logical_bytes": 133462753280.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 2.600412968421053,
+            "flops": 4982162063360.0,
+            "logical_bytes": 38537265152.0
+          },
+          "indexer": {
+            "seconds": 0.047706478646252486,
+            "flops": 45801799680.0,
+            "logical_bytes": 3545407488.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.04457043020852916,
+            "flops": 0.0,
+            "logical_bytes": 4865392640.0
+          },
+          "head_embedding": {
+            "seconds": 0.1330048364729222,
+            "flops": 67779952640.0,
+            "logical_bytes": 33990180864.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.005232218321164238,
+            "flops": 1073741824.0,
+            "logical_bytes": 612368384.0
+          }
+        }
+      }
+    },
+    "emr_decode": {
+      "central": {
+        "tokens_per_second": 88.0791111266744,
+        "phase_seconds": 2.90647801420048,
+        "socket_tokens": 256,
+        "distinct_experts_per_forward": 59,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.011560993013781943,
+            "flops": 17314086912.0,
+            "logical_bytes": 2527084544.0
+          },
+          "dense_and_shared": {
+            "seconds": 0.607046815428573,
+            "flops": 3024864935936.0,
+            "logical_bytes": 61989020672.0
+          },
+          "routed_mxfp4": {
+            "seconds": 2.101047351578946,
+            "flops": 16344498044928.0,
+            "logical_bytes": 272696868864.0
+          },
+          "attention_fp32": {
+            "seconds": 0.056005431578947364,
+            "flops": 208079421440.0,
+            "logical_bytes": 3079733248.0
+          },
+          "vector_fusions": {
+            "seconds": 0.031593431308235824,
+            "flops": 0.0,
+            "logical_bytes": 4170711040.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.04249145263157898,
+            "flops": 155692564480.0,
+            "logical_bytes": 5461508096.0
+          },
+          "indexer": {
+            "seconds": 0.0014236718141447367,
+            "flops": 2840592384.0,
+            "logical_bytes": 133158144.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.0014718953237892092,
+            "flops": 0.0,
+            "logical_bytes": 131072000.0
+          },
+          "head_embedding": {
+            "seconds": 0.05368081142857142,
+            "flops": 271119810560.0,
+            "logical_bytes": 8606973952.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.00015616009391153666,
+            "flops": 33554432.0,
+            "logical_bytes": 20971520.0
+          }
+        }
+      },
+      "optimistic": {
+        "tokens_per_second": 128.60861691083363,
+        "phase_seconds": 1.9905353634079497,
+        "socket_tokens": 256,
+        "distinct_experts_per_forward": 59,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.010184993013781953,
+            "flops": 17314086912.0,
+            "logical_bytes": 2527084544.0
+          },
+          "dense_and_shared": {
+            "seconds": 0.45066505729773143,
+            "flops": 3024864935936.0,
+            "logical_bytes": 61989020672.0
+          },
+          "routed_mxfp4": {
+            "seconds": 1.4002969010526314,
+            "flops": 16344498044928.0,
+            "logical_bytes": 272696868864.0
+          },
+          "attention_fp32": {
+            "seconds": 0.03693562105263161,
+            "flops": 208079421440.0,
+            "logical_bytes": 3079733248.0
+          },
+          "vector_fusions": {
+            "seconds": 0.023265493062621784,
+            "flops": 0.0,
+            "logical_bytes": 4170711040.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.027170301754385978,
+            "flops": 155692564480.0,
+            "logical_bytes": 5461508096.0
+          },
+          "indexer": {
+            "seconds": 0.0008969876236327134,
+            "flops": 2840592384.0,
+            "logical_bytes": 133158144.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.0007687374290523672,
+            "flops": 0.0,
+            "logical_bytes": 131072000.0
+          },
+          "head_embedding": {
+            "seconds": 0.040238608571428566,
+            "flops": 271119810560.0,
+            "logical_bytes": 8606973952.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.00011266255005188754,
+            "flops": 33554432.0,
+            "logical_bytes": 20971520.0
+          }
+        }
+      },
+      "cautious": {
+        "tokens_per_second": 12.30071596761271,
+        "phase_seconds": 20.81179670143085,
+        "socket_tokens": 256,
+        "distinct_experts_per_forward": 137,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.016720993013781986,
+            "flops": 17314086912.0,
+            "logical_bytes": 2527084544.0
+          },
+          "dense_and_shared": {
+            "seconds": 0.9320202231428548,
+            "flops": 3024864935936.0,
+            "logical_bytes": 61989020672.0
+          },
+          "routed_mxfp4": {
+            "seconds": 19.51026489263157,
+            "flops": 37952478511104.0,
+            "logical_bytes": 1261493551104.0
+          },
+          "attention_fp32": {
+            "seconds": 0.11373086315789475,
+            "flops": 208079421440.0,
+            "logical_bytes": 3079733248.0
+          },
+          "vector_fusions": {
+            "seconds": 0.06070524604507793,
+            "flops": 0.0,
+            "logical_bytes": 4170711040.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.089942905263158,
+            "flops": 155692564480.0,
+            "logical_bytes": 5461508096.0
+          },
+          "indexer": {
+            "seconds": 0.0034063393001644727,
+            "flops": 2840592384.0,
+            "logical_bytes": 133158144.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.004073369007999738,
+            "flops": 0.0,
+            "logical_bytes": 131072000.0
+          },
+          "head_embedding": {
+            "seconds": 0.08062121714285712,
+            "flops": 271119810560.0,
+            "logical_bytes": 8606973952.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.000310652725490484,
+            "flops": 33554432.0,
+            "logical_bytes": 20971520.0
+          }
+        }
+      }
+    },
+    "gnr_prefill": {
+      "central": {
+        "tokens_per_second": 321.2012668669303,
+        "phase_seconds": 38.25638709292752,
+        "socket_tokens": 12288,
+        "distinct_experts_per_forward": 225,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.14214630400000014,
+            "flops": 831076171776.0,
+            "logical_bytes": 75850579968.0
+          },
+          "dense_and_shared": {
+            "seconds": 4.9477326405238164,
+            "flops": 145193516924928.0,
+            "logical_bytes": 488520898560.0
+          },
+          "routed_mxfp4": {
+            "seconds": 30.4383584,
+            "flops": 373984277299200.0,
+            "logical_bytes": 6273651179520.0
+          },
+          "attention_fp32": {
+            "seconds": 0.8426727680000001,
+            "flops": 4999996243968.0,
+            "logical_bytes": 108859883520.0
+          },
+          "vector_fusions": {
+            "seconds": 0.5489751139430801,
+            "flops": 0.0,
+            "logical_bytes": 200194129920.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 1.22626816,
+            "flops": 7473243095040.0,
+            "logical_bytes": 57805897728.0
+          },
+          "indexer": {
+            "seconds": 0.02160122442808913,
+            "flops": 68702699520.0,
+            "logical_bytes": 5318111232.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.018840125747767864,
+            "flops": 0.0,
+            "logical_bytes": 7298088960.0
+          },
+          "head_embedding": {
+            "seconds": 0.06737287066479056,
+            "flops": 101669928960.0,
+            "logical_bytes": 50985271296.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.002419485619977679,
+            "flops": 1610612736.0,
+            "logical_bytes": 918552576.0
+          }
+        }
+      },
+      "optimistic": {
+        "tokens_per_second": 472.65962792958834,
+        "phase_seconds": 25.9975662694647,
+        "socket_tokens": 12288,
+        "distinct_experts_per_forward": 225,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.10136831330242027,
+            "flops": 831076171776.0,
+            "logical_bytes": 75850579968.0
+          },
+          "dense_and_shared": {
+            "seconds": 3.692016719758583,
+            "flops": 145193516924928.0,
+            "logical_bytes": 488520898560.0
+          },
+          "routed_mxfp4": {
+            "seconds": 20.29063359999999,
+            "flops": 373984277299200.0,
+            "logical_bytes": 6273651179520.0
+          },
+          "attention_fp32": {
+            "seconds": 0.560176512,
+            "flops": 4999996243968.0,
+            "logical_bytes": 108859883520.0
+          },
+          "vector_fusions": {
+            "seconds": 0.4411113912764134,
+            "flops": 0.0,
+            "logical_bytes": 200194129920.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.8128827733333335,
+            "flops": 7473243095040.0,
+            "logical_bytes": 57805897728.0
+          },
+          "indexer": {
+            "seconds": 0.015953736428089133,
+            "flops": 68702699520.0,
+            "logical_bytes": 5318111232.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.014236392414434522,
+            "flops": 0.0,
+            "logical_bytes": 7298088960.0
+          },
+          "head_embedding": {
+            "seconds": 0.06724487066479057,
+            "flops": 101669928960.0,
+            "logical_bytes": 50985271296.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.0019419602866443451,
+            "flops": 1610612736.0,
+            "logical_bytes": 918552576.0
+          }
+        }
+      },
+      "cautious": {
+        "tokens_per_second": 81.09201862115287,
+        "phase_seconds": 151.5315589491895,
+        "socket_tokens": 12288,
+        "distinct_experts_per_forward": 256,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.29805260800000005,
+            "flops": 831076171776.0,
+            "logical_bytes": 75850579968.0
+          },
+          "dense_and_shared": {
+            "seconds": 7.507398960785717,
+            "flops": 145193516924928.0,
+            "logical_bytes": 488520898560.0
+          },
+          "routed_mxfp4": {
+            "seconds": 138.52645529600008,
+            "flops": 425510999949312.0,
+            "logical_bytes": 14193222746112.0
+          },
+          "attention_fp32": {
+            "seconds": 1.692225536000001,
+            "flops": 4999996243968.0,
+            "logical_bytes": 108859883520.0
+          },
+          "vector_fusions": {
+            "seconds": 0.8890782819430796,
+            "flops": 0.0,
+            "logical_bytes": 200194129920.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 2.472376320000001,
+            "flops": 7473243095040.0,
+            "logical_bytes": 57805897728.0
+          },
+          "indexer": {
+            "seconds": 0.03955168842808912,
+            "flops": 68702699520.0,
+            "logical_bytes": 5318111232.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.03461932574776786,
+            "flops": 0.0,
+            "logical_bytes": 7298088960.0
+          },
+          "head_embedding": {
+            "seconds": 0.06785287066479057,
+            "flops": 101669928960.0,
+            "logical_bytes": 50985271296.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.003948061619977679,
+            "flops": 1610612736.0,
+            "logical_bytes": 918552576.0
+          }
+        }
+      }
+    },
+    "gnr_decode": {
+      "central": {
+        "tokens_per_second": 124.5133846481087,
+        "phase_seconds": 3.0840057965272956,
+        "socket_tokens": 384,
+        "distinct_experts_per_forward": 59,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.0067171080558373715,
+            "flops": 25971130368.0,
+            "logical_bytes": 3790626816.0
+          },
+          "dense_and_shared": {
+            "seconds": 0.8829385985833342,
+            "flops": 4537297403904.0,
+            "logical_bytes": 92983531008.0
+          },
+          "routed_mxfp4": {
+            "seconds": 1.9960379839999987,
+            "flops": 24516747067392.0,
+            "logical_bytes": 409045303296.0
+          },
+          "attention_fp32": {
+            "seconds": 0.05324815999999996,
+            "flops": 312119132160.0,
+            "logical_bytes": 4619599872.0
+          },
+          "vector_fusions": {
+            "seconds": 0.023175472310721278,
+            "flops": 0.0,
+            "logical_bytes": 6256066560.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.04049087999999999,
+            "flops": 233538846720.0,
+            "logical_bytes": 8192262144.0
+          },
+          "indexer": {
+            "seconds": 0.0016606733144531247,
+            "flops": 4260888576.0,
+            "logical_bytes": 199737216.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.0012135844220842623,
+            "flops": 0.0,
+            "logical_bytes": 196608000.0
+          },
+          "head_embedding": {
+            "seconds": 0.07840909833333333,
+            "flops": 406679715840.0,
+            "logical_bytes": 12910460928.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.00011423750753348214,
+            "flops": 50331648.0,
+            "logical_bytes": 31457280.0
+          }
+        }
+      },
+      "optimistic": {
+        "tokens_per_second": 180.3335098946832,
+        "phase_seconds": 2.129387933636185,
+        "socket_tokens": 384,
+        "distinct_experts_per_forward": 59,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.005341108055837359,
+            "flops": 25971130368.0,
+            "logical_bytes": 3790626816.0
+          },
+          "dense_and_shared": {
+            "seconds": 0.6574849489375023,
+            "flops": 4537297403904.0,
+            "logical_bytes": 92983531008.0
+          },
+          "routed_mxfp4": {
+            "seconds": 1.330290656,
+            "flops": 24516747067392.0,
+            "logical_bytes": 409045303296.0
+          },
+          "attention_fp32": {
+            "seconds": 0.03509744000000001,
+            "flops": 312119132160.0,
+            "logical_bytes": 4619599872.0
+          },
+          "vector_fusions": {
+            "seconds": 0.014988730977387928,
+            "flops": 0.0,
+            "logical_bytes": 6256066560.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.02583658666666667,
+            "flops": 233538846720.0,
+            "logical_bytes": 8192262144.0
+          },
+          "indexer": {
+            "seconds": 0.0009795399858398435,
+            "flops": 4260888576.0,
+            "logical_bytes": 199737216.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.0005127844220842631,
+            "flops": 0.0,
+            "logical_bytes": 196608000.0
+          },
+          "head_embedding": {
+            "seconds": 0.05878482375,
+            "flops": 406679715840.0,
+            "logical_bytes": 12910460928.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 7.131484086681547e-05,
+            "flops": 50331648.0,
+            "logical_bytes": 31457280.0
+          }
+        }
+      },
+      "cautious": {
+        "tokens_per_second": 18.94642399455453,
+        "phase_seconds": 20.267676903587034,
+        "socket_tokens": 384,
+        "distinct_experts_per_forward": 137,
+        "groups": {
+          "mhc_projection_fp32": {
+            "seconds": 0.015334144000000022,
+            "flops": 25971130368.0,
+            "logical_bytes": 3790626816.0
+          },
+          "dense_and_shared": {
+            "seconds": 1.3458578978750024,
+            "flops": 4537297403904.0,
+            "logical_bytes": 92983531008.0
+          },
+          "routed_mxfp4": {
+            "seconds": 18.534923648000014,
+            "flops": 56928717766656.0,
+            "logical_bytes": 1892240326656.0
+          },
+          "attention_fp32": {
+            "seconds": 0.10821631999999994,
+            "flops": 312119132160.0,
+            "logical_bytes": 4619599872.0
+          },
+          "vector_fusions": {
+            "seconds": 0.05186369631072131,
+            "flops": 0.0,
+            "logical_bytes": 6256066560.0
+          },
+          "compressor_projection_fp32": {
+            "seconds": 0.0859417600000001,
+            "flops": 233538846720.0,
+            "logical_bytes": 8192262144.0
+          },
+          "indexer": {
+            "seconds": 0.0037507999716796876,
+            "flops": 4260888576.0,
+            "logical_bytes": 199737216.0
+          },
+          "compressor_pool_state": {
+            "seconds": 0.003807984422084261,
+            "flops": 0.0,
+            "logical_bytes": 196608000.0
+          },
+          "head_embedding": {
+            "seconds": 0.11771364749999999,
+            "flops": 406679715840.0,
+            "logical_bytes": 12910460928.0
+          },
+          "mhc_head_fp32": {
+            "seconds": 0.00026700550753348216,
+            "flops": 50331648.0,
+            "logical_bytes": 31457280.0
+          }
+        }
+      }
+    }
+  },
+  "one_parameter_sensitivity": {
+    "emr_prefill": {
+      "routing=uniform": 183.24338111996934,
+      "weight_passes=2": 113.26122132468802,
+      "dequant_lane_ops=2": 333.7933521218906,
+      "dequant_lane_ops=8": 113.26122132468802,
+      "compute_fraction=0.5": 191.84925060637661,
+      "compute_fraction=1": 209.5819765298514,
+      "vector_fraction=0.25": 109.41334079447857,
+      "vector_fraction=0.75": 284.502777994757,
+      "launch_us=1": 203.68493697489527,
+      "launch_us=20": 201.95238053420005
+    },
+    "emr_decode": {
+      "routing=uniform": 45.04665498596159,
+      "weight_passes=2": 51.13183751999096,
+      "dequant_lane_ops=2": 137.0281688116248,
+      "dequant_lane_ops=8": 51.13183751999096,
+      "compute_fraction=0.5": 79.18800540178971,
+      "compute_fraction=1": 93.3112393191071,
+      "vector_fraction=0.25": 50.08891080831849,
+      "vector_fraction=0.75": 117.8818046440349,
+      "launch_us=1": 88.63289940421048,
+      "launch_us=20": 86.06262763251445
+    },
+    "gnr_prefill": {
+      "routing=uniform": 289.4724023906667,
+      "weight_passes=2": 178.88726836419156,
+      "dequant_lane_ops=2": 533.3581517815401,
+      "dequant_lane_ops=8": 178.88726836419156,
+      "compute_fraction=0.5": 301.8193649716426,
+      "compute_fraction=1": 331.8558333470917,
+      "vector_fraction=0.25": 172.6822665267844,
+      "vector_fraction=0.75": 450.13518028341997,
+      "launch_us=1": 321.8123137599559,
+      "launch_us=20": 318.9303616115034
+    },
+    "gnr_decode": {
+      "routing=uniform": 67.11293594573598,
+      "weight_passes=2": 75.602698502895,
+      "dequant_lane_ops=2": 184.04759737688158,
+      "dequant_lane_ops=8": 75.602698502895,
+      "compute_fraction=0.5": 107.8415345325858,
+      "compute_fraction=1": 134.9442965192376,
+      "vector_fraction=0.25": 74.10731331307326,
+      "vector_fraction=0.75": 160.9431853278591,
+      "launch_us=1": 125.25091784947531,
+      "launch_us=20": 121.82332218133566
+    }
+  },
+  "comparison": {
+    "emr_prefill": {
+      "central": {
+        "measured_over_estimate": 0.9156395616567506,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "optimistic": {
+        "measured_over_estimate": 0.6253361976559922,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "cautious": {
+        "measured_over_estimate": 3.6197407446333094,
+        "disposition": "CONTRADICTED_AS_CEILING_BY_EXISTING_MEASUREMENT"
+      }
+    },
+    "emr_decode": {
+      "central": {
+        "measured_over_estimate": 0.6053707676070649,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "optimistic": {
+        "measured_over_estimate": 0.4145952300371195,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "cautious": {
+        "measured_over_estimate": 4.334749233564422,
+        "disposition": "CONTRADICTED_AS_CEILING_BY_EXISTING_MEASUREMENT"
+      }
+    },
+    "gnr_prefill": {
+      "central": {
+        "measured_over_estimate": 0.9815576984206218,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "optimistic": {
+        "measured_over_estimate": 0.6670287826711924,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "cautious": {
+        "measured_over_estimate": 3.887898976946318,
+        "disposition": "CONTRADICTED_AS_CEILING_BY_EXISTING_MEASUREMENT"
+      }
+    },
+    "gnr_decode": {
+      "central": {
+        "measured_over_estimate": 0.5062403377377995,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "optimistic": {
+        "measured_over_estimate": 0.3495395721735105,
+        "disposition": "CONDITIONAL_PREDICTION_NOT_CERTIFIED"
+      },
+      "cautious": {
+        "measured_over_estimate": 3.3269443307746025,
+        "disposition": "CONTRADICTED_AS_CEILING_BY_EXISTING_MEASUREMENT"
+      }
+    }
+  }
+}

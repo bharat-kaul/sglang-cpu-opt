@@ -112,8 +112,12 @@ verified numerically, not assumed (see the correctness-gate column; `coverage/de
   attention-glue seam (~8%), not a torch rewrite. *(An earlier "prefill 69.6 / decode 9.3, 75%-of-BW"
   figure was a MoE mode-collapse artifact — a dummy-random router under-counted expert bytes; superseded.)*
   Full ledger + per-node (EMR/GNR) comparison: `docs/e2e-wall-time.md`, `docs/kernel-pilot-performance.md`.
-- ⏭ **Next:** incremental-sparse DSA decode (O(context²)→O(context·topk) for long context); publish the
-  full roofline target-vs-measured across EMR/GNR.
+- **Current real-weight comparison and analytical targets:** the historical proxy above is
+  separate from the matched EMR/GNR socket measurements. The latest chart now includes
+  per-platform prefill/decode **conditional analytical scenarios**, using matched hardware
+  calibration and archived forward shapes, without new full-model runs. Routing/conversion
+  assumptions remain material; this is not a measured ceiling or an optimality certificate.
+  [Targets, sensitivities and reproducible model](docs/e2e-wall-time.md#matched-achievable-roofline-targets).
 
 *This is the worked Thesis-2 flagship: the coverage-gate routed it, the plugin wired native MXFP4
 + the DSA CPU path, and the accuracy oracle did exactly its job — it blocked the number on real bugs

@@ -8,6 +8,14 @@ description: "Use when validating whether a measured CPU kernel (GEMM, attention
 Turn a raw throughput number into a defensible verdict using the
 [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
 Report idealized bounds separately from calibrated operation-specific targets.
+For whole-model charts, enforce the
+[matched end-to-end target contract](../../../../docs/methodology-playbook.md#matched-end-to-end-target-publication):
+separate targets for each phase and deployment, matching per-replica work and shared resources.
+A missing target is **pending**, not a historical line copied into the current chart.
+Analytical achievable estimates are predictions from workload and hardware, not measured model
+ceilings. They require no full-model run; short targeted microbenchmarks can refine assumptions.
+Publish sensitivity ranges and label ratios as "measured / analytical estimate", not certified
+efficiency. Do not use unmatched or hardware-only denominators as whole-model targets.
 
 ## Peak vs achievable (measure the ceiling, don't assume it)
 Before judging any kernel, establish the achievable ceilings on the target

@@ -42,10 +42,14 @@ def wait(path, children=(), seconds=180):
 
 
 def aggregate(rows, platform, case):
+    if case not in CASES:
+        raise ValueError("Unknown calibration case")
     count = len(LAYOUTS[platform])
     if len(rows) != count or {r["rank"] for r in rows} != set(range(count)):
         raise ValueError("Incomplete replica coverage")
     for row in rows:
+        if type(row["rank"]) is not int or type(row["round"]) is not int or row["round"] not in range(ROUNDS):
+            raise ValueError("Invalid process coordinate")
         node, first = LAYOUTS[platform][row["rank"]]
         if (row["platform"] != platform or row["case"] != case or row["numa"] != node
                 or row["cpus"] != list(range(first, first + 32))
@@ -53,7 +57,7 @@ def aggregate(rows, platform, case):
                 or any(type(t) is not int or t <= 0 for t in row["samples_ns"])):
             raise ValueError("Calibration identity or timing mismatch")
         if (type(row["start_ns"]) is not int or type(row["end_ns"]) is not int
-                or row["end_ns"] <= row["start_ns"]):
+                or row["end_ns"] - row["start_ns"] < sum(row["samples_ns"])):
             raise ValueError("Invalid clock interval")
     for key in ("job", "host", "round", "script_sha256", "torch", "work_per_iteration", "unit"):
         if len({r[key] for r in rows}) != 1:
@@ -63,7 +67,11 @@ def aggregate(rows, platform, case):
     if max(r["start_ns"] for r in rows) >= min(r["end_ns"] for r in rows):
         raise ValueError("Calibration replicas did not overlap")
     work = rows[0]["work_per_iteration"]
-    if type(work) is not int or work <= 0 or rows[0]["unit"] not in ("bytes", "flops"):
+    expected_work = ({"read": 1, "copy": 2, "triad": 3}[case] * ARRAY_BYTES
+                     if case in ("read", "copy", "triad")
+                     else 2 * int(case.removeprefix("bf16_m")) * 4096 * 4096)
+    expected_unit = "flops" if case.startswith("bf16_") else "bytes"
+    if type(work) is not int or work != expected_work or rows[0]["unit"] != expected_unit:
         raise ValueError("Invalid work model")
     span_s = (max(r["end_ns"] for r in rows) - min(r["start_ns"] for r in rows)) / 1e9
     rate = work * ITERATIONS * count / span_s

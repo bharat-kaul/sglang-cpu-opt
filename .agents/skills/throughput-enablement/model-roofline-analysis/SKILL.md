@@ -17,23 +17,24 @@ Discovery/analysis → coverage → source-faithful bring-up → profiling → s
 optimization → reviewed integration, per the
 [canonical acceptance policy](../../../../docs/methodology-playbook.md#canonical-acceptance-policy).
 Do not require an unavailable full-model profile before implementing a missing functional path.
+An analytical roofline is a workload-on-hardware prediction, not a measured model ceiling.
+Build and publish it before a model run when possible. Use short targeted microbenchmarks to
+refine material uncertain parameters; full-model profiling is validation, not a prerequisite.
 
 ## Inputs
 Op graph; node achievable ceilings (`establish-achievable-performance`: compute +
 mem BW, **per SNC/NUMA domain** — the atomic unit). Those ceilings come from
 **uArch Performance Probe (`uarch-perf-probe`) `machine_constants.json`** — compute
 peak per dtype, DRAM + **per-SNC-domain BW matrix**, ridge — measured + self-validated
-on the target node (never hand-typed priors; on a new uarch it is the sole source).
-Aggregate ceiling =
-`domains_used × per_domain_ceiling`, reached ONLY with NUMA-local weight sharding
-(TP / expert-parallel, one rank per domain); a single un-sharded replica is capped
-at ONE domain's BW. **SNC bake-in (do not assume the ideal full node):** usable
-domains = the *achievable* `tp` from `sub-numa-clustering`, bounded by per-domain
-CAPACITY fit AND head/expert DIVISIBILITY — which may be < total domains, leaving
-domains idle and a sub-full-node ceiling. Use `effective_ceiling =
-(tp_used / n_total_domains) × full_node_ceiling`. Worked: 6 SNC domains but
-`num_attention_heads=128` forbids tp=6 → tp=4 → decode floor uses only 4/6 of node
-BW (≈841 of 1261 GB/s). Feed the EFFECTIVE ceiling into every roofline below. The
+on the target node, not hand-typed priors). Follow the
+[matched target contract](../../../../docs/methodology-playbook.md#matched-end-to-end-target-publication).
+Distinguish tensor/expert-parallel weight sharding from independent serving replicas:
+replicas duplicate weight traffic, while ranks shard or replicate particular tensors.
+Calibrate the allocated CPU sets and NUMA placement concurrently. Replicas sharing a
+domain cannot each be assigned its isolated bandwidth; disjoint domains still need a
+matched aggregate measurement. Do not scale bandwidth by a core/domain fraction without
+evidence. Capacity and head/expert divisibility constrain legal TP, not independent
+replica count. Count actual work and traffic for each deployment before aggregating. The
 workload: prefill vs decode; **batch sweep (Xeon is
 a low-batch, memory-bound target — sweep B = 1, 8, 16, 32)**; seq len / context;
 speculative M.
@@ -45,18 +46,22 @@ speculative M.
 2. **Per-op-class roofline.** For attention (MLA/GQA/sparse), MoE grouped-GEMM,
    dense projections, norm/rope/act, embedding/lm_head, indexer:
    - FLOPs and BYTES (weights + activations + KV). The **decode weight-streaming
-     term dominates**: `active_bytes / full_node_BW` = ms/token floor.
+     term can dominate**: active bytes / matched allocated bandwidth gives a logical
+     streaming time bound, not a complete achievable model floor.
    - AI = FLOPs/bytes → compute-bound (AI≥ridge) or memory-bound (AI<ridge).
    - **Batched-MoE decode (critical on CPU):** dense/attention weights stream ONCE
      and amortize over the batch, but each token routes to a DIFFERENT expert subset,
      so the distinct-expert working set GROWS with batch. The uniform estimate
      `E*(1 - (1 - 1/E)^(k*B))` **OVER-counts** (it is the dummy-random result) — real
-     routing is concentrated, so **fit `distinct_experts(B)` to a MEASURED point from
-     the REAL router** (DSv4: measured **59** at B=32, not the uniform ~135) via
-     `distinct(B)=E*(1-(1-p)^B)`, and carry it through the roofline (sub-linear in B;
-     saturates at all-E, then linear again). Per-step bytes =
+     routing can be concentrated. Use existing per-layer/per-forward observations or
+     explicit analytical routing scenarios with sensitivity ranges. Historical DSv4 **59**
+     at B32 is a scenario, not a portable measured constant. A fitted coverage curve may
+     estimate unmeasured points when labeled as such; it cannot certify those points.
+     Do not require a real-weight model load to publish such a prediction. Per-step bytes =
      non_expert_bytes + distinct_experts(B)*per_expert_layer_bytes*moe_layers + KV(B).
-     agg_tok/s = B / (step_bytes / full_node_BW); per-user latency = step time.
+     For one replica, `tok/s_bound = B / (step_bytes / allocated_BW)`.
+     Socket throughput needs all replicas' work and shared-resource schedule, not
+     independent full-bandwidth copies of that equation.
      Sweep B=1,8,16,32 — a model with few experts / high top-k saturates early (B=32
      may stream ~half the whole model/step) and batching barely helps; a model with
      many experts / low top-k scales much better. **Name the regime (compute- /
@@ -70,12 +75,18 @@ speculative M.
    (FLOPs/compute), whichever binds. Sort. Identify the top contributors and the
    long tail. **Two ceilings — report BOTH:** the single dominant-resource roofline
    (`FLOPs/peak` or `bytes/BW`) is an **IDEALIZED upper bound** that assumes every
-   OTHER op-class is free. Build a calibrated time budget at matched shape/dtype/cache
+   OTHER op-class is free. Build an analytical time budget at matched shape/dtype/cache
    conditions: each op floor is `max(FLOPs/compute_rate, bytes/bandwidth)`.
    Sum only serialized classes; model overlap explicitly. Time efficiency is
    `target_time / measured_time` (equivalently measured throughput / target throughput).
    Report `idealized_time / target_time` as the modeled structural fraction.
    A best-observed library rate remains provisional until justified, not an automatic ceiling.
+   Declare rate-transfer, native-dequant, reuse and fusion assumptions. List exclusions;
+   do not present an incomplete subtotal as a complete model ceiling or fit the target to
+   current runtime. Refine the most sensitive inputs with short standalone probes if needed.
+   Keep hardware bounds, analytical estimates, calibrated targets and clean measurements
+   separately labeled. Publish prefill/decode targets per platform/configuration; mark
+   missing targets pending and omit their percentage attained.
    *On DSv4 prefill only ~40% of wall-time is the modeled GEMM; the
    other ~60% (glue/eager-math/fallback-matmul) is what the idealized `FLOPs/peak`
    pretends is free — so "43% of roofline" overstates the gap and hides where it is.*

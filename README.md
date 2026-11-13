@@ -270,8 +270,12 @@ to stay lossless — the low precision is spent purely on movement/footprint. Ke
 whole model fit **one NUMA domain at tp=1**. Bridges + status: [dtype_bridge_gates](plugin/coverage/deepseek_v4_flash_coverage.yaml).
 
 ## Roofline target vs measured (published with every result)
-Every published result carries the **roofline achievable target** alongside the **measured**
-number, plus a **per-op breakdown** of which kernels fall short of their roofline (measured is
+Publication requires the **roofline achievable target** alongside the **measured**
+number, or an explicit **target pending** state identifying missing evidence. Analytical
+targets are workload-on-hardware predictions with explicit assumptions, not measured model
+ceilings; short microbenchmarks refine inputs, while model runs validate predictions.
+Pending is not completed roofline validation and has no percentage attained. A supported target also needs a
+**per-op breakdown** of which kernels fall short of their roofline (measured is
 usually below target — the gap is the remaining optimization RoI). Target is published up front;
 measured fills in when the kernels run. **Both legs share the same per-kernel roofline-vs-measured
 view** — in the **reuse leg (Thesis 1)** measured = the *reused donor* kernel; in the **new-kernel
@@ -293,7 +297,16 @@ end-to-end wall-time roofline-vs-measured chart** (the full enablement, not just
   This is not a controlled baseline-to-current speedup measurement.
 
   <!-- dsv4-comparison:start -->
-  ![Baseline versus EMR optimized versus GNR, with run types labeled](docs/plots/dsv4_baseline_emr_gnr_20261112.png)
+  ![Baseline versus EMR optimized versus GNR, with run types labeled](docs/plots/dsv4_baseline_emr_gnr_20261112_v5.png)
+
+  **All four analytical targets are now shown**: central/optimistic prefill estimates
+  **203/298 tok/s (EMR), 321/473 (GNR)**; decode **88/129 (EMR), 125/180 (GNR)**.
+  These are conditional scenarios, not measured ceilings, confidence intervals or proof
+  of near-optimality. Routing and SIMD conversion assumptions materially affect them.
+  Hardware calibration and archived forward schedules were reused; **no new full-model
+  run** was required. The historical prefill estimate and full-node decode bound are not
+  reused for these two-versus-three-replica socket runs.
+  [Target states, evidence requirements and calibration status](docs/e2e-wall-time.md#matched-achievable-roofline-targets).
 
   The second chart compares only matched real-weight EMR/GNR runs. These are
   short fixed32 probes, not tuned-platform or steady-state benchmarks. Isolated

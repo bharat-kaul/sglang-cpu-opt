@@ -9,6 +9,10 @@ on:
       - "plugin/validate/run_enablement_phase.py"
       - "plugin/validate/test_phase_recovery.py"
       - "plugin/validate/test_peer_roofline.py"
+      - "plugin/validate/*socket*roofline*.py"
+      - "plugin/validate/*calibrate_socket_targets.py"
+      - "plugin/validate/results/dsv4_socket_roofline*.json"
+      - "plugin/validate/results/dsv4_socket_calibration_*.json"
       - "plugin/validate/*dummy_checkpoint.py"
       - "plugin/validate/*diff_fullcap.py"
       - "plugin/validate/_smoke.py"
@@ -29,6 +33,10 @@ on:
       - "plugin/validate/run_enablement_phase.py"
       - "plugin/validate/test_phase_recovery.py"
       - "plugin/validate/test_peer_roofline.py"
+      - "plugin/validate/*socket*roofline*.py"
+      - "plugin/validate/*calibrate_socket_targets.py"
+      - "plugin/validate/results/dsv4_socket_roofline*.json"
+      - "plugin/validate/results/dsv4_socket_calibration_*.json"
       - "plugin/validate/*dummy_checkpoint.py"
       - "plugin/validate/*diff_fullcap.py"
       - "plugin/validate/_smoke.py"
@@ -56,7 +64,7 @@ jobs:
         working-directory: plugin/validate
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m unittest test_enablement_gate test_peer_roofline test_phase_recovery
+        run: python -m unittest test_enablement_gate test_peer_roofline test_phase_recovery test_calibrate_socket_targets test_model_socket_roofline
 
   tp-oracle-tests:
     runs-on: ubuntu-latest

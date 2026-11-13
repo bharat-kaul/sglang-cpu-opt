@@ -16,9 +16,9 @@ measurement.** The baseline is a 4L/8L dummy-weight extrapolation; EMR optimized
 and GNR use the full 43-layer real model. Only the latter two are matched runs.
 
 <!-- dsv4-comparison:start -->
-![Baseline versus EMR optimized versus GNR, with run types labeled](plots/dsv4_baseline_emr_gnr_20261112.png)
+![Baseline versus EMR optimized versus GNR, with run types labeled](plots/dsv4_baseline_emr_gnr_20261112_v5.png)
 
-[Vector chart](plots/dsv4_baseline_emr_gnr_20261112.svg).
+[Vector chart](plots/dsv4_baseline_emr_gnr_20261112_v5.svg).
 
 | B32 / S128 | Historical naive baseline, dummy-weight proxy | EMR optimized, real weights, 2 replicas | GNR, real weights, 3 replicas |
 |---|---:|---:|---:|
@@ -31,6 +31,122 @@ estimator; it is not relabeled as a three-round median. Historical baseline and
 current runs also differ in host/configuration and timing protocol, not just
 weights. No baseline-to-current speedup factor or shared roofline is inferred.
 The historical optimized proxy remains in its own section below.
+
+### Matched achievable roofline targets
+
+**The roofline is an analytical workload-on-hardware prediction, not a measured model ceiling.**
+The chart now shows two explicit scenarios for each deployment/phase. Hardware microbenchmarks
+calibrate resource inputs; existing model measurements test the prediction. **No new full-model
+run or accuracy evaluation was needed.** These estimates do not certify optimal kernels.
+
+| B32 / S128, five output tokens, fixed32 per replica | Measured socket tokens/s | Central analytical scenario, approx. tok/s | Optimistic analytical scenario, approx. tok/s |
+|---|---:|---:|---:|
+| EMR prefill, two replicas | 186.166 | 203 | 298 |
+| GNR prefill, three replicas | 315.278 | 321 | 473 |
+| EMR decode, two replicas | 53.321 | 88 | 129 |
+| GNR decode, three replicas | 63.034 | 125 | 180 |
+
+These are **conditional scenarios, not confidence intervals or measured achievable ceilings**.
+In particular, proximity to the central prefill estimate does **not** establish near-optimality:
+changing the uncalibrated SIMD conversion/issue assumptions materially moves the prediction.
+No certified percentage attained is reported.
+
+The model uses source-derived matrix shapes, native packed weight/scale payloads and
+the **existing forward schedule, checked across all 15 replica/round samples**:
+16 prefill forwards of **256 tokens (two S128 requests)** and four decode forwards of
+32 tokens at contexts129,130,131,132. A single M4096 prefill GEMM would model the wrong
+weight reuse and expert occupancy. Only request-ending tokens compute vocabulary logits.
+EMR's two replicas share NUMA domain0; GNR's three use separate domains0/1/2.
+Multiplying one isolated replica's bandwidth by its replica count is not valid for EMR.
+The same-domain versus separate-domain distinction matters even though both report socket throughput.
+
+**Resource model.** For a fused packed contraction, use
+`max(padded_FLOPs / AMX_rate, logical_bytes / BW, conversion_lane_ops / SIMD_rate)`;
+the conversion term assumes a pipelined native implementation, not a widened weight tensor.
+Other serialized stages add their own compute/memory/vector budgets and a declared native-call
+cost. FP32 compressor, MHC and attention math use an FP32 resource, not AMX BF16 throughput.
+The model includes attention/indexing, compressor projection/pooling/state, MHC, norms,
+RoPE/quantization, routing/SiLU, embeddings/head, KV/activation movement and native dispatch.
+Vector/transcendental costs are approximate instruction budgets, **not measured op rates**.
+Loading, network/tokenization/sampling and current framework gaps are outside this optimized
+phase-forward target, not claimed irreducible costs.
+
+**Hardware inputs, three independent concurrent-process rounds, median [min,max]:**
+
+| Same socket CPU/NUMA allocation as the bars | EMR | GNR |
+|---|---:|---:|
+| Logical read GB/s, 1GiB buffers per worker | 256.8 [255.8,260.2] | 758.6 [746.8,771.1] |
+| Warm BF16 M32/K4096/N4096, TF/s | 6.74 [6.71,6.86] | 6.92 [6.40,6.97] |
+| Warm BF16 M512/K4096/N4096, TF/s | 26.77 [26.51,28.17] | 39.40 [39.19,39.48] |
+
+Jobs **402525 / 402526**; all replica work divided by a common timing span.
+These are calibration inputs, not native packed-MoE ceilings. Memory rates count logical
+bytes, not controller traffic. Both nodes had **turbo enabled**; this is a cross-run
+Nov13 calibration against Nov12 model timing, not a frequency-pinned experiment.
+[EMR raw samples/identity](../plugin/validate/results/dsv4_socket_calibration_emr_20261113.json),
+[GNR raw samples/identity](../plugin/validate/results/dsv4_socket_calibration_gnr_20261113.json).
+
+**Assumptions, not observations about current routing or best kernels:**
+
+- Central/optimistic routing fits a coverage curve to the historical59 distinct experts at B32,
+  yielding225 at256 tokens; expert occupancy is balanced within a forward and AMX work is
+  padded to M16. The actual current distribution may differ.
+- Each active expert includes **13,369,344 bytes** of MXFP4 weights **and scales**.
+  Shared experts are FP8, **25,167,360 bytes/layer**. Checkpoint `wo_a` is FP8 but the
+  current CPU path retains BF16; this extra runtime weight traffic is included.
+- Central/optimistic use75%/100% of the warm GEMM calibration and50%/75% of a
+  nominal AVX-512 issue model (EMR1.9/GNR2.0 GHz, not measured all-core clocks).
+  Conversion assumes **four SIMD lane operations per weight**. These rate-transfer
+  and instruction budgets are assumptions, not assembly counts or standalone measurements.
+- Active expert weights stream once per forward; KV is shared across heads with fused
+  attention and no intermediate-score DRAM. Native call cost is5us/1us. Cross-layer
+  cache reuse is not credited. There is no percentage fitted to current model runtime.
+
+**Sensitivity and falsification.** Holding other central assumptions fixed:
+
+| Changed assumption | EMR prefill | GNR prefill | EMR decode | GNR decode |
+|---|---:|---:|---:|---:|
+| Uniform routing instead of historical59 curve | 183 | 290 | 45 | 67 |
+| Two expert-weight/conversion passes instead of one | 113 | 179 | 51 | 76 |
+| Two conversion lane ops/weight instead of four | 334 | 533 | 137 | 184 |
+| Eight conversion lane ops/weight instead of four | 113 | 179 | 51 | 76 |
+
+All entries are analytical tok/s, not measurements. The deliberately cautious **joint**
+stress scenario (uniform routing, two passes,50% GEMM rate,25% SIMD issue,20us calls)
+predicts51/81 prefill and12/19 decode tok/s (EMR/GNR). Existing measurements already
+**contradict that joint scenario as a ceiling**. It remains in the output with an explicit
+contradiction disposition; we neither clamp it nor claim that it identifies which
+assumption is wrong. Some one-at-a-time scenarios are similarly contradicted.
+A short packed-conversion/occupancy microbenchmark is the most useful next refinement
+if tighter targets are needed; another full-model load is not a prerequisite.
+
+**Central analytical time budget (socket phase seconds, not profiling):**
+
+| Op family | EMR prefill | GNR prefill | EMR decode | GNR decode |
+|---|---:|---:|---:|---:|
+| Routed MXFP4, including tile occupancy and conversion | 32.040 | 30.438 | 2.101 | 1.996 |
+| Dense/shared projections | 4.858 | 4.948 | 0.607 | 0.883 |
+| Compressor projection, FP32 | 1.290 | 1.226 | 0.042 | 0.040 |
+| Attention, FP32 | 0.887 | 0.843 | 0.056 | 0.053 |
+| Fused vector work | 0.818 | 0.549 | 0.032 | 0.023 |
+| MHC projections, indexer, pool/state, embedding/head | 0.398 | 0.252 | 0.068 | 0.088 |
+
+The large routed-conversion term is a **model hypothesis**, not measured bottleneck attribution.
+Complete unrounded budgets, scenarios and sensitivities are in the
+[analytical record](../plugin/validate/results/dsv4_socket_roofline_analytical.json);
+[inputs](../plugin/validate/results/dsv4_socket_roofline_inputs.json) retain checkpoint-header
+shapes/bytes/hashes, schedule hashes and existing measurement provenance.
+Reproduce without a model load, using the
+[model/chart generator](../plugin/validate/model_socket_roofline.py):
+
+```bash
+python plugin/validate/model_socket_roofline.py
+# To render: add --plot /tmp/dsv4_socket_roofline (requires rsvg-convert).
+```
+
+Changing the plotted measurements does not change the predicted targets; a regression test
+enforces that separation. See the
+[matched target publication contract](methodology-playbook.md#matched-end-to-end-target-publication).
 
 ### Matched real-weight EMR versus GNR detail
 
@@ -90,6 +206,11 @@ and [reconciler/chart generator](https://github.com/bharat-kaul/sglang-cpu-opt/b
 The following configuration, accuracy statements and roofline estimates belong
 to the older experiment; they do not certify the current main runtime or supply
 a matched real-weight naive baseline.
+
+In particular, the green **~275 tok/s prefill** line below is an analytical estimate with an
+assumed recoverable fraction, not a calibrated target for the current replicas. The historical
+**678 tok/s decode** line is a full-node logical weight-streaming bound, not an established
+achievable mixed-op target. Preserve those historical labels as provenance, not current acceptance.
 
 ![DSV4-Flash CPU wall-time — baseline vs optimized vs roofline, EMR and GNR](plots/dsv4_node_walltime_v6.png)
 

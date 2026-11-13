@@ -15,6 +15,17 @@ Budget and allocate the calibration probe itself, verify actual node/ISA/NUMA/so
 and reuse a historical calibration only when its contract matches. Do not benchmark the login
 host as a stand-in for the target, or treat old hardware profiles as current availability.
 
+For multi-replica publication, use the
+[matched end-to-end target contract](../../../../docs/methodology-playbook.md#matched-end-to-end-target-publication).
+Measure the actual concurrent CPU/NUMA layout, including shared-domain contention; do not multiply
+isolated rates by replica count. Keep independent process samples and raw timing intervals.
+Ensure the aggregate memory working set exceeds the applicable shared LLC before labeling a
+probe DRAM-oriented; document logical bytes versus write-allocate/controller traffic. Warm
+library GEMMs and resident-tile probes remain calibration inputs, not packed-model targets.
+The model roofline itself is analytical: map source-derived work to these resource rates
+with explicit assumptions and sensitivity. No full-model run is required. Refine a material
+shape/precision/conversion uncertainty with a short targeted microbenchmark, not a model load.
+
 ## The two compute ceilings (do not conflate)
 
 1. **Compute PEAK (resident).** All operands live in tile registers / L1; zero
@@ -37,10 +48,10 @@ host as a stand-in for the target, or treat old hardware profiles as current ava
 
 `tools/microbench/stream_triad.c` → achievable DRAM GB/s. Measure it **per SNC/NUMA
 domain** (cpu+mem bound to one domain) — that is the atomic unit; interleaved
-full-node reads suffer first-touch/NUMA artifacts and understate it. Aggregate =
-`domains_used × per_domain_BW` (SNC partitions a socket's BW across its domains, so
-using all domains ≈ socket BW; using fewer leaves the rest idle — see
-`sub-numa-clustering`). Sets the memory-bound side of the roofline.
+full-node reads can suffer first-touch/NUMA artifacts. Prefer concurrently measured aggregate
+bandwidth for the actual layout; `domains_used × per_domain_BW` is only an explicitly labeled
+scaling assumption until tested. Replicas in the same domain share its bandwidth.
+This sets the memory-side input to the analytical roofline.
 
 ## Procedure (once per hardware profile)
 

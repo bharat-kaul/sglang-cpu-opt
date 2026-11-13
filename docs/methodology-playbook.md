@@ -202,6 +202,10 @@ if measured time beats the modeled floor, investigate the model/measurement inst
 Publish separately:
 - **Idealized bound:** theoretical or resident-probe compute plus relevant bandwidth, with assumptions.
   A resident-tile rate is not automatically achievable by a full streamed kernel.
+- **Analytical achievable estimate:** source-derived workload mapped to sustainable hardware rates,
+  with explicit precision, reuse, fusion, dependency and utilization assumptions. Publish sensitivity
+  ranges for uncertain terms. Hardware calibration or short targeted microbenchmarks may refine the
+  inputs; running the full model is not a prerequisite for deriving or publishing this estimate.
 - **Calibrated achievable target:** supported by matched shape, dtype, locality, threading, cache regime
   and operation-specific measurements/costs. A best-observed library result is a provisional baseline,
   not proof that no better kernel exists. A low rate alone does not identify the bottleneck.
@@ -211,6 +215,49 @@ peer-relative checks remain required where applicable; a slow donor cannot waive
 An unavailable donor/target is missing evidence, not a pass; any alternative acceptance route needs
 explicit approval. For serialized op classes, sum their time budgets; for overlapping/fused work,
 model the actual dependency/resource schedule rather than assuming either a sum or a maximum.
+
+### Matched end-to-end target publication
+
+Publish a separate prefill and decode analytical target for each measured deployment, or explicitly mark
+**achievable target pending** with the missing evidence. A historical estimate or a hardware-only
+bound cannot silently fill a missing workload model. Label analytical estimates as predictions,
+not measured ceilings or proof of optimality. A ratio to an estimate must be labeled as such,
+not certified efficiency. README and detailed pages must use the same data and versioned chart.
+Regenerate the raster before running the filename bumper/manifest update; do not overwrite
+newly registered image bytes under the same name afterward.
+
+- Bind each target to source/checkpoint, request batch, forward/chunk shapes,
+  context/decode lengths, precision, threads, CPU sets, NUMA placement and replica count.
+  Bind input-dependent observations to input IDs; label assumed routing distributions separately.
+  Distinguish batch per replica from aggregate socket concurrency, and phase-forward throughput
+  from complete-request throughput, TTFT/ITL and steady-state rates.
+- Calibrate the actual resource allocation concurrently. Two replicas sharing a NUMA domain
+  share its bandwidth; three replicas on distinct domains each stream their own weights.
+  Neither replica count nor the fraction of allocated cores proves linear bandwidth scaling.
+  Aggregate logical work over the common wall interval, not the sum of isolated peak rates.
+- Derive parameter/scale layouts from the checkpoint and source. Use existing per-layer routing
+  observations when applicable; otherwise model explicit routing scenarios and their sensitivity.
+  A historical expert count may be a labeled scenario, not a claim about the current inputs.
+  Do not require a costly model load just to replace a transparent analytical assumption.
+  Active packed weight
+  bytes are a logical traffic model, not measured DRAM transactions; account for cache reuse,
+  repeated reads, scales, conversion, KV and activation traffic.
+- Use short targeted microbenchmarks only where sensitivity analysis identifies a material
+  uncertainty. State which model parameter the probe will refine before running it. Full-model
+  performance runs validate predictions or investigate discrepancies; they do not define the
+  analytical target from the implementation being judged and are not a roofline-publication gate.
+- If diagnostic runs are justified separately, keep clean timing separate from profiler/counter/routing runs, preferably using
+  the same resident model. Check identical generated work and state. Inclusive nested profiler
+  times must not be summed; exclusive CPU time across threads is not elapsed wall time.
+- Build the mixed-op budget from source-derived work and applicable resource rates.
+  A large-square warm BF16 GEMM is not calibration for packed small-expert GEMMs, gathers,
+  recurrence or dispatch: any transfer of that rate is an assumption, with sensitivity reported.
+  Model conversion, recurrence and dispatch separately where material. Unmodeled terms must be
+  listed as exclusions, not silently zeroed; an incomplete subtotal is not a full-model estimate.
+  Never replace the work model with an arbitrary percentage recoverable from current runtime.
+- Retain raw samples, independent process identities, ranges and calibration age. A new
+  calibration against an older run is a cross-run model until conditions and workload are
+  reconciled; do not silently relabel it as a target measured with that older run.
 
 ---
 
