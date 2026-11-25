@@ -14,6 +14,7 @@
  "docs/plots/glm5/decode_norm_warm_v1.png": "349f51c2e3f36593213db8661460aa1237cfe2b0e01d4df37394a689c1f73de8",
  "docs/plots/glm5/family_candidates_cold_v1.png": "11bca3404b892caeb5a8eab33d25463ced9c8f90d68d9239070d295cb2890406",
  "docs/plots/glm5/family_candidates_warm_v1.png": "9c4ce9903c83f2a1bc831749f34f6831d00b420918dc0a701233ef7a91dfa6ce",
+ "docs/plots/glm5/family_roofline_cold_v1.png": "77d113a4abcbe6c8e288cfb4774cfd1f8a461f7029e0d7479a6d93f2afbfd88f",
  "docs/plots/glm5/holdout_cold_v1.png": "b4e71fbea63e386a6b0fbc88a75974e79ad72d0d680361fc94c35011f788ef25",
  "docs/plots/glm5/holdout_warm_v1.png": "8ebc4013e53aa3a2c63c738b77f5154f74c05b660f6380213747916a70e7ba80",
  "docs/plots/glm5/linear_cold_v1.png": "9971b5b8ea405f9211ecf1220a3bc90ae6c10ee42d28db7da11f65e91443fbe9",
