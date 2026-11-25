@@ -122,6 +122,8 @@ EMR array **407619** completed all eleven isolated C++ candidates at **every int
 
 **Caller checks.** Job **407631** exercised new no-prefix BF16 attention and pooled scoring, selection and physical-token remapping. Cold median paired speedups were **1.08×** for the tested extend caller and **1.22× / 1.23×** for short/long decode. Job **407632** measured **1.39–1.53×** for four runtime preparation transitions, and **1.16–1.90×** for final contraction/norm/head on tested *nonempty* selected-row sets. Embedding expansion was mixed (**0.73–3.04×**), so universal replacement is not supported. These are synthetic caller tests, not whole-model results.
 
+**Full-width expert and mHC retry.** Job **407630** exposed an empty-batch layout mismatch in mHC pre: an in-place multiply retained the wrong stride. Restoring the reference’s allocating multiply fixed the layout without relaxing the test. In **407634**, three EMR processes matched the synthetic CPU reference’s output bytes and layouts for mHC pre/post at every M=0–64, and for the full-width MoE and joined mHC-pre → MoE → mHC-post caller at M=0, 1, 2, 4, 8, 16, 32 and 64. The two full-width callers were **1.36–1.42× faster cold** across the seven nonempty anchors. This is not an all-M timing result or real-checkpoint accuracy evidence.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
