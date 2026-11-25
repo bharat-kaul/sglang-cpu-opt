@@ -236,6 +236,12 @@ Invalid selections were rejected before cache writes; score overflow preserved t
 
 [All 128 cold comparisons and component timings](plots/glm5/fresh_attention.csv)
 
+## Prefixed KDA and mixed chunk boundaries
+
+Job **407956** checked nonzero-prefix inputs at every M=1–64, including continuation calls. Outputs and both committed state pools matched the frozen CPU reference byte-for-byte. Median cold speedups ranged from **1.37–2.28× versus frozen** and **1.003–1.075× versus the previous optimized caller (407927)**.
+
+Job **407954** exposed a one-byte output mismatch for packed lengths `[65,16,1,2,0]` in both native paths. A fixed rule using the frozen implementation on nonfused mixed multichunk calls passed all five mixed cases in 407956. For the failing input, that correct path ran at **0.576×** the speed of the incorrect native path. The latter is not an eligible performance baseline. Native handling of this mixed case remains open.
+
 ## Data and reproduction
 
 **Qualification update through 407952:** 16 of 17 families have no loss on their current named source comparisons (14 previously clean, plus two resolved sparse-indexer holds). The remaining family retains its existing native router; the alternative was not promoted. No family yet has both complete caller coverage and a matched whole-family roofline. The 576 comparisons of feasible schedules across three families do not establish ceilings. Priority caller gaps are prefixed KDA, fresh no-prefix attention and sparse physical remapping.
