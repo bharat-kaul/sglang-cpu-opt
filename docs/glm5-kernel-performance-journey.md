@@ -182,6 +182,14 @@ The comparison below is against the **previous selective implementation** (40754
 
 [All 72 cases, including prefixes and ragged inputs (CSV)](plots/glm5/kda_extend_native.csv)
 
+## Complete cached latent attention
+
+Jobs **407929–407931** tested every M=1–64 at context lengths **2047, 2048 and 2049**. The C++ caller validates the selected tokens, gathers packed FP8 keys with the reference BF16 rounding, and shares one FP32 panel between the score and value contractions. Outputs matched reference bytes at all 192 coordinates. Cold speedups were **1.19–1.28× over the earlier optimized cache-read path** and **2.39–2.68× over the frozen CPU reference** (median of three paired process ratios at each coordinate). Additional mixed-context fixtures through length 4099, padding, invalid selection and cache-write ordering were tested; the quoted speedup ranges apply only to the 192 cutoff coordinates.
+
+![Cached attention speedups over both earlier callers around the selection cutoff](plots/glm5/cached_latent_cold_v1.png)
+
+[All 192 paired comparisons (CSV)](plots/glm5/cached_latent.csv). These are synthetic caller timings, not serving throughput.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)

@@ -8,6 +8,7 @@
  "docs/plots/e2e_walltime_v3.png": "47313d452ade1a85d9cf7e03aa17ce7476ec60529c92b88aa4bec5547c712b93",
  "docs/plots/glm5/activation_cold_v1.png": "7cc2197566d34fea2f43ce757a0db26793e28820d140d3fd5d80f7592feade23",
  "docs/plots/glm5/activation_warm_v1.png": "46fd895a7e2d18ce941afb3250da0df21974a715adb3959545ecbf4f108f2106",
+ "docs/plots/glm5/cached_latent_cold_v1.png": "b642633d8a46cdadb09ddeb8415749a33f4ea38b487b5fa6811a7bec0bfc4d04",
  "docs/plots/glm5/caller_comparisons_cold_v1.png": "d0762eccac080a32f0f00ae1bf3e630d7ed08b787bd5769485898e1d0698691d",
  "docs/plots/glm5/caller_comparisons_warm_v1.png": "9419415f43a175aca3be86720009217e57999033223eb1a47f089c2e520e1338",
  "docs/plots/glm5/decode_norm_cold_v1.png": "99b113e3eb6b54df06ef27da4c92a4b807b5466a6e1727bf0155f8f2157dd596",
