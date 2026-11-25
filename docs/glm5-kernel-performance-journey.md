@@ -226,6 +226,16 @@ In first-live decode, the query-weight multiply alone took about **0.50 ms refer
 
 EMR jobs **407951 and 407952** used layer-4 checkpoint weights and replayed activations. At every M=1–64, the alternative matched reference expert IDs, weights and layouts, including tie and correction-bias controls. It did **not** demonstrate a consistent speed advantage: **14 batch-size/cache-condition combinations** were slower than the existing native kernel in both jobs. Against the frozen CPU reference, no loss repeated across jobs, but the holdout minimum was **0.986× warm and 0.989× cold**. Even repeated timings of the identical native kernel varied. Retain the existing kernel; there is no evidence for a batch-size exception list or a change to serving dispatch. This resolves the implementation choice, not whole-family roofline qualification.
 
+## Fresh attention and sparse physical remapping
+
+In EMR job **407955**, fresh no-prefix BF16 attention matched the frozen caller’s output and cache bytes at every M=1–64 with cache saving both on and off. The median cold speedup across those 128 cases was **1.31×**. The only slower median was **M=1 with cache saving enabled (0.92×)**; retain the existing path there rather than enabling the candidate unconditionally. At M=64 with saves, the frozen caller took **156.5 ms**, the native caller **116.7 ms**, and the matched FP32 compute component **97.8 ms**. The component excludes caller work and is not a whole-operation ceiling.
+
+Invalid selections were rejected before cache writes; score overflow preserved the reference’s post-write state. Six tied sparse-remap cases matched selected indices, outputs and cache contents, with **1.44–2.24×** cold speedups.
+
+![Fresh BF16 attention at each M with cache save enabled and disabled](plots/glm5/fresh_attention_cold_v1.png)
+
+[All 128 cold comparisons and component timings](plots/glm5/fresh_attention.csv)
+
 ## Data and reproduction
 
 **Qualification update through 407952:** 16 of 17 families have no loss on their current named source comparisons (14 previously clean, plus two resolved sparse-indexer holds). The remaining family retains its existing native router; the alternative was not promoted. No family yet has both complete caller coverage and a matched whole-family roofline. The 576 comparisons of feasible schedules across three families do not establish ceilings. Priority caller gaps are prefixed KDA, fresh no-prefix attention and sparse physical remapping.
