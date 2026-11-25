@@ -156,6 +156,14 @@ The degenerate extend cases did not consistently beat the reference. This is not
 
 **Standalone mHC pre holdout.** The initial fused candidate in **407664** regressed at M=8 warm and cold. For **407897** the rule was fixed before timing: use the archived native implementation at M=8 and the fused implementation elsewhere. On fresh inputs, no measured median was slower than the frozen CPU reference across **64 batch sizes × two cache conditions**. This closes the measured standalone regression, not the entire family.
 
+## MLA absorption and expansion
+
+Job **407924** retained the strided BF16 batched GEMM and changed the validation around it. The C++ path scans dense BF16 storage for nonfinite exponent bits without allocating an intermediate mask; non-dense views still use the stride-aware check. Compared with the frozen CPU reference, absorption was **1.10–6.19× faster cold**, and expansion **1.41–6.00× faster cold**. Both improved at every M=1–64 across the three-process median timings and matched the reference output bytes and layouts. Tests also checked that nonfinite inputs or results were rejected and unused storage outside a view was ignored. These figures measure the projections including validation, not the complete MLA layer.
+
+![MLA projection speedups across all batch sizes](plots/glm5/mla_checks_cold_v1.png)
+
+[Exact cold speedups (CSV)](plots/glm5/mla_checks.csv)
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
