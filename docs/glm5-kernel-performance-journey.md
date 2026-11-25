@@ -190,6 +190,16 @@ Jobs **407929–407931** tested every M=1–64 at context lengths **2047, 2048 a
 
 [All 192 paired comparisons (CSV)](plots/glm5/cached_latent.csv). These are synthetic caller timings, not serving throughput.
 
+## Pooled compression including masked cache writes
+
+The earlier rotation-only change did not consistently speed up the full write. Jobs **407933–407934** instead fused the four-slot contraction, rotation, quantization and cache commit in C++. For both scale modes and every M=1–64, the tested masks produced reference-identical bytes; rejected batches did not partially update the cache.
+
+In **407934**, cold mixed-mask writes were **3.17–9.37× faster than the CPU reference** and **2.81–8.86× faster than the earlier native rotation path**. Isolated compression improved **2.54–5.93×** over the 407642 implementation. In the six complete decode-ring cases, the gain over native rotation was **1.07–2.14×**. These are medians of three paired process ratios. One process measured **0.65×** against native rotation for the rounded M=32 return-only case; it was not a median regression.
+
+![Mixed-mask pooled writes at both scale settings](plots/glm5/pooled_commit_cold_v1.png)
+
+[Per-fixture median and process range](plots/glm5/pooled_commit.csv)
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
