@@ -206,6 +206,16 @@ Of the **11 families in the original parallel wave**, eight had no measured regr
 
 These are benchmark outcomes, not completion percentages. Three families had matched component calibration, but none had an achievable roofline matched to its full scope. **Zero families were formally qualified** at this cutoff. The measurements above remain valid for their stated inputs; coverage outside those inputs and whole-caller efficiency still require evidence. Serving defaults are unchanged.
 
+## Matched whole-caller scheduling trials
+
+EMR jobs **407941–407943** compared two executable schedules on the same node at each of **576 cold coordinates**. Narrower FP8 projection tiles beat the existing schedule at **119/448** shape/batch coordinates, but never on MLA output or dense gate/up. Coarser head scheduling beat the existing fresh KDA extend path at only **2/64** sizes. For cached attention at S=2048, dense position lookup won at **63/64**, with a median paired speedup across M of **1.014×**. These are demonstrated alternatives for specific callers, **not optimal-latency or hardware ceilings**. The attention comparison used one cold call per arm per process; projection and KDA used three. None was promoted.
+
+![Alternative schedules versus current native schedules, cold](plots/glm5/schedule_trials_cold_v1.png)
+
+[Per-coordinate paired speedups and median latencies (CSV)](plots/glm5/schedule_trials.csv)
+
+**Standalone router:** job **407939** removed temporary logits-validation masks but lost against the frozen reference at M=14, 25 and 45. Job **407944** also fused the selected-weight gather and index conversion: it beat the reference at **60/64** sizes, losing at M=7, 10, 16 and 17 (worst **0.937×**). The losses moved, so neither run justifies a fixed batch blacklist or an unconditional dispatch change.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
