@@ -136,6 +136,20 @@ EMR jobs **407638–407641** split the 64 nonempty batch sizes across four nodes
 
 **Measured EMR calibration, job 407645.** On 16 physical cores in NUMA domain 0, triad reached **184.02 GB/s**. Register-resident BF16/FP32 compute reached **45.57/3.746 TFLOP/s**, versus **12.78/2.991 TFLOP/s** with streamed weights in dense linear. Shape matters: cold M=64 MLA absorption BMM measured **0.884 TFLOP/s** and router logits **0.230 TFLOP/s**. Those last two are rates for the matching contractions, not ceilings for validation, routing or the whole caller. The earlier roofline chart retains its original calibration and caveats.
 
+## Ragged indexer extend and mixed decode
+
+EMR job **407646** compared the opt-in native ragged gather, scoring and token remap with the CPU reference. Output and committed cache/ring bytes matched on ten synthetic caller fixtures, including padding, zero complete pools and tied cutoff scores. The table shows cold speedup as the median of three **paired process ratios**, with their range. It excludes the upstream projection chain.
+
+| Caller fixture | Median cold speedup | Process range |
+|---|---:|---:|
+| Fresh ragged extend, 64 rows | 1.25× | 1.22–1.29× |
+| Extend at cutoff | 1.06× | 1.04–1.06× |
+| Mixed decode, 64 rows | 1.58× | 1.57–1.62× |
+| Extend, no complete pools | 1.02× | 0.84–1.13× |
+| Extend, no active rows | 1.05× | 0.91–1.05× |
+
+The degenerate extend cases did not consistently beat the reference. This is not an all-context speedup or a change to serving dispatch.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
