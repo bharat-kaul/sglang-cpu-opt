@@ -150,6 +150,8 @@ EMR job **407646** compared the opt-in native ragged gather, scoring and token r
 
 The degenerate extend cases did not consistently beat the reference. This is not an all-context speedup or a change to serving dispatch.
 
+**Including projection and quantization.** Job **407647** used frozen layer-3 checkpoint weights and identical synthetic inputs for both paths. Across ten fixtures, projection outputs, selected indices and committed cache/ring bytes matched the CPU reference. Cold speedup for the complete indexer caller was **1.17×, 1.18× and 1.27×** at decode M=7, 8 and 9, and **1.60×** at M=33. Active ragged extend measured **1.06–1.61×**. Singleton decode and extend with no completed pools were approximately neutral. All-padding decode was slower in each process (**0.955–0.992×**, median **0.965×**). These are paired process ratios, not full-layer or serving measurements.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
