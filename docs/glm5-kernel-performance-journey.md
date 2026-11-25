@@ -200,6 +200,12 @@ In **407934**, cold mixed-mask writes were **3.17–9.37× faster than the CPU r
 
 [Per-fixture median and process range](plots/glm5/pooled_commit.csv)
 
+## Qualification status through job 407934
+
+Of the **11 families in the original parallel wave**, eight had no measured regression on their named reference comparisons. Three still had losses: standalone MoE routing at seven batch sizes, and two families sharing the projected-indexer caller on sparse or degenerate inputs. Across the **full 17-family inventory**, the corresponding count was **14 with no measured loss, three with a loss**.
+
+These are benchmark outcomes, not completion percentages. Three families had matched component calibration, but none had an achievable roofline matched to its full scope. **Zero families were formally qualified** at this cutoff. The measurements above remain valid for their stated inputs; coverage outside those inputs and whole-caller efficiency still require evidence. Serving defaults are unchanged.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
