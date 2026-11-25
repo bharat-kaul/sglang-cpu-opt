@@ -222,6 +222,10 @@ Job **407945** retested the two projected-indexer cases flagged in the qualifica
 
 In first-live decode, the query-weight multiply alone took about **0.50 ms reference versus 0.51 ms candidate**. The speedup was in the complete caller, not a faster matrix multiply. These results resolve the two named holdouts, not a whole-family roofline or a serving change.
 
+## Router decision: retain the existing native kernel
+
+EMR jobs **407951 and 407952** used layer-4 checkpoint weights and replayed activations. At every M=1–64, the alternative matched reference expert IDs, weights and layouts, including tie and correction-bias controls. It did **not** demonstrate a consistent speed advantage: **14 batch-size/cache-condition combinations** were slower than the existing native kernel in both jobs. Against the frozen CPU reference, no loss repeated across jobs, but the holdout minimum was **0.986× warm and 0.989× cold**. Even repeated timings of the identical native kernel varied. Retain the existing kernel; there is no evidence for a batch-size exception list or a change to serving dispatch. This resolves the implementation choice, not whole-family roofline qualification.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
