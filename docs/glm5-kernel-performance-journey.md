@@ -1,0 +1,105 @@
+# GLM-5.3-Flash CPU kernel performance journey
+
+**Emerald Rapids (EMR), batch M = 1–64.** Fusing activation and FP8 quantization cut that isolated kernel's latency by **9.92–83.02×**. The more informative caller-level result is KDA prefill: at M=64 the parallel subchunk reduced fresh prefill from **195.84 to 121.33 ms (1.61×)**, but the same substitution *increased* latency at M=8 and 16. That is why the journey records regressions and tests dispatch rules separately.
+
+**How to read the plots.** A point is the matching CPU reference latency divided by candidate latency on the same node; **1× is parity**, and below 1× is a loss. Ratios use replicated process medians. Cold means a cache flush before each timed call, not measured DRAM traffic. The figures show measured batch sizes only; connecting lines do not qualify intermediate sizes. Axes use log scales and the vertical range varies by panel. These are standalone or named caller measurements on synthetic inputs, **not model speedups, GPU accuracy results or percentages of an accepted roofline**.
+
+[Activation fusion](#activation-and-fp8-quantization) · [FP8 linear](#native-fp8-linear) · [Decode and norm](#kda-decode-and-gated-rmsnorm) · [Prefill](#kda-prefill-from-subchunk-to-caller) · [Eleven-family wave](#eleven-family-native-candidate-wave) · [Data and reproduction](#data-and-reproduction)
+
+## Activation and FP8 quantization
+
+Jobs **406471 → 406472 → 406473**: fuse clamp, SiLU, multiply, BF16 rounding and block-128 FP8 quantization; compare scalar and vector conversion with serial and parallel loops; then measure a fixed adaptive dispatch at both widths for every integer M. The final curve is a measured policy, not the fastest point cherry-picked from each curve.
+
+![Activation fusion speedups by width, variant and batch, cache-flushed](plots/glm5/activation_cold_v1.png)
+<details><summary>Warm-cache measurements</summary>
+
+![Activation fusion, warm](plots/glm5/activation_warm_v1.png)
+</details>
+
+## Native FP8 linear
+
+Jobs **406480 → 406483**: keep checkpoint weights packed, compare native checks alone against bounded vector-tile conversion, then vary row and column tile sizes. The `block64` candidate measured **1.89–4.02×** at the four MLP shapes and seven M anchors. The panel labels retain the output dtype and the two non-batch dimensions from the benchmark. The projections and vocabulary head outside this subset are not covered by these timings.
+
+![FP8 linear candidate speedups on four measured MLP shapes, cache-flushed](plots/glm5/linear_cold_v1.png)
+<details><summary>Warm-cache measurements</summary>
+
+![FP8 linear, warm](plots/glm5/linear_warm_v1.png)
+</details>
+
+## KDA decode and gated RMSNorm
+
+- **406495 → 406497 → 406498, decode:** move convolution, gates and recurrence into native loops while retaining the reference reduction order. Compare serial and parallel loops, then contiguous-state copies against the original commit. Serial copies helped M=1 but lost at large M. The fixed policy used serial at M=1, parallel otherwise, and the native commit at M=1 and M≥32. Across both convolution-state layouts it delivered **6.55–8.70× cold**. That ratio is for the *combined decoder*, not for each constituent kernel.
+- **406496 → 406498 → 406518, norm:** compare native serial and parallel preparation, then fuse sigmoid, ordered affine/gate multiplies and BF16 store. The fused candidate beat the frozen reference, but lost to the prior native implementation at **seven cold M values**. Both curves are shown against the same reference. No unconditional replacement was selected.
+
+![Decode and gated RMSNorm journeys with state layout and commit variants, cache-flushed](plots/glm5/decode_norm_cold_v1.png)
+<details><summary>Warm-cache measurements</summary>
+
+![Decode and gated RMSNorm, warm](plots/glm5/decode_norm_warm_v1.png)
+</details>
+
+## KDA prefill: from subchunk to caller
+
+**407379:** keep the FP32 batched-matmul donor, move the subchunk control flow to C++, and use AVX-512 for TF32 operand rounding. The parallel workers had to inherit inference mode before the full-prefill benchmark could run. The serial path lost at all 18 full-prefill coordinates; parallel won at 14. At M=64, fresh/prefix/ragged speedups were **1.61× / 1.59× / 1.05×**. The `intra_*` panels isolate the subchunk; `fresh`, `prefix` and `ragged` include the rest of the KDA prefill step and its state writes.
+
+![Serial and parallel prefill speedups at isolated and complete KDA boundaries, cache-flushed](plots/glm5/prefill_cold_v1.png)
+<details><summary>Warm-cache measurements</summary>
+
+![Prefill isolated and complete boundaries, warm](plots/glm5/prefill_warm_v1.png)
+</details>
+
+**407549, held-out policy:** use parallel native code for fused subchunks with M≥32; retain the reference otherwise. Fresh and prefix requests at M=33, 40, 48, 56 and 63 improved **1.17–1.61× cold**. The smaller sizes and ragged requests exercise the fallback; ratios near 1 there do not represent a new kernel win. No serving default changed.
+
+![Held-out whole-prefill dispatch, cache-flushed](plots/glm5/holdout_cold_v1.png)
+<details><summary>Warm-cache measurements</summary>
+
+![Held-out whole-prefill dispatch, warm](plots/glm5/holdout_warm_v1.png)
+</details>
+
+## Eleven-family native candidate wave
+
+Build **407572**, EMR array **407573**. Each candidate matched the tested valid synthetic outputs and layouts at M=1–64. Performance was sampled at seven anchors, not 64. Some candidates perform fewer checks than the enclosing caller: use these results to select caller experiments, not to bypass validation.
+
+| Plot | Optimization and measured boundary | What the measurement does not establish |
+|---|---|---|
+| `router` | FP32 projection and top-8; omit the redundant mask for a single expert group | Whole MoE layer latency |
+| `combine` | Fuse eight ordered routed contributions, the shared contribution and BF16 store | Grouping, gather or scatter cost; **0.30× at M=8** rules out unconditional dispatch |
+| `mixed_norm` | Native four-channel residual mix and normalization; retain unrounded variance | Full mHC pre/post and Sinkhorn latency |
+| `absorb` | Native wrapper around BF16 MLA absorption using `bmm` | Expansion or a consistent gain over the existing donor |
+| `rotate` | Row-local Hadamard butterflies followed by BF16 rounding and FP8 quantization | Full indexer; losses at M=4 and 8 |
+| `compress` | Four-slot gated contraction and rotation/quantization | Mask handling and actual cache writes |
+| `tail` | Copy selected history and append the causal tail | Scoring, top-k or physical-page remapping |
+| `pack` | Produce the packed 528-byte latent row with group scales | Random reads or masked writes |
+| `attend` | Batched score/softmax/value math on already-gathered keys, context 257 | Long-context selection and cache read; little change against the original donor |
+| `contract` | Reduce four BF16 residual streams into one output pass | Embedding, final normalization or vocabulary projection |
+| `allocate` | Compute page-64 token indices directly | Allocator state transitions and whole runtime latency |
+
+![All eleven native candidate subgraphs versus their CPU references, cache-flushed](plots/glm5/family_candidates_cold_v1.png)
+<details><summary>Warm-cache measurements</summary>
+
+![Eleven native candidate subgraphs, warm](plots/glm5/family_candidates_warm_v1.png)
+</details>
+
+## From isolated kernels to their callers
+
+Build **407601**, EMR array **407602**. Each caller was checked against its CPU reference for M=1–64; seven batch sizes were timed in three processes. The cache tests also checked that invalid active writes left prior bytes intact and that reads rejected invalid selected rows, not unused rows.
+
+| Caller | Cold speedup range | Interpretation |
+|---|---:|---|
+| MLA value expansion | 0.95–1.07× | Wrapping the existing batched GEMM did not consistently improve it. |
+| Masked latent-KV write | 1.81–6.86× | The pack gain survives active-row validation, packing and committing to the cache. |
+| Selected latent-KV read | 1.92–12.60× | Gather and convert only the selected packed rows, validating scales and BF16 outputs. |
+| Cached selected attention | 1.99–2.10× | Replacing the cache read alone roughly halved the caller time. The workload cycles through lengths 2047, 2048, 2049, 2175 and padding; it is not the no-prefix BF16 path. |
+| Pooled compression and cache write | 0.95–1.07× | The rotation change alone is approximately neutral once mask handling and writes are included. |
+| Indexer projection and quantization | 0.93–1.87× | Mixed by batch size; the full projection caller reached 1.87× at M=64. |
+
+![Caller-level speedups including cache state and validation, cache-flushed](plots/glm5/caller_comparisons_cold_v1.png)
+<details><summary>Warm-cache measurements</summary>
+
+![Caller-level speedups, warm](plots/glm5/caller_comparisons_warm_v1.png)
+</details>
+
+## Data and reproduction
+
+[Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
+
+To render from the portable CSV, run `python -B plugin/validate/plot_glm5_journey.py` from the repository root with `rsvg-convert` available. To refresh the data from the cluster, run `python -B plugin/validate/export_glm5_journey.py <campaign-reference-probes-directory>` first. For new measurements, add the completed paired evidence to the exporter, update the interpretation here, version any changed PNG filenames and run `python plugin/validate/check_doc_images.py`. Baseline-only profiles, failed jobs and queued caller trials do not produce speedup curves.

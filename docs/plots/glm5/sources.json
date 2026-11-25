@@ -1,0 +1,18 @@
+{
+  "fused-activation-406471/summary.json": "432d7b0e31cc7b1993c8d81bd4a2fcbbfde62e0820e34230126cefd63a4ef37c",
+  "fused-activation-406472/summary.json": "7d80d6f91046aa8e013534f4842e3a50fe296b755032da816a7841bdf5557f6e",
+  "fused-activation-406473/summary.json": "3787b6b1462a17ff48c5755725fcab8a154e0f90120d41e9a8ecfda3e0d82a3f",
+  "kda-commit-406497/summary.json": "3094c592861ed701475e746792f5257dd713326b900f72a312c6756b57514a86",
+  "kda-full-406498/summary.json": "dd6726598945807caa754a82de0ab5dcad4a1d95d6648c66d03d57dafce8389d",
+  "kda-native-406495/summary.json": "bbec803d4c9d4205954128e2985c446ded549e188ee208dc3edf504747265272",
+  "kda-norm-406496/summary.json": "0784422b22d52706a971fe8536e0be18c1c09b3d2c0ec26094d017dc228dda5f",
+  "kda-norm-fusion-406518/summary.json": "e3d2894ef6be31b27b63b8ba2df861cdf5b885cd3dff23e75f5ab8b1a98f9758",
+  "native-linear-406480/summary.json": "c77edd35c21c233fb498a50e3218cbe440909abedd7edc3ec7c18ce19856496f",
+  "native-linear-406483/summary.json": "c61b6b7e811c2f53017db588e42e58849526b126a1b87dca00312e005ab44392",
+  "native-wave/summary-407573.json": "8556e7fc6ee414fc5a46c8579a9cc96c6576d6b46d41f0225fa48eb20c3d0fd7",
+  "native-wave/summary-407602.json": "6f5037a6dafc2aeee5293f15310f760ecd8b21f81c794cc488b82c1f4e9d5bcc",
+  "prefill-timing-407379/summary.json": "d698949f74f755e06268b0d5ea4af263180ab5dcb877b9df281405116b3a2d01",
+  "wave-407549/rep-0.jsonl": "ee257f850a15285f271855249d3b501a469ef99a72670db668894ac95f5da031",
+  "wave-407549/rep-1.jsonl": "c363e538104c867dfa1a0936952885a900503a9186d1aaac9abb16574ab43b01",
+  "wave-407549/rep-2.jsonl": "a8529589e4daedad5491f32cf6edffdf4d2714f3c223c78b367a7b40abc5ee37"
+}
