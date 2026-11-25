@@ -172,6 +172,16 @@ EMR job **407926** compared the existing optimized kernel (406483) to the frozen
 
 [Per-coordinate timings and paired process speedup ranges](plots/glm5/fp8_shapes.csv)
 
+## Native KDA prefill with state updates
+
+In EMR job **407927**, the opt-in native caller matched the frozen CPU caller byte-for-byte on outputs and both convolution and temporal state across **72 synthetic cases**. These include fresh M=1–64, prefixes, padded ragged inputs, and a 64→65 chunk-boundary diagnostic. Four invalid-input tests left both state pools unchanged.
+
+The comparison below is against the **previous selective implementation** (407549), not just the original baseline. With caches flushed, fresh prefill improved **1.32–1.85×** across M=1–64. The two padded ragged cases improved **1.08–1.13×**. Each point is the median of three paired process ratios, with three cold calls per path per process. This measures the complete tested prefill caller, not model throughput.
+
+![Fresh KDA prefill with native state updates versus the previous selective caller](plots/glm5/kda_extend_native_cold_v1.png)
+
+[All 72 cases, including prefixes and ragged inputs (CSV)](plots/glm5/kda_extend_native.csv)
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
