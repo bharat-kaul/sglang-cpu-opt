@@ -154,6 +154,8 @@ The degenerate extend cases did not consistently beat the reference. This is not
 
 **All-padding decode follow-up.** In EMR job **407659**, the revised opt-in indexer reduced all-padding M=8 cold latency from **5.99 to 4.36 ms** versus the CPU reference. Paired speedup was **1.37×** (three processes: **1.36–1.38×**). With one live row, median speedup ranged from essentially neutral to **2.22×** across the tested fixtures. Active M=8 and M=33 retained **1.17×** and **1.61×**. Projection outputs, selected indices and committed cache/ring bytes matched on ten synthetic decode fixtures. Invalid-shape, dtype and nonfinite-input tests still rejected invalid calls without state changes. This resolves the reported M=8 regression, not every possible batch/context case.
 
+**Standalone mHC pre holdout.** The initial fused candidate in **407664** regressed at M=8 warm and cold. For **407897** the rule was fixed before timing: use the archived native implementation at M=8 and the fused implementation elsewhere. On fresh inputs, no measured median was slower than the frozen CPU reference across **64 batch sizes × two cache conditions**. This closes the measured standalone regression, not the entire family.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
