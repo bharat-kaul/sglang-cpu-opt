@@ -216,6 +216,12 @@ EMR jobs **407941–407943** compared two executable schedules on the same node 
 
 **Standalone router:** job **407939** removed temporary logits-validation masks but lost against the frozen reference at M=14, 25 and 45. Job **407944** also fused the selected-weight gather and index conversion: it beat the reference at **60/64** sizes, losing at M=7, 10, 16 and 17 (worst **0.937×**). The losses moved, so neither run justifies a fixed batch blacklist or an unconditional dispatch change.
 
+## Sparse indexer holdouts
+
+Job **407945** retested the two projected-indexer cases flagged in the qualification review. With fixed C++ validation and masking, extend with no completed pool was **1.13× faster cold** than the frozen caller (paired process range **1.09–1.15×**); decode with only the first row active was **1.10× faster** (**1.05–1.13×**). All three processes favored the candidate in both cases. Active decode gained **1.25× at M=8** and **2.06× at M=33**. Outputs, selection indices and committed cache/ring bytes matched on ten synthetic fixtures.
+
+In first-live decode, the query-weight multiply alone took about **0.50 ms reference versus 0.51 ms candidate**. The speedup was in the complete caller, not a faster matrix multiply. These results resolve the two named holdouts, not a whole-family roofline or a serving change.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
