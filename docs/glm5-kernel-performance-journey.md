@@ -242,6 +242,8 @@ Job **407956** checked nonzero-prefix inputs at every M=1–64, including contin
 
 Job **407954** exposed a one-byte output mismatch for packed lengths `[65,16,1,2,0]` in both native paths. A fixed rule using the frozen implementation on nonfused mixed multichunk calls passed all five mixed cases in 407956. For the failing input, that correct path ran at **0.576×** the speed of the incorrect native path. The latter is not an eligible performance baseline. Native handling of this mixed case remains open.
 
+**Native repair (407957, 407961).** The first FP32 state projection at token 65 diverged after native staging made a transposed V/K state row contiguous. Preserving the reference strides fixed the result without changing tolerances. The old binary reproduced both historical one-byte errors; both repaired native paths matched frozen output, both state pools and continuation results across 38 replay and independent cases without the frozen fallback. This is correctness evidence; the repaired mixed path needs its own timing before a speedup can be claimed.
+
 ## Data and reproduction
 
 **Qualification update through 407952:** 16 of 17 families have no loss on their current named source comparisons (14 previously clean, plus two resolved sparse-indexer holds). The remaining family retains its existing native router; the alternative was not promoted. No family yet has both complete caller coverage and a matched whole-family roofline. The 576 comparisons of feasible schedules across three families do not establish ceilings. Priority caller gaps are prefixed KDA, fresh no-prefix attention and sparse physical remapping.
