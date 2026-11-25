@@ -124,6 +124,18 @@ EMR array **407619** completed all eleven isolated C++ candidates at **every int
 
 **Full-width expert and mHC retry.** Job **407630** exposed an empty-batch layout mismatch in mHC pre: an in-place multiply retained the wrong stride. Restoring the reference’s allocating multiply fixed the layout without relaxing the test. In **407634**, three EMR processes matched the synthetic CPU reference’s output bytes and layouts for mHC pre/post at every M=0–64, and for the full-width MoE and joined mHC-pre → MoE → mHC-post caller at M=0, 1, 2, 4, 8, 16, 32 and 64. The two full-width callers were **1.36–1.42× faster cold** across the seven nonempty anchors. This is not an all-M timing result or real-checkpoint accuracy evidence.
 
+## Full-width expert sweep and small-batch fixes
+
+EMR jobs **407638–407641** split the 64 nonempty batch sizes across four nodes. The joined mHC-pre → MoE → mHC-post caller matched reference bytes and layouts and was **1.37–1.47× faster cold at every M**. MoE alone was **1.33–1.46×**, and mHC post **4.87–27.64×**. Isolated mHC pre had a slower median at **8/64** sizes (minimum **0.985×**); the joined result does not justify replacing standalone pre unconditionally. Paired measurements on synthetic full-width W8A8 weights; median of three process medians per path, three cold samples per process. These are caller results, not tokens/s.
+
+![Full-width MoE and mHC callers at all batch sizes](plots/glm5/full_width_callers_cold_v1.png)
+
+[Process medians and job IDs](plots/glm5/full_width_sweep.csv) · [Chart renderer](../plugin/validate/plot_glm5_caller_sweep.py)
+
+**Small-batch dispatch.** Job **407642** kept expert combine serial through M=8 and index rotation serial through 256 input rows. Both beat their matched reference at all 64 sizes (**1.63–26.59×** and **1.29–3.95×** respectively). Compression, which also calls rotation, had one cold loss (**0.992×**); an isolated rotation win does not certify compression. Job **407644** used a serial AVX-512 embedding path through M=16: at M=8 it took **59–65 μs** cold. At vocabulary width 154,880 the head matched output bytes for **2,144** batch/selected-count combinations; timings on boundary cases do not cover every combination.
+
+**Measured EMR calibration, job 407645.** On 16 physical cores in NUMA domain 0, triad reached **184.02 GB/s**. Register-resident BF16/FP32 compute reached **45.57/3.746 TFLOP/s**, versus **12.78/2.991 TFLOP/s** with streamed weights in dense linear. Shape matters: cold M=64 MLA absorption BMM measured **0.884 TFLOP/s** and router logits **0.230 TFLOP/s**. Those last two are rates for the matching contractions, not ceilings for validation, routing or the whole caller. The earlier roofline chart retains its original calibration and caveats.
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
