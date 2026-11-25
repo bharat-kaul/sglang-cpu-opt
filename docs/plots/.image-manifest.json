@@ -16,6 +16,7 @@
  "docs/plots/glm5/family_candidates_cold_v1.png": "11bca3404b892caeb5a8eab33d25463ced9c8f90d68d9239070d295cb2890406",
  "docs/plots/glm5/family_candidates_warm_v1.png": "9c4ce9903c83f2a1bc831749f34f6831d00b420918dc0a701233ef7a91dfa6ce",
  "docs/plots/glm5/family_roofline_cold_v1.png": "77d113a4abcbe6c8e288cfb4774cfd1f8a461f7029e0d7479a6d93f2afbfd88f",
+ "docs/plots/glm5/fp8_shapes_cold_v1.png": "901fc5235d1bb3f2124bd04c4c18de5ecbf25a35d6c60c413a83d4874ec6c628",
  "docs/plots/glm5/full_width_callers_cold_v1.png": "b23fea60631d9d1b4dd3ce10ee6200048d02a552fcc5724161a5da83407f8840",
  "docs/plots/glm5/holdout_cold_v1.png": "b4e71fbea63e386a6b0fbc88a75974e79ad72d0d680361fc94c35011f788ef25",
  "docs/plots/glm5/holdout_warm_v1.png": "8ebc4013e53aa3a2c63c738b77f5154f74c05b660f6380213747916a70e7ba80",

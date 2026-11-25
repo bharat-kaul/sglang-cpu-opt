@@ -164,6 +164,14 @@ Job **407924** retained the strided BF16 batched GEMM and changed the validation
 
 [Exact cold speedups (CSV)](plots/glm5/mla_checks.csv)
 
+## Packed FP8 projections: all seven shapes
+
+EMR job **407926** compared the existing optimized kernel (406483) to the frozen native reference (405982) on representative packed checkpoint weights for **all seven FP8 text-graph projection shapes**. Outputs matched in bytes and dtype at every M=1–64. Across 1,792 comparisons (seven shapes × 64 batch sizes × warm/cold × two timed boundaries), no median paired speedup fell below 1×. Cold speedups were **1.40–6.61×** for matrix multiplication alone and **1.27–5.55×** including activation quantization. This closes the FP8 projection **shape sweep**, not serving or the overall kernel phase.
+
+![Cold speedup for packed FP8 projection shapes](plots/glm5/fp8_shapes_cold_v1.png)
+
+[Per-coordinate timings and paired process speedup ranges](plots/glm5/fp8_shapes.csv)
+
 ## Data and reproduction
 
 [Exact plotted ratios (CSV)](plots/glm5/measurements.csv) · [Source artifact names and SHA-256 hashes](plots/glm5/sources.json) · [Evidence exporter](../plugin/validate/export_glm5_journey.py) · [Chart renderer](../plugin/validate/plot_glm5_journey.py)
