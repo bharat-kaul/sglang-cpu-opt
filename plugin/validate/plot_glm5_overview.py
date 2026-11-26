@@ -68,10 +68,10 @@ def render():
     models = [r for r in records(DATA / "roofline_cold.csv") if r["M"] == "8"]
     if len(callers) != len(ROWS) or len(models) != sum(bool(op) for *_, op in ROWS):
         raise ValueError("unexpected overview coverage")
-    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1100" font-family="DejaVu Sans">',
+    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1156" font-family="DejaVu Sans">',
            '<rect width="100%" height="100%" fill="white"/>',
            text(20, 33, "GLM-5.3-Flash  |  Emerald Rapids CPU kernel performance", 25),
-           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Evidence through job 408997", 17),
+           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Evidence through job 409001", 17),
            text(20, 106, "Kernel family", 17), text(315, 106, "Measured caller", 18),
            text(315, 131, "Baseline → optimized path", 14),
            text(640, 106, "Roofline comparison: isolated subgraph", 18),
@@ -123,8 +123,6 @@ def render():
         ("408621", "Layer 0 KDA: packed projections through output", "frozen", {"native"}, 26),
         ("408624", "mHC, QKV and FFN handoffs", "source", {"native", "fused"}, 160),
         ("408903", "MLA mapped decode + ring, M1–64 and controls", "reference", {"candidate"}, 142),
-        ("408911", "KDA fresh extend, 60 new batch sizes", "frozen", {"native"}, 120),
-        ("408912", "KDA dense decode, M1–64", "frozen", {"native"}, 128),
         ("408994", "Attention preparation + QKV, fixed path M1–64", "source", {"fixed"}, 128),
     ]):
         batch = [r for r in wave if r["job"] == job and r["numerator"] == base and r["denominator"] in paths]
@@ -136,8 +134,27 @@ def render():
         svg.extend([text(20, y, f"{job}   {label}", 16), text(600, y, count, 16, "middle"),
                     text(725, y, f"{min(ratios):.3f}–{max(ratios):.3f}×", 16),
                     text(1015, y, sum(x < 1 for x in ratios), 16, "middle")])
+    grid = records(DATA / "kda_grid_409001.csv")
+    for i, (mode, label, first) in enumerate([
+        ("fresh", "Fresh extend", 1), ("decode", "Dense decode", 1),
+        ("prefix", "17-token prefix", 1), ("mixed", "Padded mixed extend", 3)
+    ]):
+        batch = [r for r in grid if r["mode"] == mode]
+        cells = {(int(r["m"]), r["heat"]) for r in batch}
+        if cells != {(m, h) for m in range(first, 65) for h in ("warm", "cold")} or len(batch) != len(cells):
+            raise ValueError(f"{mode}: incomplete or duplicate KDA grid")
+        ratios = []
+        for r in batch:
+            samples = json.loads(r["process_medians_ns"])
+            if len(samples) != 3 or not all(p[k] > 0 and math.isfinite(p[k]) for p in samples for k in ("native", "frozen")):
+                raise ValueError("invalid KDA samples")
+            ratios.append(median(p["frozen"] / p["native"] for p in samples))
+        y = 1034 + 28 * i
+        svg.extend([text(20, y, f"KDA grid   {label}, M{first}–64", 16), text(600, y, len(cells), 16, "middle"),
+                    text(725, y, f"{min(ratios):.3f}–{max(ratios):.3f}×", 16),
+                    text(1015, y, sum(x < 1 for x in ratios), 16, "middle")])
     svg.append("</svg>")
-    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v4.png")],
+    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v5.png")],
                    input="".join(svg).encode(), check=True)
 
 
