@@ -1,5 +1,13 @@
 # GLM-5.3-Flash CPU kernel performance journey
 
+## Kernel performance at a glance
+
+![All 17 EMR kernel families: baseline and optimized caller latencies, speedup bars, and an isolated baseline/native/roofline-model comparison where available](plots/glm5/kernel_overview_v1.png)
+
+**Left: what changed?** Each row compares two implementations on identical inputs. It shows the lowest-speedup case in the named benchmark, except for the router, which shows the **retained native donor** at M=8 cold rather than the rejected alternative. Times are medians of three process medians; bars show their ratio on a log₂ scale (zero length = parity). These are named caller or kernel timings, not averages across batch sizes. The two KDA decode rows share a caller; do not sum them.
+
+**Right: how close to a roofline?** The three numbers compare the baseline, the native path and a provisional model **for the same isolated subgraph** at M=8 cold. These are not ceilings for the callers on the left. A dash means there is no corresponding modeled subgraph in this sweep. **0 of 17 families has a verified whole-family roofline** through job 407971. [Caller fixtures and process timings](plots/glm5/overview_callers.csv) · [Subgraph timings and model inputs](plots/glm5/roofline_cold.csv) · [Roofline assumptions](#roofline-comparison) · [Chart renderer](../plugin/validate/plot_glm5_overview.py)
+
 **Emerald Rapids (EMR), batch M = 1–64.** Fusing activation and FP8 quantization cut that isolated kernel's latency by **9.92–83.02×**. The more informative caller-level result is KDA prefill: at M=64 the parallel subchunk reduced fresh prefill from **195.84 to 121.33 ms (1.61×)**, but the same substitution *increased* latency at M=8 and 16. That is why the journey records regressions and tests dispatch rules separately.
 
 **How to read the plots.** A point is the matching CPU reference latency divided by candidate latency on the same node; **1× is parity**, and below 1× is a loss. Ratios use replicated process medians. Cold means a cache flush before each timed call, not measured DRAM traffic. The figures show measured batch sizes only; connecting lines do not qualify intermediate sizes. Axes use log scales and the vertical range varies by panel. These are standalone or named caller measurements on synthetic inputs, **not model speedups, GPU accuracy results or percentages of an accepted roofline**.
