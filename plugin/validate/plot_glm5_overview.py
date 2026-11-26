@@ -30,6 +30,7 @@ ROWS = [
     ("state-pool-metadata", "State pool + metadata", "407644:runtime_prepare", "allocate"),
 ]
 CALLERS = DATA / "overview_callers.csv"
+WAVE = DATA / "joined_screens_408624.csv"
 
 
 def records(path):
@@ -67,10 +68,10 @@ def render():
     models = [r for r in records(DATA / "roofline_cold.csv") if r["M"] == "8"]
     if len(callers) != len(ROWS) or len(models) != sum(bool(op) for *_, op in ROWS):
         raise ValueError("unexpected overview coverage")
-    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="760" font-family="DejaVu Sans">',
+    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="988" font-family="DejaVu Sans">',
            '<rect width="100%" height="100%" fill="white"/>',
            text(20, 33, "GLM-5.3-Flash  |  Emerald Rapids CPU kernel performance", 25),
-           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Evidence through job 407971", 17),
+           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Caller measurements below through job 408624", 17),
            text(20, 106, "Kernel family", 17), text(315, 106, "Measured caller", 18),
            text(315, 131, "Baseline → optimized path", 14),
            text(640, 106, "Roofline comparison: isolated subgraph", 18),
@@ -111,8 +112,28 @@ def render():
         else:
             svg.append(text(640, y, "—  no matched subgraph model", 14))
     svg += [text(20, 704, "* Provisional time for counted work only: compute + bytes for three subgraphs; bytes only for eight.", 16),
-            text(20, 731, "Compare within a panel, not across panels. No measured whole-family ceiling is available for any row.", 16), "</svg>"]
-    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v1.png")],
+            text(20, 731, "Compare within a panel, not across panels. No measured whole-family ceiling is available for any row.", 16),
+            text(20, 776, "New caller measurements vs frozen CPU   |   warm and cold", 20),
+            text(550, 807, "Comparisons", 15), text(725, 807, "Speedup range", 15), text(974, 807, "Below parity", 15)]
+    wave = records(WAVE)
+    for i, (job, label, base, paths, count) in enumerate([
+        ("408614", "MLA split normalization only", "source", {"native"}, 128),
+        ("408615", "Mixed-request allocator preparation", "ref", {"native"}, 12),
+        ("408617", "Layer 3 attention + cache lifecycle", "reference", {"candidate"}, 16),
+        ("408621", "Layer 0 KDA: packed projections through output", "frozen", {"native"}, 26),
+        ("408624", "mHC, QKV and FFN handoffs", "source", {"native", "fused"}, 160),
+    ]):
+        batch = [r for r in wave if r["job"] == job and r["numerator"] == base and r["denominator"] in paths]
+        ratios = [float(r["median_paired_ratio"]) for r in batch]
+        if (len(ratios) != count or len({(r["coordinate"], r["cache"], r["denominator"]) for r in batch}) != count
+                or not all(math.isfinite(x) and x > 0 for x in ratios)):
+            raise ValueError(f"{job}: incomplete or invalid comparison")
+        y = 838 + 28 * i
+        svg.extend([text(20, y, f"{job}   {label}", 16), text(600, y, count, 16, "middle"),
+                    text(725, y, f"{min(ratios):.3f}–{max(ratios):.3f}×", 16),
+                    text(1015, y, sum(x < 1 for x in ratios), 16, "middle")])
+    svg.append("</svg>")
+    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v2.png")],
                    input="".join(svg).encode(), check=True)
 
 
