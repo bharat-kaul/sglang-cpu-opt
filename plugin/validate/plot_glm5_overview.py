@@ -30,7 +30,7 @@ ROWS = [
     ("state-pool-metadata", "State pool + metadata", "407644:runtime_prepare", "allocate"),
 ]
 CALLERS = DATA / "overview_callers.csv"
-WAVE = DATA / "joined_screens_408624.csv"
+WAVE = DATA / "joined_screens_408917.csv"
 
 
 def records(path):
@@ -68,10 +68,10 @@ def render():
     models = [r for r in records(DATA / "roofline_cold.csv") if r["M"] == "8"]
     if len(callers) != len(ROWS) or len(models) != sum(bool(op) for *_, op in ROWS):
         raise ValueError("unexpected overview coverage")
-    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="988" font-family="DejaVu Sans">',
+    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1072" font-family="DejaVu Sans">',
            '<rect width="100%" height="100%" fill="white"/>',
            text(20, 33, "GLM-5.3-Flash  |  Emerald Rapids CPU kernel performance", 25),
-           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Caller measurements below through job 408624", 17),
+           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Evidence through job 408917", 17),
            text(20, 106, "Kernel family", 17), text(315, 106, "Measured caller", 18),
            text(315, 131, "Baseline → optimized path", 14),
            text(640, 106, "Roofline comparison: isolated subgraph", 18),
@@ -122,6 +122,9 @@ def render():
         ("408617", "Layer 3 attention + cache lifecycle", "reference", {"candidate"}, 16),
         ("408621", "Layer 0 KDA: packed projections through output", "frozen", {"native"}, 26),
         ("408624", "mHC, QKV and FFN handoffs", "source", {"native", "fused"}, 160),
+        ("408903", "MLA mapped decode + ring, M1–64 and controls", "reference", {"candidate"}, 142),
+        ("408911", "KDA fresh extend, 60 new batch sizes", "frozen", {"native"}, 120),
+        ("408912", "KDA dense decode, M1–64", "frozen", {"native"}, 128),
     ]):
         batch = [r for r in wave if r["job"] == job and r["numerator"] == base and r["denominator"] in paths]
         ratios = [float(r["median_paired_ratio"]) for r in batch]
@@ -133,7 +136,7 @@ def render():
                     text(725, y, f"{min(ratios):.3f}–{max(ratios):.3f}×", 16),
                     text(1015, y, sum(x < 1 for x in ratios), 16, "middle")])
     svg.append("</svg>")
-    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v2.png")],
+    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v3.png")],
                    input="".join(svg).encode(), check=True)
 
 
