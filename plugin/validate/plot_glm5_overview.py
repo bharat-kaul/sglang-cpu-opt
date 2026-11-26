@@ -68,10 +68,10 @@ def render():
     models = [r for r in records(DATA / "roofline_cold.csv") if r["M"] == "8"]
     if len(callers) != len(ROWS) or len(models) != sum(bool(op) for *_, op in ROWS):
         raise ValueError("unexpected overview coverage")
-    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1072" font-family="DejaVu Sans">',
+    svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1100" font-family="DejaVu Sans">',
            '<rect width="100%" height="100%" fill="white"/>',
            text(20, 33, "GLM-5.3-Flash  |  Emerald Rapids CPU kernel performance", 25),
-           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Evidence through job 408917", 17),
+           text(20, 61, "17 families   •   Latency in microseconds (lower is better)   •   Evidence through job 408997", 17),
            text(20, 106, "Kernel family", 17), text(315, 106, "Measured caller", 18),
            text(315, 131, "Baseline → optimized path", 14),
            text(640, 106, "Roofline comparison: isolated subgraph", 18),
@@ -115,7 +115,7 @@ def render():
             text(20, 731, "Compare within a panel, not across panels. No measured whole-family ceiling is available for any row.", 16),
             text(20, 776, "New caller measurements vs frozen CPU   |   warm and cold", 20),
             text(550, 807, "Comparisons", 15), text(725, 807, "Speedup range", 15), text(974, 807, "Below parity", 15)]
-    wave = records(WAVE)
+    wave = records(WAVE) + records(DATA / "qkv_holdout_408994.csv")
     for i, (job, label, base, paths, count) in enumerate([
         ("408614", "MLA split normalization only", "source", {"native"}, 128),
         ("408615", "Mixed-request allocator preparation", "ref", {"native"}, 12),
@@ -125,6 +125,7 @@ def render():
         ("408903", "MLA mapped decode + ring, M1–64 and controls", "reference", {"candidate"}, 142),
         ("408911", "KDA fresh extend, 60 new batch sizes", "frozen", {"native"}, 120),
         ("408912", "KDA dense decode, M1–64", "frozen", {"native"}, 128),
+        ("408994", "Attention preparation + QKV, fixed path M1–64", "source", {"fixed"}, 128),
     ]):
         batch = [r for r in wave if r["job"] == job and r["numerator"] == base and r["denominator"] in paths]
         ratios = [float(r["median_paired_ratio"]) for r in batch]
@@ -136,7 +137,7 @@ def render():
                     text(725, y, f"{min(ratios):.3f}–{max(ratios):.3f}×", 16),
                     text(1015, y, sum(x < 1 for x in ratios), 16, "middle")])
     svg.append("</svg>")
-    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v3.png")],
+    subprocess.run(["rsvg-convert", "-o", str(DATA / "kernel_overview_v4.png")],
                    input="".join(svg).encode(), check=True)
 
 

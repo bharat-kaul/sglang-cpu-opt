@@ -2,7 +2,7 @@
 
 ## Kernel performance at a glance
 
-![All 17 EMR kernel families: baseline and optimized caller latencies, available subgraph roofline models, and eight follow-up caller measurements](plots/glm5/kernel_overview_v3.png)
+![All 17 EMR kernel families: baseline and optimized caller latencies, available subgraph roofline models, and nine follow-up caller measurements](plots/glm5/kernel_overview_v4.png)
 
 **Left: what changed?** Each row compares two implementations on identical inputs. It shows the lowest-speedup case in the named benchmark, except for the router, which shows the **retained native donor** at M=8 cold rather than the rejected alternative. Times are medians of three process medians; bars show their ratio on a log₂ scale (zero length = parity). These are named caller or kernel timings, not averages across batch sizes. The two KDA decode rows share a caller; do not sum them.
 
@@ -11,6 +11,8 @@
 **Bottom: do the gains survive between kernels?** Complete layer-0 KDA dense decode measured **2.586–3.792×** across every M=1–64, warm and cold (408912). Fresh extend measured **1.349–2.026×** across the same batch sizes: 60 sizes in 408911 and four earlier anchors in 408621 with different seeds and initial state. Layer-3 mapped attention beat frozen CPU on **142/142** comparisons (408903), but lost to the prior native path on **7/142**. In the mHC/QKV/FFN run (408624), **5 of 160** frozen-reference comparisons lost, all in attention preparation through QKV projection; the worst was **0.979×** at M=1 cold. That run used captured attention output, not a timed attention core. [Paired comparisons, including separate controls](plots/glm5/joined_screens_408917.csv)
 
 **Correctness is a separate result.** The five-layer run (408917) matched same-node frozen CPU at **464/464** tensor boundaries, but the frozen CPU run itself differed from the historical capture (406015) at **205/232** comparable boundaries. It does not establish historical parity or five-layer throughput. [Per-boundary comparisons](plots/glm5/live_state_408917.csv)
+
+**QKV holdout and KDA coverage.** On independent short-capture inputs (408994), a fixed native mHC-pre schedule with the unchanged packed QKV projection beat the frozen CPU path in **126/128** comparisons. Both losses were at M=8: **0.975× warm, 0.986× cold**. The fixed path's geometric-mean gain over the *incumbent native path* was **1.473× warm, 1.470× cold**; no batch-specific exceptions were selected. [Holdout and same-path controls](plots/glm5/qkv_holdout_408994.csv). Separately, the supplemental KDA prefix/mixed sweep (408997) timed out after two of three required processes. It contributes **no** timings or additional coverage; the fresh/decode results above stand.
 
 **Emerald Rapids (EMR), batch M = 1–64.** Fusing activation and FP8 quantization cut that isolated kernel's latency by **9.92–83.02×**. The more informative caller-level result is KDA prefill: at M=64 the parallel subchunk reduced fresh prefill from **195.84 to 121.33 ms (1.61×)**, but the same substitution *increased* latency at M=8 and 16. That is why the journey records regressions and tests dispatch rules separately.
 
