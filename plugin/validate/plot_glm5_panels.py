@@ -55,7 +55,8 @@ def figure(sweep):
     svg = ['<svg xmlns="http://www.w3.org/2000/svg" width="1152" height="1390" viewBox="0 0 1152 1390" font-family="DejaVu Sans,sans-serif">',
            '<rect width="100%" height="100%" fill="white"/>', text(24, 35, f"GLM-5.3-Flash   |   {title}", 25),
            text(24, 65, "Emerald Rapids, cache-flushed. Latency / matching CPU baseline (1×); lower is faster. Log scale per panel.", 17),
-           text(24, 89, "Red: baseline     Gold: measured variant     Teal: native candidate     Purple dashed: provisional subgraph model, not a ceiling", 15)]
+           text(24, 89, "Red: frozen CPU reference     Gold: checked scalar (or serial norm)     Blue: vector 32×32     Teal: native candidate     Purple dashed: model", 15),
+           text(24, 110, "Packed linear: each timing is a full multiply. Checked scalar → vector decode and accumulation → larger 64×64 blocks (teal).", 14)]
     for n, (label, detail, curves) in enumerate(panels()):
         x, y = 62 + n % 3 * 380, 169 + n // 3 * 209
         w, h = 291, 134
@@ -70,7 +71,7 @@ def figure(sweep):
             svg += [f'<path d="M{x} {yy}h{w}" stroke="#dce2e7"/>', text(x-4, yy+4, f"{10**power:g}×", 11, "end")]
         keys = [k for k in curves if k != "Model"]
         for i, (k, p) in enumerate(curves.items()):
-            color = {"Base": BASE, "Model": MODEL, "Native": NATIVE}.get(k, PRIOR)
+            color = {"Base": BASE, "Model": MODEL, "Native": NATIVE, "Tiles": "#316bb3"}.get(k, PRIOR)
             dash = ' stroke-dasharray="5 3"' if k == "Model" else ""
             if sweep:
                 coords = [(x+w*math.log2(m)/6, pos(v)) for m, v in sorted(p.items())]
@@ -83,8 +84,10 @@ def figure(sweep):
             else:
                 xx = x + (keys.index(k)+.5)*w/len(keys)
                 yy = pos(p[32])
+                caption = {"Base": "CPU ref.", "Checks": "Scalar 32²", "Tiles": "Vector 32²",
+                           "Native": "Vector 64²" if "Tiles" in curves else "Candidate"}.get(k, k)
                 svg.extend([f'<rect x="{xx-21}" y="{yy}" width="42" height="{y+h-yy}" fill="{color}"/>',
-                            text(xx, yy-3, f"{1/p[32]:.2f}×", 12, "middle"), text(xx, y+h+15, k, 12, "middle")])
+                            text(xx, yy-3, f"{1/p[32]:.2f}×", 12, "middle"), text(xx, y+h+15, caption, 12, "middle")])
         if sweep:
             svg.extend(text(x+w*math.log2(m)/6, y+h+15, f"{m}", 12, "middle") for m in sorted(ANCHORS))
     svg.append("</svg>")
@@ -95,7 +98,7 @@ if __name__ == "__main__":
     figures = []
     for sweep, tag in [(False, "journeys_m32"), (True, "journeys_msweep")]:
         svg = figure(sweep)
-        subprocess.run(["rsvg-convert", "-o", str(DATA / f"{tag}_v1.png")], input=svg.encode(), check=True)
+        subprocess.run(["rsvg-convert", "-o", str(DATA / f"{tag}_v2.png")], input=svg.encode(), check=True)
         figures.append(svg)
     (DATA / "journeys.html").write_text('<!doctype html><meta charset="utf-8"><title>GLM kernel journeys</title>'
         '<style>body{margin:auto;max-width:1152px}svg{width:100%;height:auto}</style>' + "\n".join(figures))

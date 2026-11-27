@@ -2,13 +2,17 @@
 
 ## Kernel performance at a glance
 
-![GLM optimization journeys at M=32: one bar panel per kernel family; labels show speedup and dashed lines show available subgraph models](plots/glm5/journeys_m32_v1.png)
+![GLM optimization journeys at M=32: one bar panel per kernel family; labels show speedup and dashed lines show available subgraph models](plots/glm5/journeys_m32_v2.png)
 
-**At M=32:** bars show cache-flushed latency relative to the matching CPU baseline; the label above each bar is speedup (baseline latency divided by that bar's latency). Red is baseline, gold is a measured variant where available, and teal is the native candidate. Purple dashed lines are provisional models for **11 isolated subgraphs**, not verified family ceilings. These historical candidate measurements include losses; they are not all selected serving paths.
+**At M=32:** each bar times the **whole operation** on the same inputs, not time spent in one stage. Height is latency relative to the frozen CPU reference (lower is better); the number above the bar is speedup (higher is better). For example, half the reference latency means **2× speedup**.
 
-![GLM latency vs batch: matching baseline, native and modeled subgraph latency at measured batch sizes from 1 to 64](plots/glm5/journeys_msweep_v1.png)
+**Packed linear legend (job 406483):** red **CPU ref.** is the frozen FP8 multiply. Gold **Scalar 32²** (formerly *Checks*) validates the operands and scales in C++ and decodes packed FP8 values by scalar lookup into 32×32 output tiles. Blue **Vector 32²** (*Tiles*) keeps validation and the same blocking, but vectorizes FP8-to-BF16 decoding and scaled accumulation. Teal **Vector 64²** (*Native*) keeps that vector path and uses up to 64 rows × 64 output columns per block for this weight shape. M=32 fills only 32 rows. The weights remain packed between calls.
 
-**Across batches:** the panels use the same colors and boundaries as the bars. Each marker is a measurement or model coordinate; lines between markers are guides, not additional measurements. The horizontal axis is batch size (M); the vertical axis is latency relative to the baseline at that M. [Open the M=32 figure](plots/glm5/journeys_m32_v1.png) · [Open the batch sweep](plots/glm5/journeys_msweep_v1.png) · [Download both vector plots for offline viewing](../docs/plots/glm5/journeys.html?raw=true) · [Renderer and input selection](../plugin/validate/plot_glm5_panels.py).
+In other panels, teal **Candidate** means the native CPU implementation tested for that operation, not necessarily the serving default. Gold **Serial** in gated RMSNorm is that operation's serial comparator, not the FP8 scalar path. Purple dashed lines are provisional models for **11 isolated subgraphs**, not verified family ceilings.
+
+![GLM latency vs batch: matching baseline, native and modeled subgraph latency at measured batch sizes from 1 to 64](plots/glm5/journeys_msweep_v2.png)
+
+**Across batches:** the panels use the same colors and boundaries as the bars. Each marker is a measurement or model coordinate; lines between markers are guides, not additional measurements. The horizontal axis is batch size (M); the vertical axis is latency relative to the baseline at that M. [Open the M=32 figure](plots/glm5/journeys_m32_v2.png) · [Open the batch sweep](plots/glm5/journeys_msweep_v2.png) · [Download both vector plots for offline viewing](../docs/plots/glm5/journeys.html?raw=true) · [Renderer and input selection](../plugin/validate/plot_glm5_panels.py).
 
 ### Detailed caller and roofline evidence
 
