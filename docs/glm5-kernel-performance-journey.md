@@ -2,17 +2,17 @@
 
 ## Kernel performance at a glance
 
-![GLM optimization journeys at M=32: one bar panel per kernel family; labels show speedup and dashed lines show available subgraph models](plots/glm5/journeys_m32_v2.png)
+![C++ baseline and optimized latency at M=32, with a dashed modeled floor where available](plots/glm5/journeys_m32_v3.png)
 
-**At M=32:** each bar times the **whole operation** on the same inputs, not time spent in one stage. Height is latency relative to the frozen CPU reference (lower is better); the number above the bar is speedup (higher is better). For example, half the reference latency means **2× speedup**.
+**Read each panel as baseline → optimized → roofline.** Red and teal show measured latency in milliseconds for the same work (lower is better). Speedup is **C++ baseline time / optimized time**. At M=32 the packed FP8 multiply fell from **4.84 ms to 1.55 ms (3.13×)**. This baseline already uses a matrix library: it means before this optimization, not compiled without compiler optimizations.
 
-**Packed linear legend (job 406483):** red **CPU ref.** is the frozen FP8 multiply. Gold **Scalar 32²** (formerly *Checks*) validates the operands and scales in C++ and decodes packed FP8 values by scalar lookup into 32×32 output tiles. Blue **Vector 32²** (*Tiles*) keeps validation and the same blocking, but vectorizes FP8-to-BF16 decoding and scaled accumulation. Teal **Vector 64²** (*Native*) keeps that vector path and uses up to 64 rows × 64 output columns per block for this weight shape. M=32 fills only 32 rows. The weights remain packed between calls.
+**What is missing:** four panels have a matched pre-optimization C++ timing in this comparison: packed linear, activation/quantization, strided KDA decode with state commit, and gated RMSNorm. The others show the tested implementation without a red bar. A frozen Python/Torch caller is not an unoptimized C++ baseline. [C++ timing pairs, jobs, variants and process samples](plots/glm5/cpp_baselines.csv).
 
-In other panels, teal **Candidate** means the native CPU implementation tested for that operation, not necessarily the serving default. Gold **Serial** in gated RMSNorm is that operation's serial comparator, not the FP8 scalar path. Purple dashed lines are provisional models for **11 isolated subgraphs**, not verified family ceilings.
+**Headroom:** with a verified, matched latency floor, **optimized time / floor time** gives the maximum remaining speedup. Purple dashed lines here are **provisional models for 11 isolated subgraphs**; their distance from teal is a model gap, not an achievable speedup. **Whole-family headroom is unknown for all 17, not zero.** The tested implementation is not necessarily a serving default.
 
-![GLM latency vs batch: matching baseline, native and modeled subgraph latency at measured batch sizes from 1 to 64](plots/glm5/journeys_msweep_v2.png)
+![Absolute latency across measured batch sizes: C++ baseline, optimized and provisional model where available](plots/glm5/journeys_msweep_v3.png)
 
-**Across batches:** the panels use the same colors and boundaries as the bars. Each marker is a measurement or model coordinate; lines between markers are guides, not additional measurements. The horizontal axis is batch size (M); the vertical axis is latency relative to the baseline at that M. [Open the M=32 figure](plots/glm5/journeys_m32_v2.png) · [Open the batch sweep](plots/glm5/journeys_msweep_v2.png) · [Download both vector plots for offline viewing](../docs/plots/glm5/journeys.html?raw=true) · [Renderer and input selection](../plugin/validate/plot_glm5_panels.py).
+**Across batches:** the horizontal axis is batch size, the vertical axis is latency in milliseconds. Lines connect measured or modeled coordinates; they do not establish intermediate results. [M=32 figure](plots/glm5/journeys_m32_v3.png) · [Batch sweep](plots/glm5/journeys_msweep_v3.png) · [Offline plots](plots/glm5/journeys.html?raw=true) · [Renderer and input selection](../plugin/validate/plot_glm5_panels.py).
 
 ### Detailed caller and roofline evidence
 
