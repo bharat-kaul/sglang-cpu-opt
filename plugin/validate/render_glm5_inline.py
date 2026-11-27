@@ -96,6 +96,8 @@ if __name__ == "__main__":
     start, end = "<!-- glm5-inline -->", "<!-- /glm5-inline -->"
     raw = re.sub(rf"{start}\n.*?\n{end}", lambda m: one(re.findall(r"^!\[.*$", m[0], re.M)), original, flags=re.S)
     def replace(match):
-        return (f"{start}\n\n{chart(match[1])}\n\n<details><summary>Full-resolution plot</summary>\n\n"
-                f"{match[0]}\n\n</details>\n\n{end}")
+        if match[1].startswith("journeys_"):
+            return match[0]
+        return (f"{start}\n\n{match[0]}\n\n<details><summary>Show numeric data</summary>\n\n"
+                f"{chart(match[1])}\n\n</details>\n\n{end}")
     page.write_text(re.sub(r"^!\[[^\n]*\]\(plots/glm5/([\w]+)\.png\)$", replace, raw, flags=re.M))

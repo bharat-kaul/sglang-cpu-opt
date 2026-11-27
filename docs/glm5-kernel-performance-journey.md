@@ -2,9 +2,21 @@
 
 ## Kernel performance at a glance
 
-The charts below render directly in GitHub Markdown, even when a browser cannot load GitHub's image host. Expand **Full-resolution plot** for the original PNG and its detailed panels.
+![GLM optimization journeys at M=32: one bar panel per kernel family; labels show speedup and dashed lines show available subgraph models](plots/glm5/journeys_m32_v1.png)
+
+**At M=32:** bars show cache-flushed latency relative to the matching CPU baseline; the label above each bar is speedup (baseline latency divided by that bar's latency). Red is baseline, gold is a measured variant where available, and teal is the native candidate. Purple dashed lines are provisional models for **11 isolated subgraphs**, not verified family ceilings. These historical candidate measurements include losses; they are not all selected serving paths.
+
+![GLM latency vs batch: matching baseline, native and modeled subgraph latency at measured batch sizes from 1 to 64](plots/glm5/journeys_msweep_v1.png)
+
+**Across batches:** the panels use the same colors and boundaries as the bars. Each marker is a measurement or model coordinate; lines between markers are guides, not additional measurements. The horizontal axis is batch size (M); the vertical axis is latency relative to the baseline at that M. [Open the M=32 figure](plots/glm5/journeys_m32_v1.png) · [Open the batch sweep](plots/glm5/journeys_msweep_v1.png) · [Download both vector plots for offline viewing](../docs/plots/glm5/journeys.html?raw=true) · [Renderer and input selection](../plugin/validate/plot_glm5_panels.py).
+
+### Detailed caller and roofline evidence
 
 <!-- glm5-inline -->
+
+![All 17 EMR kernel families: baseline and optimized caller latencies, available subgraph roofline models, and follow-up measurements including four KDA state configurations](plots/glm5/kernel_overview_v5.png)
+
+<details><summary>Show numeric data</summary>
 
 | Family | Baseline µs | Native µs | Speedup | Gain (4 blocks = 2×) | Isolated M8 model µs¹ |
 | --- | --- | --- | --- | --- | --- |
@@ -27,10 +39,6 @@ The charts below render directly in GitHub Markdown, even when a browser cannot 
 | State pool + metadata | 446.58 | 380.50 | 1.17× | ▏█ | allocate: 0.00148 |
 
 ¹ The modeled time is for the named **subgraph**, not the caller in the latency columns. Whole-family rooflines: **0/17 verified**.
-
-<details><summary>Full-resolution plot</summary>
-
-![All 17 EMR kernel families: baseline and optimized caller latencies, available subgraph roofline models, and follow-up measurements including four KDA state configurations](plots/glm5/kernel_overview_v5.png)
 
 </details>
 
@@ -60,6 +68,10 @@ Jobs **406471 → 406472 → 406473**: fuse clamp, SiLU, multiply, BF16 rounding
 
 <!-- glm5-inline -->
 
+![Activation fusion speedups by width, variant and batch, cache-flushed](plots/glm5/activation_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 406471 \| width 2048 · serial | ▅▅▃▁▇█▅ | 13.1 | 12.5 | 8.69 | 6.31 | 18.8 | 22.3 | 12.5 |
@@ -79,16 +91,16 @@ Jobs **406471 → 406472 → 406473**: fuse clamp, SiLU, multiply, BF16 rounding
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Activation fusion speedups by width, variant and batch, cache-flushed](plots/glm5/activation_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
 <details><summary>Warm-cache measurements</summary>
 
 <!-- glm5-inline -->
+
+![Activation fusion, warm](plots/glm5/activation_warm_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -109,10 +121,6 @@ Jobs **406471 → 406472 → 406473**: fuse clamp, SiLU, multiply, BF16 rounding
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Activation fusion, warm](plots/glm5/activation_warm_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
@@ -123,6 +131,10 @@ Jobs **406471 → 406472 → 406473**: fuse clamp, SiLU, multiply, BF16 rounding
 Jobs **406480 → 406483**: keep checkpoint weights packed, compare native checks alone against bounded vector-tile conversion, then vary row and column tile sizes. The `block64` candidate measured **1.89–4.02×** at the four MLP shapes and seven M anchors. The panel labels retain the output dtype and the two non-batch dimensions from the benchmark. The projections and vocabulary head outside this subset are not covered by these timings.
 
 <!-- glm5-inline -->
+
+![FP8 linear candidate speedups on four measured MLP shapes, cache-flushed](plots/glm5/linear_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -153,16 +165,16 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![FP8 linear candidate speedups on four measured MLP shapes, cache-flushed](plots/glm5/linear_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
 <details><summary>Warm-cache measurements</summary>
 
 <!-- glm5-inline -->
+
+![FP8 linear, warm](plots/glm5/linear_warm_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -193,10 +205,6 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![FP8 linear, warm](plots/glm5/linear_warm_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
@@ -208,6 +216,10 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 - **406496 → 406498 → 406518, norm:** compare native serial and parallel preparation, then fuse sigmoid, ordered affine/gate multiplies and BF16 store. The fused candidate beat the frozen reference, but lost to the prior native implementation at **seven cold M values**. Both curves are shown against the same reference. No unconditional replacement was selected.
 
 <!-- glm5-inline -->
+
+![Decode and gated RMSNorm journeys with state layout and commit variants, cache-flushed](plots/glm5/decode_norm_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -233,16 +245,16 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Decode and gated RMSNorm journeys with state layout and commit variants, cache-flushed](plots/glm5/decode_norm_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
 <details><summary>Warm-cache measurements</summary>
 
 <!-- glm5-inline -->
+
+![Decode and gated RMSNorm, warm](plots/glm5/decode_norm_warm_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -268,10 +280,6 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Decode and gated RMSNorm, warm](plots/glm5/decode_norm_warm_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
@@ -282,6 +290,10 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 **407379:** keep the FP32 batched-matmul donor, move the subchunk control flow to C++, and use AVX-512 for TF32 operand rounding. The parallel workers had to inherit inference mode before the full-prefill benchmark could run. The serial path lost at all 18 full-prefill coordinates; parallel won at 14. At M=64, fresh/prefix/ragged speedups were **1.61× / 1.59× / 1.05×**. The `intra_*` panels isolate the subchunk; `fresh`, `prefix` and `ragged` include the rest of the KDA prefill step and its state writes.
 
 <!-- glm5-inline -->
+
+![Serial and parallel prefill speedups at isolated and complete KDA boundaries, cache-flushed](plots/glm5/prefill_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -298,16 +310,16 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Serial and parallel prefill speedups at isolated and complete KDA boundaries, cache-flushed](plots/glm5/prefill_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
 <details><summary>Warm-cache measurements</summary>
 
 <!-- glm5-inline -->
+
+![Prefill isolated and complete boundaries, warm](plots/glm5/prefill_warm_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -324,10 +336,6 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Prefill isolated and complete boundaries, warm](plots/glm5/prefill_warm_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
@@ -337,6 +345,10 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 <!-- glm5-inline -->
 
+![Held-out whole-prefill dispatch, cache-flushed](plots/glm5/holdout_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | fresh · selected | ▁▁▃▅▅██ | — | — | — | — | — | — | — |
@@ -345,16 +357,16 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Held-out whole-prefill dispatch, cache-flushed](plots/glm5/holdout_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
 <details><summary>Warm-cache measurements</summary>
 
 <!-- glm5-inline -->
+
+![Held-out whole-prefill dispatch, warm](plots/glm5/holdout_warm_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -363,10 +375,6 @@ Jobs **406480 → 406483**: keep checkpoint weights packed, compare native check
 | ragged · selected | ▁▇▇▅▆▄█ | — | — | — | — | — | — | — |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Held-out whole-prefill dispatch, warm](plots/glm5/holdout_warm_v1.png)
 
 </details>
 
@@ -393,6 +401,10 @@ Build **407572**, EMR array **407573**. Each candidate matched the tested valid 
 
 <!-- glm5-inline -->
 
+![All eleven native candidate subgraphs versus their CPU references, cache-flushed](plots/glm5/family_candidates_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | router · native | ▄▂█▆▂▁▂ | 1.2 | 1.11 | 1.4 | 1.28 | 1.12 | 1.08 | 1.12 |
@@ -409,16 +421,16 @@ Build **407572**, EMR array **407573**. Each candidate matched the tested valid 
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![All eleven native candidate subgraphs versus their CPU references, cache-flushed](plots/glm5/family_candidates_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
 <details><summary>Warm-cache measurements</summary>
 
 <!-- glm5-inline -->
+
+![Eleven native candidate subgraphs, warm](plots/glm5/family_candidates_warm_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -435,10 +447,6 @@ Build **407572**, EMR array **407573**. Each candidate matched the tested valid 
 | allocate · native | █▄▄▃▃▃▁ | 52.1 | 31.3 | 33 | 29.8 | 29.3 | 28.4 | 22.1 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Eleven native candidate subgraphs, warm](plots/glm5/family_candidates_warm_v1.png)
 
 </details>
 
@@ -460,6 +468,10 @@ Build **407601**, EMR array **407602**. Each caller was checked against its CPU 
 
 <!-- glm5-inline -->
 
+![Caller-level speedups including cache state and validation, cache-flushed](plots/glm5/caller_comparisons_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | expand · candidate | █▅▁▅█▅▅ | 1.07 | 1.01 | 0.951 | 1.02 | 1.07 | 1.02 | 1.02 |
@@ -471,16 +483,16 @@ Build **407601**, EMR array **407602**. Each caller was checked against its CPU 
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Caller-level speedups including cache state and validation, cache-flushed](plots/glm5/caller_comparisons_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
 <details><summary>Warm-cache measurements</summary>
 
 <!-- glm5-inline -->
+
+![Caller-level speedups, warm](plots/glm5/caller_comparisons_warm_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -493,10 +505,6 @@ Build **407601**, EMR array **407602**. Each caller was checked against its CPU 
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Caller-level speedups, warm](plots/glm5/caller_comparisons_warm_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
@@ -507,6 +515,10 @@ Build **407601**, EMR array **407602**. Each caller was checked against its CPU 
 **Unlike the speedup plots, this chart shows absolute latency; lower is better.** Each panel compares the frozen CPU reference and native candidate from array **407573** with a provisional model at the seven measured batch sizes. The solid lines use cache-flushed timings (median of three process medians). These are the eleven isolated operations, not complete families or serving calls.
 
 <!-- glm5-inline -->
+
+![Reference and native cold latency in microseconds against a provisional compute/byte model for eleven EMR subgraphs](plots/glm5/family_roofline_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (µs) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -546,10 +558,6 @@ Build **407601**, EMR array **407602**. Each caller was checked against its CPU 
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Reference and native cold latency in microseconds against a provisional compute/byte model for eleven EMR subgraphs](plots/glm5/family_roofline_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
@@ -568,6 +576,10 @@ EMR array **407619** completed all eleven isolated C++ candidates at **every int
 
 <!-- glm5-inline -->
 
+![Eleven subgraphs measured at every integer batch size](plots/glm5/dense_sweep_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | op: router | ▇▂▂█▇▄█▁▃▆▃▃▆▄▃▆▃▃▆▁▃▁▁▄▄▆▅▂▄▅▃▄▃▂▃▂▂▃▄▆▁▅▃▃▂▃▅▃▁▄▄▆▃▄▄▅▃▃▂▁▃▂▃▄ | 1.35 | 1.02 | 1.41 | 0.977 | 1.24 | 1.14 | 1.15 |
@@ -583,10 +595,6 @@ EMR array **407619** completed all eleven isolated C++ candidates at **every int
 | op: allocate | █▁▂▃▄▄▃▃▃▄▄▅▃▄▆▃▄▅▃▃▄▅▄▄▆▂▆▅▅▄▄▃▆▅▄▅▄▅▇▄▃▄▄▃▂▃▄▄▅▃▃▃▅▂▃▃▅▃▃█▃▄▇▅ | 10.5 | 7.77 | 8.56 | 8.52 | 8.52 | 8.55 | 9.29 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Eleven subgraphs measured at every integer batch size](plots/glm5/dense_sweep_cold_v1.png)
 
 </details>
 
@@ -604,6 +612,10 @@ EMR jobs **407638–407641** split the 64 nonempty batch sizes across four nodes
 
 <!-- glm5-inline -->
 
+![Full-width MoE and mHC callers at all batch sizes](plots/glm5/full_width_callers_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ffn | ▁▁▃▃▂▁▁▁█▇▇▆▆▅▅▄▄▅▃▄▄▄▄▄▂▃▃▃▂▃▃▃▃▃▂▃▃▄▃▃▃▂▃▂▃▃▃▂▂▂▂▃▃▂▃▄▂▄▃▄▃▃▃▂ | 1.38 | 1.38 | 1.4 | 1.37 | 1.42 | 1.4 | 1.39 |
@@ -612,10 +624,6 @@ EMR jobs **407638–407641** split the 64 nonempty batch sizes across four nodes
 | pre | █▂▆▄▂▅▃▇▁▂▂▂▂▁▂▁▂▂▂▂▂▂▂▁▂▂▁▂▂▂▂▂▂▃▂▃▂▁▂▃▂▂▂▂▄▂▂▂▁▂▂▃▂▂▃▁▂▃▂▂▂▃▃▂ | 1.19 | 1.02 | 1.06 | 1.16 | 0.985 | 1 | 1.01 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Full-width MoE and mHC callers at all batch sizes](plots/glm5/full_width_callers_cold_v1.png)
 
 </details>
 
@@ -653,16 +661,16 @@ Job **407924** retained the strided BF16 batched GEMM and changed the validation
 
 <!-- glm5-inline -->
 
+![MLA projection speedups across all batch sizes](plots/glm5/mla_checks_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | op: absorb | ▁▇▇▇▇██▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇█▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇ | 1.1 | 5.03 | 5.35 | 5.4 | 5.24 | 4.9 | 5.22 |
 | op: expand_values | ▁▅▇█████▇▇█▇▇█▇▇▇███▇▇█▇▇▇▇█▇█▇▇▇▇▇██▇▇▇▇█▇▇▇▇▇▇▇▇▇▇█▇▇▇▇▇▇▇▇▇▇▇ | 1.41 | 3.46 | 5.43 | 6 | 4.88 | 5.38 | 4.64 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![MLA projection speedups across all batch sizes](plots/glm5/mla_checks_cold_v1.png)
 
 </details>
 
@@ -675,6 +683,10 @@ Job **407924** retained the strided BF16 batched GEMM and changed the validation
 EMR job **407926** compared the existing optimized kernel (406483) to the frozen native reference (405982) on representative packed checkpoint weights for **all seven FP8 text-graph projection shapes**. Outputs matched in bytes and dtype at every M=1–64. Across 1,792 comparisons (seven shapes × 64 batch sizes × warm/cold × two timed boundaries), no median paired speedup fell below 1×. Cold speedups were **1.40–6.61×** for matrix multiplication alone and **1.27–5.55×** including activation quantization. This closes the FP8 projection **shape sweep**, not serving or the overall kernel phase.
 
 <!-- glm5-inline -->
+
+![Cold speedup for packed FP8 projection shapes](plots/glm5/fp8_shapes_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
 
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -695,10 +707,6 @@ EMR job **407926** compared the existing optimized kernel (406483) to the frozen
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
 
-<details><summary>Full-resolution plot</summary>
-
-![Cold speedup for packed FP8 projection shapes](plots/glm5/fp8_shapes_cold_v1.png)
-
 </details>
 
 <!-- /glm5-inline -->
@@ -713,15 +721,15 @@ The comparison below is against the **previous selective implementation** (40754
 
 <!-- glm5-inline -->
 
+![Fresh KDA prefill with native state updates versus the previous selective caller](plots/glm5/kda_extend_native_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | heads=64 | █▆▆▇▁▁▁▁▁▁▁▁▁▁▁▁▂▃▃▃▄▄▄▄▄▄▄▄▄▄▄▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂ | 1.85 | 1.69 | 1.79 | 1.33 | 1.34 | 1.41 | 1.39 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Fresh KDA prefill with native state updates versus the previous selective caller](plots/glm5/kda_extend_native_cold_v1.png)
 
 </details>
 
@@ -735,6 +743,10 @@ Jobs **407929–407931** tested every M=1–64 at context lengths **2047, 2048 a
 
 <!-- glm5-inline -->
 
+![Cached attention speedups over both earlier callers around the selection cutoff](plots/glm5/cached_latent_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | S=2048 vs reference | █▆▆▅▆▇▅▅▆▆▄▇▄▇▆▄▇▄▄▃▅▄▄▄▆▃▅▄▆▄▄▅▄▄▄▂▅▄▄▃▅▃▃▅▃▃▅▄▃▃▃▁▃▃▃▄▄▃▄▄▃▄▃▃ | 2.57 | 2.51 | 2.5 | 2.5 | 2.47 | 2.49 | 2.44 |
@@ -745,10 +757,6 @@ Jobs **407929–407931** tested every M=1–64 at context lengths **2047, 2048 a
 | S=2049 vs native_read | ▅▂▅▁█▂▁▂▁▃▂▃▅▃▁▃▄▃▃▂▂▂▄▂▃▃▃▄▃▃▃▂▂▁▄▄▃▂▃▂▃▂▂▂▃▂▃▃▃▂▃▂▂▂▃▂▂▃▂▃▂▃▂▂ | 1.25 | 1.23 | 1.21 | 1.22 | 1.23 | 1.22 | 1.22 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Cached attention speedups over both earlier callers around the selection cutoff](plots/glm5/cached_latent_cold_v1.png)
 
 </details>
 
@@ -764,6 +772,10 @@ In **407934**, cold mixed-mask writes were **3.17–9.37× faster than the CPU r
 
 <!-- glm5-inline -->
 
+![Mixed-mask pooled writes at both scale settings](plots/glm5/pooled_commit_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | round=0 vs reference | ▃▅▂▃▁▃▅▃▆▇▅▇▅▆▅▆▅▅▄▅▅▃▃▅▇▃▄▆▄▇▇▇▅▆▇▇▆▇▆▅▆▅▅▇▇█▆▆▇▆▇▇▆▅▅█▅▇▇▅▆▇▇▇ | 4.05 | 5.77 | 4 | 4.62 | 6.91 | 8.64 | 8.16 |
@@ -772,10 +784,6 @@ In **407934**, cold mixed-mask writes were **3.17–9.37× faster than the CPU r
 | round=1 vs read | ▆▂▂▁▂▃▄▅▅▆▆▄▆▆▅▅▆▅▆▅▆▆▄▅▅▄▆▅▅▅▇▆▆▅▄▇▆▆▇▇▇▅▇▆▇▅▅▇█▇▆▆▅▅▆▅▅▅▇▆▆▅▆▇ | 6.38 | 3.85 | 3.23 | 5.77 | 5.59 | 7.07 | 7.65 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Mixed-mask pooled writes at both scale settings](plots/glm5/pooled_commit_cold_v1.png)
 
 </details>
 
@@ -795,6 +803,10 @@ EMR jobs **407941–407943** compared two executable schedules on the same node 
 
 <!-- glm5-inline -->
 
+![Alternative schedules versus current native schedules, cold](plots/glm5/schedule_trials_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | tag: dense_down | ▆▅▇▇▃▅▃▆▄▄▄▄▄▂▇▄▄▆▄▂▅▃▁▄▄▅▅▆▃▄▂▅▄▄▅▄▆▃▆▅▅▄▄▆▅▂▅▇▇▇▆▆▆▄█▆▅▅█▆▆▄▃▃ | 0.913 | 0.895 | 0.961 | 0.929 | 0.862 | 0.88 | 0.837 |
@@ -808,10 +820,6 @@ EMR jobs **407941–407943** compared two executable schedules on the same node 
 | tag: S2048 | ▄█▅▇▁▄▆▄▅▃▄▆▃▅▆▄▅▄▅▄▅▅▅▃▄▄▅▅▄▄▄▅▅▄▄▄▄▅▄▅▅▄▅▄▄▄▄▅▃▅▆▆▄▅▄▅▆▄▃▄▄▄▄▄ | 1.01 | 1.04 | 1.04 | 1.01 | 1.01 | 1.02 | 1.01 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Alternative schedules versus current native schedules, cold](plots/glm5/schedule_trials_cold_v1.png)
 
 </details>
 
@@ -839,16 +847,16 @@ Invalid selections were rejected before cache writes; score overflow preserved t
 
 <!-- glm5-inline -->
 
+![Fresh BF16 attention at each M with cache save enabled and disabled](plots/glm5/fresh_attention_cold_v1.png)
+
+<details><summary>Show numeric data</summary>
+
 | Series (×) | Trend by M¹ | M1 | M2 | M4 | M8 | M16 | M32 | M64 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | cache_save: 0 | ▂▂▂▁▁▃▃▄▄▅▄▆▅▅▇▆▇▇▆▆▇▆▆▇▆▇██▇▇▇█▇▇▇▇▇██▇▇▇█▇██████▇▇████████████ | 1.11 | 1.08 | 1.06 | 1.17 | 1.28 | 1.33 | 1.33 |
 | cache_save: 1 | ▁▄▃▄▄▄▅▆▆▆▆▆▇▆▇▆▇▇▇▇▇▇▇▇▇▇█▇▇▇▇█▇███▇█▇████████▇████████████████ | 0.92 | 1.06 | 1.09 | 1.22 | 1.21 | 1.31 | 1.34 |
 
 ¹ One tick per measured batch size, in ascending order; height is log-scaled within each row. Numeric columns show selected batch sizes.
-
-<details><summary>Full-resolution plot</summary>
-
-![Fresh BF16 attention at each M with cache save enabled and disabled](plots/glm5/fresh_attention_cold_v1.png)
 
 </details>
 
