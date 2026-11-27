@@ -4,6 +4,10 @@
 
 ![Starting baseline, optimized latency and modeled roofline for all 17 GLM kernel panels at M=32](plots/glm5/journeys_m32_v4.png)
 
+The overview above shows the original optimization wave. For the **subsequent
+implementation decisions**, see [the seven opt-in caller gains and ten retained
+families](#implemented-caller-gains).
+
 **Every panel shows three quantities:** the measured **starting baseline** (red), the measured **optimized implementation** (teal), and a **modeled roofline** (purple dashed), all in milliseconds for the operation named in the panel. **Speedup = baseline / optimized. Model gap = optimized / modeled floor.** A 3× speedup is an observed improvement; a 3× model gap is not a promise of another 3×.
 
 **Baseline means where we started**, not a newly written scalar kernel. For packed FP8 linear this was the frozen C++ multiply; at M=32 it fell from **4.84 to 1.55 ms (3.13×)**, versus a **0.277 ms model (5.58× gap)**. Where we started in Torch or in a mixed CPU caller, its measured time is the baseline. The eleven historical subgraph panels compare reference and candidate in the initial wave; later caller and holdout results remain in the kernel sections. Sources: [starting timing pairs](plots/glm5/starting_baselines.csv), [original subgraph wave](plots/glm5/roofline_cold.csv), [KDA callers](plots/glm5/kda_grid_409001.csv). [C++-to-C++ comparisons](plots/glm5/cpp_baselines.csv) answer a different question.
@@ -19,6 +23,90 @@ The [original eleven models](#roofline-comparison) retain their published byte a
 **Across batches:** the horizontal axis is batch size, the vertical axis is latency in milliseconds. Lines connect measured or modeled coordinates; they do not establish intermediate results. [M=32 figure](plots/glm5/journeys_m32_v4.png) · [Batch sweep](plots/glm5/journeys_msweep_v4.png) · [Offline plots](plots/glm5/journeys.html?raw=true) · [Model formulas and renderer](../plugin/validate/plot_glm5_panels.py).
 
 ### Detailed caller and roofline evidence
+
+#### Implemented caller gains
+
+![Seven bounded opt-in implementation gains, with three-process ranges for the full caller](plots/glm5/implementation_callers_v1.png)
+
+[Measured latencies, process ranges and jobs](plots/glm5/implementation_callers.csv)
+· [Chart generator](../plugin/validate/plot_glm5_implementation.py).
+These are representative conditions for seven families, not seven changes that
+can be added together: several measurements include the same enclosing caller.
+The chart uses the **previously selected** caller as its denominator for latency
+reduction (speedup = previous / implemented). It does not substitute a measured
+alternative for a whole-family roofline.
+
+**Follow-up: output head implemented and measured.** The opt-in checked vocabulary
+head removes a duplicate scan of the BF16 logits. It still rejects nonfinite
+logits while converting them to FP32. The comparison below starts at the
+previously optimized caller, **not** the original baseline in the chart above.
+It includes the checkpoint embedding, one deterministic fixture layer, final
+norm and full checkpoint vocabulary head; it is not full-model latency.
+
+| Batch / selected rows | Cache | Previous → implemented (ms) | Paired speedup (three-process range) |
+|---|---|---:|---:|
+| 1 / 1 | flushed | 10.20 → 7.48 | 1.37× (1.34–1.40×) |
+| 32 / 32 | flushed | 22.05 → 18.46 | 1.18× (1.17–1.25×) |
+| 64 / 64 | flushed | 26.29 → 22.02 | 1.19× (1.18–1.21×) |
+| 64 / 64 | reused | 25.66 → 21.84 | 1.19× (1.15–1.19×) |
+
+EMR jobs `409918`–`409920`, 16 workers, three trials per arm per process;
+latencies are medians of process medians and speedups are medians of paired
+process ratios. Of 258 timed batch/selection/cache combinations, 257 exceeded
+1.10× in every process. The exception was flushed 17 / 17 (1.09954× in one
+process). The broad correctness process checked 3,616 selections, including
+empty selections and padded batches, against the previous caller and frozen
+CPU reference. All three processes checked nonfinite rejection; job `409927`
+also checked invalid coordinates and donor shape, dtype, device and input.
+No ordinary head or serving default changed.
+
+**KDA prefill.** Job `409937` tested a caller that uses four workers for the
+prefill operation and restores the caller's 16-worker setting before output
+projection. This is a per-block opt-in, not a process-wide thread-pool resize.
+For M=32 split across five fresh requests (64-head case, cache flushed), the
+previously selected projected caller took **294.63 ms** and the implemented
+caller **68.29 ms**: **4.29×** paired median (4.19–4.40×). With one fresh
+request at M=32, the same comparison was **111.38 → 80.36 ms**, **1.39×**
+(1.24–2.24×). Each of the 26 selected cases exceeded 1.10× in all three
+processes under both warm and flushed conditions. The comparisons checked
+output, both state pools, and a subsequent decode against the frozen CPU
+reference. Sparse decode itself retains its previous schedule; the trial with
+one active row measured 0.98× warm and 1.04× flushed.
+
+**Attention.** Job `409939` compared two ways to use the opt-in: on top of the
+previously selected native stages, and by itself on the ordinary CPU caller.
+The distinction matters, particularly for the pooled indexer. These are **warm**
+layer-3 caller measurements, not streaming or full-model measurements.
+
+| M=32 caller | Frozen CPU (ms) | Previously selected stages (ms) | Selected stages + new dispatch (ms) | Opt-in alone (ms) |
+|---|---:|---:|---:|---:|
+| Pooled indexer, all rows S=2048 | 204.50 | 141.96 | 38.60 | 65.30 |
+| Fresh RadixAttention, supplied IDs | 76.26 | 57.18 | 13.42 | 14.13 |
+
+Against the previously selected stages, the implemented dispatch gave **3.68×**
+for the indexer and **4.29×** for fresh attention (paired process medians).
+Outputs, IDs, cache and ring contents were checked against frozen CPU results;
+the full-layer continuation check ran in the first replica. Also selected:
+all-padding M=32 projection and two decode ring-update configurations. The
+separate latent cache-writer change was not selected. Defaults are unchanged.
+
+**Experts.** Job `409941` retained an M=8 row-wise mHC pre implementation on
+top of the block64 routed + shared FFN. With repeated routes and flushed cache,
+the whole FFN fell from **18.55 to 16.44 ms** (1.130×, range 1.104–1.131×).
+The warm repeated-route median was 1.107×, but one replica was below 1.10×.
+Skewed routes gained 1.072–1.077× and independent routes 1.019–1.026×
+(cold and warm medians). These are not universal 10% gains.
+
+**Disposition of all 17 families.** Seven received opt-ins: KDA prefill, pooled
+score/select, fresh latent attention, all-padding index projection, pooled ring
+update, output head, and mHC pre. Five component leads did not translate to a
+new selection: sparse KDA decode, latent KV pack/read, FP8 linear tiling,
+clamped activation/quantization, and MoE routing. Five more kept their previous
+selection after the initial screen: expert grouping/gather/combine, KDA
+convolution/gates, gated RMSNorm, MLA absorption/expansion, and state-pool
+metadata. All comparisons are CPU fixture measurements. No serving default,
+GPU-equivalence claim, end-to-end timing, or whole-family achievable ceiling
+follows from this wave.
 
 <!-- glm5-inline -->
 
