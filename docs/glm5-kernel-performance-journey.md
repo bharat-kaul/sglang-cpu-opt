@@ -2,17 +2,21 @@
 
 ## Kernel performance at a glance
 
-![C++ baseline and optimized latency at M=32, with a dashed modeled floor where available](plots/glm5/journeys_m32_v3.png)
+![Starting baseline, optimized latency and modeled roofline for all 17 GLM kernel panels at M=32](plots/glm5/journeys_m32_v4.png)
 
-**Read each panel as baseline → optimized → roofline.** Red and teal show measured latency in milliseconds for the same work (lower is better). Speedup is **C++ baseline time / optimized time**. At M=32 the packed FP8 multiply fell from **4.84 ms to 1.55 ms (3.13×)**. This baseline already uses a matrix library: it means before this optimization, not compiled without compiler optimizations.
+**Every panel shows three quantities:** the measured **starting baseline** (red), the measured **optimized implementation** (teal), and a **modeled roofline** (purple dashed), all in milliseconds for the operation named in the panel. **Speedup = baseline / optimized. Model gap = optimized / modeled floor.** A 3× speedup is an observed improvement; a 3× model gap is not a promise of another 3×.
 
-**What is missing:** four panels have a matched pre-optimization C++ timing in this comparison: packed linear, activation/quantization, strided KDA decode with state commit, and gated RMSNorm. The others show the tested implementation without a red bar. A frozen Python/Torch caller is not an unoptimized C++ baseline. [C++ timing pairs, jobs, variants and process samples](plots/glm5/cpp_baselines.csv).
+**Baseline means where we started**, not a newly written scalar kernel. For packed FP8 linear this was the frozen C++ multiply; at M=32 it fell from **4.84 to 1.55 ms (3.13×)**, versus a **0.277 ms model (5.58× gap)**. Where we started in Torch or in a mixed CPU caller, its measured time is the baseline. The eleven historical subgraph panels compare reference and candidate in the initial wave; later caller and holdout results remain in the kernel sections. Sources: [starting timing pairs](plots/glm5/starting_baselines.csv), [original subgraph wave](plots/glm5/roofline_cold.csv), [KDA callers](plots/glm5/kda_grid_409001.csv). [C++-to-C++ comparisons](plots/glm5/cpp_baselines.csv) answer a different question.
 
-**Headroom:** with a verified, matched latency floor, **optimized time / floor time** gives the maximum remaining speedup. Purple dashed lines here are **provisional models for 11 isolated subgraphs**; their distance from teal is a model gap, not an achievable speedup. **Whole-family headroom is unknown for all 17, not zero.** The tested implementation is not necessarily a serving default.
+<details><summary>Roofline assumptions and exclusions</summary>
 
-![Absolute latency across measured batch sizes: C++ baseline, optimized and provisional model where available](plots/glm5/journeys_msweep_v3.png)
+The [original eleven models](#roofline-comparison) retain their published byte and dot counts. The other six use the same job 406478 calibration (184.04 GB/s streaming bandwidth; 17.59 TFLOP/s BF16 library rate). Packed FP8 counts packed operands, scales, output and dot FLOPs. Activation/quantization and gated norm count useful input/output bytes. Strided recurrent decode counts active convolution and temporal state reads/writes. The two full KDA callers count the seven BF16 projection weights once, their dot FLOPs, and pool traffic: one final state write for a fresh sequence, or a read/write per active decode slot. Use the larger of byte-time and dot-time where both are modeled. These optimistic models omit work such as conversion, nonlinear arithmetic, intermediate traffic and dispatch; logical bytes are not DRAM-counter readings. **No whole-family attainable ceiling is certified.**
 
-**Across batches:** the horizontal axis is batch size, the vertical axis is latency in milliseconds. Lines connect measured or modeled coordinates; they do not establish intermediate results. [M=32 figure](plots/glm5/journeys_m32_v3.png) · [Batch sweep](plots/glm5/journeys_msweep_v3.png) · [Offline plots](plots/glm5/journeys.html?raw=true) · [Renderer and input selection](../plugin/validate/plot_glm5_panels.py).
+</details>
+
+![Starting baseline, optimized latency and modeled roofline at each measured batch size](plots/glm5/journeys_msweep_v4.png)
+
+**Across batches:** the horizontal axis is batch size, the vertical axis is latency in milliseconds. Lines connect measured or modeled coordinates; they do not establish intermediate results. [M=32 figure](plots/glm5/journeys_m32_v4.png) · [Batch sweep](plots/glm5/journeys_msweep_v4.png) · [Offline plots](plots/glm5/journeys.html?raw=true) · [Model formulas and renderer](../plugin/validate/plot_glm5_panels.py).
 
 ### Detailed caller and roofline evidence
 
